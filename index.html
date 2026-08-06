@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.02 — поле  </title>
+  <title>Боевой модуль v12.03 — поле  </title>
   <link rel="manifest" href="manifest.json">
   
-  <title>Боевой модуль v12.02</title>
+  <title>Боевой модуль v12.03</title>
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
     button,select,input,textarea{font-size:.9rem;padding:5px 8px;margin:2px;border-radius:4px;border:none}
@@ -121,7 +121,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.02 — поле </h2>
+  <h2>⚔️ Боевой модуль v12.03 — поле </h2>
   <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -194,13 +194,17 @@
   <div id="crewTab" class="tabcontent"><h3>Орудия и расчёты</h3><div><label>Фракция: <select id="crewFactionSelect" onchange="loadCrewWeapons()"></select></label></div><div id="crewWeaponList"></div><button onclick="addCrewWeapon()">➕ Орудие</button><button onclick="applyCrewChanges()">💾 Сохранить</button><hr><div id="crewDetails" style="display:none"></div></div>
   <div id="cardsTab" class="tabcontent"><h3>🃏 Выбор карт</h3><div id="cardSelectionForBattle"></div><button onclick="activateSelectedCards()">✅ Активировать выбранные карты</button></div>
   <div id="activeEffectsTab" class="tabcontent"><h3>✨ Активные эффекты</h3><p>Текущие модификаторы, влияющие на бой:</p><div id="activeCardsList"></div><hr><h4>Добавить свободный модификатор</h4><div class="modifier-row"><input type="text" id="modName" placeholder="Название" style="width:100px"><label>Выстр: <input type="number" id="modShots" value="0" style="width:50px"></label><label>Точн: <input type="number" id="modAcc" value="0" style="width:50px"></label><label>Дух: <input type="number" id="modMorale" value="0" style="width:50px"></label><button onclick="addModifier()">➕</button></div><div id="modifiersList"></div></div>
-   <div id="mapTab" class="tabcontent">
-    <h3>🗺️ Игровое поле</h3>
-    <div>
-      <button onclick="setMapMode('place')">🏷️ Разместить отряды</button>
+  <div id="mapTab" class="tabcontent">
+    <h3>🗺️ Игровое поле (15x15)</h3>
+    <div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
+      <button onclick="setMapMode('place')">🏷️ Разместить</button>
       <button onclick="setMapMode('view')">🖱️ Просмотр</button>
-      <button onclick="clearMap()">🗑️ Очистить поле</button>
+      <button onclick="clearMap()">🗑️ Очистить</button>
+      <label>Отряд: <select id="squadToPlace"></select></label>
     </div>
+    <canvas id="gameMap" style="background:#2c3e50; border-radius:8px; margin-top:8px; width:100%; height:auto; touch-action: none; aspect-ratio: 1/1;"></canvas>
+    <div id="mapInfo" style="margin-top:6px; font-size:0.9rem; color:#aaa;">Выберите отряд и гекс.</div>
+  </div>
     <canvas id="gameMap" width="500" height="400" style="background:#2c3e50; border-radius:8px; margin-top:8px; width:100%; height:auto; touch-action: none; aspect-ratio: 500/400;"></canvas>
     <div id="mapInfo" style="margin-top:6px; font-size:0.9rem; color:#aaa;">Выберите гекс для размещения.</div>
   </div>
@@ -4573,7 +4577,7 @@ function populateCardsEditorFactionSelect() {
       else if (tabName === 'crewTab') { populateCrewFactionSelect(); loadCrewWeapons(); }
       else if (tabName === 'cardsTab') { renderCardSelectionForBattle(); }
       else if (tabName === 'activeEffectsTab') { renderActiveEffects(); }
-      else if (tabName === 'mapTab') { initMap(); }
+      else if (tabName === 'mapTab') { initMap(); updateSquadDropdown(); }
       else if (tabName === 'saveTab') renderTemplates();
       else if (tabName === 'battleTab') { renderSquadSelector(); renderTemplateSelection(); updateUI(); renderEmbarkPanel(); renderFactionInfo(); }
       else if (tabName === 'awardsTab') { renderAwardsReference(); }
@@ -4604,40 +4608,61 @@ function useFighterIPP(fighterIndex) {
     function initMap() {
       const canvas = document.getElementById('gameMap');
       if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width || 500;
-      canvas.height = rect.height || 400;
-
+      
+      // Высокое логическое разрешение (1200x1200) — иконки будут чёткими
+      canvas.width = 1200;
+      canvas.height = 1200;
+      
       const ctx = canvas.getContext('2d');
-      const size = appData.map.hexSize || 30;
-      const width = Math.sqrt(3) * size;
-      const height = 2 * size;
+      const gridCols = 15;
+      const gridRows = 15;
+      
+      // Динамически вычисляем размер гекса, чтобы всё поле влезло идеально
+      const sizeX = canvas.width / (gridCols * Math.sqrt(3) + 1);
+      const sizeY = canvas.height / (gridRows * 1.5 + 1);
+      const size = Math.min(sizeX, sizeY, 50); // Максимум 50px, чтобы иконки были видны
+      appData.map.hexSize = size;
+
+      // Храним центры гексов для идеально точного определения клика
+      appData.map.centers = [];
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
-      for (let row = 0; row < 8; row++) {
-        for (let col = 0; col < 8; col++) {
-          const x = col * width + (row % 2) * width / 2;
-          const y = row * height * 0.75;
+      for (let row = 0; row < gridRows; row++) {
+        for (let col = 0; col < gridCols; col++) {
+          const x = col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+          const y = row * 1.5 * size + size;
           const key = `${col},${row}`;
           
           if (!appData.map.grid[key]) {
-            appData.map.grid[key] = { type: 'grass', squadId: null };
+            appData.map.grid[key] = { type: 'grass', squadIds: [] };
           }
+          // Сохраняем координаты для обработки клика
+          appData.map.centers.push({ key: key, x: x, y: y });
+          
           const hexData = appData.map.grid[key];
           drawHex(ctx, x, y, size, hexData);
         }
       }
 
-      // Обработчик кликов и касаний для мобильных устройств
-      canvas.onclick = function(e) {
-        handleCanvasClick(e.clientX, e.clientY, canvas);
+      // Обработчик кликов и касаний
+      const handler = function(e) {
+        let clientX, clientY;
+        if (e.touches) {
+          e.preventDefault();
+          clientX = e.touches[0].clientX;
+          clientY = e.touches[0].clientY;
+        } else {
+          clientX = e.clientX;
+          clientY = e.clientY;
+        }
+        handleCanvasClick(clientX, clientY, canvas);
       };
-      canvas.ontouchstart = function(e) {
-        e.preventDefault();
-        const touch = e.touches[0];
-        handleCanvasClick(touch.clientX, touch.clientY, canvas);
-      };
+      canvas.onclick = handler;
+      canvas.ontouchstart = handler;
+      
+      // Обновляем список отрядов в выпадающем меню
+      updateSquadDropdown();
     }
 
     function drawHex(ctx, x, y, size, hexData) {
@@ -4658,76 +4683,103 @@ function useFighterIPP(fighterIndex) {
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-           if (hexData.squadId !== null && appData.squads[hexData.squadId]) {
-        const squad = appData.squads[hexData.squadId];
-        const iconSize = size * 0.8; // размер иконки подстраивается под размер гекса
+      // Отрисовка НЕСКОЛЬКИХ отрядов в одном гексе
+      const squadIds = hexData.squadIds || [];
+      if (squadIds.length > 0) {
+        const iconSize = size * 0.5; // Размер иконки
+        const totalWidth = squadIds.length * (iconSize + 4) - 4;
+        const startX = x - totalWidth / 2 + iconSize / 2;
 
-        // 1. Если у отряда есть иконка, рисуем её
-        if (squad.icon) {
-          const img = new Image();
-          img.src = squad.icon;
-          // Рисуем картинку по центру гекса
-          ctx.drawImage(img, x - iconSize/2, y - iconSize/2, iconSize, iconSize);
-        } else {
-          // Если иконки нет, рисуем старый добрый меч ⚔️
-          ctx.fillStyle = '#f1c40f';
-          ctx.font = '14px Arial';
+        squadIds.forEach((squadId, idx) => {
+          const squad = appData.squads[squadId];
+          if (!squad) return;
+          
+          const drawX = startX + idx * (iconSize + 4);
+          const drawY = y;
+          
+          if (squad.icon) {
+            const img = new Image();
+            img.src = squad.icon;
+            ctx.drawImage(img, drawX - iconSize/2, drawY - iconSize/2, iconSize, iconSize);
+          } else {
+            ctx.fillStyle = '#f1c40f';
+            ctx.font = (iconSize * 0.8) + 'px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('⚔️', drawX, drawY);
+          }
+        });
+        
+        // Подпись снизу (название первого отряда + количество)
+        const firstSquad = appData.squads[squadIds[0]];
+        if (firstSquad) {
+          ctx.fillStyle = '#fff';
+          ctx.font = '10px Arial';
           ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText('⚔️', x, y - 5);
+          ctx.textBaseline = 'bottom';
+          let label = firstSquad.name.substring(0, 4);
+          if (squadIds.length > 1) label += '+' + (squadIds.length - 1);
+          ctx.fillText(label, x, y + size * 0.6);
         }
-
-        // 2. Рисуем название отряда снизу (сделал шрифт чуть меньше, чтобы не перекрывал иконку)
-        ctx.fillStyle = '#fff';
-        ctx.font = '10px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom'; 
-        ctx.fillText(squad.name.substring(0, 6), x, y + iconSize/2 + 12);
       }
     }
 
-    function handleCanvasClick(clientX, clientY, canvas) {
+     function handleCanvasClick(clientX, clientY, canvas) {
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
       const mx = (clientX - rect.left) * scaleX;
       const my = (clientY - rect.top) * scaleY;
       
-      const size = appData.map.hexSize || 30;
-      const width = Math.sqrt(3) * size;
-      const height = 2 * size;
-      
-      const col = Math.round((mx - width/2) / width);
-      const row = Math.round((my - height*0.75/2) / (height * 0.75));
-      const key = `${col},${row}`;
-      
-      if (appData.map.grid[key]) {
-        handleHexClick(key);
+      // Ищем ближайший гекс по сохранённым центрам (идеально точное попадание)
+      let closestKey = null;
+      let minDist = Infinity;
+      const size = appData.map.hexSize;
+
+      for (let center of appData.map.centers) {
+        const dist = Math.sqrt( (mx - center.x)**2 + (my - center.y)**2 );
+        if (dist < minDist) {
+          minDist = dist;
+          closestKey = center.key;
+        }
+      }
+
+      // Если кликнули в пределах радиуса гекса
+      if (closestKey && minDist < size * 1.1) {
+        handleHexClick(closestKey);
         initMap(); 
       }
     }
 
     function handleHexClick(key) {
       const hex = appData.map.grid[key];
-      document.getElementById('mapInfo').innerHTML = `Гекс ${key}: ${hex.type}`;
+      const squadSelect = document.getElementById('squadToPlace');
+      const selectedSquadIdx = parseInt(squadSelect.value);
+      
+      document.getElementById('mapInfo').innerHTML = `Гекс ${key}: ${hex.type}. Отрядов: ${(hex.squadIds || []).length}`;
       
       if (appData.map.mode === 'place') {
-        const freeSquad = appData.squads.find(s => s.hexPos === null && !s.hidden);
-        if (freeSquad) {
-          for (let k in appData.map.grid) {
-            if (appData.map.grid[k].squadId === appData.squads.indexOf(freeSquad)) {
-              appData.map.grid[k].squadId = null;
-            }
-          }
-          const idx = appData.squads.indexOf(freeSquad);
-          hex.squadId = idx;
-          freeSquad.hexPos = key.split(',').map(Number);
-          document.getElementById('mapInfo').innerHTML += `<br>Размещен отряд: ${freeSquad.name}`;
-          saveData();
-          initMap();
-        } else {
-          alert('Все свободные отряды уже размещены на карте.');
+        if (isNaN(selectedSquadIdx) || selectedSquadIdx < 0) {
+          alert('Сначала выберите отряд из списка выше!');
+          return;
         }
+        
+        if (!hex.squadIds) hex.squadIds = [];
+        
+        // Автоматически снимаем этот отряд с любого другого гекса (чтобы не дублировать фишки)
+        for (let k in appData.map.grid) {
+          if (appData.map.grid[k].squadIds) {
+            appData.map.grid[k].squadIds = appData.map.grid[k].squadIds.filter(id => id !== selectedSquadIdx);
+          }
+        }
+        
+        // Добавляем отряд в выбранный гекс
+        hex.squadIds.push(selectedSquadIdx);
+        appData.squads[selectedSquadIdx].hexPos = key.split(',').map(Number);
+        
+        document.getElementById('mapInfo').innerHTML += `<br>Размещен отряд: ${appData.squads[selectedSquadIdx].name}`;
+        saveData();
+        initMap();
       }
     }
 
@@ -4745,6 +4797,18 @@ function useFighterIPP(fighterIndex) {
       saveData();
       initMap();
     }
+    // Обновляет выпадающий список отрядов на карте
+    function updateSquadDropdown() {
+      const sel = document.getElementById('squadToPlace');
+      if (!sel) return;
+      const available = appData.squads.filter(s => !s.hidden);
+      sel.innerHTML = available.map((s, i) => {
+        const globalIdx = appData.squads.indexOf(s);
+        return `<option value="${globalIdx}">${s.name}</option>`;
+      }).join('');
+      if (available.length === 0) sel.innerHTML = '<option value="-1">Нет отрядов</option>';
+    }
+
     
   </script>
  <div id="awardsTab" class="tabcontent">
