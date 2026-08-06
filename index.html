@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.06 — поле  </title>
+  <title>Боевой модуль v12.07 — поле  </title>
   <link rel="manifest" href="manifest.json">
   
-  <title>Боевой модуль v12.06</title>
+  <title>Боевой модуль v12.07</title>
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
     button,select,input,textarea{font-size:.9rem;padding:5px 8px;margin:2px;border-radius:4px;border:none}
@@ -121,7 +121,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.06 — поле </h2>
+  <h2>⚔️ Боевой модуль v12.07 — поле </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -211,7 +211,7 @@
  <!-- Контейнер с прокруткой и Canvas -->
     <div id="mapContainer" style="position:relative; width:100%; height:70vh; border:1px solid #444; border-radius:8px; overflow:auto; background:#2c3e50;">
       <!-- ВАЖНО: transform-origin: center center заставляет зумироваться от центра -->
-      <canvas id="gameMap" style="transform-origin: center center; width:1200px; height:1200px; touch-action:none;"></canvas>
+      <canvas id="gameMap" style="transform-origin: 0 0; touch-action:none; display:block;"></canvas>
     </div>
     
     <div id="mapInfo" style="margin-top:6px; font-size:0.9rem; color:#aaa;">Выберите отряд, затем кликните по гексу.</div>
@@ -432,7 +432,7 @@ if (!selectedFaction) showFactionModal();
               
           }
         },
-        "map": { "grid": {}, "hexSize": 30, "mode": "view" },
+        "map": { "grid": {}, "baseHexSize": 35, "zoomLevel": 1, "mode": "view" },
         "squads": [],
         "templates": [
           {"name":"Пехотное отделение №1 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"https://i.imgur.com/3D9DutR.png","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
@@ -4614,25 +4614,28 @@ function useFighterIPP(fighterIndex) {
     resetAP();
 
     
-     // ================= КАРТА ГЕКСОВ =================
+        // ================= КАРТА ГЕКСОВ =================
     function initMap() {
       const canvas = document.getElementById('gameMap');
       if (!canvas) return;
       
-      canvas.width = 1200;
-      canvas.height = 1200;
-      
-      const ctx = canvas.getContext('2d');
       const gridCols = 15;
       const gridRows = 15;
+      let size = appData.map.baseHexSize * appData.map.zoomLevel;
       
-      const sizeX = canvas.width / (gridCols * Math.sqrt(3) + 1);
-      const sizeY = canvas.height / (gridRows * 1.5 + 1);
-      const size = Math.min(sizeX, sizeY, 50);
-      appData.map.hexSize = size;
-
+      // Вычисляем реальные размеры холста с учётом зума
+      let totalWidth = gridCols * Math.sqrt(3) * size + size;
+      let totalHeight = gridRows * 1.5 * size + size;
+      
+      // Важно: задаём огромное физическое разрешение!
+      canvas.width = totalWidth;
+      canvas.height = totalHeight;
+      // И такой же физический размер в CSS для идеального скролла
+      canvas.style.width = totalWidth + 'px';
+      canvas.style.height = totalHeight + 'px';
+      
+      const ctx = canvas.getContext('2d');
       appData.map.centers = [];
-
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
       for (let row = 0; row < gridRows; row++) {
@@ -4669,7 +4672,7 @@ function useFighterIPP(fighterIndex) {
       setupMapControls();
     }
 
-    // ========== ФУНКЦИЯ ОТРИСОВКИ ГЕКСА И ИКОНОК (ВОССТАНОВЛЕНА) ==========
+    // ========== ОТРИСОВКА ГЕКСОВ И ИКОНОК С ВЫСОКИМ РАЗРЕШЕНИЕМ ==========
     function drawHex(ctx, x, y, size, hexData) {
       ctx.beginPath();
       for (let i = 0; i < 6; i++) {
@@ -4685,20 +4688,21 @@ function useFighterIPP(fighterIndex) {
       ctx.fillStyle = colors[hexData.type] || colors.grass;
       ctx.fill();
       ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = Math.max(1.5, size * 0.03); // Линия утолщается при зуме
       ctx.stroke();
 
       const squadIds = hexData.squadIds || [];
       if (squadIds.length > 0) {
-        const iconSize = size * 0.75; 
-        const totalWidth = squadIds.length * (iconSize + 4) - 4;
+        // Иконка теперь рисуется в высоком разрешении пропорционально зуму
+        const iconSize = size * 0.65; 
+        const totalWidth = squadIds.length * (iconSize + 6) - 6;
         const startX = x - totalWidth / 2 + iconSize / 2;
 
         squadIds.forEach((squadId, idx) => {
           const squad = appData.squads[squadId];
           if (!squad) return;
           
-          const drawX = startX + idx * (iconSize + 4);
+          const drawX = startX + idx * (iconSize + 6);
           const drawY = y;
           
           if (squad.icon) {
@@ -4717,7 +4721,7 @@ function useFighterIPP(fighterIndex) {
         const firstSquad = appData.squads[squadIds[0]];
         if (firstSquad) {
           ctx.fillStyle = '#fff';
-          ctx.font = '10px Arial';
+          ctx.font = (iconSize * 0.25) + 'px Arial'; // Подпись тоже масштабируется
           ctx.textAlign = 'center';
           ctx.textBaseline = 'bottom';
           let label = firstSquad.name.substring(0, 4);
@@ -4729,14 +4733,14 @@ function useFighterIPP(fighterIndex) {
 
     function handleCanvasClick(clientX, clientY, canvas) {
       const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
-      const mx = (clientX - rect.left) * scaleX;
-      const my = (clientY - rect.top) * scaleY;
+      
+      // Так как canvas.width и canvas.style.width равны, масштаб всегда 1. Это даёт 100% точность.
+      const mx = clientX - rect.left;
+      const my = clientY - rect.top;
       
       let closestKey = null;
       let minDist = Infinity;
-      const size = appData.map.hexSize;
+      const size = appData.map.baseHexSize * appData.map.zoomLevel;
 
       for (let center of appData.map.centers) {
         const dist = Math.sqrt( (mx - center.x)**2 + (my - center.y)**2 );
@@ -4808,20 +4812,21 @@ function useFighterIPP(fighterIndex) {
       if (available.length === 0) sel.innerHTML = '<option value="-1">Нет отрядов</option>';
     }
 
+    // ===================== МАСШТАБИРОВАНИЕ И ПЕРЕМЕЩЕНИЕ =====================
     function zoomMap(factor) {
-        mapScale *= factor;
-        mapScale = Math.max(0.2, Math.min(5, mapScale));
-        const canvas = document.getElementById('gameMap');
-        canvas.style.transform = `scale(${mapScale})`;
+        let newZoom = appData.map.zoomLevel * factor;
+        // Ограничиваем зум, чтобы холст не перегружал телефон (максимум ~5x)
+        newZoom = Math.max(0.5, Math.min(5, newZoom)); 
+        appData.map.zoomLevel = newZoom;
+        initMap(); // Перерисовываем с новым разрешением
     }
 
     function resetMapZoom() {
-        mapScale = 1;
-        const canvas = document.getElementById('gameMap');
-        canvas.style.transform = `scale(${mapScale})`;
+        appData.map.zoomLevel = 1;
         const container = document.getElementById('mapContainer');
-        container.scrollLeft = 0;
-        container.scrollTop = 0;
+        container.scrollLeft = container.scrollWidth / 2 - container.clientWidth / 2;
+        container.scrollTop = container.scrollHeight / 2 - container.clientHeight / 2;
+        initMap();
     }
 
     function setupMapControls() {
@@ -4830,7 +4835,7 @@ function useFighterIPP(fighterIndex) {
         if (!container) return;
 
         let startDist = 0;
-        let startScale = 1;
+        let startZoom = 1;
         let dragStartX = 0, dragStartY = 0;
         let scrollStartX = 0, scrollStartY = 0;
         let isDragging = false;
@@ -4849,7 +4854,7 @@ function useFighterIPP(fighterIndex) {
                 const dx = e.touches[0].clientX - e.touches[1].clientX;
                 const dy = e.touches[0].clientY - e.touches[1].clientY;
                 startDist = Math.sqrt(dx*dx + dy*dy);
-                startScale = mapScale;
+                startZoom = appData.map.zoomLevel;
             }
         }, { passive: false });
 
@@ -4868,9 +4873,12 @@ function useFighterIPP(fighterIndex) {
                 const dy = e.touches[0].clientY - e.touches[1].clientY;
                 const dist = Math.sqrt(dx*dx + dy*dy);
                 if (startDist > 0) {
-                    mapScale = startScale * (dist / startDist);
-                    mapScale = Math.max(0.2, Math.min(5, mapScale));
-                    canvas.style.transform = `scale(${mapScale})`;
+                    let newZoom = startZoom * (dist / startDist);
+                    newZoom = Math.max(0.5, Math.min(5, newZoom));
+                    if (Math.abs(appData.map.zoomLevel - newZoom) > 0.05) {
+                        appData.map.zoomLevel = newZoom;
+                        initMap(); // Перерисовываем при щипке
+                    }
                 }
             }
         }, { passive: false });
