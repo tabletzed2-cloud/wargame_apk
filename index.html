@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.05 — поле  </title>
+  <title>Боевой модуль v12.06 — поле  </title>
   <link rel="manifest" href="manifest.json">
   
-  <title>Боевой модуль v12.05</title>
+  <title>Боевой модуль v12.06</title>
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
     button,select,input,textarea{font-size:.9rem;padding:5px 8px;margin:2px;border-radius:4px;border:none}
@@ -121,7 +121,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.05 — поле </h2>
+  <h2>⚔️ Боевой модуль v12.06 — поле </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -4614,9 +4614,7 @@ function useFighterIPP(fighterIndex) {
     resetAP();
 
     
-    // ================= КАРТА ГЕКСОВ =================
-
-  
+     // ================= КАРТА ГЕКСОВ =================
     function initMap() {
       const canvas = document.getElementById('gameMap');
       if (!canvas) return;
@@ -4668,13 +4666,30 @@ function useFighterIPP(fighterIndex) {
       canvas.onclick = handler;
       
       updateSquadDropdown();
-      setupMapControls(); // <--- ВАЖНО: подключаем управление масштабом
+      setupMapControls();
     }
 
-       // Отрисовка НЕСКОЛЬКИХ отрядов в одном гексе
+    // ========== ФУНКЦИЯ ОТРИСОВКИ ГЕКСА И ИКОНОК (ВОССТАНОВЛЕНА) ==========
+    function drawHex(ctx, x, y, size, hexData) {
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = Math.PI / 180 * (60 * i - 30);
+        const x_i = x + size * Math.cos(angle);
+        const y_i = y + size * Math.sin(angle);
+        if (i === 0) ctx.moveTo(x_i, y_i);
+        else ctx.lineTo(x_i, y_i);
+      }
+      ctx.closePath();
+
+      const colors = { grass: '#4CAF50', forest: '#1B5E20', road: '#795548', hill: '#8D6E63' };
+      ctx.fillStyle = colors[hexData.type] || colors.grass;
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
       const squadIds = hexData.squadIds || [];
       if (squadIds.length > 0) {
-        // Увеличили размер иконки с 0.5 до 0.75 - теперь они крупнее и четче
         const iconSize = size * 0.75; 
         const totalWidth = squadIds.length * (iconSize + 4) - 4;
         const startX = x - totalWidth / 2 + iconSize / 2;
@@ -4699,7 +4714,6 @@ function useFighterIPP(fighterIndex) {
           }
         });
         
-        // Подпись снизу
         const firstSquad = appData.squads[squadIds[0]];
         if (firstSquad) {
           ctx.fillStyle = '#fff';
@@ -4711,19 +4725,15 @@ function useFighterIPP(fighterIndex) {
           ctx.fillText(label, x, y + size * 0.6);
         }
       }
+    }
 
     function handleCanvasClick(clientX, clientY, canvas) {
       const rect = canvas.getBoundingClientRect();
-      
-      // Самая правильная формула пересчета координат при масштабировании.
-      // Берем физический размер rect.width и делим логический canvas.width на него.
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
-      
       const mx = (clientX - rect.left) * scaleX;
       const my = (clientY - rect.top) * scaleY;
       
-      // Ищем ближайший гекс
       let closestKey = null;
       let minDist = Infinity;
       const size = appData.map.hexSize;
@@ -4757,14 +4767,12 @@ function useFighterIPP(fighterIndex) {
         
         if (!hex.squadIds) hex.squadIds = [];
         
-        // Автоматически снимаем этот отряд с любого другого гекса (чтобы не дублировать фишки)
         for (let k in appData.map.grid) {
           if (appData.map.grid[k].squadIds) {
             appData.map.grid[k].squadIds = appData.map.grid[k].squadIds.filter(id => id !== selectedSquadIdx);
           }
         }
         
-        // Добавляем отряд в выбранный гекс
         hex.squadIds.push(selectedSquadIdx);
         appData.squads[selectedSquadIdx].hexPos = key.split(',').map(Number);
         
@@ -4783,12 +4791,12 @@ function useFighterIPP(fighterIndex) {
       if (!confirm('Очистить всех юнитов с карты?')) return;
       appData.squads.forEach(s => s.hexPos = null);
       for (let key in appData.map.grid) {
-        appData.map.grid[key].squadId = null;
+        appData.map.grid[key].squadIds = [];
       }
       saveData();
       initMap();
     }
-    // Обновляет выпадающий список отрядов на карте
+
     function updateSquadDropdown() {
       const sel = document.getElementById('squadToPlace');
       if (!sel) return;
@@ -4799,91 +4807,82 @@ function useFighterIPP(fighterIndex) {
       }).join('');
       if (available.length === 0) sel.innerHTML = '<option value="-1">Нет отрядов</option>';
     }
-    
-        // ===================== МАСШТАБИРОВАНИЕ И ПЕРЕМЕЩЕНИЕ КАРТЫ =====================
-    
-        function zoomMap(factor) {
-            mapScale *= factor;
-            mapScale = Math.max(0.2, Math.min(5, mapScale)); // Ограничиваем зум от 20% до 500%
-            const canvas = document.getElementById('gameMap');
-            canvas.style.transform = `scale(${mapScale})`;
-        }
 
-        function resetMapZoom() {
-            mapScale = 1;
-            const canvas = document.getElementById('gameMap');
-            canvas.style.transform = `scale(${mapScale})`;
-            const container = document.getElementById('mapContainer');
-            container.scrollLeft = 0;
-            container.scrollTop = 0;
-        }
+    function zoomMap(factor) {
+        mapScale *= factor;
+        mapScale = Math.max(0.2, Math.min(5, mapScale));
+        const canvas = document.getElementById('gameMap');
+        canvas.style.transform = `scale(${mapScale})`;
+    }
 
-        function setupMapControls() {
-            const container = document.getElementById('mapContainer');
-            const canvas = document.getElementById('gameMap');
-            if (!container) return;
+    function resetMapZoom() {
+        mapScale = 1;
+        const canvas = document.getElementById('gameMap');
+        canvas.style.transform = `scale(${mapScale})`;
+        const container = document.getElementById('mapContainer');
+        container.scrollLeft = 0;
+        container.scrollTop = 0;
+    }
 
-            let startDist = 0;
-            let startScale = 1;
-            let dragStartX = 0, dragStartY = 0;
-            let scrollStartX = 0, scrollStartY = 0;
-            let isDragging = false;
-            let draggedDistance = 0;
+    function setupMapControls() {
+        const container = document.getElementById('mapContainer');
+        const canvas = document.getElementById('gameMap');
+        if (!container) return;
 
-            // Начало касания (в любом режиме)
-            container.addEventListener('touchstart', (e) => {
-                if (e.touches.length === 1) {
-                    isDragging = true;
-                    draggedDistance = 0;
-                    dragStartX = e.touches[0].clientX;
-                    dragStartY = e.touches[0].clientY;
-                    scrollStartX = container.scrollLeft;
-                    scrollStartY = container.scrollTop;
-                } else if (e.touches.length === 2) {
-                    isDragging = false;
-                    const dx = e.touches[0].clientX - e.touches[1].clientX;
-                    const dy = e.touches[0].clientY - e.touches[1].clientY;
-                    startDist = Math.sqrt(dx*dx + dy*dy);
-                    startScale = mapScale;
-                }
-            }, { passive: false });
+        let startDist = 0;
+        let startScale = 1;
+        let dragStartX = 0, dragStartY = 0;
+        let scrollStartX = 0, scrollStartY = 0;
+        let isDragging = false;
+        let draggedDistance = 0;
 
-            // Перемещение пальцев
-            container.addEventListener('touchmove', (e) => {
-                if (e.touches.length === 1 && isDragging) {
-                    e.preventDefault();
-                    const dx = e.touches[0].clientX - dragStartX;
-                    const dy = e.touches[0].clientY - dragStartY;
-                    draggedDistance = Math.sqrt(dx*dx + dy*dy);
-                    
-                    // Плавно двигаем скролл
-                    container.scrollLeft = scrollStartX - dx;
-                    container.scrollTop = scrollStartY - dy;
-                } else if (e.touches.length === 2) {
-                    e.preventDefault();
-                    const dx = e.touches[0].clientX - e.touches[1].clientX;
-                    const dy = e.touches[0].clientY - e.touches[1].clientY;
-                    const dist = Math.sqrt(dx*dx + dy*dy);
-                    if (startDist > 0) {
-                        mapScale = startScale * (dist / startDist);
-                        mapScale = Math.max(0.2, Math.min(5, mapScale));
-                        canvas.style.transform = `scale(${mapScale})`;
-                    }
-                }
-            }, { passive: false });
-
-            // Конец касания
-            container.addEventListener('touchend', (e) => {
-                // Если палец почти не двигался (менее 10px) - это считается кликом
-                if (isDragging && draggedDistance < 10 && appData.map.mode === 'place') {
-                   // Имитируем клик
-                   handleCanvasClick(e.changedTouches[0].clientX, e.changedTouches[0].clientY, canvas);
-                }
+        container.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                isDragging = true;
+                draggedDistance = 0;
+                dragStartX = e.touches[0].clientX;
+                dragStartY = e.touches[0].clientY;
+                scrollStartX = container.scrollLeft;
+                scrollStartY = container.scrollTop;
+            } else if (e.touches.length === 2) {
                 isDragging = false;
-                if (e.touches.length < 2) startDist = 0;
-            });
-        }
-    
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                startDist = Math.sqrt(dx*dx + dy*dy);
+                startScale = mapScale;
+            }
+        }, { passive: false });
+
+        container.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 1 && isDragging) {
+                e.preventDefault();
+                const dx = e.touches[0].clientX - dragStartX;
+                const dy = e.touches[0].clientY - dragStartY;
+                draggedDistance = Math.sqrt(dx*dx + dy*dy);
+                
+                container.scrollLeft = scrollStartX - dx;
+                container.scrollTop = scrollStartY - dy;
+            } else if (e.touches.length === 2) {
+                e.preventDefault();
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (startDist > 0) {
+                    mapScale = startScale * (dist / startDist);
+                    mapScale = Math.max(0.2, Math.min(5, mapScale));
+                    canvas.style.transform = `scale(${mapScale})`;
+                }
+            }
+        }, { passive: false });
+
+        container.addEventListener('touchend', (e) => {
+            if (isDragging && draggedDistance < 10 && appData.map.mode === 'place') {
+               handleCanvasClick(e.changedTouches[0].clientX, e.changedTouches[0].clientY, canvas);
+            }
+            isDragging = false;
+            if (e.touches.length < 2) startDist = 0;
+        });
+    }
   </script>
  <div id="awardsTab" class="tabcontent">
   <h3>🏅 Справочник наград</h3>
