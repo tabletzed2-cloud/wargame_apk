@@ -4737,11 +4737,11 @@ function useFighterIPP(fighterIndex) {
         for (let row = 0; row < 15; row++) {
           for (let col = 0; col < 15; col++) {
             const key = `${col},${row}`;
-            appData.map.grid[key] = { 
+              appData.map.grid[key] = { 
               type: 'grass', 
               squadIds: [],      // Свои отряды
               enemySquadIds: [], // Вражеские отряды
-              markers: { detected: false, noise: false } // Метки
+              markers: []        // <--- ПРАВИЛЬНО: пустой массив для меток
             };
           }
         }
@@ -4769,7 +4769,7 @@ function useFighterIPP(fighterIndex) {
           const x = col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
           const y = row * 1.5 * size + size;
           const key = `${col},${row}`;
-          const hexData = appData.map.grid[key] || { type: 'grass', squadIds: [], enemySquadIds: [], markers: { detected: false, noise: false } };
+          const hexData = appData.map.grid[key] || { type: 'grass', squadIds: [], enemySquadIds: [], markers: [] };
           
           appData.map.centers.push({ key, x, y });
           drawHex(ctx, x, y, size, hexData);
@@ -4873,8 +4873,19 @@ function useFighterIPP(fighterIndex) {
         });
       }
 
+    
+      // ========== ОТРИСОВКА МЕТОК (ИСПРАВЛЕННАЯ) ==========
       // Метки (все типы)
-      const markers = hexData.markers || [];
+      let markers = hexData.markers || [];
+      // Если по старой памяти markers - объект {detected: true, noise: false}, превращаем его в массив
+      if (!Array.isArray(markers)) {
+        const newMarkers = [];
+        if (markers.detected) newMarkers.push('detected');
+        if (markers.noise) newMarkers.push('noise');
+        markers = newMarkers;
+        hexData.markers = markers; // записываем обратно, чтобы в следующий раз не пересчитывать
+      }
+
       let markerY = y + size * 0.5;
       const markerIcons = {
         'detected': '👁️',
@@ -4887,6 +4898,7 @@ function useFighterIPP(fighterIndex) {
         'destroyedSquadFriendly': '💀',
         'destroyedSquadEnemy': '☠️'
       };
+      
       markers.forEach(type => {
         if (markerIcons[type]) {
           ctx.fillStyle = '#fff';
@@ -4897,181 +4909,6 @@ function useFighterIPP(fighterIndex) {
           markerY += size * 0.3;
         }
       });
-     }
-
-    function handleCanvasClick(clientX, clientY, canvas) {
-      const rect = canvas.getBoundingClientRect();
-      const mx = clientX - rect.left;
-      const my = clientY - rect.top;
-      
-      let closestKey = null;
-      let minDist = Infinity;
-      const size = appData.map.baseHexSize * appData.map.zoomLevel;
-
-      for (let center of appData.map.centers) {
-        const dist = Math.sqrt( (mx - center.x)**2 + (my - center.y)**2 );
-        if (dist < minDist) {
-          minDist = dist;
-          closestKey = center.key;
-        }
-      }
-
-      if (closestKey && minDist < size * 1.1) {
-        handleHexAction(closestKey);
-      }
-    }
-
-    function handleHexAction(key) {
-      const hex = appData.map.grid[key];
-      const mode = appData.map.mode;
-      const infoBox = document.getElementById('mapInfo');
-
-      // ======== РЕДАКТОР ========
-      if (mode === 'edit') {
-        const select = document.getElementById('terrainTypeSelect');
-        const newType = select.value;
-        hex.type = newType;
-        infoBox.innerHTML = `Гекс ${key} изменён на ${newType}`;
-        saveData();
-        redrawMap();
-        return;
-      }
-
-      // ======== ДВИЖЕНИЕ СВОЕГО ОТРЯДА ========
-      if (mode === 'move') {
-        if (!currentSquad) {
-          infoBox.innerHTML = '❌ Сначала выберите отряд во вкладке "Бой"!';
-          return;
-        }
-        if (!currentSquad.hexPos) {
-          infoBox.innerHTML = '❌ Этот отряд не размещён на карте!';
-          return;
-        }
-        
-        const fromKey = currentSquad.hexPos.join(',');
-        const targetPos = key.split(',').map(Number);
-        const fromCoord = currentSquad.hexPos;
-        const dCol = targetPos[0] - fromCoord[0];
-        const dRow = targetPos[1] - fromCoord[1];
-        const isAdjacent = (Math.abs(dCol) <= 1 && Math.abs(dRow) <= 1 && !(dCol === 0 && dRow === 0));
-
-        if (!isAdjacent) {
-          infoBox.innerHTML = '❌ Можно двигаться только на 1 соседний гекс за действие!';
-          return;
-        }
-
-        const fromHex = appData.map.grid[fromKey];
-        const fromType = fromHex.type;
-        const toType = hex.type;
-        const fromData = TERRAIN_DATA[fromType];
-        const toData = TERRAIN_DATA[toType];
-        
-        if (!fromData || !toData) {
-          infoBox.innerHTML = '❌ Ошибка: неизвестный тип местности!';
-          return;
-        }
-
-        const fromLevel = fromData.level || 0;
-        const toLevel = toData.level || 0;
-        const diff = toLevel - fromLevel;
-        let baseCost = toData.baseCost;
-        let extraCost = 0;
-        if (diff > 0) {
-          extraCost = diff * 2;
-        }
-        const actualCost = baseCost + extraCost;
-
-        if (getAP(currentSquadIndex) < actualCost) {
-          infoBox.innerHTML = `❌ Не хватает ОД! Нужно ${actualCost}, есть ${getAP(currentSquadIndex)}`;
-          return;
-        }
-
-        if (!spendAP(currentSquadIndex, actualCost)) return;
-
-        for (let k in appData.map.grid) {
-          if (appData.map.grid[k].squadIds) {
-            appData.map.grid[k].squadIds = appData.map.grid[k].squadIds.filter(id => id !== currentSquadIndex);
-          }
-        }
-        
-        hex.squadIds.push(currentSquadIndex);
-        currentSquad.hexPos = targetPos;
-        currentSquad.movedThisTurn = true;
-
-        const terrainIcon = toData.icon || '🌿';
-        infoBox.innerHTML = `🚶 Отряд переместился на ${key} (потрачено ${actualCost} ОД). Местность: ${terrainIcon}`;
-        
-        saveData();
-        updateUI();
-        redrawMap();
-        return;
-      }
-
-      // ======== ДВИЖЕНИЕ ВРАЖЕСКОГО ОТРЯДА ========
-      if (mode === 'moveEnemy') {
-        const sel = document.getElementById('enemySquadSelect');
-        const enemyIdx = parseInt(sel.value);
-        if (isNaN(enemyIdx) || enemyIdx < 0 || !appData.map.enemySquads[enemyIdx]) {
-          infoBox.innerHTML = '❌ Сначала выберите вражеский отряд из списка!';
-          return;
-        }
-        // Ищем текущий гекс врага
-        let fromKey = null;
-        for (let k in appData.map.grid) {
-          if (appData.map.grid[k].enemySquadIds && appData.map.grid[k].enemySquadIds.includes(enemyIdx)) {
-            fromKey = k;
-            break;
-          }
-        }
-        if (!fromKey) {
-          infoBox.innerHTML = '❌ Враг не размещён на карте!';
-          return;
-        }
-        const targetPos = key.split(',').map(Number);
-        const fromCoord = fromKey.split(',').map(Number);
-        const dCol = targetPos[0] - fromCoord[0];
-        const dRow = targetPos[1] - fromCoord[1];
-        const isAdjacent = (Math.abs(dCol) <= 1 && Math.abs(dRow) <= 1 && !(dCol === 0 && dRow === 0));
-        if (!isAdjacent) {
-          infoBox.innerHTML = '❌ Можно двигать врага только на 1 соседний гекс!';
-          return;
-        }
-        // Перемещаем врага
-        const fromHex = appData.map.grid[fromKey];
-        fromHex.enemySquadIds = fromHex.enemySquadIds.filter(id => id !== enemyIdx);
-        const hex = appData.map.grid[key];
-        if (!hex.enemySquadIds) hex.enemySquadIds = [];
-        hex.enemySquadIds.push(enemyIdx);
-        saveData();
-        redrawMap();
-        infoBox.innerHTML = `🚶 Враг "${appData.map.enemySquads[enemyIdx].name}" перемещён на гекс ${key}`;
-        return;
-      }
-
-      // ======== РАЗМЕЩЕНИЕ ========
-      if (mode === 'place') {
-        const squadSelect = document.getElementById('squadToPlace');
-        const selectedSquadIdx = parseInt(squadSelect.value);
-        if (isNaN(selectedSquadIdx) || selectedSquadIdx < 0) {
-          infoBox.innerHTML = '⚠️ Сначала выберите отряд из списка!';
-          return;
-        }
-        
-        for (let k in appData.map.grid) {
-          if (appData.map.grid[k].squadIds) {
-            appData.map.grid[k].squadIds = appData.map.grid[k].squadIds.filter(id => id !== selectedSquadIdx);
-          }
-        }
-        hex.squadIds.push(selectedSquadIdx);
-        appData.squads[selectedSquadIdx].hexPos = key.split(',').map(Number);
-        infoBox.innerHTML = `✅ Отряд "${appData.squads[selectedSquadIdx].name}" размещён на гексе ${key}`;
-        saveData();
-        redrawMap();
-        return;
-      }
-      
-      infoBox.innerHTML = `Гекс ${key}: ${hex.type}. Своих: ${hex.squadIds.length}, Врагов: ${hex.enemySquadIds.length}`;
-    }
 
     // ================= ИНСТРУМЕНТЫ РЕДАКТОРА И МАРКЕРОВ =================
     function updateTerrainDropdown() {
