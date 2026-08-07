@@ -1,10 +1,12 @@
-const CACHE_NAME = 'wargame-v12.14';
+const CACHE_NAME = 'wargame-v12.15';
 const ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png'
+  // '/images/commisar AIRF.png',
+  // '/images/Горные охотники.png',
 ];
 
 self.addEventListener('install', (event) => {
