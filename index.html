@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.23 — поле  </title>
+  <title>Боевой модуль v12.24 — поле  </title>
   <link rel="manifest" href="manifest.json">
   
-  <title>Боевой модуль v12.23</title>
+  <title>Боевой модуль v12.24</title>
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
     button,select,input,textarea{font-size:.9rem;padding:5px 8px;margin:2px;border-radius:4px;border:none}
@@ -121,7 +121,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.23 — поле </h2>
+  <h2>⚔️ Боевой модуль v12.24 — поле </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -237,10 +237,12 @@
       <button onclick="setMarkerByCoords()" style="background:#e67e22;">📍 По координатам</button>
     </div>
 
-    <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
+      <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
       <label>Фракция врага: <select id="enemyFactionSelect" onchange="updateEnemySquadDropdown()"></select></label>
       <label>Отряд: <select id="enemySquadToPlace"></select></label>
-      <button onclick="placeEnemyFromTemplate()" style="background:#c0392b;">📌 Разместить врага</button>
+      <button onclick="setMapMode('placeEnemy')" style="background:#c0392b;">📌 Разместить врага (клик)</button>
+      <button onclick="placeEnemyByCoords()" style="background:#e67e22;">📍 По координатам</button>
+      <button onclick="setMapMode('moveEnemy')" style="background:#e67e22;">🚶 Переместить врага</button>
       <button onclick="removeSelectedEnemy()" style="background:#555;">❌ Удалить врага</button>
     </div>
     
@@ -466,7 +468,7 @@ if (!selectedFaction) showFactionModal();
               
           }
         },
-           "map": { "grid": {}, "baseHexSize": 45, "zoomLevel": 1, "mode": "view", "enemySquads": [], "selectedMoveSquadIdx": null },
+           "map": { "grid": {}, "baseHexSize": 45, "zoomLevel": 1, "mode": "view", "enemySquads": [], "selectedMoveSquadIdx": null, "selectedEnemyMoveIdx": null },
         "squads": [],
         "templates": [
           {"name":"Пехотное отделение №1 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/отделение бе1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
@@ -4846,6 +4848,12 @@ function useFighterIPP(fighterIndex) {
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText('☠️', drawX, drawY);
+                    // Подсветка выбранного врага
+          if (appData.map.selectedEnemyMoveIdx === enemyId) {
+            ctx.strokeStyle = '#ff0';
+            ctx.lineWidth = Math.max(3, size * 0.08);
+            ctx.strokeRect(drawX - iconSize/2 - 4, drawY - iconSize/2 - 4, iconSize + 8, iconSize + 8);
+          }
         });
       }
 
@@ -4859,7 +4867,7 @@ function useFighterIPP(fighterIndex) {
         hexData.markers = markers;
       }
 
-      let markerY = y + size * 0.5;
+      let markerY = y + size * 0.6;
       const markerIcons = {
         'detected': '👁️',
         'noise': '🔊',
@@ -5026,14 +5034,88 @@ function useFighterIPP(fighterIndex) {
         return;
       }
 
-      // ======== ПЕРЕМЕЩЕНИЕ ВРАЖЕСКОГО ОТРЯДА (если потребуется) ========
+                // ======== ПЕРЕМЕЩЕНИЕ ВРАГА ========
       if (mode === 'moveEnemy') {
-        // Здесь можно реализовать перемещение врагов аналогично, если нужно
-        // Пока оставлено как заглушка
-        infoBox.innerHTML = 'Перемещение врагов пока не реализовано.';
+        // Если враг уже выбран, перемещаем его на этот гекс
+        if (appData.map.selectedEnemyMoveIdx !== null) {
+          const enemyIdx = appData.map.selectedEnemyMoveIdx;
+          const enemy = appData.map.enemySquads[enemyIdx];
+          if (!enemy) {
+            infoBox.innerHTML = '❌ Выбранный враг не найден.';
+            appData.map.selectedEnemyMoveIdx = null;
+            redrawMap();
+            return;
+          }
+          // Находим текущий гекс врага
+          let fromKey = null;
+          for (let k in appData.map.grid) {
+            const cell = appData.map.grid[k];
+            if (cell.enemySquadIds && cell.enemySquadIds.includes(enemyIdx)) {
+              fromKey = k;
+              break;
+            }
+          }
+          if (!fromKey) {
+            infoBox.innerHTML = '❌ Враг не размещён на карте.';
+            appData.map.selectedEnemyMoveIdx = null;
+            redrawMap();
+            return;
+          }
+          // Убираем со старого места
+          const fromHex = appData.map.grid[fromKey];
+          fromHex.enemySquadIds = fromHex.enemySquadIds.filter(id => id !== enemyIdx);
+          // Добавляем на новое
+          if (!hex.enemySquadIds) hex.enemySquadIds = [];
+          hex.enemySquadIds.push(enemyIdx);
+          // (можно сохранять координаты для врага, если нужно, но пока не требуется)
+
+          infoBox.innerHTML = `🚶 Враг "${enemy.name}" перемещён на ${key}`;
+          appData.map.selectedEnemyMoveIdx = null;
+          saveData();
+          redrawMap();
+          return;
+        }
+
+        // Если враг ещё не выбран — выбираем по клику на гекс с врагом
+        const enemyIds = hex.enemySquadIds || [];
+        if (enemyIds.length === 0) {
+          infoBox.innerHTML = '⚠️ На этом гексе нет врагов. Кликните по гексу с врагом, чтобы выбрать его.';
+          return;
+        }
+        // Берём первого врага
+        const firstEnemyIdx = enemyIds[0];
+        const enemy = appData.map.enemySquads[firstEnemyIdx];
+        if (!enemy) {
+          infoBox.innerHTML = '❌ Враг не найден.';
+          return;
+        }
+        appData.map.selectedEnemyMoveIdx = firstEnemyIdx;
+        infoBox.innerHTML = `✅ Выбран враг "${enemy.name}" (гекс ${key}). Теперь кликните на любой гекс, куда хотите его переместить.`;
+        redrawMap();
         return;
       }
-
+        
+        // ======== РАЗМЕЩЕНИЕ ВРАГА ПО КЛИКУ ========
+      if (mode === 'placeEnemy') {
+        const factionSelect = document.getElementById('enemyFactionSelect');
+        const squadSelect = document.getElementById('enemySquadToPlace');
+        const faction = factionSelect.value;
+        const templateIdx = parseInt(squadSelect.value);
+        if (isNaN(templateIdx) || templateIdx < 0) {
+          infoBox.innerHTML = '⚠️ Выберите вражеский отряд из списка!';
+          return;
+        }
+        const template = appData.templates[templateIdx];
+        if (!template) {
+          infoBox.innerHTML = '❌ Шаблон не найден.';
+          return;
+        }
+        placeEnemyOnHex(hex, template, faction);
+        // После размещения остаёмся в режиме, чтобы можно было ставить ещё
+        // infoBox уже обновится внутри placeEnemyOnHex
+        return;
+      }
+      
       // Информация по умолчанию
       infoBox.innerHTML = `Гекс ${key}: ${hex.type}. Своих: ${hex.squadIds.length}, Врагов: ${hex.enemySquadIds.length}`;
     }
@@ -5045,9 +5127,10 @@ function useFighterIPP(fighterIndex) {
       else sel.style.display = 'none';
     }
 
-    function setMapMode(mode) {
+     function setMapMode(mode) {
       appData.map.mode = mode;
-      appData.map.selectedMoveSquadIdx = null; // сбрасываем выделение
+      appData.map.selectedMoveSquadIdx = null;
+      appData.map.selectedEnemyMoveIdx = null; // для перемещения врагов (добавим позже)
       document.getElementById('terrainTypeSelect').style.display = (mode === 'edit') ? 'inline-block' : 'none';
       document.getElementById('markerTypeSelect').style.display = (mode === 'marker') ? 'inline-block' : 'none';
       document.getElementById('mapInfo').innerHTML = `Режим: ${mode}`;
@@ -5443,6 +5526,41 @@ function useFighterIPP(fighterIndex) {
       const idx = appData.map.enemySquads.length;
       appData.map.enemySquads.push(enemyObj);
       
+      hex.enemySquadIds.push(idx);
+      saveData();
+      redrawMap();
+      document.getElementById('mapInfo').innerHTML = `☠️ Враг "${template.name}" (${faction}) размещён на гексе ${key}`;
+    }
+          function placeEnemyByCoords() {
+      const factionSelect = document.getElementById('enemyFactionSelect');
+      const squadSelect = document.getElementById('enemySquadToPlace');
+      const faction = factionSelect.value;
+      const templateIdx = parseInt(squadSelect.value);
+      if (isNaN(templateIdx) || templateIdx < 0) {
+        alert('Выберите шаблон вражеского отряда!');
+        return;
+      }
+      const template = appData.templates[templateIdx];
+      if (!template) return;
+      
+      const coords = prompt('Введите координаты гекса (например, 5,3):');
+      if (!coords) return;
+      const key = coords.replace(/\s/g, '');
+      const hex = appData.map.grid[key];
+      if (!hex) { alert('Гекс не найден!'); return; }
+      placeEnemyOnHex(hex, template, faction);
+    }
+    function placeEnemyOnHex(hex, template, faction) {
+      if (!appData.map.enemySquads) appData.map.enemySquads = [];
+      const enemyObj = {
+        name: template.name,
+        faction: faction,
+        fighters: template.fighters.map(f => ({ name: f.name, weapon: f.weapon, hp: f.hp, maxHp: f.maxHp }))
+      };
+      const idx = appData.map.enemySquads.length;
+      appData.map.enemySquads.push(enemyObj);
+      
+      if (!hex.enemySquadIds) hex.enemySquadIds = [];
       hex.enemySquadIds.push(idx);
       saveData();
       redrawMap();
