@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.29 — поле  </title>
+  <title>Боевой модуль v12.30 — поле  </title>
   <link rel="manifest" href="manifest.json">
   
-  <title>Боевой модуль v12.29</title>
+  <title>Боевой модуль v12.30</title>
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
     button,select,input,textarea{font-size:.9rem;padding:5px 8px;margin:2px;border-radius:4px;border:none}
@@ -121,7 +121,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.29 — поле </h2>
+  <h2>⚔️ Боевой модуль v12.30 — поле </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -203,11 +203,14 @@
       <button onclick="setMapMode('edit')" style="background:#f39c12;">✏️ Редактор</button>
       <button onclick="setMapMode('marker')" style="background:#8e44ad;">📌 Метки</button>
       <button onclick="setMapMode('view')" style="background:#555;">🖱️ Просмотр</button>
+
       
       <label>Отряд: <select id="squadToPlace"></select></label>
       <select id="terrainTypeSelect" style="display:none; background:#444; color:#fff;">
         <!-- ваш список типов местности -->
       </select>
+      <select id="terrainTypeSelect" ...>...</select>
+<button onclick="rotateSelectedHex()" style="background:#8e44ad;">↻ Повернуть гекс (60°)</button>
       <!-- Выбор метки (только в режиме marker) -->
       <select id="markerTypeSelect" style="display:none; background:#444; color:#fff;">
         <option value="detected">👁️ Обнаружение</option>
@@ -4716,12 +4719,19 @@ function useFighterIPP(fighterIndex) {
               type: 'grass', 
               squadIds: [],      // Свои отряды
               enemySquadIds: [], // Вражеские отряды
-              markers: []        // <--- ПРАВИЛЬНО: пустой массив для меток
+              markers: [],
+              rotation: 0// 
             };
           }
         }
       }
-      
+      // Миграция: добавить rotation, если отсутствует
+for (let key in appData.map.grid) {
+  if (appData.map.grid[key].rotation === undefined) {
+    appData.map.grid[key].rotation = 0;
+  }
+}
+      appData.map.lastEditedHex = null;
       redrawMap();
       updateSquadDropdown();
       setupMapControls();
@@ -4776,16 +4786,22 @@ function useFighterIPP(fighterIndex) {
       const tData = TERRAIN_DATA[hexData.type] || TERRAIN_DATA.grass;
       
       // Если есть загруженная картинка, рисуем её, обрезая по форме гекса
-      if (tData.image) {
-        ctx.save();
-        ctx.clip();
-        const img = new Image();
-        img.src = tData.image;
-        ctx.drawImage(img, x - size, y - size, size * 2, size * 2);
-        ctx.restore();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = Math.max(1.5, size * 0.03);
-        ctx.stroke();
+if (tData.image) {
+  ctx.save();
+  ctx.clip();
+  // Применяем поворот, если задан
+  const angle = (hexData.rotation || 0) * Math.PI / 180;
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  const img = new Image();
+  img.src = tData.image;
+  // Рисуем так, чтобы центр изображения был в (0,0)
+  ctx.drawImage(img, -size, -size, size * 2, size * 2);
+  ctx.restore();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = Math.max(1.5, size * 0.03);
+  ctx.stroke();
+}
       } else {
         // Если картинки нет — заливаем цветом и ставим текстовую иконку
         ctx.fillStyle = tData.color;
@@ -4943,16 +4959,17 @@ if (enemy.name) {
       console.log('Клик по гексу', key, 'режим:', mode);
 
       // ======== РЕДАКТОР ========
-      if (mode === 'edit') {
-        const select = document.getElementById('terrainTypeSelect');
-        const newType = select.value;
-        hex.type = newType;
-        infoBox.innerHTML = `Гекс ${key} изменён на ${newType}`;
-        console.log('Старый тип:', hex.type, 'Новый тип:', newType);
-        saveData();
-        redrawMap();
-        return;
-      }
+if (mode === 'edit') {
+  const select = document.getElementById('terrainTypeSelect');
+  const newType = select.value;
+  hex.type = newType;
+  appData.map.lastEditedHex = key;               // <-- запоминаем
+  infoBox.innerHTML = `Гекс ${key} изменён на ${newType} (поворот: ${hex.rotation || 0}°)`;
+  console.log('Старый тип:', hex.type, 'Новый тип:', newType);
+  saveData();
+  redrawMap();
+  return;
+}
 
       // ======== РАЗМЕЩЕНИЕ СВОИХ ОТРЯДОВ ========
       if (mode === 'place') {
@@ -5608,6 +5625,20 @@ function placeEnemyOnHex(hex, template, faction, key) {
   sel.innerHTML = Object.keys(TERRAIN_DATA).map(key => 
     `<option value="${key}">${key} ${TERRAIN_DATA[key].icon}</option>`
   ).join('');
+}
+function rotateSelectedHex() {
+  const key = appData.map.lastEditedHex;
+  if (!key) {
+    document.getElementById('mapInfo').innerHTML = '⚠️ Сначала кликните по гексу в режиме редактирования!';
+    return;
+  }
+  const hex = appData.map.grid[key];
+  if (!hex) return;
+  // Поворачиваем на 60° по часовой
+  hex.rotation = ((hex.rotation || 0) + 60) % 360;
+  document.getElementById('mapInfo').innerHTML = `Гекс ${key}: поворот ${hex.rotation}°`;
+  saveData();
+  redrawMap();
 }
       
   </script> 
