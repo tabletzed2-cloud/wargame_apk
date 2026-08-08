@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wargame-v12.29';
+const CACHE_NAME = 'wargame-v12.30';
 
 const ASSETS = [
   '/',
