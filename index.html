@@ -5047,11 +5047,13 @@ if (mode === 'edit') {
       }
 
       // ======== ПЕРЕМЕЩЕНИЕ СВОЕГО ОТРЯДА ========
+// ======== ПЕРЕМЕЩЕНИЕ СВОЕГО ОТРЯДА ========
 if (mode === 'move') {
-  if (appData.map.selectedMoveSquadIdx !== null) {
-    // перемещаем выбранный отряд на новый гекс
-    const squadIdx = appData.map.selectedMoveSquadIdx;
-    const squad = appData.squads[squadIdx];
+  const selectedIdx = appData.map.selectedMoveSquadIdx;
+
+  // Если уже есть выбранный отряд
+  if (selectedIdx !== null) {
+    const squad = appData.squads[selectedIdx];
     if (!squad || !squad.hexPos) {
       infoBox.innerHTML = '❌ Выбранный отряд не найден или не размещён.';
       appData.map.selectedMoveSquadIdx = null;
@@ -5059,13 +5061,31 @@ if (mode === 'move') {
       return;
     }
 
+    // Клик по тому же гексу, где стоит выбранный отряд → переключить на другого
+    if (key === squad.hexPos.join(',')) {
+      const currentHex = appData.map.grid[key];
+      const squadIds = currentHex.squadIds || [];
+      if (squadIds.length > 1) {
+        const curPos = squadIds.indexOf(selectedIdx);
+        const nextPos = (curPos + 1) % squadIds.length;
+        appData.map.selectedMoveSquadIdx = squadIds[nextPos];
+        const nextSquad = appData.squads[squadIds[nextPos]];
+        infoBox.innerHTML = `✅ Выбран отряд "${nextSquad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
+      } else {
+        infoBox.innerHTML = `✅ Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
+      }
+      redrawMap();
+      return;
+    }
+
+    // Клик по другому гексу → перемещаем выбранный отряд
     const fromKey = squad.hexPos.join(',');
     const fromHex = appData.map.grid[fromKey];
     if (fromHex && fromHex.squadIds) {
-      fromHex.squadIds = fromHex.squadIds.filter(id => id !== squadIdx);
+      fromHex.squadIds = fromHex.squadIds.filter(id => id !== selectedIdx);
     }
     if (!hex.squadIds) hex.squadIds = [];
-    hex.squadIds.push(squadIdx);
+    hex.squadIds.push(selectedIdx);
     squad.hexPos = key.split(',').map(Number);
     squad.movedThisTurn = true;
 
@@ -5077,29 +5097,18 @@ if (mode === 'move') {
     return;
   }
 
-  // Первый клик – выбор отряда для перемещения
+  // Ничего не выбрано – первое нажатие на гекс с отрядом
   const squadIds = hex.squadIds || [];
   if (squadIds.length === 0) {
     infoBox.innerHTML = '⚠️ На этом гексе нет ваших отрядов.';
     return;
   }
-// Если на этом же гексе уже выбран отряд, переключаемся на следующий
-if (appData.map.selectedMoveSquadIdx !== null && 
-    hex.squadIds.includes(appData.map.selectedMoveSquadIdx)) {
-  const currentIdx = hex.squadIds.indexOf(appData.map.selectedMoveSquadIdx);
-  const nextIdx = (currentIdx + 1) % hex.squadIds.length;
-  appData.map.selectedMoveSquadIdx = hex.squadIds[nextIdx];
-} else {
-  appData.map.selectedMoveSquadIdx = hex.squadIds[0];
+  appData.map.selectedMoveSquadIdx = squadIds[0];
+  const squad = appData.squads[squadIds[0]];
+  infoBox.innerHTML = `✅ Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
+  redrawMap();
+  return;
 }
-const squad = appData.squads[appData.map.selectedMoveSquadIdx];
-infoBox.innerHTML = `✅ Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
-redrawMap();
-return;
-        infoBox.innerHTML = `✅ Выбран отряд "${squad.name}" (гекс ${key}). Теперь кликните на любой гекс, куда хотите его переместить.`;
-        redrawMap();
-        return;
-      }
 
       // ======== ПЕРЕМЕЩЕНИЕ ВРАГА ========
       if (mode === 'moveEnemy') {
