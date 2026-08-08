@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.35 — поле  </title>
+  <title>Боевой модуль v12.36 — поле  </title>
   <link rel="manifest" href="manifest.json">
   
-  <title>Боевой модуль v12.35</title>
+  <title>Боевой модуль v12.36</title>
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
     button,select,input,textarea{font-size:.9rem;padding:5px 8px;margin:2px;border-radius:4px;border:none}
@@ -121,7 +121,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.35 — поле </h2>
+  <h2>⚔️ Боевой модуль v12.36 — поле </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -200,6 +200,7 @@
     <div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin-bottom:6px;">
       <button onclick="setMapMode('place')" style="background:#27ae60;">🏷️ Разместить</button>
       <button onclick="setMapMode('move')" style="background:#2980b9;">🚶 Переместить</button>
+      <button onclick="removeSelectedSquad()" style="background:#c0392b;">🗑️ Убрать свой отряд с карты</button>
       <button onclick="setMapMode('edit')" style="background:#f39c12;">✏️ Редактор</button>
       <button onclick="setMapMode('marker')" style="background:#8e44ad;">📌 Метки</button>
       <button onclick="setMapMode('view')" style="background:#555;">🖱️ Просмотр</button>
@@ -4815,7 +4816,13 @@ if (img && img.complete) {  // complete — изображение загруж�
   ctx.textBaseline = 'middle';
   ctx.fillText(tData.icon, x, y);
 }
-
+if (appData.map.mode === 'edit' && hexData.level !== undefined && hexData.level !== 0) {
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${size * 0.25}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`▲${hexData.level}`, x, y - size * 0.6);
+}
       // ====== ОТРИСОВКА СВОИХ ОТРЯДОВ (с подсветкой выбранного) ======
       const squadIds = hexData.squadIds || [];
       if (squadIds.length > 0) {
@@ -5040,47 +5047,55 @@ if (mode === 'edit') {
       }
 
       // ======== ПЕРЕМЕЩЕНИЕ СВОЕГО ОТРЯДА ========
-      if (mode === 'move') {
-        if (appData.map.selectedMoveSquadIdx !== null) {
-          const squadIdx = appData.map.selectedMoveSquadIdx;
-          const squad = appData.squads[squadIdx];
-          if (!squad || !squad.hexPos) {
-            infoBox.innerHTML = '❌ Выбранный отряд не найден или не размещён.';
-            appData.map.selectedMoveSquadIdx = null;
-            redrawMap();
-            return;
-          }
+if (mode === 'move') {
+  if (appData.map.selectedMoveSquadIdx !== null) {
+    // перемещаем выбранный отряд на новый гекс
+    const squadIdx = appData.map.selectedMoveSquadIdx;
+    const squad = appData.squads[squadIdx];
+    if (!squad || !squad.hexPos) {
+      infoBox.innerHTML = '❌ Выбранный отряд не найден или не размещён.';
+      appData.map.selectedMoveSquadIdx = null;
+      redrawMap();
+      return;
+    }
 
-          const fromKey = squad.hexPos.join(',');
-          const fromHex = appData.map.grid[fromKey];
-          if (fromHex && fromHex.squadIds) {
-            fromHex.squadIds = fromHex.squadIds.filter(id => id !== squadIdx);
-          }
-          if (!hex.squadIds) hex.squadIds = [];
-          hex.squadIds.push(squadIdx);
-          squad.hexPos = key.split(',').map(Number);
-          squad.movedThisTurn = true;
+    const fromKey = squad.hexPos.join(',');
+    const fromHex = appData.map.grid[fromKey];
+    if (fromHex && fromHex.squadIds) {
+      fromHex.squadIds = fromHex.squadIds.filter(id => id !== squadIdx);
+    }
+    if (!hex.squadIds) hex.squadIds = [];
+    hex.squadIds.push(squadIdx);
+    squad.hexPos = key.split(',').map(Number);
+    squad.movedThisTurn = true;
 
-          infoBox.innerHTML = `🚶 Отряд "${squad.name}" перемещён на ${key} (без затрат ОД).`;
-          appData.map.selectedMoveSquadIdx = null;
-          saveData();
-          updateUI();
-          redrawMap();
-          return;
-        }
+    infoBox.innerHTML = `🚶 Отряд "${squad.name}" перемещён на ${key} (без затрат ОД).`;
+    appData.map.selectedMoveSquadIdx = null;
+    saveData();
+    updateUI();
+    redrawMap();
+    return;
+  }
 
-        const squadIds = hex.squadIds || [];
-        if (squadIds.length === 0) {
-          infoBox.innerHTML = '⚠️ На этом гексе нет ваших отрядов. Кликните по гексу с отрядом, чтобы выбрать его.';
-          return;
-        }
-        const firstSquadIdx = squadIds[0];
-        const squad = appData.squads[firstSquadIdx];
-        if (!squad) {
-          infoBox.innerHTML = '❌ Ошибка: отряд не найден.';
-          return;
-        }
-        appData.map.selectedMoveSquadIdx = firstSquadIdx;
+  // Первый клик – выбор отряда для перемещения
+  const squadIds = hex.squadIds || [];
+  if (squadIds.length === 0) {
+    infoBox.innerHTML = '⚠️ На этом гексе нет ваших отрядов.';
+    return;
+  }
+// Если на этом же гексе уже выбран отряд, переключаемся на следующий
+if (appData.map.selectedMoveSquadIdx !== null && 
+    hex.squadIds.includes(appData.map.selectedMoveSquadIdx)) {
+  const currentIdx = hex.squadIds.indexOf(appData.map.selectedMoveSquadIdx);
+  const nextIdx = (currentIdx + 1) % hex.squadIds.length;
+  appData.map.selectedMoveSquadIdx = hex.squadIds[nextIdx];
+} else {
+  appData.map.selectedMoveSquadIdx = hex.squadIds[0];
+}
+const squad = appData.squads[appData.map.selectedMoveSquadIdx];
+infoBox.innerHTML = `✅ Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
+redrawMap();
+return;
         infoBox.innerHTML = `✅ Выбран отряд "${squad.name}" (гекс ${key}). Теперь кликните на любой гекс, куда хотите его переместить.`;
         redrawMap();
         return;
@@ -5660,6 +5675,26 @@ function rotateSelectedHex() {
   document.getElementById('mapInfo').innerHTML = `Гекс ${key}: поворот ${hex.rotation}°`;
   saveData();
   redrawMap();
+}
+ function removeSelectedSquad() {
+  const idx = appData.map.selectedMoveSquadIdx;
+  if (idx === null || idx === undefined) {
+    document.getElementById('mapInfo').innerHTML = '⚠️ Сначала выберите отряд для удаления с карты.';
+    return;
+  }
+  const squad = appData.squads[idx];
+  if (!squad) return;
+  // Удаляем отряд из всех гексов
+  for (let key in appData.map.grid) {
+    const cell = appData.map.grid[key];
+    cell.squadIds = cell.squadIds.filter(id => id !== idx);
+  }
+  // Удаляем позицию у отряда
+  delete squad.hexPos;
+  appData.map.selectedMoveSquadIdx = null;
+  saveData();
+  redrawMap();
+  document.getElementById('mapInfo').innerHTML = `Отряд "${squad.name}" убран с карты.`;
 }
       
   </script> 
