@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.49 — время  </title>
+  <title>Боевой модуль v12.50 — время  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -205,7 +205,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.49</h1>
+    <h1>⚔️ Боевой модуль v12.50</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
 <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
 <button class="menu-btn" onclick="openInfo('history')">📜 История</button>
@@ -231,7 +231,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.49 — время </h2>
+  <h2>⚔️ Боевой модуль v12.50 — время </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -4986,18 +4986,20 @@ function populateCardsEditorFactionSelect() {
       document.querySelectorAll('.tablinks').forEach(e => e.classList.remove('active'));
       document.getElementById(tabName).style.display = 'block';
       evt.currentTarget.classList.add('active');
+      const container = document.getElementById('mapContainer'); if (container) { container.scrollLeft = 0; container.scrollTop = 0;};
       if (tabName === 'rosterTab') buildRosterEditor();
       else if (tabName === 'weaponTab') { populateFactionSelect(); loadWeaponTable(); }
       else if (tabName === 'crewTab') { populateCrewFactionSelect(); loadCrewWeapons(); }
       else if (tabName === 'cardsTab') { renderCardSelectionForBattle(); }
       else if (tabName === 'activeEffectsTab') { renderActiveEffects(); }
-      else if (tabName === 'mapTab') { resetMapZoom(); initMap(); updateSquadDropdown(); updateEnemyDropdown(); updateEnemyFactionDropdown(); populateTerrainSelect();}
+      else if (tabName === 'mapTab') { resetMapZoom(); initMap(); updateSquadDropdown(); updateEnemyDropdown(); updateEnemyFactionDropdown(); populateTerrainSelect(); loadMapIndex();  
+      const container = document.getElementById('mapContainer'); if (container) { container.scrollLeft = 0; container.scrollTop = 0;};}
       else if (tabName === 'saveTab') renderTemplates();
       else if (tabName === 'battleTab') { renderSquadSelector(); renderTemplateSelection(); updateUI(); renderEmbarkPanel(); renderFactionInfo(); }
       else if (tabName === 'awardsTab') { renderAwardsReference(); }
       else if (tabName === 'cardsEditorTab') { populateCardsEditorFactionSelect(); renderCardLibraryEditor();}
       else if (tabName === 'mapTemplatesTab') { renderMapTemplates(); loadMapIndex();}
-      else if (tabName === 'mapTab') { resetMapZoom(); initMap(); updateSquadDropdown(); updateEnemyDropdown(); updateEnemyFactionDropdown(); populateTerrainSelect(); loadMapIndex(); }
+      
     }
       
 function useFighterIPP(fighterIndex) {
@@ -5524,27 +5526,39 @@ if (mode === 'move') {
       return;
     }
 
-    // Клик по подсвеченному гексу (кроме текущего)
+    // 1. Переключение на другой отряд (если клик по гексу с другим отрядом)
+    const otherSquadIds = hex.squadIds.filter(id => id !== selectedIdx);
+    if (otherSquadIds.length > 0 && key !== squad.hexPos.join(',')) {
+      const newIdx = otherSquadIds[0];
+      const newSquad = appData.squads[newIdx];
+      if (newSquad) {
+        appData.map.selectedMoveSquadIdx = newIdx;
+        recalcReachable(newSquad, key);
+        infoBox.innerHTML = `Выбран отряд "${newSquad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
+        redrawMap();
+        return;
+      }
+    }
+
+    // 2. Клик по подсвеченному гексу (пустому) – перемещение
     if (appData.map.reachableHexes.includes(key) && key !== squad.hexPos.join(',')) {
       const fromKey = squad.hexPos.join(',');
-      // --- ДОБАВЬТЕ ЭТИ СТРОКИ ---
       const fromLevel = (appData.map.grid[fromKey]?.level) || 0;
       const toLevel = (appData.map.grid[key]?.level) || 0;
-      // ---------------------------
       const moveCost = getMovementCost(squad, fromKey, key, appData.map.isCrouchMode);
       if (moveCost === Infinity) {
         infoBox.innerHTML = 'Недостижимо';
         return;
       }
-      // Проверка на остаток ОД при подъёме
+      // Проверка на остаток ОД при подъёме (минимум 2 полу-ОД = 1 ОД)
       if (toLevel > fromLevel) {
         const currentAp = getAP(selectedIdx);
-        if (currentAp - moveCost < 1) {
+        if (currentAp - moveCost < 2) {
           infoBox.innerHTML = 'Недостаточно ОД (после подъёма должен остаться 1 ОД)';
           return;
         }
       }
-      // Списываем ОД (в полу-ОД)
+      // Списываем ОД
       if (!spendAP(selectedIdx, moveCost)) {
         infoBox.innerHTML = 'Недостаточно ОД';
         return;
@@ -5567,7 +5581,7 @@ if (mode === 'move') {
       return;
     }
 
-    // Клик по другому гексу – снимаем выделение
+    // 3. Клик по другому гексу (не подсвеченному) – снимаем выделение
     if (!appData.map.reachableHexes.includes(key) && key !== squad.hexPos.join(',')) {
       appData.map.selectedMoveSquadIdx = null;
       appData.map.reachableHexes = [];
@@ -5576,7 +5590,7 @@ if (mode === 'move') {
       return;
     }
 
-    // Клик по текущему гексу – переключаем отряд, если их несколько
+    // 4. Клик по текущему гексу – переключение на следующий отряд, если несколько
     if (key === squad.hexPos.join(',')) {
       if (squadIds.length > 1) {
         const curPos = squadIds.indexOf(selectedIdx);
