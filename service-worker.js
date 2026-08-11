@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wargame-v12.49';
+const CACHE_NAME = 'wargame-v12.50';
 
 const ASSETS = [
   '/index.html',
