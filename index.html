@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.54 — время  </title>
+  <title>Боевой модуль v12.55 — время  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -205,7 +205,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.54</h1>
+    <h1>⚔️ Боевой модуль v12.55</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
 <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
 <button class="menu-btn" onclick="openInfo('history')">📜 История</button>
@@ -231,7 +231,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.54 — время </h2>
+  <h2>⚔️ Боевой модуль v12.55 — время </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -5506,35 +5506,22 @@ if (mode === 'move') {
       return;
     }
 
-    // 1. Переключение на другой отряд (если клик по гексу с другим отрядом)
-    const otherSquadIds = hex.squadIds.filter(id => id !== selectedIdx);
-    if (otherSquadIds.length > 0 && key !== squad.hexPos.join(',')) {
-      const newIdx = otherSquadIds[0];
-      const newSquad = appData.squads[newIdx];
-      if (newSquad) {
-        appData.map.selectedMoveSquadIdx = newIdx;
-        recalcReachable(newSquad, key);
-        infoBox.innerHTML = `Выбран отряд "${newSquad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
-        redrawMap();
-        return;
-      }
-    }
+    const isReachable = appData.map.reachableHexes.includes(key);
+    const isCurrentPos = key === squad.hexPos.join(',');
 
-    // 2. Клик по подсвеченному гексу (пустому) – перемещение
-    if (appData.map.reachableHexes.includes(key) && key !== squad.hexPos.join(',')) {
+    // 1. Клик по достижимому гексу (даже если там есть другие отряды) – перемещаем
+    if (isReachable && !isCurrentPos) {
       const fromKey = squad.hexPos.join(',');
       const moveCost = getMovementCost(squad, fromKey, key, appData.map.isCrouchMode);
       if (moveCost === Infinity) {
         infoBox.innerHTML = 'Недостижимо';
         return;
       }
-      // Списываем ОД
       if (!spendAP(selectedIdx, moveCost)) {
         infoBox.innerHTML = 'Недостаточно ОД';
         return;
       }
 
-      // Обновляем позицию
       const fromHex = appData.map.grid[fromKey];
       fromHex.squadIds = fromHex.squadIds.filter(id => id !== selectedIdx);
       if (!hex.squadIds) hex.squadIds = [];
@@ -5551,17 +5538,24 @@ if (mode === 'move') {
       return;
     }
 
-    // 3. Клик по другому гексу (не подсвеченному) – снимаем выделение
-    if (!appData.map.reachableHexes.includes(key) && key !== squad.hexPos.join(',')) {
-      appData.map.selectedMoveSquadIdx = null;
-      appData.map.reachableHexes = [];
-      redrawMap();
-      infoBox.innerHTML = 'Выделение снято';
-      return;
+    // 2. Клик по недостижимому гексу, на котором есть другой отряд – переключаемся
+    if (!isReachable && !isCurrentPos) {
+      const otherSquadIds = hex.squadIds.filter(id => id !== selectedIdx);
+      if (otherSquadIds.length > 0) {
+        const newIdx = otherSquadIds[0];
+        const newSquad = appData.squads[newIdx];
+        if (newSquad) {
+          appData.map.selectedMoveSquadIdx = newIdx;
+          recalcReachable(newSquad, key);
+          infoBox.innerHTML = `Выбран отряд "${newSquad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
+          redrawMap();
+          return;
+        }
+      }
     }
 
-    // 4. Клик по текущему гексу – переключение на следующий отряд, если несколько
-    if (key === squad.hexPos.join(',')) {
+    // 3. Клик по текущему гексу – переключение на следующий отряд (если есть)
+    if (isCurrentPos) {
       if (squadIds.length > 1) {
         const curPos = squadIds.indexOf(selectedIdx);
         const nextPos = (curPos + 1) % squadIds.length;
@@ -5573,6 +5567,15 @@ if (mode === 'move') {
       } else {
         infoBox.innerHTML = `Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
       }
+      return;
+    }
+
+    // 4. Клик по недостижимому гексу без других отрядов – снимаем выделение
+    if (!isReachable && !isCurrentPos) {
+      appData.map.selectedMoveSquadIdx = null;
+      appData.map.reachableHexes = [];
+      redrawMap();
+      infoBox.innerHTML = 'Выделение снято';
       return;
     }
   }
