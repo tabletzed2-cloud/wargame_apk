@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.42 — поле  </title>
+  <title>Боевой модуль v12.43 — поле  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -205,7 +205,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.42</h1>
+    <h1>⚔️ Боевой модуль v12.43</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
 <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
 <button class="menu-btn" onclick="openInfo('history')">📜 История</button>
@@ -231,7 +231,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.42 — поле </h2>
+  <h2>⚔️ Боевой модуль v12.43 — поле </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -338,6 +338,7 @@
         <option value="destroyedVehicle">🚗 Сгоревшая техника</option>
         <option value="destroyedSquadFriendly">💀 Уничтоженный свой</option>
         <option value="destroyedSquadEnemy">☠️ Уничтоженный враг</option>
+        <option value="dot">?? ДОТ</option>
       </select>
 
       <button onclick="zoomMap(1.2)">➕</button>
@@ -635,7 +636,7 @@ document.getElementById('battleApp').style.display = 'none';
               
           }
         },
-           "map": { "grid": {}, "baseHexSize": 45, "zoomLevel": 1, "mode": "view", "enemySquads": [], "selectedMoveSquadIdx": null, "selectedEnemyMoveIdx": null },
+           "map": { "grid": {}, "baseHexSize": 45, "zoomLevel": 1, "mode": "view", "enemySquads": [], "selectedMoveSquadIdx": null, "selectedEnemyMoveIdx": null, reachableHexes: [], isCrouchMode: false },
         "squads": [],
         "templates": [
           {"name":"Пехотное отделение №1 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/отделение бе1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
@@ -1615,7 +1616,18 @@ function changeCrewStatus(ciIndex, newStatus) {
   saveData();
   updateUI();
 }
-    
+function toggleCrouchMove() {
+  const cb = document.getElementById('crouchMoveCheck');
+  appData.map.isCrouchMode = cb.checked;
+  if (appData.map.selectedMoveSquadIdx !== null) {
+    const squad = appData.squads[appData.map.selectedMoveSquadIdx];
+    if (squad && squad.hexPos) {
+      recalcReachable(squad, squad.hexPos.join(','));
+      redrawMap();
+    }
+  }
+}
+      
 function renderActiveCardButtons() {
   const shootDiv = document.getElementById('shootingPanel');
   const moveDiv = document.getElementById('movementPanel');
@@ -1624,6 +1636,9 @@ function renderActiveCardButtons() {
 
   let shootHtml = '';
   let moveHtml = '';
+  if (!currentSquad.armor && getAP(currentSquadIndex) > 0) {
+  moveHtml += `<label><input type="checkbox" id="crouchMoveCheck" onchange="toggleCrouchMove()"> Скрытое перемещение (2 ОД/гекс)</label> `;
+}
   let specialHtml = '';
 
   // ========== ПАНЕЛЬ СТРЕЛЬБЫ ==========
@@ -2490,6 +2505,116 @@ function satchelCharge() {
 
   return 0;
 }
+
+function getMovementCost(squad, fromKey, toKey, isCrouch) {
+  if (!squad) return Infinity;
+  if (squad.name.includes('ДОТ')) return Infinity;
+
+  const fromHex = appData.map.grid[fromKey];
+  const toHex = appData.map.grid[toKey];
+  if (!fromHex || !toHex) return Infinity;
+
+  const isVehicle = !!squad.armor;
+  const fromLevel = fromHex.level || 0;
+  const toLevel = toHex.level || 0;
+  const terrainType = toHex.type;
+  const terrainData = TERRAIN_DATA[terrainType] || TERRAIN_DATA.grass;
+
+  let baseCost;
+  if (isVehicle) {
+    // Техника (БТР)
+    switch (terrainType) {
+      case 'road': baseCost = 1; break;
+      case 'grass':
+      case 'bushes': baseCost = 1; break;
+      case 'forest':
+      case 'trenches': baseCost = 3; break;
+      case 'hill': baseCost = 4; break;
+      default: baseCost = Infinity; // вода, болото, камни
+    }
+    // Ограничения по уровню
+    if (toLevel > 1) return Infinity;
+    if (toLevel > fromLevel) {
+      if (toLevel === 1 && fromLevel === 0) {
+        baseCost = Math.max(baseCost, 4);
+      } else {
+        return Infinity;
+      }
+    }
+  } else {
+    // Пехота
+    switch (terrainType) {
+      case 'road': baseCost = 2; break;
+      case 'grass': baseCost = 2; break;
+      case 'bushes': baseCost = 3; break;
+      case 'trenches': baseCost = 3; break;
+      case 'forest': baseCost = 3; break;
+      case 'swamp_passable': baseCost = 4; break;
+      case 'hill': baseCost = 2; break;
+      case 'rocks': baseCost = 4; break;
+      default: baseCost = Infinity;
+    }
+    // Подъём
+    if (toLevel > fromLevel) {
+      const isComplex = ['forest', 'bushes', 'trenches'].includes(terrainType);
+      if (!isComplex) {
+        baseCost += 4;
+      }
+    }
+    // Скрытое перемещение
+    if (isCrouch) {
+      baseCost = 4;
+    }
+  }
+
+  return baseCost;
+}
+
+      function getHexNeighbors(key) {
+  const [col, row] = key.split(',').map(Number);
+  const neighbors = [];
+  const parity = row % 2;
+  const offsets = parity === 0 ? 
+    [[1,0], [0,1], [-1,1], [-1,0], [-1,-1], [0,-1]] :
+    [[1,0], [1,1], [0,1], [-1,0], [0,-1], [1,-1]];
+  for (let [dc, dr] of offsets) {
+    const nc = col + dc;
+    const nr = row + dr;
+    if (nc >= 0 && nc < 15 && nr >= 0 && nr < 15) {
+      neighbors.push(`${nc},${nr}`);
+    }
+  }
+  return neighbors;
+}
+
+      function calculateReachableHexes(squad, fromKey, ap, isCrouch) {
+  if (!squad || !fromKey) return [];
+  if (squad.name.includes('ДОТ')) return [];
+
+  const visited = new Map(); // key -> minCost
+  const queue = [{ key: fromKey, cost: 0 }];
+  visited.set(fromKey, 0);
+
+  while (queue.length > 0) {
+    const { key, cost } = queue.shift();
+    const neighbors = getHexNeighbors(key);
+    for (let nKey of neighbors) {
+      const moveCost = getMovementCost(squad, key, nKey, isCrouch);
+      if (moveCost === Infinity) continue;
+      const newCost = cost + moveCost;
+      if (newCost <= ap) {
+        if (!visited.has(nKey) || newCost < visited.get(nKey)) {
+          visited.set(nKey, newCost);
+          queue.push({ key: nKey, cost: newCost });
+        }
+      }
+    }
+  }
+
+  visited.delete(fromKey);
+  return Array.from(visited.keys());
+}
+      
 function meleeAttack() {
   if (!currentSquad || currentSquad.armor) { log('Техника не участвует в рукопашной.'); return; }
   if (getEffectiveMorale() <= 1) { log('❌ Отряд бежит.'); return; }
@@ -4854,7 +4979,30 @@ function useFighterIPP(fighterIndex) {
       rocks:            { color: '#78909C', baseCost: 5,  icon: '🪨', level: 0, images: ['images/камни.png', 'images/камни1.png', 'images/камни2.png'] },
       trenches:         { color: '#A1887F', baseCost: 3,  icon: '🕳️', level: 0, images: ['images/окоп1.png', 'images/окоп2.png', 'images/окоп3.png', 'images/окоп4.png', 'images/окоп5.png', 'images/окоп6.png'] },
    };
+const markerIconMap = {
+  'detected': { icon: 'images/marker_detected.png', fallback: '???', width: 30, height: 30 },
+  'noise': { icon: 'images/marker_noise.png', fallback: '??', width: 30, height: 30 },
+  'artillery': { icon: 'images/marker_artillery.png', fallback: '??', width: 30, height: 30 },
+  'fireField': { icon: 'images/marker_firefield.png', fallback: '??', width: 30, height: 30 },
+  'bicyclePark': { icon: 'images/marker_bicycle.png', fallback: '??', width: 30, height: 30 },
+  'ammoPoint': { icon: 'images/marker_ammo.png', fallback: '??', width: 30, height: 30 },
+  'destroyedVehicle': { icon: 'images/marker_destroyed_vehicle.png', fallback: '??', width: 30, height: 30 },
+  'destroyedSquadFriendly': { icon: 'images/marker_destroyed_squad_friendly.png', fallback: '??', width: 30, height: 30 },
+  'destroyedSquadEnemy': { icon: 'images/marker_destroyed_squad_enemy.png', fallback: '??', width: 30, height: 30 },
+  'dot': { icon: 'images/marker_dot.png', fallback: '??', width: 30, height: 30 }
+};
+const loadedMarkerImages = {};
 
+function preloadMarkerIcons() {
+  for (let type in markerIconMap) {
+    const def = markerIconMap[type];
+    const img = new Image();
+    img.src = def.icon;
+    img.onload = () => { loadedMarkerImages[type] = img; };
+  }
+}
+preloadMarkerIcons();
+      
       const loadedImages = {}; // кеш загруженных Image
 
 function preloadTerrainImages() {
@@ -4938,6 +5086,8 @@ async function loadInfoFile(filename, containerId) {
   }
 }
       appData.map.lastEditedHex = null;
+      appData.map.reachableHexes = []; // массив ключей гексов, доступных для перемещения
+      appData.map.isCrouchMode = false; // для скрытого перемещения
       redrawMap();
       updateSquadDropdown();
       setupMapControls();
@@ -4974,6 +5124,31 @@ async function loadInfoFile(filename, containerId) {
         let clientY = e.clientY;
         handleCanvasClick(clientX, clientY, this);
       };
+      // Подсветка достижимых гексов
+if (appData.map.mode === 'move' && appData.map.reachableHexes && appData.map.reachableHexes.length > 0) {
+  const size = appData.map.baseHexSize * appData.map.zoomLevel;
+  ctx.save();
+  ctx.globalAlpha = 0.3;
+  for (let key of appData.map.reachableHexes) {
+    const center = appData.map.centers.find(c => c.key === key);
+    if (center) {
+      const x = center.x;
+      const y = center.y;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = Math.PI / 180 * (60 * i - 30);
+        const xi = x + size * Math.cos(angle);
+        const yi = y + size * Math.sin(angle);
+        if (i === 0) ctx.moveTo(xi, yi);
+        else ctx.lineTo(xi, yi);
+      }
+      ctx.closePath();
+      ctx.fillStyle = '#4CAF50';
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
     }
 
     function drawHex(ctx, x, y, size, hexData) {
@@ -5103,27 +5278,51 @@ if (enemy.name) {
       }
 
       // ====== ОТРИСОВКА МЕТОК ======
-      let markers = hexData.markers || [];
-      if (!Array.isArray(markers)) {
-        const newMarkers = [];
-        if (markers.detected) newMarkers.push('detected');
-        if (markers.noise) newMarkers.push('noise');
-        markers = newMarkers;
-        hexData.markers = markers;
-      }
+let markers = hexData.markers || [];
+if (!Array.isArray(markers)) {
+  const newMarkers = [];
+  if (markers.detected) newMarkers.push('detected');
+  if (markers.noise) newMarkers.push('noise');
+  markers = newMarkers;
+  hexData.markers = markers;
+}
 
-      let markerY = y + size * 0.6;
-      const markerIcons = {
-        'detected': '👁️',
-        'noise': '🔊',
-        'artillery': '💥',
-        'fireField': '🔥',
-        'bicyclePark': '🚲',
-        'ammoPoint': '📦',
-        'destroyedVehicle': '🚗',
-        'destroyedSquadFriendly': '💀',
-        'destroyedSquadEnemy': '☠️'
-      };
+let markerY = y + size * 0.6;
+markers.forEach(type => {
+  const markerDef = markerIconMap[type];
+  let iconSize = size * 0.3;
+  if (markerDef) {
+    const img = loadedMarkerImages[type];
+    if (img && img.complete && img.naturalWidth > 0) {
+      ctx.drawImage(img, x - iconSize/2, markerY - iconSize/2, iconSize, iconSize);
+    } else {
+      ctx.fillStyle = '#fff';
+      ctx.font = (iconSize) + 'px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(markerDef.fallback, x, markerY);
+    }
+  } else {
+    ctx.fillStyle = '#fff';
+    ctx.font = (size * 0.3) + 'px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('?', x, markerY);
+  }
+  markerY += size * 0.3;
+});
+
+      const loadedMarkerImages = {};
+
+function preloadMarkerIcons() {
+  for (let type in markerIconMap) {
+    const def = markerIconMap[type];
+    const img = new Image();
+    img.src = def.icon;
+    img.onload = () => { loadedMarkerImages[type] = img; };
+  }
+}
+preloadMarkerIcons();
       
       markers.forEach(type => {
         if (markerIcons[type]) {
@@ -5160,7 +5359,12 @@ if (enemy.name) {
         handleHexAction(closestKey);
       }
     }
-
+function recalcReachable(squad, fromKey) {
+  const idx = appData.squads.indexOf(squad);
+  const ap = getAP(idx);
+  const isCrouch = appData.map.isCrouchMode;
+  appData.map.reachableHexes = calculateReachableHexes(squad, fromKey, ap, isCrouch);
+}
 function handleHexAction(key) {
   const hex = appData.map.grid[key];
   const mode = appData.map.mode;
@@ -5250,66 +5454,91 @@ function handleHexAction(key) {
 
   // ======== ПЕРЕМЕЩЕНИЕ СВОЕГО ОТРЯДА ========
   if (mode === 'move') {
-    const selectedIdx = appData.map.selectedMoveSquadIdx;
+  const selectedIdx = appData.map.selectedMoveSquadIdx;
+  const squadIds = hex.squadIds || [];
 
-    // Если уже есть выбранный отряд
-    if (selectedIdx !== null) {
-      const squad = appData.squads[selectedIdx];
-      if (!squad || !squad.hexPos) {
-        infoBox.innerHTML = '❌ Выбранный отряд не найден или не размещён.';
-        appData.map.selectedMoveSquadIdx = null;
-        redrawMap();
-        return;
-      }
+  // Если уже выбран отряд
+  if (selectedIdx !== null) {
+    const squad = appData.squads[selectedIdx];
+    if (!squad) {
+      appData.map.selectedMoveSquadIdx = null;
+      appData.map.reachableHexes = [];
+      redrawMap();
+      return;
+    }
 
-      // Клик по тому же гексу, где стоит выбранный отряд → переключить на другого
-      if (key === squad.hexPos.join(',')) {
-        const currentHex = appData.map.grid[key];
-        const squadIds = currentHex.squadIds || [];
-        if (squadIds.length > 1) {
-          const curPos = squadIds.indexOf(selectedIdx);
-          const nextPos = (curPos + 1) % squadIds.length;
-          appData.map.selectedMoveSquadIdx = squadIds[nextPos];
-          const nextSquad = appData.squads[squadIds[nextPos]];
-          infoBox.innerHTML = `✅ Выбран отряд "${nextSquad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
-        } else {
-          infoBox.innerHTML = `✅ Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
-        }
-        redrawMap();
-        return;
-      }
-
-      // Клик по другому гексу → перемещаем выбранный отряд
+    // Клик по подсвеченному гексу (кроме текущего)
+    if (appData.map.reachableHexes.includes(key) && key !== squad.hexPos.join(',')) {
       const fromKey = squad.hexPos.join(',');
-      const fromHex = appData.map.grid[fromKey];
-      if (fromHex && fromHex.squadIds) {
-        fromHex.squadIds = fromHex.squadIds.filter(id => id !== selectedIdx);
+      const moveCost = getMovementCost(squad, fromKey, key, appData.map.isCrouchMode);
+      if (moveCost === Infinity) {
+        infoBox.innerHTML = 'Недостижимо';
+        return;
       }
+      // Списываем ОД (в полу-ОД)
+      if (!spendAP(selectedIdx, moveCost)) {
+        infoBox.innerHTML = 'Недостаточно ОД';
+        return;
+      }
+
+      // Обновляем позицию
+      const fromHex = appData.map.grid[fromKey];
+      fromHex.squadIds = fromHex.squadIds.filter(id => id !== selectedIdx);
       if (!hex.squadIds) hex.squadIds = [];
       hex.squadIds.push(selectedIdx);
       squad.hexPos = key.split(',').map(Number);
       squad.movedThisTurn = true;
 
-      infoBox.innerHTML = `🚶 Отряд "${squad.name}" перемещён на ${key} (без затрат ОД).`;
+      infoBox.innerHTML = `Отряд "${squad.name}" перемещён на ${key} (потрачено ${moveCost/2} ОД).`;
       appData.map.selectedMoveSquadIdx = null;
+      appData.map.reachableHexes = [];
       saveData();
       updateUI();
       redrawMap();
       return;
     }
 
-    // Ничего не выбрано – первое нажатие на гекс с отрядом
-    const squadIds = hex.squadIds || [];
-    if (squadIds.length === 0) {
-      infoBox.innerHTML = '⚠️ На этом гексе нет ваших отрядов.';
+    // Клик по другому гексу – снимаем выделение
+    if (!appData.map.reachableHexes.includes(key) && key !== squad.hexPos.join(',')) {
+      appData.map.selectedMoveSquadIdx = null;
+      appData.map.reachableHexes = [];
+      redrawMap();
+      infoBox.innerHTML = 'Выделение снято';
       return;
     }
-    appData.map.selectedMoveSquadIdx = squadIds[0];
-    const squad = appData.squads[squadIds[0]];
-    infoBox.innerHTML = `✅ Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
-    redrawMap();
-    return;
+
+    // Клик по текущему гексу – переключаем отряд, если их несколько
+    if (key === squad.hexPos.join(',')) {
+      if (squadIds.length > 1) {
+        const curPos = squadIds.indexOf(selectedIdx);
+        const nextPos = (curPos + 1) % squadIds.length;
+        appData.map.selectedMoveSquadIdx = squadIds[nextPos];
+        const nextSquad = appData.squads[squadIds[nextPos]];
+        infoBox.innerHTML = `Выбран отряд "${nextSquad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
+        recalcReachable(nextSquad, key);
+        redrawMap();
+      } else {
+        infoBox.innerHTML = `Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
+      }
+      return;
+    }
   }
+
+  // Если нет выбранного отряда, но клик на гекс с отрядом – выбираем
+  if (squadIds.length > 0) {
+    const idx = squadIds[0];
+    const squad = appData.squads[idx];
+    if (squad) {
+      appData.map.selectedMoveSquadIdx = idx;
+      recalcReachable(squad, key);
+      infoBox.innerHTML = `Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
+      redrawMap();
+      return;
+    }
+  } else {
+    infoBox.innerHTML = 'На этом гексе нет ваших отрядов.';
+  }
+}
 
   // ======== ПЕРЕМЕЩЕНИЕ ВРАГА ========
   if (mode === 'moveEnemy') {
