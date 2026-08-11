@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.43 — поле  </title>
+  <title>Боевой модуль v12.44 — поле  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -205,7 +205,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.43</h1>
+    <h1>⚔️ Боевой модуль v12.44</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
 <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
 <button class="menu-btn" onclick="openInfo('history')">📜 История</button>
@@ -231,7 +231,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.43 — поле </h2>
+  <h2>⚔️ Боевой модуль v12.44 — поле </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -315,7 +315,12 @@
       <button onclick="setMapMode('marker')" style="background:#8e44ad;">📌 Метки</button>
       <button onclick="setMapMode('view')" style="background:#555;">🖱️ Просмотр</button>
       <button onclick="exportCurrentMap()">💾 Экспорт текущей карты</button>
-      
+      <button onclick="nextTurn()" style="background:#2980b9;">?? Завершить ход</button>
+
+
+      <label id="crouchLabel" style="display:none;">
+  <input type="checkbox" id="crouchMoveCheck" onchange="toggleCrouchMove()"> Скрытое перемещение (2 ОД/гекс)
+</label>
       <label>Отряд: <select id="squadToPlace"></select></label>
       <select id="terrainTypeSelect" style="display:none; background:#444; color:#fff;">
         <!-- ваш список типов местности -->
@@ -4942,6 +4947,7 @@ function populateCardsEditorFactionSelect() {
       else if (tabName === 'awardsTab') { renderAwardsReference(); }
       else if (tabName === 'cardsEditorTab') { populateCardsEditorFactionSelect(); renderCardLibraryEditor();}
       else if (tabName === 'mapTemplatesTab') { renderMapTemplates(); loadMapIndex();}
+      else if (tabName === 'mapTab') { resetMapZoom(); initMap(); updateSquadDropdown(); updateEnemyDropdown(); updateEnemyFactionDropdown(); populateTerrainSelect(); loadMapIndex(); }
     }
       
 function useFighterIPP(fighterIndex) {
@@ -5475,6 +5481,14 @@ function handleHexAction(key) {
         infoBox.innerHTML = 'Недостижимо';
         return;
       }
+         // Перед списанием ОД
+if (moveCost > 0 && toLevel > fromLevel) {
+  const currentAp = getAP(selectedIdx);
+  if (currentAp - moveCost < 1) {
+    infoBox.innerHTML = 'Недостаточно ОД (после подъёма должен остаться 1 ОД)';
+    return;
+  }
+}
       // Списываем ОД (в полу-ОД)
       if (!spendAP(selectedIdx, moveCost)) {
         infoBox.innerHTML = 'Недостаточно ОД';
@@ -5538,6 +5552,7 @@ function handleHexAction(key) {
   } else {
     infoBox.innerHTML = 'На этом гексе нет ваших отрядов.';
   }
+
 }
 
   // ======== ПЕРЕМЕЩЕНИЕ ВРАГА ========
@@ -5624,16 +5639,19 @@ function handleHexAction(key) {
       else sel.style.display = 'none';
     }
 
-     function setMapMode(mode) {
-      appData.map.mode = mode;
-      appData.map.selectedMoveSquadIdx = null;
-      appData.map.selectedEnemyMoveIdx = null; // для перемещения врагов (добавим позже)
-      document.getElementById('terrainTypeSelect').style.display = (mode === 'edit') ? 'inline-block' : 'none';
-      document.getElementById('markerTypeSelect').style.display = (mode === 'marker') ? 'inline-block' : 'none';
-      document.getElementById('elevationLevelSelect').style.display = (mode === 'edit') ? 'inline-block' : 'none'; 
-      document.getElementById('mapInfo').innerHTML = `Режим: ${mode}`;
-            redrawMap();
-    }
+function setMapMode(mode) {
+  appData.map.mode = mode;
+  appData.map.selectedMoveSquadIdx = null;
+  appData.map.selectedEnemyMoveIdx = null;
+  document.getElementById('terrainTypeSelect').style.display = (mode === 'edit') ? 'inline-block' : 'none';
+  document.getElementById('markerTypeSelect').style.display = (mode === 'marker') ? 'inline-block' : 'none';
+  document.getElementById('elevationLevelSelect').style.display = (mode === 'edit') ? 'inline-block' : 'none';
+  // Показываем чекбокс только в режиме перемещения
+  document.getElementById('crouchLabel').style.display = (mode === 'move') ? 'inline-block' : 'none';
+  document.getElementById('mapInfo').innerHTML = `Режим: ${mode}`;
+  redrawMap();
+}
+      
     function setMarkerByCoords() {
       const select = document.getElementById('markerTypeSelect');
       const markerType = select.value;
@@ -5830,7 +5848,7 @@ function handleHexAction(key) {
     }
 
 // Загрузка списка карт из maps/index.json
-async function loadMapIndex() {
+      async function loadMapIndex() {
   try {
     const response = await fetch('maps/index.json');
     if (!response.ok) throw new Error('index not found');
@@ -5841,11 +5859,12 @@ async function loadMapIndex() {
       `<option value="${item.file}">${item.name}</option>`
     ).join('');
   } catch (e) {
+    console.warn('Ошибка загрузки индекса карт:', e);
     const sel = document.getElementById('repoMapSelect');
     if (sel) sel.innerHTML = '<option>Не удалось загрузить список</option>';
-    console.warn('Ошибка загрузки индекса карт:', e);
   }
 }
+
 
 // Загрузка выбранной карты и замена текущей
 async function loadMapFromRepo() {
