@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.53 — время  </title>
+  <title>Боевой модуль v12.54 — время  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -205,7 +205,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.53</h1>
+    <h1>⚔️ Боевой модуль v12.54</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
 <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
 <button class="menu-btn" onclick="openInfo('history')">📜 История</button>
@@ -231,7 +231,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.53 — время </h2>
+  <h2>⚔️ Боевой модуль v12.54 — время </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -2544,11 +2544,22 @@ function getMovementCost(squad, fromKey, toKey, isCrouch) {
   const fromLevel = (appData.map.grid[fromKey]?.level) || 0;
   const toLevel = (appData.map.grid[toKey]?.level) || 0;
   const terrainType = toHex.type;
-  const terrainData = TERRAIN_DATA[terrainType] || TERRAIN_DATA.grass;
 
+  // 1. Скрытое перемещение (только пехота) – 2 ОД
+  if (!isVehicle && isCrouch) {
+    return 4; // 4 полу-ОД = 2 ОД
+  }
+
+  // 2. Подъём на уровень – всегда 2 ОД (4 полу-ОД)
+  if (toLevel > fromLevel) {
+    if (isVehicle && toLevel > 1) return Infinity; // техника только на ур.1
+    return 4; // 4 полу-ОД = 2 ОД
+  }
+
+  // 3. Обычное движение (без подъёма и без скрытого перемещения)
+  const terrainData = TERRAIN_DATA[terrainType] || TERRAIN_DATA.grass;
   let baseCost;
   if (isVehicle) {
-    // Техника
     switch (terrainType) {
       case 'road': baseCost = 1; break;
       case 'grass':
@@ -2556,18 +2567,10 @@ function getMovementCost(squad, fromKey, toKey, isCrouch) {
       case 'forest':
       case 'trenches': baseCost = 3; break;
       case 'hill': baseCost = 4; break;
-      default: baseCost = Infinity;
+      default: baseCost = Infinity; // вода, болото, камни и т.д.
     }
-    if (toLevel > 1) return Infinity;
-    if (toLevel > fromLevel) {
-      if (toLevel === 1 && fromLevel === 0) {
-        baseCost = Math.max(baseCost, 4);
-      } else {
-        return Infinity;
-      }
-    }
+    if (toLevel > 1) return Infinity; // техника не может быть выше ур.1
   } else {
-    // Пехота
     switch (terrainType) {
       case 'road': baseCost = 2; break;
       case 'grass': baseCost = 2; break;
@@ -2579,15 +2582,7 @@ function getMovementCost(squad, fromKey, toKey, isCrouch) {
       case 'rocks': baseCost = 4; break;
       default: baseCost = Infinity;
     }
-// Подъём
-if (toLevel > fromLevel) {
-  baseCost += 4; // всегда +4 полу-ОД (2 ОД) за подъём
-}
-    if (isCrouch) {
-      baseCost = 4;
-    }
   }
-
   return baseCost;
 }
 
@@ -2612,7 +2607,6 @@ function calculateReachableHexes(squad, fromKey, ap, isCrouch) {
   if (!squad || !fromKey) return [];
   if (squad.name.includes('ДОТ')) return [];
 
-  const isVehicle = !!squad.armor;
   const visited = new Map();
   const queue = [{ key: fromKey, cost: 0 }];
   visited.set(fromKey, 0);
@@ -2623,13 +2617,8 @@ function calculateReachableHexes(squad, fromKey, ap, isCrouch) {
     for (let nKey of neighbors) {
       const moveCost = getMovementCost(squad, key, nKey, isCrouch);
       if (moveCost === Infinity) continue;
-      let newCost = cost + moveCost;
-      
-      const fromLevel = (appData.map.grid[key]?.level) || 0;
-      const toLevel = (appData.map.grid[nKey]?.level) || 0;
-
-      // Единая проверка: хватает ли ОД (без требования остатка)
-      if (newCost > ap) continue;
+      const newCost = cost + moveCost;
+      if (newCost > ap) continue; // только проверка хватает ли ОД
 
       if (!visited.has(nKey) || newCost < visited.get(nKey)) {
         visited.set(nKey, newCost);
