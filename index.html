@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.56 — время  </title>
+  <title>Боевой модуль v12.57 — ошибки  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -205,16 +205,13 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.56</h1>
+    <h1>⚔️ Боевой модуль v12.57</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
 <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
 <button class="menu-btn" onclick="openInfo('history')">📜 История</button>
 <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
   </div>
-<div id="factionModal" class="faction-modal">
-  <div class="faction-modal-content" id="factionModalContent"></div>
-</div>
   <!-- Приложение (бой) – изначально скрыто -->
   <div id="battleApp" style="display:none;">
     
@@ -231,7 +228,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.56 — время </h2>
+  <h2>⚔️ Боевой модуль v12.57 — ошибки </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -408,7 +405,8 @@
     function rollD6() { return Math.floor(Math.random()*6)+1; }
     function formatTime(minutes) { const h = Math.floor(minutes / 60); const m = minutes % 60; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;}
     function rollD10() { return Math.floor(Math.random()*10)+1; }
-    function log(msg) { const d = document.getElementById('log'); if(d){ d.innerHTML += msg+'<br>'; d.scrollTop = d.scrollHeight; } }
+    function log(msg) { const d = document.getElementById('log'); if (d) { const entry = document.createElement('div'); entry.textContent = msg; d.appendChild(entry); d.scrollTop = d.scrollHeight;}
+}
 
     const STORAGE_KEY = 'wargameV10';
 function safeLocalStorage(method, ...args) {
@@ -5232,6 +5230,7 @@ if (appData.map.mode === 'move' && appData.map.reachableHexes && appData.map.rea
 const variantIndex = hexData.variant || 0;
 const imgs = loadedImages[hexData.type] || [];
 const img = imgs[variantIndex];
+const loadedEnemyIcons = {}; // кэш для иконок врагов по URL
 
 if (img && img.complete) {  
   ctx.save();
@@ -5330,18 +5329,24 @@ if (squadIds.length > 0) {
           const drawY = y + size * 0.2;
           
           // Если у врага есть иконка — рисуем её, иначе рисуем череп ☠️
-          if (enemy.icon) {
-            const img = new Image();
-            img.src = enemy.icon;
-            ctx.drawImage(img, drawX - iconSize/2, drawY - iconSize/2, iconSize, iconSize);
-            // Подпись: название врага (первые 5 букв)
-if (enemy.name) {
-  ctx.fillStyle = '#fff';
-  ctx.font = (size * 0.2) + 'px Arial';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'bottom';
-  ctx.fillText(enemy.name.substring(0, 5), drawX, drawY + iconSize/2 + 4);
-}
+if (enemy.icon) {
+  let img = loadedEnemyIcons[enemy.icon];
+  if (!img) {
+    img = new Image();
+    img.src = enemy.icon;
+    loadedEnemyIcons[enemy.icon] = img;
+  }
+  if (img.complete && img.naturalWidth > 0) {
+    ctx.drawImage(img, drawX - iconSize/2, drawY - iconSize/2, iconSize, iconSize);
+  } else {
+    // fallback если ещё не загрузилась
+    img.onload = () => redrawMap(); // после загрузки перерисуем
+    ctx.fillStyle = '#e74c3c';
+    ctx.font = (iconSize * 0.8) + 'px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('☠️', drawX, drawY);
+  }
           } else {
             ctx.fillStyle = '#e74c3c';
             ctx.font = (iconSize * 0.8) + 'px Arial';
@@ -5361,20 +5366,13 @@ if (enemy.name) {
 
       // ====== ОТРИСОВКА МЕТОК ======
 let markers = hexData.markers || [];
-if (!Array.isArray(markers)) {
-  const newMarkers = [];
-  if (markers.detected) newMarkers.push('detected');
-  if (markers.noise) newMarkers.push('noise');
-  markers = newMarkers;
-  hexData.markers = markers;
-}
-
 let markerY = y + size * 0.6;
 markers.forEach(type => {
   const markerDef = markerIconMap[type];
   let iconSize = size * 0.3;
   if (markerDef) {
     const img = loadedMarkerImages[type];
+    const loadedEnemyIcons = {};
     if (img && img.complete && img.naturalWidth > 0) {
       ctx.drawImage(img, x - iconSize/2, markerY - iconSize/2, iconSize, iconSize);
     } else {
@@ -5450,6 +5448,7 @@ function recalcReachable(squad, fromKey) {
 }
 function handleHexAction(key) {
   const hex = appData.map.grid[key];
+  if (!hex) { document.getElementById('mapInfo').innerHTML = 'Ошибка: гекс не найден!'; return; }
   const mode = appData.map.mode;
   const infoBox = document.getElementById('mapInfo');
   console.log('Клик по гексу', key, 'режим:', mode);
@@ -5638,7 +5637,7 @@ if (mode === 'move') {
   } else {
     infoBox.innerHTML = 'На этом гексе нет ваших отрядов.';
   }
-}
+  }
 
   // ======== ПЕРЕМЕЩЕНИЕ ВРАГА ========
   if (mode === 'moveEnemy') {
@@ -5715,6 +5714,7 @@ if (mode === 'move') {
 
   // Режим просмотра (view) или fallback
   infoBox.innerHTML = `Гекс ${key}: ${hex.type}. Своих: ${hex.squadIds.length}, Врагов: ${hex.enemySquadIds.length}`;
+  updateUI()
 }
       
     // ================= ИНСТРУМЕНТЫ РЕДАКТОРА И МАРКЕРОВ =================
@@ -5762,22 +5762,6 @@ function setMapMode(mode) {
       redrawMap();
     }
       
-    function setMarker(markerType) {
-      if (!appData.map.centers) return;
-      // Ищем ближайший гекс к центру экрана или просто используем последний кликнутый.
-      // Для простоты: спросим координаты
-      const coords = prompt('Введите координаты гекса для установки метки (например, 5,3):');
-      if (!coords) return;
-      const key = coords.replace(/\s/g, '');
-      const hex = appData.map.grid[key];
-      if (!hex) { alert('Гекс не найден!'); return; }
-      
-      if (markerType === 'detected') hex.markers.detected = !hex.markers.detected;
-      if (markerType === 'noise') hex.markers.noise = !hex.markers.noise;
-      saveData();
-      redrawMap();
-      document.getElementById('mapInfo').innerHTML = `Метка ${markerType} установлена на ${key}`;
-    }
 
     function placeEnemy() {
       const coords = prompt('Введите координаты гекса для вражеского отряда (например, 5,3):');
@@ -5931,36 +5915,20 @@ function setMapMode(mode) {
       log(`Шаблон "${t.name}" загружен.`);
       renderMapTemplates();
     }
-function loadMapIndex() {
-  const sel = document.getElementById('repoMapSelect');
-  if (!sel) return;
-  const maps = [
-    { name: "Высота_142", file: "maps/высота_142.json" }
-  ];
-  sel.innerHTML = maps.map(item => 
-    `<option value="${item.file}">${item.name}</option>`
-  ).join('');
-  console.log('Список карт загружен (хардкод)');
-}
-// Загрузка списка карт из maps/index.json
 async function loadMapIndex() {
   console.log('Загрузка списка карт...');
+  const sel = document.getElementById('repoMapSelect');
+  if (!sel) return;
   try {
     const response = await fetch('maps/index.json');
-    if (!response.ok) {
-      throw new Error(`HTTP ошибка: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`HTTP ошибка: ${response.status}`);
     const list = await response.json();
-    console.log('Список карт получен:', list);
-    const sel = document.getElementById('repoMapSelect');
-    if (!sel) return;
-    sel.innerHTML = list.map(item => 
+    sel.innerHTML = list.map(item =>
       `<option value="${item.file}">${item.name}</option>`
     ).join('');
   } catch (e) {
     console.error('Ошибка загрузки списка карт:', e);
-    const sel = document.getElementById('repoMapSelect');
-    if (sel) sel.innerHTML = '<option>Ошибка загрузки</option>';
+    sel.innerHTML = '<option>Ошибка загрузки</option>';
   }
 }
 
