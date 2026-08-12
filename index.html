@@ -541,7 +541,74 @@ function closeCampaign() {
   document.getElementById('campaignApp').style.display = 'none';
   document.getElementById('mainMenu').style.display = 'block';
 }
+function generateBattalion(faction, supportIds) {
+  const preset = BATTALION_PRESETS[faction];
+  if (!preset) return null;
+  const battalion = { faction, units: [] };
 
+  // Вспомогательная функция клонирования шаблона
+  function cloneTemplate(name, templateName) {
+    const tmpl = appData.templates.find(t => t.name === templateName);
+    if (!tmpl) {
+      console.warn(`Шаблон ${templateName} не найден`);
+      return null;
+    }
+    const squad = JSON.parse(JSON.stringify(tmpl));
+    squad.name = name;
+    squad.currentMorale = squad.baseMorale;
+    squad.hidden = false;
+    assignUniqueCrewKeys(squad);
+    return squad;
+  }
+
+  // Обработка стандартных подразделений
+  preset.standard.forEach(item => {
+    switch (item.type) {
+      case "hq":
+        battalion.units.push({
+          type: "hq", name: item.name,
+          squads: [cloneTemplate(item.name, item.templateName)].filter(Boolean)
+        });
+        break;
+      case "mortar_battery":
+      case "at_battery":
+        battalion.units.push({
+          type: item.type, name: item.name,
+          squads: item.templates.map(t => cloneTemplate(t.name, t.templateName)).filter(Boolean)
+        });
+        break;
+      case "infantry_company":
+        const company = { type: "infantry_company", name: item.name, platoons: [] };
+        item.platoons.forEach(pl => {
+          const platoon = { name: pl.name, squads: pl.squads.map(s => cloneTemplate(s.name, s.templateName)).filter(Boolean) };
+          company.platoons.push(platoon);
+        });
+        if (item.hq) company.hq = cloneTemplate(item.hq.name, item.hq.templateName);
+        battalion.units.push(company);
+        break;
+      // ... можно добавить bicycle_company и другие
+    }
+  });
+
+  // Поддержка
+  preset.supportOptions.forEach(opt => {
+    if (supportIds.includes(opt.id)) {
+      if (opt.templates) {
+        battalion.units.push({
+          type: opt.id, name: opt.name,
+          squads: opt.templates.map((t, idx) => cloneTemplate(`${opt.name} ${idx+1}`, t)).filter(Boolean)
+        });
+      } else if (opt.template) {
+        battalion.units.push({
+          type: opt.id, name: opt.name,
+          squads: [cloneTemplate(opt.name, opt.template)].filter(Boolean)
+        });
+      }
+    }
+  });
+
+  return battalion;
+}
 function showScenarioSelection() {
   const container = document.getElementById('campaignContent');
   container.innerHTML = `
@@ -597,10 +664,62 @@ function selectCampaignFaction(faction) {
     <button onclick="showScenarioSelection()" style="background:#555;">Назад к выбору сценария</button>
   `;
 }
-
 function startBattalionAssembly(faction) {
   const container = document.getElementById('campaignContent');
-  container.innerHTML = `<p>Сбор батальона для ${faction} будет реализован на следующем этапе.</p>`;
+  const preset = BATTALION_PRESETS[faction];
+  if (!preset) {
+    container.innerHTML = '<p>Нет данных для этой фракции.</p>';
+    return;
+  }
+
+  // Список стандартного состава (просто текстом)
+  let stdList = '<ul>';
+  preset.standard.forEach(item => {
+    stdList += `<li><strong>${item.name}</strong> (${item.type})</li>`;
+  });
+  stdList += '</ul>';
+
+  // Чекбоксы поддержки
+  let supportHtml = '';
+  preset.supportOptions.forEach(opt => {
+    supportHtml += `<div><label><input type="checkbox" value="${opt.id}" class="support-check"> ${opt.name}</label></div>`;
+  });
+
+  container.innerHTML = `
+    <h2>Сбор батальона (${faction})</h2>
+    <h3>Стандартный состав:</h3>
+    ${stdList}
+    <h3>Доступная поддержка:</h3>
+    <div id="supportOptions">${supportHtml}</div>
+    <button class="menu-btn" onclick="confirmBattalion('${faction}')">Сформировать батальон</button>
+    <button onclick="selectCampaignFaction('${faction}')" style="background:#555;">Назад</button>
+  `;
+}
+
+function confirmBattalion(faction) {
+  const checks = document.querySelectorAll('.support-check:checked');
+  const supportIds = Array.from(checks).map(cb => cb.value);
+  const battalion = generateBattalion(faction, supportIds);
+  if (!battalion) {
+    alert('Ошибка формирования батальона');
+    return;
+  }
+  appData.campaign.battalions.player = battalion;
+  appData.campaign.playerFaction = faction;
+  appData.campaign.active = true; // активируем кампанию
+  saveData();
+
+  const container = document.getElementById('campaignContent');
+  container.innerHTML = `
+    <h2>Батальон сформирован!</h2>
+    <p>В составе ${battalion.units.reduce((total, u) => {
+      if (u.squads) total += u.squads.length;
+      if (u.platoons) u.platoons.forEach(p => total += p.squads.length);
+      return total;
+    }, 0)} отделений/расчётов.</p>
+    <button class="menu-btn" onclick="alert('Операционная карта появится на следующем этапе')">Перейти к карте</button>
+    <button onclick="closeCampaign()" style="background:#555;">Выход в меню</button>
+  `;
 }
 // Загружаем сохранённый выбор (если есть)
 try {
@@ -661,6 +780,7 @@ document.getElementById('battleApp').style.display = 'none';
               { "type": "mortar", "name": "Минометный расчёт 50мм DBT", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 3, "shotsReduced2": 2, "shotsReduced1": 1, "effectiveRange": 10, "icon": "https://i.imgur.com/bxlyHe3.png" },
               { "type": "at_gun", "name": "Расчёт ПТО Bohler M37", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 3, "shotsReduced2": 2, "shotsReduced1": 1, "effectiveRange": 10, "penetration": {"1":58,"2":58,"3":58,"4":54,"5":54,"6":54,"7":51,"8":51,"9":51,"10":47,"11":47,"12":47,"13":43,"14":43,"15":43,"16":41,"17":41,"18":41,"19":39,"20":39,"21":39,"22":36,"23":36,"24":36,"25":36,"26":36,"27":36,"28":36,"29":36,"30":36}, "icon": "https://i.imgur.com/kmSaR2C.png" },
               { "type": "at_gun", "name": "75-мм орудие SAU Brugge", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 2, "shotsReduced2": 1, "shotsReduced1": 1, "effectiveRange": 15, "penetration": {"1":65,"2":65,"3":65,"4":60,"5":60,"6":60,"7":57,"8":57,"9":57,"10":55,"11":55,"12":55,"13":55,"14":55,"15":55,"16":52,"17":52,"18":52,"19":50,"20":50,"21":50,"22":47,"23":47,"24":47,"25":45,"26":45,"27":45,"28":40,"29":40,"30":40}, "icon": "" },
+              { "type": "at_gun", "name": "37-мм Bofors", "crewSize": 2, "shotRule": "fixed_per_crew", "shotsFull": 2, "shotsReduced2": 1, "shotsReduced1": 1, "effectiveRange": 15, "penetration": {"1":,"2":,"3":,"4":,"5":,"6":,"7":,"8":,"9":,"10":42,"11":,"12":,"13":,"14":,"15":37,"16":35,"17":35,"18":35,"19":33,"20":33,"21":33,"22":33,"23":30,"24":30,"25":30,"26":30,"27":30,"28":30,"29":30,"30":28}, "icon": "" },
               { "type": "mg", "name": "Пулемёт SAU Brugge", "crewSize": 1, "shotRule": "sum_d6", "fullCrewDice": 1, "minCrewDice": 1, "effectiveRange": 5, "icon": "" }
             ],
             "cardLibrary": [
@@ -821,6 +941,19 @@ document.getElementById('battleApp').style.display = 'none';
           ],
           "crewInstances":[
             {"weaponName": "75-мм орудие SAU Brugge", "fighterIndices": [2, 3, 4], "active": true },
+            {"weaponName": "Пулемёт SAU Brugge", "fighterIndices": [1], "active": true }
+          ],
+           "armor": { "front": 20, "side": 16, "rear": 16, "turret": 20 }},
+            {"name":"Бронеавтомобиль Landsverk 183","faction":"BeVe","baseMorale":8,"currentMorale":8,"icon":"","ammoSmall":50,"ammoOrdnance":20,"grenades":0,"fighters":[
+            {"name":"Механик-водитель","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},
+            {"name":"Стрелок-радист","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},
+            {"name":"Заряжающий","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},
+            {"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},
+            {"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true}
+          ],
+          "crewInstances":[
+            {"weaponName": "37-мм Bofors", "fighterIndices": [3, 4], "active": true },
+            {"weaponName": "Пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
             {"weaponName": "Пулемёт SAU Brugge", "fighterIndices": [1], "active": true }
           ],
           "armor": { "front": 20, "side": 20, "rear": 40, "turret": 40 }},
@@ -5169,7 +5302,70 @@ const markerIconMap = {
   'dot': { icon: 'images/marker_dot.png', fallback: '??', width: 30, height: 30 }
 };
 const loadedMarkerImages = {};
-
+      
+// ========== СТРУКТУРА БАТАЛЬОНОВ ==========
+const BATTALION_PRESETS = {
+  "BeVe": {
+    standard: [
+      { type: "hq", name: "Штаб батальона", templateName: "Штаб взвода Бельгийцы" }, // используем шаблон штаба, можно потом расширить
+      { type: "mortar_battery", name: "Батарея 82-мм миномётов", templates: [
+          { name: "Расчёт 1", templateName: "Минометный расчёт" },
+          { name: "Расчёт 2", templateName: "Минометный расчёт" },
+          { name: "Расчёт 3", templateName: "Минометный расчёт" }
+      ]},
+      { type: "engineer_platoon", name: "Сапёрный взвод", templates: [
+          { name: "Отделение 1", templateName: "Саперное отделение №1" }, // можно создать шаблоны сапёров BeVe, но пока используем AIRF за неимением, либо добавить позже
+          { name: "Отделение 2", templateName: "Саперное отделение №1" },
+          { name: "Отделение 3", templateName: "Саперное отделение №1" },
+          { name: "Штаб сапёрного взвода", templateName: "Штаб саперного взвода" }
+      ]},
+      { type: "recon_platoon", name: "Взвод разведки", templates: [
+          { name: "Бронеавтомобиль", templateName: "САУ Brugge №1" }, // временно, нужен будет шаблон бронемашины
+          { name: "Отделение разведки 1", templateName: "Пехотное отделение №1 Бельгийцы" },
+          { name: "Отделение разведки 2", templateName: "Пехотное отделение №1 Бельгийцы" }
+      ]},
+      { type: "at_battery", name: "Батарея 47-мм ПТО", templates: [
+          { name: "Расчёт 1", templateName: "Противотанковый расчёт" },
+          { name: "Расчёт 2", templateName: "Противотанковый расчёт" },
+          { name: "Расчёт 3", templateName: "Противотанковый расчёт" }
+      ]},
+      { type: "infantry_company", name: "1-я пехотная рота", platoons: [
+          {
+            name: "1-й взвод", squads: [
+              { name: "Пехотное отделение 1", templateName: "Пехотное отделение №1 Бельгийцы" },
+              { name: "Пехотное отделение 2", templateName: "Пехотное отделение №2 Бельгийцы" },
+              { name: "Пехотное отделение 3", templateName: "Пехотное отделение №3 Бельгийцы" },
+              { name: "Отделение поддержки", templateName: "Отделение поддержки Бельгийцы" },
+              { name: "Миномётный расчёт", templateName: "Минометный расчёт" },
+              { name: "Штаб взвода", templateName: "Штаб взвода Бельгийцы" },
+              { name: "Пулемётный расчёт", templateName: "Пулеметный расчёт" }
+            ]
+          },
+          // ещё 2 взвода (аналогично)
+          { name: "2-й взвод", squads: [ /* те же шаблоны */ ] },
+          { name: "3-й взвод", squads: [ /* ... */ ] }
+      ], hq: { name: "Штаб роты", templateName: "Штаб взвода Бельгийцы" } },
+      // вторая пехотная рота
+      { type: "infantry_company", name: "2-я пехотная рота", platoons: [ /* ... */ ] },
+      { type: "bicycle_company", name: "Велосипедная рота", platoons: [ /* 3 вело-взвода */ ] }
+    ],
+    supportOptions: [
+      { id: "dots", name: "Расчёты ДОТов и ДОТы (стационарные)", template: "ДОТ Bosh" },
+      { id: "regimental_artillery", name: "Поддержка полковой артиллерии" },
+      { id: "sau_battery", name: "Батарея САУ (3 САУ)", templates: ["САУ Brugge №1","САУ Brugge №2","САУ Brugge №3"] }
+    ]
+  },
+  "A.I.R.F.": {
+    standard: [
+      // ... аналогично для AIRF
+    ],
+    supportOptions: [
+      { id: "btr_platoon", name: "Взвод БТР (5 Llanero)", templates: ["БТР Llanero №1","БТР Llanero №2","БТР Llanero №3"] },
+      // и т.д.
+    ]
+  }
+};
+      
 function preloadMarkerIcons() {
   for (let type in markerIconMap) {
     const def = markerIconMap[type];
