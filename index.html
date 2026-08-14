@@ -611,7 +611,7 @@ function generateBattalion(faction, supportIds) {
       case "infantry_company":
         const company = { type: "infantry_company", name: item.name, platoons: [] };
         item.platoons.forEach(pl => {
-          const platoon = { name: pl.name, squads: pl.squads.map(s => cloneTemplate(s.name, s.templateName)).filter(Boolean) };
+          const platoon = { name: pl.name, type: pl.type || 'infantry_platoon', squads: pl.squads.map(s => cloneTemplate(s.name, s.templateName)).filter(Boolean) };
           company.platoons.push(platoon);
         });
         if (item.hq) company.hq = cloneTemplate(item.hq.name, item.hq.templateName);
@@ -799,12 +799,18 @@ function buildOperationalUnits() {
         // Батарея – одна фишка, включает все расчёты
         addOpUnit(unit.name, unit.type, unit.squads);
         break;
-      case 'infantry_company':
-        // Для каждого взвода создаём отдельную фишку
+            case 'infantry_company':
         unit.platoons.forEach(pl => {
-          addOpUnit(pl.name, 'infantry_platoon', pl.squads);
+          if (pl.type === 'armored_vehicle_platoon') {
+            // Каждая машина – отдельная фишка
+            pl.squads.forEach(squad => {
+              addOpUnit(squad.name, 'vehicle', [squad]);
+            });
+          } else {
+            // Обычный взвод – одна фишка
+            addOpUnit(pl.name, 'infantry_platoon', pl.squads);
+          }
         });
-        // Штаб роты – отдельная фишка
         if (unit.hq) {
           addOpUnit(unit.hq.name || 'Штаб роты', 'company_hq', [unit.hq]);
         }
@@ -1016,18 +1022,6 @@ function handleOpMapClick(e) {
     }
     document.getElementById('mapInfo').innerHTML = '';
     redrawOperationalMap();
-    // Перемещаем юнит
-selectedUnit.col = h.col;
-selectedUnit.row = h.row;
-// Сбрасываем выделение и доступные гексы
-appData.campaign.selectedOpUnit = null;
-if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
-saveData();
-redrawOperationalMap();
-
-// Проверяем контакт с врагом
-checkContactAfterMove(selectedUnit);
-return;
   }
 }
 function checkContactAfterMove(movedUnit) {
@@ -1689,6 +1683,7 @@ document.getElementById('battleApp').style.display = 'none';
   "currentTime": 840,
   "activeBattles": []
 }
+
       };
       
     }
@@ -1985,8 +1980,11 @@ function startTacticalBattle(playerUnit, enemyUnit) {
   document.getElementById('campaignMapScreen').style.display = 'none';
   document.getElementById('campaignApp').style.display = 'none';
   document.getElementById('battleApp').style.display = 'block';
-  openTab(null, 'battleTab'); // открыть вкладку боя
-  // Показываем кнопку возврата в кампанию (если её ещё нет, добавим)
+  // Активируем вкладку боя вручную
+  document.querySelectorAll('.tabcontent').forEach(e => e.style.display = 'none');
+  document.querySelectorAll('.tablinks').forEach(e => e.classList.remove('active'));
+  document.getElementById('battleTab').style.display = 'block';
+  document.querySelector('.tablinks[onclick*="battleTab"]').classList.add('active');
   document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
 }
   function returnToCampaign() {
@@ -6231,8 +6229,11 @@ const BATTALION_PRESETS = {
               { name: "Мотоциклетный Пулеметный расчёт №3", templateName: "Мотоциклетный Пулеметный расчёт №3" }
             ]
           },
-          { id: "armored_vehicles", name: "Взвод бронеавтомобилей", squads: ["Бронеавтомобиль Landsverk 183 №1","Бронеавтомобиль Landsverk 183 №2","Бронеавтомобиль Landsverk 183 №3"] }    
-      ], 
+                   { name: "Взвод бронеавтомобилей", type: "armored_vehicle_platoon", squads: [
+              { name: "Бронеавтомобиль Landsverk 183 №1", templateName: "Бронеавтомобиль Landsverk 183 №1" },
+              { name: "Бронеавтомобиль Landsverk 183 №2", templateName: "Бронеавтомобиль Landsverk 183 №2" },
+              { name: "Бронеавтомобиль Landsverk 183 №3", templateName: "Бронеавтомобиль Landsverk 183 №3" }
+          ]}
        hq: { name: "Штаб роты №3 (самокат.)", templateName: "Штаб роты №3 Самокатной" } 
       }
     ],
