@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.63 — бат  </title>
+  <title>Боевой модуль v12.64 — бат  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -242,7 +242,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.63</h1>
+    <h1>⚔️ Боевой модуль v12.64</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
@@ -269,7 +269,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.63 — бат </h2>
+  <h2>⚔️ Боевой модуль v12.64 — бат </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -400,6 +400,7 @@
     
     <div id="mapContainer" style="position:relative; width:100%; height:70vh; border:1px solid #444; border-radius:8px; overflow:auto; background:#2c3e50;">
       <canvas id="gameMap" style="transform-origin: 0 0; touch-action:none; display:block; width:3000px; height:3000px;"></canvas>
+      <div id="mapInfo" style="margin-top:6px; font-size:0.9rem; color:#aaa;"></div>
     </div>
     
     <!-- Панель меток и врагов (исправленные ID) -->
@@ -863,34 +864,150 @@ function initOperationalMap() {
   const canvas = document.getElementById('opMapCanvas');
   if (!canvas) return;
 
-  const size = OP_HEX_SIZE; // радиус описанной окружности
-  const gridCols = OP_MAP_COLS;
-  const gridRows = OP_MAP_ROWS;
+  // Настройка размеров canvas
+  const size = OP_HEX_SIZE;
+  canvas.width = (OP_MAP_COLS + 0.5) * Math.sqrt(3) * size;
+  canvas.height = (OP_MAP_ROWS + 0.5) * 1.5 * size;
+  canvas.style.width = canvas.width + 'px';
+  canvas.style.height = canvas.height + 'px';
 
-  // Вычисляем необходимые размеры канваса
-  const width = (gridCols + 0.5) * Math.sqrt(3) * size;
-  const height = (gridRows + 0.5) * 1.5 * size;
-  canvas.width = width;
-  canvas.height = height;
-  canvas.style.width = width + 'px';
-  canvas.style.height = height + 'px';
+  // Обработчик кликов
+  canvas.onclick = handleOpMapClick;
 
+  // Первичная отрисовка
+  redrawOperationalMap();
+}
+
+function redrawOperationalMap() {
+  const canvas = document.getElementById('opMapCanvas');
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, width, height);
+  const size = OP_HEX_SIZE;
 
-  // Рисуем сетку гексов
-  for (let row = 0; row < gridRows; row++) {
-    for (let col = 0; col < gridCols; col++) {
+  // Очистка
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Рисуем сетку
+  for (let row = 0; row < OP_MAP_ROWS; row++) {
+    for (let col = 0; col < OP_MAP_COLS; col++) {
       const x = col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
       const y = row * 1.5 * size + size;
       drawOperationalHex(ctx, x, y, size, 'grass');
     }
   }
 
-  // Рисуем подразделения игрока
+  // Подсветка доступных гексов (если есть выбранный юнит)
+  const selectedUnit = appData.campaign.selectedOpUnit;
+  if (selectedUnit && selectedUnit.availableHexes) {
+    ctx.fillStyle = 'rgba(255, 255, 0, 0.3)'; // полупрозрачный жёлтый
+    selectedUnit.availableHexes.forEach(h => {
+      const x = h.col * Math.sqrt(3) * size + (h.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+      const y = h.row * 1.5 * size + size;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = Math.PI / 180 * (60 * i - 30);
+        const xi = x + size * Math.cos(angle);
+        const yi = y + size * Math.sin(angle);
+        if (i === 0) ctx.moveTo(xi, yi);
+        else ctx.lineTo(xi, yi);
+      }
+      ctx.closePath();
+      ctx.fill();
+    });
+  }
+
+  // Рисуем юниты (свои и вражеские)
   drawOperationalUnits(ctx);
 }
 
+function getOpHexNeighbors(col, row) {
+  const parity = row % 2;
+  const offsets = parity === 0
+    ? [[1,0], [0,1], [-1,1], [-1,0], [-1,-1], [0,-1]]
+    : [[1,0], [1,1], [0,1], [-1,0], [0,-1], [1,-1]];
+  const neighbors = [];
+  for (let [dc, dr] of offsets) {
+    const nc = col + dc;
+    const nr = row + dr;
+    if (nc >= 0 && nc < OP_MAP_COLS && nr >= 0 && nr < OP_MAP_ROWS) {
+      neighbors.push({ col: nc, row: nr });
+    }
+  }
+  return neighbors;
+}
+
+function handleOpMapClick(e) {
+  const canvas = document.getElementById('opMapCanvas');
+  if (!canvas) return;
+
+  // Переводим координаты клика в координаты canvas
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const clickX = (e.clientX - rect.left) * scaleX;
+  const clickY = (e.clientY - rect.top) * scaleY;
+
+  const size = OP_HEX_SIZE;
+
+  // Проверяем, есть ли уже выбранный юнит
+  const selectedUnit = appData.campaign.selectedOpUnit;
+
+  // 1. Если есть выбранный юнит, проверяем клик по доступному гексу
+  if (selectedUnit && selectedUnit.availableHexes) {
+    for (let h of selectedUnit.availableHexes) {
+      const hexCenterX = h.col * Math.sqrt(3) * size + (h.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+      const hexCenterY = h.row * 1.5 * size + size;
+      const dist = Math.sqrt((clickX - hexCenterX) ** 2 + (clickY - hexCenterY) ** 2);
+      if (dist < size * 0.8) { // попали в гекс
+        // Перемещаем юнит
+        selectedUnit.col = h.col;
+        selectedUnit.row = h.row;
+        // Сбрасываем выделение и доступные гексы
+        appData.campaign.selectedOpUnit = null;
+        if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
+        saveData();
+        redrawOperationalMap();
+        return;
+      }
+    }
+  }
+
+  // 2. Ищем, не кликнули ли по своему юниту
+  let clickedUnit = null;
+  if (appData.campaign.opUnits) {
+    for (let unit of appData.campaign.opUnits) {
+      const unitX = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+      const unitY = unit.row * 1.5 * size + size;
+      const dist = Math.sqrt((clickX - unitX) ** 2 + (clickY - unitY) ** 2);
+      if (dist < size * 0.5) { // радиус захвата фишки
+        clickedUnit = unit;
+        break;
+      }
+    }
+  }
+
+  if (clickedUnit) {
+    // Выбрали свой юнит
+    appData.campaign.selectedOpUnit = clickedUnit;
+    clickedUnit.availableHexes = getOpHexNeighbors(clickedUnit.col, clickedUnit.row);
+    redrawOperationalMap();
+    // Опционально: вывести название выбранного юнита
+    document.getElementById('mapInfo').innerHTML = `Выбран: ${clickedUnit.name}`;
+    return;
+  }
+
+  // 3. Клик в пустоту – сброс выделения
+  if (appData.campaign.selectedOpUnit) {
+    appData.campaign.selectedOpUnit = null;
+    // Также удаляем availableHexes у предыдущего
+    if (appData.campaign.opUnits) {
+      appData.campaign.opUnits.forEach(u => { if (u.availableHexes) delete u.availableHexes; });
+    }
+    document.getElementById('mapInfo').innerHTML = '';
+    redrawOperationalMap();
+  }
+}
+      
 function drawOperationalHex(ctx, x, y, size, type) {
   ctx.beginPath();
   for (let i = 0; i < 6; i++) {
@@ -7356,6 +7473,8 @@ function rotateSelectedHex() {
   document.getElementById('campaignMapScreen').style.display = 'block';
   buildOperationalUnits(); 
   initOperationalMap();
+     appData.campaign.selectedOpUnit = null;
+if (appData.campaign.opUnits) appData.campaign.opUnits.forEach(u => { if (u.availableHexes) delete u.availableHexes; });
 }
 
 function backToBattalionAssembly() {
