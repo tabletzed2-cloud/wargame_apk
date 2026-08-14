@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.64 — бат  </title>
+  <title>Боевой модуль v12.65 — бат  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -242,7 +242,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.64</h1>
+    <h1>⚔️ Боевой модуль v12.65</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
@@ -269,7 +269,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.64 — бат </h2>
+  <h2>⚔️ Боевой модуль v12.65 — бат </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -355,6 +355,7 @@
       <button onclick="setMapMode('view')" style="background:#555;">🖱️ Просмотр</button>
       <button onclick="exportCurrentMap()">💾 Экспорт текущей карты</button>
       <button onclick="nextTurn()" style="background:#2980b9;">⏭️ Завершить ход</button>
+      <button id="btnReturnToCampaign" style="display:none; background:#f39c12;" onclick="returnToCampaign()">↩️ В кампанию</button>
       <div id="timeDisplayMap">Время: --:--</div>
 
       <label id="crouchLabel" style="display:none;">
@@ -401,6 +402,15 @@
     <div id="mapContainer" style="position:relative; width:100%; height:70vh; border:1px solid #444; border-radius:8px; overflow:auto; background:#2c3e50;">
       <canvas id="gameMap" style="transform-origin: 0 0; touch-action:none; display:block; width:3000px; height:3000px;"></canvas>
       <div id="mapInfo" style="margin-top:6px; font-size:0.9rem; color:#aaa;"></div>
+      <div id="contactModal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#2c2c2c; border:2px solid #c0392b; border-radius:12px; padding:20px; z-index:1000; width:400px; color:#ddd;">
+  <h3>⚔️ Контакт с противником!</h3>
+  <p>Ваш юнит <strong id="contactPlayerName"></strong> столкнулся с вражеским <strong id="contactEnemyName"></strong>.</p>
+  <p>Начать тактический бой?</p>
+  <div style="text-align:center; margin-top:15px;">
+    <button onclick="confirmStartBattle()">✅ Начать бой</button>
+    <button onclick="cancelContact()" style="background:#555;">Отмена</button>
+  </div>
+</div>
     </div>
     
     <!-- Панель меток и врагов (исправленные ID) -->
@@ -1005,7 +1015,71 @@ function handleOpMapClick(e) {
     }
     document.getElementById('mapInfo').innerHTML = '';
     redrawOperationalMap();
+    // Перемещаем юнит
+selectedUnit.col = h.col;
+selectedUnit.row = h.row;
+// Сбрасываем выделение и доступные гексы
+appData.campaign.selectedOpUnit = null;
+if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
+saveData();
+redrawOperationalMap();
+
+// Проверяем контакт с врагом
+checkContactAfterMove(selectedUnit);
+return;
   }
+}
+function checkContactAfterMove(movedUnit) {
+  const enemyUnits = appData.campaign.enemyOpUnits;
+  if (!enemyUnits || enemyUnits.length === 0) return;
+
+  // Радиус контакта — соседние гексы (1 гекс)
+  const contactRadius = 1;
+
+  // Найти вражеский юнит, который находится на расстоянии <= contactRadius от movedUnit
+  let contactEnemy = null;
+  for (let enemy of enemyUnits) {
+    const dist = Math.max(
+      Math.abs(enemy.col - movedUnit.col),
+      Math.abs(enemy.row - movedUnit.row)
+    );
+    if (dist <= contactRadius) {
+      contactEnemy = enemy;
+      break;
+    }
+  }
+
+  if (contactEnemy) {
+    // Показываем модальное окно
+    showContactModal(movedUnit, contactEnemy);
+  }
+}
+
+let pendingContactPlayer = null;
+let pendingContactEnemy = null;
+
+function showContactModal(playerUnit, enemyUnit) {
+  pendingContactPlayer = playerUnit;
+  pendingContactEnemy = enemyUnit;
+  document.getElementById('contactPlayerName').textContent = playerUnit.name;
+  document.getElementById('contactEnemyName').textContent = enemyUnit.name;
+  document.getElementById('contactModal').style.display = 'block';
+}
+
+function cancelContact() {
+  pendingContactPlayer = null;
+  pendingContactEnemy = null;
+  document.getElementById('contactModal').style.display = 'none';
+}
+
+function confirmStartBattle() {
+  if (!pendingContactPlayer || !pendingContactEnemy) return;
+  const playerUnit = pendingContactPlayer;
+  const enemyUnit = pendingContactEnemy;
+  pendingContactPlayer = null;
+  pendingContactEnemy = null;
+  document.getElementById('contactModal').style.display = 'none';
+  startTacticalBattle(playerUnit, enemyUnit);
 }
       
 function drawOperationalHex(ctx, x, y, size, type) {
@@ -1810,6 +1884,125 @@ function getMaxAP(squad) {
     };
   }
 }
+
+function startTacticalBattle(playerUnit, enemyUnit) {
+  // 1. Собираем squads игрока из операционного юнита
+  let playerSquads = [];
+  if (playerUnit.squads && playerUnit.squads.length > 0) {
+    playerSquads = playerUnit.squads.map(s => JSON.parse(JSON.stringify(s)));
+  } else {
+    // Если у юнита нет squads (заглушка), берём первый подходящий шаблон
+    const faction = appData.campaign.playerFaction;
+    const tmplName = faction === 'BeVe' ? 'Пехотное отделение №1 Бельгийцы' : 'Стрелковое отделение №1';
+    const tmpl = appData.templates.find(t => t.name === tmplName);
+    if (tmpl) playerSquads = [JSON.parse(JSON.stringify(tmpl))];
+  }
+
+  // 2. Собираем squads врага (заглушка)
+  let enemySquads = [];
+  const enemyFaction = appData.campaign.playerFaction === 'BeVe' ? 'A.I.R.F.' : 'BeVe';
+  const enemyTmplName = enemyFaction === 'BeVe' ? 'Пехотное отделение №1 Бельгийцы' : 'Стрелковое отделение №1';
+  const enemyTmpl = appData.templates.find(t => t.name === enemyTmplName);
+  if (enemyTmpl) enemySquads = [JSON.parse(JSON.stringify(enemyTmpl))];
+
+  // 3. Генерируем тактическую карту 15x15 (трава)
+  const tacticalMap = {
+    grid: {},
+    baseHexSize: 45,
+    zoomLevel: 1,
+    mode: 'view',
+    enemySquads: [],
+    selectedMoveSquadIdx: null,
+    selectedEnemyMoveIdx: null,
+    reachableHexes: [],
+    isCrouchMode: false,
+    currentTime: appData.currentTime || 840
+  };
+
+  for (let row = 0; row < 15; row++) {
+    for (let col = 0; col < 15; col++) {
+      const key = `${col},${row}`;
+      tacticalMap.grid[key] = {
+        type: 'grass',
+        squadIds: [],
+        enemySquadIds: [],
+        markers: [],
+        rotation: 0,
+        variant: 0,
+        level: 0
+      };
+    }
+  }
+
+  // 4. Размещаем свои отряды на карте (например, слева)
+  playerSquads.forEach((squad, idx) => {
+    const col = 2 + Math.floor(idx / 3);
+    const row = 2 + (idx % 3);
+    const key = `${col},${row}`;
+    tacticalMap.grid[key].squadIds.push(idx);
+    squad.hexPos = [col, row];
+  });
+
+  // 5. Размещаем вражеские отряды (справа)
+  enemySquads.forEach((squad, idx) => {
+    const col = 12 + Math.floor(idx / 3);
+    const row = 2 + (idx % 3);
+    const key = `${col},${row}`;
+    tacticalMap.grid[key].enemySquadIds.push(idx);
+    // Добавляем во вражеский список
+    tacticalMap.enemySquads.push({
+      name: enemyUnit.name || 'Враг',
+      faction: enemyFaction,
+      icon: squad.icon || null,
+      fighters: squad.fighters || []
+    });
+    // ВНИМАНИЕ: сейчас тактический модуль ожидает, что враги находятся в appData.map.enemySquads
+  });
+
+  // 6. Подменяем глобальные данные на бой
+  appData.squads = playerSquads;
+  appData.map = tacticalMap;
+  appData.campaign.activeBattle = {
+    playerUnitName: playerUnit.name,
+    enemyUnitName: enemyUnit.name,
+    playerSquadsSnapshot: playerSquads.map(s => JSON.parse(JSON.stringify(s))),
+    enemySquadsSnapshot: enemySquads.map(s => JSON.parse(JSON.stringify(s)))
+  };
+
+  // 7. Сбрасываем ОД, ход, обновляем UI
+  currentTurn = 1;
+  appData.currentTurn = 1;
+  appData.squads.forEach((_, i) => ensureAP(i));
+  if (appData.squads.length > 0) {
+    selectSquad(0);
+  }
+  renderSquadSelector();
+  updateUI();
+  saveData();
+
+  // 8. Переключаемся на вкладку "Бой"
+  document.getElementById('campaignMapScreen').style.display = 'none';
+  document.getElementById('campaignApp').style.display = 'none';
+  document.getElementById('battleApp').style.display = 'block';
+  openTab(null, 'battleTab'); // открыть вкладку боя
+  // Показываем кнопку возврата в кампанию (если её ещё нет, добавим)
+  document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
+}
+  function returnToCampaign() {
+  // 1. Сохраняем состояние боя (пока просто закрываем)
+  appData.campaign.activeBattle = null;
+
+  // 2. Восстанавливаем состояние операционной карты
+  // Мы не сохраняли прежние squads, поэтому просто очистим их
+  appData.squads = [];
+  // Пересоздадим opUnits при следующем открытии карты, но пока можно просто вернуться
+  document.getElementById('battleApp').style.display = 'none';
+  document.getElementById('campaignApp').style.display = 'block';
+  document.getElementById('campaignMapScreen').style.display = 'block';
+  document.getElementById('btnReturnToCampaign').style.display = 'none';
+  showOperationalMap(); // перерисуем карту
+  closeTacticalUI(); // если есть необходимость сбросить интерфейс боя
+}    
     function getAP(squadIndex) {
   return actionPoints[squadIndex] ? actionPoints[squadIndex].ap : 0;
 }
