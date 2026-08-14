@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.70 — бат  </title>
+  <title>Боевой модуль v12.71 — бат  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -242,7 +242,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.70</h1>
+    <h1>⚔️ Боевой модуль v12.71</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
@@ -269,7 +269,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.70 — бат </h2>
+  <h2>⚔️ Боевой модуль v12.71 — бат </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -356,6 +356,7 @@
       <button onclick="exportCurrentMap()">💾 Экспорт текущей карты</button>
       <button onclick="nextTurn()" style="background:#2980b9;">⏭️ Завершить ход</button>
       <button id="btnReturnToCampaign" style="display:none; background:#f39c12;" onclick="returnToCampaign()">↩️ В кампанию</button>
+      <button id="btnFinishBattle" onclick="finishBattle()" style="display:none; position:fixed; top:50px; right:10px; z-index:999; background:#27ae60;">✅ Завершить бой</button>
       
       <div id="timeDisplayMap">Время: --:--</div>
 
@@ -564,6 +565,7 @@ function closeCampaign() {
   document.getElementById('campaignApp').style.display = 'none';
   document.getElementById('campaignContent').style.display = 'block';
   document.getElementById('campaignMapScreen').style.display = 'none';
+  document.getElementById('battalionRosterScreen').style.display = 'none'; // новая строка
   document.getElementById('mainMenu').style.display = 'block';
 }
 function generateBattalion(faction, supportIds) {
@@ -736,7 +738,7 @@ function renderActiveBattlesList() {
     html += `
       <div style="display:flex; justify-content:space-between; align-items:center; background:#2c2c2c; padding:6px; margin:4px 0; border-radius:4px;">
         <span>${battle.playerUnitName} vs ${battle.enemyUnitName} (ход ${battle.currentTurn || 1})</span>
-        <button onclick="switchToBattle(${battle.id})">➡️ Перейти</button>
+        <button onclick="switchToBattle(${battle.id})">➡️ Перейти в бой </button>
       </div>
     `;
   });
@@ -891,6 +893,64 @@ function buildOperationalUnits() {
   buildEnemyOperationalUnits();
   saveData();
 }
+function showBattalionRoster() {
+  // Убедимся, что операционные юниты созданы
+  if (!appData.campaign.opUnits || appData.campaign.opUnits.length === 0) {
+    buildOperationalUnits();
+  }
+  document.getElementById('campaignMapScreen').style.display = 'none';
+  document.getElementById('battalionRosterScreen').style.display = 'block';
+  renderBattalionRoster();
+}
+
+function renderBattalionRoster() {
+  const summaryDiv = document.getElementById('battalionRosterSummary');
+  const listDiv = document.getElementById('battalionRosterList');
+  const opUnits = appData.campaign.opUnits || [];
+  let totalFighters = 0, totalAlive = 0, totalLost = 0;
+  let html = '';
+
+  if (opUnits.length === 0) {
+    listDiv.innerHTML = '<p>Нет данных о батальоне. Сначала сформируйте батальон.</p>';
+    summaryDiv.innerHTML = '';
+    return;
+  }
+
+  opUnits.forEach(unit => {
+    let unitTotal = 0, unitAlive = 0, unitLost = 0;
+    (unit.squads || []).forEach(squad => {
+      (squad.fighters || []).forEach(f => {
+        unitTotal++;
+        totalFighters++;
+        if (f.hp > 0) {
+          unitAlive++;
+          totalAlive++;
+        } else {
+          unitLost++;
+          totalLost++;
+        }
+      });
+    });
+
+    // Пропускаем юниты без бойцов
+    if (unitTotal === 0) return;
+
+    const color = unitLost > 0 ? '#e74c3c' : '#27ae60';
+    html += `<div style="background:#2c2c2c; padding:8px; margin:6px 0; border-radius:6px; border-left:4px solid ${color};">
+      <strong>${unit.name}</strong> (${unit.type}) — бойцов: ${unitAlive}/${unitTotal}${unitLost > 0 ? `, потерь: ${unitLost}` : ''}
+    </div>`;
+  });
+
+  summaryDiv.innerHTML = `Всего бойцов: ${totalFighters} | Живых: ${totalAlive} | Потерь: ${totalLost}`;
+  listDiv.innerHTML = html || '<p>Нет данных о бойцах.</p>';
+}
+
+function backToOperationalMapFromRoster() {
+  document.getElementById('battalionRosterScreen').style.display = 'none';
+  document.getElementById('campaignMapScreen').style.display = 'block';
+  initOperationalMap(); // перерисовываем карту
+}
+      
 function buildEnemyOperationalUnits() {
   // Если враг уже создан, не пересоздаём
   if (appData.campaign.enemyOpUnits && appData.campaign.enemyOpUnits.length > 0) return;
@@ -1947,6 +2007,7 @@ function startTacticalBattle(playerUnit, enemyUnit) {
     document.getElementById('battleApp').style.display = 'block';
     activateBattleTab();
     document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
+document.getElementById('btnFinishBattle').style.display = 'inline-block';
     appData.currentBattleId = existingBattle ? existingBattle.id : newBattle.id;
     return;
   }
@@ -2069,9 +2130,13 @@ function activateBattleTab() {
   document.getElementById('battleTab').style.display = 'block';
   const battleTabBtn = document.querySelector('.tablinks[onclick*="battleTab"]');
   if (battleTabBtn) battleTabBtn.classList.add('active');
+  document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
+  document.getElementById('btnFinishBattle').style.display = 'inline-block';
 }
 function returnToCampaign() {
   // Находим текущий бой в массиве (можно по имени игрового юнита, но лучше добавить поле currentBattleId)
+  document.getElementById('btnReturnToCampaign').style.display = 'none';
+  document.getElementById('btnFinishBattle').style.display = 'none';
   const currentBattleId = appData.currentBattleId; // мы должны хранить id текущего боя
   if (currentBattleId && appData.campaign.activeBattles.length > 0) {
     const battle = appData.campaign.activeBattles.find(b => b.id === currentBattleId);
@@ -2082,7 +2147,38 @@ function returnToCampaign() {
       battle.currentTurn = currentTurn;
     }
   }
+}
+function finishBattle() {
+  // Находим текущий бой по id
+  const battleId = appData.currentBattleId;
+  if (!battleId) return;
+  const battleIndex = appData.campaign.activeBattles.findIndex(b => b.id === battleId);
+  if (battleIndex === -1) return;
 
+  // Синхронизируем потери
+  syncBattleLossesToCampaign(battleId);
+
+  // Удаляем бой из списка активных
+  appData.campaign.activeBattles.splice(battleIndex, 1);
+
+  // Очищаем тактические данные
+  appData.squads = [];
+  appData.map = { grid: {}, baseHexSize: 45, zoomLevel: 1, mode: 'view', enemySquads: [], selectedMoveSquadIdx: null, selectedEnemyMoveIdx: null, reachableHexes: [], isCrouchMode: false };
+  appData.currentBattleId = null;
+
+  // Возвращаемся на карту кампании
+  document.getElementById('battleApp').style.display = 'none';
+  document.getElementById('campaignApp').style.display = 'block';
+  document.getElementById('campaignMapScreen').style.display = 'block';
+  document.getElementById('btnReturnToCampaign').style.display = 'none';
+  document.getElementById('btnFinishBattle').style.display = 'none';
+
+  // Перерисовываем карту и список боёв
+  initOperationalMap();
+  renderActiveBattlesList();
+  saveData();
+}
+  
   // Очищаем тактические данные
   appData.squads = [];
   appData.map = { grid: {}, baseHexSize: 45, zoomLevel: 1, mode: 'view', enemySquads: [], selectedMoveSquadIdx: null, selectedEnemyMoveIdx: null, reachableHexes: [], isCrouchMode: false };
@@ -2098,6 +2194,33 @@ function returnToCampaign() {
   initOperationalMap();
   renderActiveBattlesList();
 } 
+function syncBattleLossesToCampaign(battleId) {
+  const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
+  if (!battle) return;
+
+  // Перебираем отряды игрока в бою
+  battle.playerSquads.forEach(battleSquad => {
+    // Ищем операционный юнит, в котором есть squad с таким же именем
+    for (let unit of appData.campaign.opUnits) {
+      const targetSquad = unit.squads.find(s => s.name === battleSquad.name);
+      if (targetSquad) {
+        // Копируем состояние бойцов и боеприпасы
+        targetSquad.fighters = battleSquad.fighters.map(f => ({ ...f }));
+        targetSquad.ammoSmall = battleSquad.ammoSmall;
+        targetSquad.ammoOrdnance = battleSquad.ammoOrdnance;
+        targetSquad.grenades = battleSquad.grenades;
+        targetSquad.currentMorale = battleSquad.currentMorale;
+        // Обновляем ссылку в unit.squads
+        unit.squads = unit.squads.map(s => s.name === battleSquad.name ? targetSquad : s);
+        break;
+      }
+    }
+  });
+
+  // Можно также учесть врага, если нужно, но пока враг не сохраняется в батальоне
+  saveData();
+}
+      
     function getAP(squadIndex) {
   return actionPoints[squadIndex] ? actionPoints[squadIndex].ap : 0;
 }
@@ -7800,6 +7923,7 @@ function backToBattalionAssembly() {
 </script>
      <button onclick="goToMenu()" style="position:fixed; top:10px; right:10px; z-index:999;">↩️ В меню</button>
     <button id="btnReturnToCampaign" onclick="returnToCampaign()" style="display:none; position:fixed; top:10px; right:150px; z-index:999; background:#f39c12;">↩️ В кампанию</button>
+    <button id="btnFinishBattle" onclick="finishBattle()" style="display:none; position:fixed; top:50px; right:10px; z-index:999; background:#27ae60;">✅ Завершить бой</button>
   </div>
 
   <!-- Раздел «Правила» -->
@@ -7822,6 +7946,7 @@ function backToBattalionAssembly() {
   <div style="display:flex; gap:10px; margin-bottom:10px;">
     <button onclick="backToBattalionAssembly()" style="background:#555;">← Назад к сбору</button>
     <button onclick="closeCampaign()" style="background:#c0392b;">↩️ В меню</button>
+    <button onclick="showBattalionRoster()" style="background:#8e44ad;">👥 Батальон</button>
   </div>
       <div id="activeBattlesPanel" style="margin:10px 0; padding:10px; background:#2a2a2a; border-radius:8px;">
   <h4>⚔️ Текущие бои</h4>
@@ -7839,6 +7964,12 @@ function backToBattalionAssembly() {
     <button onclick="cancelContact()" style="background:#555;">Отмена</button>
   </div>
 </div>
+</div>
+  <div id="battalionRosterScreen" style="display:none; padding:20px;">
+  <h2>👥 Личный состав батальона</h2>
+  <button onclick="backToOperationalMapFromRoster()" style="background:#555;">← Назад к карте</button>
+  <div id="battalionRosterSummary" style="margin:10px 0; font-weight:bold;"></div>
+  <div id="battalionRosterList"></div>
 </div>
 </div>
 
