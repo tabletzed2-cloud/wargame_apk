@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.61 — бат  </title>
+  <title>Боевой модуль v12.62 — бат  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -242,7 +242,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.61</h1>
+    <h1>⚔️ Боевой модуль v12.62</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
@@ -269,7 +269,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.61 — бат </h2>
+  <h2>⚔️ Боевой модуль v12.62 — бат </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -744,6 +744,95 @@ function confirmBattalion(faction) {
     <button onclick="closeCampaign()" style="background:#555;">Выход в меню</button>
   `;
 }
+function buildOperationalUnits() {
+  const battalion = appData.campaign.battalions.player;
+  if (!battalion) return;
+
+  // Если уже есть – не пересоздаём
+  if (appData.campaign.opUnits && appData.campaign.opUnits.length > 0) return;
+
+  const opUnits = [];
+  let unitCounter = 0;
+
+  // Вспомогательная функция добавления юнита
+  function addOpUnit(name, type, squads) {
+    // Назначаем стартовую позицию (для игрока – слева, для врага – справа)
+    let col, row;
+    if (appData.campaign.playerFaction === 'BeVe') {
+      col = 2 + (unitCounter % 3);        // колонки 2-4
+      row = 2 + Math.floor(unitCounter / 3); // строки 2,3,4...
+    } else {
+      col = 16 + (unitCounter % 3);       // для AIRF – справа
+      row = 2 + Math.floor(unitCounter / 3);
+    }
+    unitCounter++;
+    opUnits.push({
+      name,
+      type,
+      squads: squads || [],
+      col,
+      row,
+      side: 'player'
+    });
+  }
+
+  // Перебираем units батальона
+  battalion.units.forEach(unit => {
+    switch (unit.type) {
+      case 'hq':
+        // Штаб батальона
+        addOpUnit(unit.name, 'battalion_hq', unit.squads);
+        break;
+      case 'mortar_battery':
+      case 'at_battery':
+        // Батарея – одна фишка, включает все расчёты
+        addOpUnit(unit.name, unit.type, unit.squads);
+        break;
+      case 'infantry_company':
+        // Для каждого взвода создаём отдельную фишку
+        unit.platoons.forEach(pl => {
+          addOpUnit(pl.name, 'infantry_platoon', pl.squads);
+        });
+        // Штаб роты – отдельная фишка
+        if (unit.hq) {
+          addOpUnit(unit.hq.name || 'Штаб роты', 'company_hq', [unit.hq]);
+        }
+        break;
+      case 'engineer_platoon':
+      case 'recon_platoon':
+      case 'armored_vehicles':
+      case 'dots':
+      case 'sau_battery':
+      case 'btr_platoon':
+      case 'tank_platoon':
+      case 'regimental_artillery':
+        // Для поддержки и специальных подразделений каждая машина/отделение – отдельная фишка
+        if (unit.squads && unit.squads.length > 0) {
+          unit.squads.forEach((squad, idx) => {
+            const vehName = squad.name || `${unit.name} ${idx+1}`;
+            addOpUnit(vehName, unit.type, [squad]);
+          });
+        } else {
+          // Если squads нет – просто одна фишка
+          addOpUnit(unit.name, unit.type, []);
+        }
+        break;
+      default:
+        // На случай новых типов
+        if (unit.squads && unit.squads.length > 0) {
+          unit.squads.forEach((squad, idx) => {
+            addOpUnit(`${unit.name} ${idx+1}`, unit.type, [squad]);
+          });
+        } else {
+          addOpUnit(unit.name, unit.type, []);
+        }
+    }
+  });
+
+  appData.campaign.opUnits = opUnits;
+  saveData();
+}
+      
 function initOperationalMap() {
   const canvas = document.getElementById('opMapCanvas');
   if (!canvas) return;
@@ -794,46 +883,76 @@ function drawOperationalHex(ctx, x, y, size, type) {
 }
 
 function drawOperationalUnits(ctx) {
-  const playerBattalion = appData.campaign.battalions.player;
-  if (!playerBattalion) return;
+  if (!appData.campaign.opUnits || appData.campaign.opUnits.length === 0) return;
 
-  // Для каждого подразделения игрока (пока просто рисуем фишку в стартовой точке)
-  // Для простоты возьмём первые 5 подразделений и расставим их по координатам
-  const startPositions = [
-    { col: 2, row: 2 },
-    { col: 3, row: 3 },
-    { col: 2, row: 4 },
-    { col: 4, row: 2 },
-    { col: 1, row: 5 }
-  ];
+  const size = OP_HEX_SIZE;
+  appData.campaign.opUnits.forEach(unit => {
+    // Вычисляем координаты центра гекса
+    const x = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+    const y = unit.row * 1.5 * size + size;
 
-  let unitIndex = 0;
-  function drawUnit(name, x, y) {
+    // В зависимости от типа рисуем разные фигуры
     ctx.fillStyle = '#c0392b';
-    ctx.beginPath();
-    ctx.arc(x, y, 12, 0, 2 * Math.PI);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
     ctx.font = '10px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText(name.substring(0, 3), x, y + 3);
-  }
+    ctx.textBaseline = 'middle';
 
-  // Перебираем подразделения батальона
-  playerBattalion.units.forEach(unit => {
-    // Определяем координаты
-    let pos;
-    if (unitIndex < startPositions.length) {
-      pos = startPositions[unitIndex];
-    } else {
-      pos = { col: 5 + Math.floor(Math.random()*3), row: 3 + Math.floor(Math.random()*5) }; // случайные
+    let radius = 10;
+    switch (unit.type) {
+      case 'battalion_hq':
+        // Звезда (упрощённый ромб)
+        ctx.beginPath();
+        ctx.moveTo(x, y - radius);
+        ctx.lineTo(x + radius/2, y);
+        ctx.lineTo(x, y + radius);
+        ctx.lineTo(x - radius/2, y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        break;
+      case 'company_hq':
+        // Квадрат
+        ctx.beginPath();
+        ctx.rect(x - radius/2, y - radius/2, radius, radius);
+        ctx.fill();
+        ctx.stroke();
+        break;
+      case 'mortar_battery':
+        // Треугольник
+        ctx.beginPath();
+        ctx.moveTo(x, y - radius);
+        ctx.lineTo(x + radius, y + radius);
+        ctx.lineTo(x - radius, y + radius);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        break;
+      case 'vehicle':
+        // Ромб
+        ctx.beginPath();
+        ctx.moveTo(x, y - radius);
+        ctx.lineTo(x + radius, y);
+        ctx.lineTo(x, y + radius);
+        ctx.lineTo(x - radius, y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        break;
+      default:
+        // Круг для пехотных взводов и остального
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+        break;
     }
-    unitIndex++;
-    
-   const size = OP_HEX_SIZE;
-const x = pos.col * Math.sqrt(3) * size + (pos.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
-const y = pos.row * 1.5 * size + size;
-    drawUnit(unit.name || '?', x, y);
+
+    // Подпись – первые 3 буквы названия
+    const label = unit.name.substring(0, 3);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(label, x, y);
   });
 }
       
@@ -7199,6 +7318,7 @@ function rotateSelectedHex() {
    function showOperationalMap() {
   document.getElementById('campaignContent').style.display = 'none';
   document.getElementById('campaignMapScreen').style.display = 'block';
+  buildOperationalUnits(); 
   initOperationalMap();
 }
 
