@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.68 — бат  </title>
+  <title>Боевой модуль v12.69 — бат  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -242,7 +242,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.68</h1>
+    <h1>⚔️ Боевой модуль v12.69</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
@@ -269,7 +269,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.68 — бат </h2>
+  <h2>⚔️ Боевой модуль v12.69 — бат </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -973,7 +973,19 @@ function handleOpMapClick(e) {
     const hexCenterY = h.row * 1.5 * size + size;
     const dist = Math.sqrt((clickX - hexCenterX) ** 2 + (clickY - hexCenterY) ** 2);
     if (dist < size * 0.8) {
-      // перемещение
+      // Проверяем, есть ли враг на этом гексе
+      const enemyOnTarget = appData.campaign.enemyOpUnits?.find(enemy => 
+        enemy.col === h.col && enemy.row === h.row
+      );
+      if (enemyOnTarget) {
+        // Контакт с врагом – бой без перемещения
+        appData.campaign.selectedOpUnit = null;
+        if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
+        redrawOperationalMap();
+        showContactModal(selectedUnit, enemyOnTarget);
+        return;
+      }
+      // Если врага нет, перемещаемся
       selectedUnit.col = h.col;
       selectedUnit.row = h.row;
       appData.campaign.selectedOpUnit = null;
@@ -1029,7 +1041,7 @@ function checkContactAfterMove(movedUnit) {
   for (let enemy of enemyUnits) {
     const dist = Math.max(Math.abs(enemy.col - movedUnit.col), Math.abs(enemy.row - movedUnit.row));
     console.log(`Dist to ${enemy.name}: ${dist}`);
-    if (dist <= 1) {
+    if (dist === 0) {
       console.log('Contact with', enemy.name);
       showContactModal(movedUnit, enemy);
       return;
@@ -1869,6 +1881,31 @@ function getMaxAP(squad) {
 }
 
 function startTacticalBattle(playerUnit, enemyUnit) {
+ // Если уже есть активный бой с этими же юнитами, восстанавливаем его
+  if (appData.campaign.activeBattle &&
+      appData.campaign.activeBattle.playerUnitName === playerUnit.name &&
+      appData.campaign.activeBattle.enemyUnitName === enemyUnit.name) {
+    appData.squads = appData.campaign.activeBattle.playerSquads.map(s => JSON.parse(JSON.stringify(s)));
+    appData.map = JSON.parse(JSON.stringify(appData.campaign.activeBattle.tacticalMap));
+    appData.currentTurn = appData.campaign.activeBattle.currentTurn || 1;
+    appData.campaign.activeBattle.currentTurn = currentTurn;
+    currentTurn = appData.currentTurn;
+    appData.squads.forEach((_, i) => ensureAP(i));
+    if (appData.squads.length > 0) selectSquad(0);
+    renderSquadSelector();
+    updateUI();
+    document.getElementById('campaignMapScreen').style.display = 'none';
+    document.getElementById('campaignApp').style.display = 'none';
+    document.getElementById('battleApp').style.display = 'block';
+    // Активируем вкладку боя
+    document.querySelectorAll('.tabcontent').forEach(e => e.style.display = 'none');
+    document.querySelectorAll('.tablinks').forEach(e => e.classList.remove('active'));
+    document.getElementById('battleTab').style.display = 'block';
+    document.querySelector('.tablinks[onclick*="battleTab"]').classList.add('active');
+    document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
+    return;
+  }
+  
   // 1. Собираем squads игрока из операционного юнита
   let playerSquads = [];
   if (playerUnit.squads && playerUnit.squads.length > 0) {
@@ -1948,11 +1985,13 @@ if (factionTemplates.length > 0) {
   // 6. Подменяем глобальные данные на бой
   appData.squads = playerSquads;
   appData.map = tacticalMap;
+    // Сохраняем состояние боя для возможности возврата
   appData.campaign.activeBattle = {
     playerUnitName: playerUnit.name,
     enemyUnitName: enemyUnit.name,
-    playerSquadsSnapshot: playerSquads.map(s => JSON.parse(JSON.stringify(s))),
-    enemySquadsSnapshot: enemySquads.map(s => JSON.parse(JSON.stringify(s)))
+    playerSquads: playerSquads.map(s => JSON.parse(JSON.stringify(s))),
+    enemySquads: enemySquads.map(s => JSON.parse(JSON.stringify(s))),
+    tacticalMap: JSON.parse(JSON.stringify(tacticalMap))
   };
 
   // 7. Сбрасываем ОД, ход, обновляем UI
@@ -1977,21 +2016,28 @@ if (factionTemplates.length > 0) {
   document.querySelector('.tablinks[onclick*="battleTab"]').classList.add('active');
   document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
 }
-  function returnToCampaign() {
-  // 1. Сохраняем состояние боя (пока просто закрываем)
-  appData.campaign.activeBattle = null;
+function returnToCampaign() {
+  // Сохраняем текущее состояние боя в activeBattle
+  if (appData.campaign.activeBattle) {
+    appData.campaign.activeBattle.playerSquads = appData.squads.map(s => JSON.parse(JSON.stringify(s)));
+    appData.campaign.activeBattle.tacticalMap = JSON.parse(JSON.stringify(appData.map));
+    // Враги уже сохранены в enemySquads, но обновим на случай изменений
+    appData.campaign.activeBattle.enemySquads = appData.map.enemySquads.map(e => JSON.parse(JSON.stringify(e)));
+  }
 
-  // 2. Восстанавливаем состояние операционной карты
-  // Мы не сохраняли прежние squads, поэтому просто очистим их
+  // Очищаем тактические данные, чтобы они не мешали операционной карте
   appData.squads = [];
-  // Пересоздадим opUnits при следующем открытии карты, но пока можно просто вернуться
+  appData.map = { grid: {}, baseHexSize: 45, zoomLevel: 1, mode: 'view', enemySquads: [], selectedMoveSquadIdx: null, selectedEnemyMoveIdx: null, reachableHexes: [], isCrouchMode: false };
+
+  // Показываем кампанию
   document.getElementById('battleApp').style.display = 'none';
   document.getElementById('campaignApp').style.display = 'block';
   document.getElementById('campaignMapScreen').style.display = 'block';
   document.getElementById('btnReturnToCampaign').style.display = 'none';
-  showOperationalMap(); // перерисуем карту
-  closeTacticalUI(); // если есть необходимость сбросить интерфейс боя
-}    
+
+  // Перерисовываем операционную карту (без пересоздания opUnits)
+  initOperationalMap();
+}  
     function getAP(squadIndex) {
   return actionPoints[squadIndex] ? actionPoints[squadIndex].ap : 0;
 }
