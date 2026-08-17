@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.79 — бат  </title>
+  <title>Боевой модуль v12.80 — бат  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -242,7 +242,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.79</h1>
+    <h1>⚔️ Боевой модуль v12.80</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
@@ -269,7 +269,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.79 — бат </h2>
+  <h2>⚔️ Боевой модуль v12.80 — бат </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -778,9 +778,16 @@ function confirmBattalion(faction) {
   appData.campaign.battalions.player = battalion;
   appData.campaign.playerFaction = faction;
   appData.campaign.active = true; // активируем кампанию
-// Генерируем вражеский батальон (стандартный состав, без поддержки)
+  // Сбрасываем операционные юниты, чтобы игрок разместил их вручную
+appData.campaign.opUnits = null;
+appData.campaign.enemyOpUnits = null;
+saveData();
+// Генерируем вражеский батальон 
 const enemyFaction = faction === 'BeVe' ? 'A.I.R.F.' : 'BeVe';
-const enemyBattalion = generateBattalion(enemyFaction, []);
+// Получаем все id поддержки для вражеской фракции
+const enemyPreset = BATTALION_PRESETS[enemyFaction];
+const enemySupportIds = enemyPreset ? enemyPreset.supportOptions.map(opt => opt.id) : [];
+const enemyBattalion = generateBattalion(enemyFaction, enemySupportIds);
 appData.campaign.battalions.enemy = enemyBattalion;
 // Сбрасываем старые вражеские юниты, чтобы они создались заново
 appData.campaign.enemyOpUnits = null;
@@ -860,8 +867,10 @@ function buildOperationalUnits() {
         break;
       case 'mortar_battery':
       case 'at_battery':
-        // Батарея – одна фишка, включает все расчёты
-        addOpUnit(unit.name, unit.type, unit.squads);
+        // Каждое ПТО – отдельный юнит
+        unit.squads.forEach(squad => {
+          addOpUnit(squad.name, 'at_gun', [squad]);
+        });
         break;
             case 'infantry_company':
         unit.platoons.forEach(pl => {
@@ -1002,8 +1011,6 @@ function backToOperationalMapFromRoster() {
 function buildEnemyOperationalUnits() {
   const battalion = appData.campaign.battalions.enemy;
   if (!battalion) return;
-
-  // Если враги уже созданы, не пересоздаём
   if (appData.campaign.enemyOpUnits && appData.campaign.enemyOpUnits.length > 0) return;
 
   const enemyUnits = [];
@@ -1027,8 +1034,14 @@ function buildEnemyOperationalUnits() {
         addEnemyOpUnit(unit.name, 'battalion_hq', unit.squads);
         break;
       case 'mortar_battery':
+        // Миномётная батарея – одна фишка (при желании можно разделить)
+        addEnemyOpUnit(unit.name, 'mortar_battery', unit.squads);
+        break;
       case 'at_battery':
-        addEnemyOpUnit(unit.name, unit.type, unit.squads);
+        // Каждое ПТО – отдельный юнит
+        unit.squads.forEach(squad => {
+          addEnemyOpUnit(squad.name, 'at_gun', [squad]);
+        });
         break;
       case 'infantry_company':
         unit.platoons.forEach(pl => {
@@ -1040,9 +1053,7 @@ function buildEnemyOperationalUnits() {
             addEnemyOpUnit(pl.name, 'infantry_platoon', pl.squads);
           }
         });
-        if (unit.hq) {
-          addEnemyOpUnit(unit.hq.name || 'Штаб роты', 'company_hq', [unit.hq]);
-        }
+        if (unit.hq) addEnemyOpUnit(unit.hq.name || 'Штаб роты', 'company_hq', [unit.hq]);
         break;
       case 'engineer_platoon':
       case 'recon_platoon':
@@ -1072,7 +1083,6 @@ function buildEnemyOperationalUnits() {
   });
 
   appData.campaign.enemyOpUnits = enemyUnits;
-  buildEnemyOperationalUnits();
   saveData();
 }
       
@@ -1260,39 +1270,68 @@ function handleOpMapClick(e) {
 
   // 2. Ищем, не кликнули ли по своему юниту
   let clickedUnit = null;
+  let minDistToUnit = Infinity;
   if (appData.campaign.opUnits) {
     for (let unit of appData.campaign.opUnits) {
-      const unitX = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
-      const unitY = unit.row * 1.5 * size + size;
+      if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) continue;
+      const unitX = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2 + (unit.drawOffsetX || 0);
+      const unitY = unit.row * 1.5 * size + size + (unit.drawOffsetY || 0);
       const dist = Math.sqrt((clickX - unitX) ** 2 + (clickY - unitY) ** 2);
-      if (dist < size * 0.5) { // радиус захвата фишки
+      if (dist < minDistToUnit) {
+        minDistToUnit = dist;
         clickedUnit = unit;
-        break;
       }
     }
   }
-
-  if (clickedUnit) {
+  if (clickedUnit && minDistToUnit < size * 0.6) {
     // Выбрали свой юнит
     appData.campaign.selectedOpUnit = clickedUnit;
     clickedUnit.availableHexes = getOpHexNeighbors(clickedUnit.col, clickedUnit.row);
     redrawOperationalMap();
-    // Опционально: вывести название выбранного юнита
     document.getElementById('mapInfo').innerHTML = `Выбран: ${clickedUnit.name}`;
     return;
   }
-
-  // 3. Клик в пустоту – сброс выделения
-  if (appData.campaign.selectedOpUnit) {
+    // Поиск вражеского юнита (если свой не найден)
+  let clickedEnemy = null;
+  let minDistToEnemy = Infinity;
+  if (appData.campaign.enemyOpUnits) {
+    for (let unit of appData.campaign.enemyOpUnits) {
+      if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) continue;
+      const unitX = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2 + (unit.drawOffsetX || 0);
+      const unitY = unit.row * 1.5 * size + size + (unit.drawOffsetY || 0);
+      const dist = Math.sqrt((clickX - unitX) ** 2 + (clickY - unitY) ** 2);
+      if (dist < minDistToEnemy) {
+        minDistToEnemy = dist;
+        clickedEnemy = unit;
+      }
+    }
+  }
+  if (clickedEnemy && minDistToEnemy < size * 0.6) {
+    // Выбрали вражеский юнит
+    appData.campaign.selectedEnemyOpUnit = clickedEnemy;
+    document.getElementById('mapInfo').innerHTML = `Выбран враг: ${clickedEnemy.name}`;
+    // Снимаем выделение со своих (если было)
     appData.campaign.selectedOpUnit = null;
-    // Также удаляем availableHexes у предыдущего
     if (appData.campaign.opUnits) {
       appData.campaign.opUnits.forEach(u => { if (u.availableHexes) delete u.availableHexes; });
     }
-    document.getElementById('mapInfo').innerHTML = '';
     redrawOperationalMap();
+    return;
   }
-}
+  // Клик в пустоту – сброс выделений
+  if (appData.campaign.selectedOpUnit) {
+    appData.campaign.selectedOpUnit = null;
+    if (appData.campaign.opUnits) {
+      appData.campaign.opUnits.forEach(u => { if (u.availableHexes) delete u.availableHexes; });
+    }
+  }
+  if (appData.campaign.selectedEnemyOpUnit) {
+    appData.campaign.selectedEnemyOpUnit = null;
+  }
+  document.getElementById('mapInfo').innerHTML = '';
+  redrawOperationalMap();
+  }
+
 function checkContactAfterMove(movedUnit) {
   console.log('checkContactAfterMove called', movedUnit);
   const enemyUnits = appData.campaign.enemyOpUnits;
@@ -1356,14 +1395,17 @@ function drawOperationalHex(ctx, x, y, size, type) {
 function drawOperationalUnits(ctx) {
   const size = OP_HEX_SIZE;
 
-  // Функция отрисовки одной фишки
   function drawUnit(unit, isEnemy = false, offsetX = 0, offsetY = 0) {
+    if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
     const x = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
     const y = unit.row * 1.5 * size + size;
-    // Добавляем смещение, если на гексе несколько юнитов
     const drawX = x + offsetX;
     const drawY = y + offsetY;
     const radius = 10;
+
+    // Сохраняем смещение для обработчика кликов
+    unit.drawOffsetX = offsetX;
+    unit.drawOffsetY = offsetY;
 
     ctx.fillStyle = isEnemy ? '#555' : '#c0392b';
     ctx.strokeStyle = isEnemy ? '#e74c3c' : '#fff';
@@ -1372,7 +1414,6 @@ function drawOperationalUnits(ctx) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // Рисуем фигуру (ромб, квадрат, круг и т.д.) как раньше, но используем drawX, drawY
     switch (unit.type) {
       case 'battalion_hq':
         ctx.beginPath();
@@ -1403,6 +1444,7 @@ function drawOperationalUnits(ctx) {
       case 'tank_platoon':
       case 'btr_platoon':
       case 'sau_battery':
+      case 'at_gun':
         ctx.beginPath();
         ctx.moveTo(drawX, drawY - radius);
         ctx.lineTo(drawX + radius, drawY);
@@ -1420,11 +1462,10 @@ function drawOperationalUnits(ctx) {
         break;
     }
 
-    // Подпись (первые 3 буквы)
+    // Подпись
     ctx.fillStyle = '#fff';
     ctx.fillText(unit.name.substring(0, 3), drawX, drawY);
 
-    // ОД
     if (!isEnemy) {
       ctx.fillStyle = '#fff';
       ctx.font = `${size * 0.2}px Arial`;
@@ -1434,7 +1475,6 @@ function drawOperationalUnits(ctx) {
     }
   }
 
-  // Группируем юниты по гексам, чтобы сместить их при совпадении
   function drawGroupedUnits(units, isEnemy) {
     if (!units) return;
     const map = new Map();
@@ -1444,13 +1484,13 @@ function drawOperationalUnits(ctx) {
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(unit);
     });
-    map.forEach((group, key) => {
+    map.forEach((group) => {
       if (group.length === 1) {
         drawUnit(group[0], isEnemy, 0, 0);
       } else {
         const angleStep = (2 * Math.PI) / group.length;
         group.forEach((unit, idx) => {
-          const offsetDist = 25; // радиус смещения
+          const offsetDist = 30;
           const offsetX = Math.cos(idx * angleStep) * offsetDist;
           const offsetY = Math.sin(idx * angleStep) * offsetDist;
           drawUnit(unit, isEnemy, offsetX, offsetY);
@@ -1459,17 +1499,9 @@ function drawOperationalUnits(ctx) {
     });
   }
 
+  // Рисуем только один раз
   drawGroupedUnits(appData.campaign.opUnits, false);
   drawGroupedUnits(appData.campaign.enemyOpUnits, true);
-
-  // Рисуем свои юниты
-  if (appData.campaign.opUnits) {
-    appData.campaign.opUnits.forEach(unit => drawUnit(unit, false));
-  }
-  // Рисуем вражеские юниты
-  if (appData.campaign.enemyOpUnits) {
-    appData.campaign.enemyOpUnits.forEach(unit => drawUnit(unit, true));
-  }
 }
       
 // Загружаем сохранённый выбор (если есть)
