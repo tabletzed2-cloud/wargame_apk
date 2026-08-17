@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.72 — бат  </title>
+  <title>Боевой модуль v12.73 — бат  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -242,7 +242,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.72</h1>
+    <h1>⚔️ Боевой модуль v12.73</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
@@ -269,7 +269,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.72 — бат </h2>
+  <h2>⚔️ Боевой модуль v12.73 — бат </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -814,6 +814,11 @@ function buildOperationalUnits() {
       row = 2 + Math.floor(unitCounter / 3);
     }
     unitCounter++;
+     // Расчёт ОД
+    let maxAp = 6; // по умолчанию пехота
+    if (type === 'company_hq' || type === 'battalion_hq') maxAp = 4;
+    else if (type === 'vehicle' || type === 'tank_platoon' || type === 'btr_platoon' || type === 'sau_battery') maxAp = 4;
+    else if (type === 'mortar_battery' || type === 'at_battery') maxAp = 6;
     opUnits.push({
       name,
       type,
@@ -893,6 +898,16 @@ function buildOperationalUnits() {
   buildEnemyOperationalUnits();
   saveData();
 }
+function getOpMaxAP(unit) {
+  return unit.maxAp || 6;
+}
+
+function spendOpAP(unit, cost) {
+  if (unit.ap < cost) return false;
+  unit.ap -= cost;
+  return true;
+}
+      
 function showBattalionRoster() {
   // Убедимся, что операционные юниты созданы
   if (!appData.campaign.opUnits || appData.campaign.opUnits.length === 0) {
@@ -1090,6 +1105,13 @@ function handleOpMapClick(e) {
         showContactModal(selectedUnit, enemyOnTarget);
         return;
       }
+            // Проверяем стоимость перемещения (1 ОД за гекс, пока всё трава)
+      const moveCost = 1;
+      if (!spendOpAP(selectedUnit, moveCost)) {
+        document.getElementById('mapInfo').innerHTML = 'Недостаточно ОД для перемещения.';
+        redrawOperationalMap();
+        return;
+      }
       // Если врага нет, перемещаемся
       selectedUnit.col = h.col;
       selectedUnit.row = h.row;
@@ -1270,6 +1292,14 @@ function drawOperationalUnits(ctx) {
     // Подпись (первые 3 буквы)
     ctx.fillStyle = '#fff';
     ctx.fillText(unit.name.substring(0, 3), x, y);
+        // Отображаем ОД только у своих юнитов
+    if (!isEnemy) {
+      ctx.fillStyle = '#fff';
+      ctx.font = `${size * 0.2}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(`ОД:${unit.ap}`, x, y - radius - 2);
+    }
   }
 
   // Рисуем свои юниты
@@ -1779,15 +1809,15 @@ document.getElementById('battleApp').style.display = 'none';
   "active": false,
   "scenario": null,
   "playerFaction": null,
-  "battalions": {
-    "player": null,
-    "enemy": null
-  },
+  "battalions": { "player": null, "enemy": null },
+  "opUnits": null,
+  "enemyOpUnits": [],
+  "selectedOpUnit": null,
+  "currentTurn": 1,
   "opMap": null,
   "currentTime": 840,
   "activeBattles": []
 }
-
       };
       
     }
@@ -1811,6 +1841,9 @@ document.getElementById('battleApp').style.display = 'none';
     activeBattles: []
   };
 }
+if (!appData.campaign.currentTurn) appData.campaign.currentTurn = 1;
+if (!appData.campaign.opUnits) appData.campaign.opUnits = null;
+if (!appData.campaign.selectedOpUnit) appData.campaign.selectedOpUnit = null;
   } else {
     appData = getDefaultData();
   }
@@ -1986,13 +2019,15 @@ function getMaxAP(squad) {
 }
 
 function startTacticalBattle(playerUnit, enemyUnit) {
+  appData.currentTime = appData.campaign.currentTime;
   // Проверяем, есть ли активный бой с этими же юнитами
   const existingBattle = appData.campaign.activeBattles.find(b => 
     b.playerUnitName === playerUnit.name && b.enemyUnitName === enemyUnit.name
   );
 
   if (existingBattle) {
-    // Восстанавливаем бой
+       // Восстанавливаем бой
+    appData.currentTime = appData.campaign.currentTime;
     appData.squads = existingBattle.playerSquads.map(s => JSON.parse(JSON.stringify(s)));
     appData.map = JSON.parse(JSON.stringify(existingBattle.tacticalMap));
     appData.currentTurn = existingBattle.currentTurn || 1;
@@ -2134,10 +2169,11 @@ function activateBattleTab() {
   document.getElementById('btnFinishBattle').style.display = 'inline-block';
 }
 function returnToCampaign() {
-  // Находим текущий бой в массиве (можно по имени игрового юнита, но лучше добавить поле currentBattleId)
-  document.getElementById('btnReturnToCampaign').style.display = 'none';
-  document.getElementById('btnFinishBattle').style.display = 'none';
-  const currentBattleId = appData.currentBattleId; // мы должны хранить id текущего боя
+  // Синхронизируем время перед выходом из боя
+  appData.campaign.currentTime = appData.currentTime;
+
+  // Сохраняем состояние текущего боя (если он есть)
+  const currentBattleId = appData.currentBattleId;
   if (currentBattleId && appData.campaign.activeBattles.length > 0) {
     const battle = appData.campaign.activeBattles.find(b => b.id === currentBattleId);
     if (battle) {
@@ -2147,6 +2183,33 @@ function returnToCampaign() {
       battle.currentTurn = currentTurn;
     }
   }
+
+  // Очищаем тактические данные
+  appData.squads = [];
+  appData.map = {
+    grid: {},
+    baseHexSize: 45,
+    zoomLevel: 1,
+    mode: 'view',
+    enemySquads: [],
+    selectedMoveSquadIdx: null,
+    selectedEnemyMoveIdx: null,
+    reachableHexes: [],
+    isCrouchMode: false
+  };
+  appData.currentBattleId = null;
+
+  // Скрываем кнопки боя и показываем карту кампании
+  document.getElementById('btnReturnToCampaign').style.display = 'none';
+  document.getElementById('btnFinishBattle').style.display = 'none';
+  document.getElementById('battleApp').style.display = 'none';
+  document.getElementById('campaignApp').style.display = 'block';
+  document.getElementById('campaignMapScreen').style.display = 'block';
+
+  // Перерисовываем операционную карту и список боёв
+  initOperationalMap();
+  renderActiveBattlesList(); 
+  saveData();
 }
 function finishBattle() {
   // Находим текущий бой по id
@@ -2296,6 +2359,7 @@ function nextTurn() {
     appData.currentTurn = currentTurn;
   appData.currentTime += 2;
 if (appData.currentTime >= 1440) appData.currentTime -= 1440;
+  appData.campaign.currentTime = appData.currentTime;
 checkNightTime();
   // === Санитар (лечит случайного раненого из любого отряда) ===
   const medics = appData.squads.flatMap(s => s.fighters.filter(f => f.isMedic && f.hp > 0));
@@ -7890,6 +7954,22 @@ function backToBattalionAssembly() {
   // Можно заново отобразить экран сборки
   startBattalionAssembly(appData.campaign.playerFaction);
 }
+function endOperationalTurn() {
+  // Увеличиваем время на 20 минут
+  appData.campaign.currentTime += 20;
+  if (appData.campaign.currentTime >= 1440) appData.campaign.currentTime -= 1440;
+  appData.currentTime = appData.campaign.currentTime; // синхронизируем с тактикой
+  appData.campaign.currentTurn++;
+
+  // Восстанавливаем ОД всем операционным юнитам игрока
+  if (appData.campaign.opUnits) {
+    appData.campaign.opUnits.forEach(u => { u.ap = u.maxAp; });
+  }
+
+  saveData();
+  redrawOperationalMap();
+  document.getElementById('mapInfo').innerHTML = `Операционный ход завершён. Время: ${formatTime(appData.campaign.currentTime)}`;
+}
       
   </script> 
   
@@ -7942,6 +8022,7 @@ function backToBattalionAssembly() {
     <button onclick="backToBattalionAssembly()" style="background:#555;">← Назад к сбору</button>
     <button onclick="closeCampaign()" style="background:#c0392b;">↩️ В меню</button>
     <button onclick="showBattalionRoster()" style="background:#8e44ad;">👥 Батальон</button>
+    <button onclick="endOperationalTurn()" style="background:#2980b9;">⏭️ Завершить операционный ход</button>
   </div>
       <div id="activeBattlesPanel" style="margin:10px 0; padding:10px; background:#2a2a2a; border-radius:8px;">
   <h4>⚔️ Текущие бои</h4>
