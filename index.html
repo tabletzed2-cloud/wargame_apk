@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.81 — бат  </title>
+  <title>Боевой модуль v12.82 — бат  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -242,7 +242,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.81</h1>
+    <h1>⚔️ Боевой модуль v12.82</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
@@ -269,7 +269,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.81 — бат </h2>
+  <h2>⚔️ Боевой модуль v12.82 — бат </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -353,6 +353,7 @@
       <button onclick="setMapMode('edit')" style="background:#f39c12;">✏️ Редактор</button>
       <button onclick="setMapMode('marker')" style="background:#8e44ad;">📌 Метки</button>
       <button onclick="setMapMode('view')" style="background:#555;">🖱️ Просмотр</button>
+      <button id="btnStartBattleAfterPlacement" onclick="finishTacticalPlacement()" style="display:none; background:#27ae60;">✅ Начать бой</button>
       <button onclick="exportCurrentMap()">💾 Экспорт текущей карты</button>
       <button onclick="nextTurn()" style="background:#2980b9;">⏭️ Завершить ход</button>
       <button id="btnReturnToCampaign" style="display:none; background:#f39c12;" onclick="returnToCampaign()">↩️ В кампанию</button>
@@ -2298,29 +2299,6 @@ document.getElementById('btnFinishBattle').style.display = 'inline-block';
       };
     }
   }
-
-  // 4. Размещаем свои отряды слева
-  playerSquads.forEach((squad, idx) => {
-    const col = 2 + Math.floor(idx / 3);
-    const row = 2 + (idx % 3);
-    const key = `${col},${row}`;
-    tacticalMap.grid[key].squadIds.push(idx);
-    squad.hexPos = [col, row];
-  });
-
-  // 5. Размещаем врагов справа
-  enemySquads.forEach((squad, idx) => {
-    const col = 12 + Math.floor(idx / 3);
-    const row = 2 + (idx % 3);
-    const key = `${col},${row}`;
-    tacticalMap.grid[key].enemySquadIds.push(idx);
-    tacticalMap.enemySquads.push({
-      name: enemyUnit.name || 'Враг',
-      faction: enemyFaction,
-      icon: squad.icon || null,
-      fighters: squad.fighters || []
-    });
-  });
 
   // 6. Сохраняем бой в массив активных боёв
   const newBattle = {
@@ -7478,23 +7456,23 @@ if (mode === 'move') {
 
   // ======== РАЗМЕЩЕНИЕ ВРАГА ПО КЛИКУ ========
   if (mode === 'placeEnemy') {
-    const factionSelect = document.getElementById('enemyFactionSelect');
     const squadSelect = document.getElementById('enemySquadToPlace');
-    const faction = factionSelect.value;
-    const templateIdx = parseInt(squadSelect.value);
-    if (isNaN(templateIdx) || templateIdx < 0) {
+    const idx = parseInt(squadSelect.value);
+    if (isNaN(idx) || idx < 0) {
       infoBox.innerHTML = '⚠️ Выберите вражеский отряд из списка!';
       return;
     }
-    const template = appData.templates[templateIdx];
-    if (!template) {
-      infoBox.innerHTML = '❌ Шаблон не найден.';
+    const enemy = appData.map.enemySquads[idx];
+    if (!enemy) {
+      infoBox.innerHTML = '❌ Враг не найден.';
       return;
     }
-    placeEnemyOnHex(hex, template, faction, key);
+    // Размещаем врага на кликнутом гексе
+    placeExistingEnemyOnHex(hex, idx, key);
     return;
   }
-
+const allPlaced = appData.squads.every(s => s.hexPos);
+document.getElementById('btnStartBattleAfterPlacement').style.display = allPlaced ? 'inline-block' : 'none';
   // Режим просмотра (view) или fallback
   infoBox.innerHTML = `Гекс ${key}: ${hex.type}. Своих: ${hex.squadIds.length}, Врагов: ${hex.enemySquadIds.length}`;
 }
@@ -7516,6 +7494,11 @@ function setMapMode(mode) {
   // Показываем чекбокс только в режиме перемещения
   document.getElementById('crouchLabel').style.display = (mode === 'move') ? 'inline-block' : 'none';
   document.getElementById('mapInfo').innerHTML = `Режим: ${mode}`;
+  if (mode === 'place' || mode === 'placeEnemy') {
+  document.getElementById('btnStartBattleAfterPlacement').style.display = 'inline-block';
+} else {
+  document.getElementById('btnStartBattleAfterPlacement').style.display = 'none';
+}
   redrawMap();
 }
       
@@ -8008,16 +7991,13 @@ function exportCurrentMap() {
       updateEnemySquadDropdown();
     }
 
-    function updateEnemySquadDropdown() {
-      const factionSelect = document.getElementById('enemyFactionSelect');
-      const squadSelect = document.getElementById('enemySquadToPlace');
-      if (!factionSelect || !squadSelect) return;
-      const faction = factionSelect.value;
-      // Ищем шаблоны этой фракции (можно также использовать и реальные отряды, если хотите)
-      const templates = appData.templates.filter(t => t.faction === faction);
-      squadSelect.innerHTML = templates.map((t, idx) => `<option value="${idx}">${t.name}</option>`).join('');
-      if (templates.length === 0) squadSelect.innerHTML = '<option value="-1">Нет шаблонов</option>';
-    }
+function updateEnemySquadDropdown() {
+  const squadSelect = document.getElementById('enemySquadToPlace');
+  if (!squadSelect) return;
+  const enemies = appData.map.enemySquads || [];
+  squadSelect.innerHTML = enemies.map((e, idx) => `<option value="${idx}">${e.name}</option>`).join('');
+  if (enemies.length === 0) squadSelect.innerHTML = '<option value="-1">Нет врагов</option>';
+}
 
     function placeEnemyFromTemplate() {
       const factionSelect = document.getElementById('enemyFactionSelect');
@@ -8053,25 +8033,25 @@ function exportCurrentMap() {
       redrawMap();
       document.getElementById('mapInfo').innerHTML = `☠️ Враг "${template.name}" (${faction}) размещён на гексе ${key}`;
     }
-          function placeEnemyByCoords() {
-      const factionSelect = document.getElementById('enemyFactionSelect');
-      const squadSelect = document.getElementById('enemySquadToPlace');
-      const faction = factionSelect.value;
-      const templateIdx = parseInt(squadSelect.value);
-      if (isNaN(templateIdx) || templateIdx < 0) {
-        alert('Выберите шаблон вражеского отряда!');
-        return;
-      }
-      const template = appData.templates[templateIdx];
-      if (!template) return;
-      
-      const coords = prompt('Введите координаты гекса (например, 5,3):');
-      if (!coords) return;
-      const key = coords.replace(/\s/g, '');
-      const hex = appData.map.grid[key];
-      if (!hex) { alert('Гекс не найден!'); return; }
-      placeEnemyOnHex(hex, template, faction, key);
-    }
+function placeEnemyByCoords() {
+  const squadSelect = document.getElementById('enemySquadToPlace');
+  const idx = parseInt(squadSelect.value);
+  if (isNaN(idx) || idx < 0) {
+    alert('Выберите вражеский отряд для размещения!');
+    return;
+  }
+  const enemy = appData.map.enemySquads[idx];
+  if (!enemy) {
+    alert('Враг не найден!');
+    return;
+  }
+  const coords = prompt('Введите координаты гекса (например, 5,3):');
+  if (!coords) return;
+  const key = coords.replace(/\s/g, '');
+  const hex = appData.map.grid[key];
+  if (!hex) { alert('Гекс не найден!'); return; }
+  placeExistingEnemyOnHex(hex, idx, key);
+}
 function placeEnemyOnHex(hex, template, faction, key) {
   if (!appData.map.enemySquads) appData.map.enemySquads = [];
   const enemyObj = {
@@ -8207,6 +8187,35 @@ function updateOpPlaceSelect() {
   sel.innerHTML = units.map((u, i) => `<option value="${i}">${u.name}</option>`).join('');
   if (units.length === 0) sel.innerHTML = '<option value="-1">Нет юнитов</option>';
 }
+function placeExistingEnemyOnHex(hex, enemyIdx, key) {
+  if (!hex.enemySquadIds) hex.enemySquadIds = [];
+  // Удаляем врага с предыдущего гекса (если был)
+  for (let k in appData.map.grid) {
+    const cell = appData.map.grid[k];
+    if (cell.enemySquadIds) {
+      cell.enemySquadIds = cell.enemySquadIds.filter(id => id !== enemyIdx);
+    }
+  }
+  hex.enemySquadIds.push(enemyIdx);
+  const enemy = appData.map.enemySquads[enemyIdx];
+  document.getElementById('mapInfo').innerHTML = `Враг "${enemy.name}" размещён на гексе ${key}`;
+  saveData();
+  redrawMap();
+}
+function finishTacticalPlacement() {
+  const unplaced = appData.squads.filter(s => !s.hexPos);
+  if (unplaced.length > 0) {
+    alert(`Осталось разместить своих отрядов: ${unplaced.length}`);
+    return;
+  }
+  // Переключаем режим карты на обычный
+  appData.map.mode = 'view';
+  document.getElementById('btnStartBattleAfterPlacement').style.display = 'none';
+  redrawMap();
+  document.getElementById('mapInfo').innerHTML = 'Бой начат!';
+  saveData();
+}
+      
       
   </script> 
   
