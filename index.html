@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.71 — бат  </title>
+  <title>Боевой модуль v12.72 — бат  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -242,7 +242,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.71</h1>
+    <h1>⚔️ Боевой модуль v12.72</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
@@ -269,7 +269,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.71 — бат </h2>
+  <h2>⚔️ Боевой модуль v12.72 — бат </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -3895,12 +3895,12 @@ const OP_HEX_SIZE = 40; // размер гекса в пикселях
 }
 
 function calculateReachableHexes(squad, fromKey, ap, isCrouch) {
-  if (!squad || !fromKey) return [];
-  if (squad.name.includes('ДОТ')) return [];
+  if (!squad || !fromKey) return {};
+  if (squad.name.includes('ДОТ')) return {};
 
   const visited = new Map();
-  const queue = [{ key: fromKey, cost: 0 }];
   visited.set(fromKey, 0);
+  const queue = [{ key: fromKey, cost: 0 }];
 
   while (queue.length > 0) {
     const { key, cost } = queue.shift();
@@ -3909,7 +3909,7 @@ function calculateReachableHexes(squad, fromKey, ap, isCrouch) {
       const moveCost = getMovementCost(squad, key, nKey, isCrouch);
       if (moveCost === Infinity) continue;
       const newCost = cost + moveCost;
-      if (newCost > ap) continue; // только проверка хватает ли ОД
+      if (newCost > ap) continue;
 
       if (!visited.has(nKey) || newCost < visited.get(nKey)) {
         visited.set(nKey, newCost);
@@ -3919,7 +3919,11 @@ function calculateReachableHexes(squad, fromKey, ap, isCrouch) {
   }
 
   visited.delete(fromKey);
-  return Array.from(visited.keys());
+  const result = {};
+  for (let [key, cost] of visited.entries()) {
+    result[key] = cost;
+  }
+  return result;
 }
       
 function meleeAttack() {
@@ -6961,7 +6965,8 @@ function recalcReachable(squad, fromKey) {
   const idx = appData.squads.indexOf(squad);
   const ap = getAP(idx);
   const isCrouch = appData.map.isCrouchMode;
-  appData.map.reachableHexes = calculateReachableHexes(squad, fromKey, ap, isCrouch);
+  appData.map.reachableCosts = calculateReachableHexes(squad, fromKey, ap, isCrouch);
+  appData.map.reachableHexes = Object.keys(appData.map.reachableCosts);
   console.log('Достижимые гексы:', appData.map.reachableHexes);
 }
 function handleHexAction(key) {
@@ -7061,6 +7066,7 @@ if (mode === 'move') {
     const squad = appData.squads[selectedIdx];
     if (!squad) {
       appData.map.selectedMoveSquadIdx = null;
+      appData.map.reachableCosts = null;
       appData.map.reachableHexes = [];
       redrawMap();
       return;
@@ -7072,8 +7078,9 @@ if (mode === 'move') {
     // 1. Клик по достижимому гексу (даже если там есть другие отряды) – перемещаем
     if (isReachable && !isCurrentPos) {
       const fromKey = squad.hexPos.join(',');
-      const moveCost = getMovementCost(squad, fromKey, key, appData.map.isCrouchMode);
-      if (moveCost === Infinity) {
+      // Получаем стоимость пути из предварительно рассчитанных данных
+      const moveCost = appData.map.reachableCosts ? appData.map.reachableCosts[key] : undefined;
+      if (moveCost === undefined) {
         infoBox.innerHTML = 'Недостижимо';
         return;
       }
@@ -7092,12 +7099,12 @@ if (mode === 'move') {
       infoBox.innerHTML = `Отряд "${squad.name}" перемещён на ${key} (потрачено ${moveCost/2} ОД).`;
       appData.map.selectedMoveSquadIdx = null;
       appData.map.reachableHexes = [];
+      appData.map.reachableCosts = null;  // очищаем стоимости
       saveData();
       updateUI();
       redrawMap();
       return;
     }
-
     // 2. Клик по недостижимому гексу, на котором есть другой отряд – переключаемся
     if (!isReachable && !isCurrentPos) {
       const otherSquadIds = hex.squadIds.filter(id => id !== selectedIdx);
