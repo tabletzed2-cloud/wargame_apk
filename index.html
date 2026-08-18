@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.91 — карта  </title>
+  <title>Боевой модуль v12.92 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -242,7 +242,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.91</h1>
+    <h1>⚔️ Боевой модуль v12.92</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
@@ -269,7 +269,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.91 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.92 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -575,16 +575,18 @@ function generateBattalion(faction, supportIds) {
   const battalion = { faction, units: [] };
 
   // Вспомогательная функция клонирования шаблона
-  function cloneTemplate(faction, name, templateName) {
-    const tmpl = appData.templates.find(t => t.name === templateName && t.faction === faction);
-    if (!tmpl) {
-      console.warn(`Шаблон ${templateName} для фракции ${faction} не найден`);
-      return null;
-    }
-    const squad = JSON.parse(JSON.stringify(tmpl));
-    squad.name = name;
-    squad.currentMorale = squad.baseMorale;
-    squad.hidden = false;
+ function cloneTemplate(faction, name, templateName, icon = null) {
+  const tmpl = appData.templates.find(t => t.name === templateName && t.faction === faction);
+  if (!tmpl) {
+    console.warn(`Шаблон ${templateName} для фракции ${faction} не найден`);
+    return null;
+  }
+  const squad = JSON.parse(JSON.stringify(tmpl));
+  squad.name = name;
+  squad.currentMorale = squad.baseMorale;
+  squad.hidden = false;
+  // Устанавливаем иконку, если передана
+  if (icon) squad.icon = icon;
     // Определяем мобильность по названию шаблона или отряда
     const isMotorcycle = (templateName || '').includes('Мотоцикл') || (name || '').includes('Мотоцикл');
     const isBicycle = (templateName || '').includes('Самокат') || (name || '').includes('Самокат');
@@ -604,27 +606,32 @@ function generateBattalion(faction, supportIds) {
   // Обработка стандартных подразделений
   preset.standard.forEach(item => {
     switch (item.type) {
-      case "hq":
-        battalion.units.push({
-          type: "hq", name: item.name,
-          squads: [cloneTemplate(faction, item.name, item.templateName)].filter(Boolean)
-        });
+     case "hq":
+  battalion.units.push({
+    type: "hq", name: item.name, icon: item.icon || null,
+    squads: [cloneTemplate(faction, item.name, item.templateName, item.icon || null)].filter(Boolean)
+  });
         break;
-      case "mortar_battery":
-      case "at_battery":
-        battalion.units.push({
-          type: item.type, name: item.name,
-          squads: item.templates.map(t => cloneTemplate(faction, t.name, t.templateName)).filter(Boolean)
-        });
+   case "mortar_battery":
+   case "at_battery":
+   battalion.units.push({
+    type: item.type, name: item.name, icon: item.icon || null,
+    squads: item.templates.map(t => cloneTemplate(faction, t.name, t.templateName, t.icon || item.icon || null)).filter(Boolean)
+  });
         break;
-      case "infantry_company":
-        const company = { type: "infantry_company", name: item.name, platoons: [] };
-        item.platoons.forEach(pl => {
-          const platoon = { name: pl.name, type: pl.type || 'infantry_platoon', squads: pl.squads.map(s => cloneTemplate(faction, s.name, s.templateName)).filter(Boolean) };
-          company.platoons.push(platoon);
-        });
-        if (item.hq) company.hq = cloneTemplate(item.hq.name, item.hq.templateName);
-        battalion.units.push(company);
+   case "infantry_company":
+   const company = { type: "infantry_company", name: item.name, icon: item.icon || null, platoons: [] };
+   item.platoons.forEach(pl => {
+    const platoon = {
+      name: pl.name,
+      type: pl.type || 'infantry_platoon',
+      icon: pl.icon || item.icon || null,
+      squads: pl.squads.map(s => cloneTemplate(faction, s.name, s.templateName, s.icon || pl.icon || item.icon || null)).filter(Boolean)
+    };
+    company.platoons.push(platoon);
+  });
+  if (item.hq) company.hq = cloneTemplate(faction, item.hq.name, item.hq.templateName, item.hq.icon || item.icon || null);
+  battalion.units.push(company);
         break;
       // ... можно добавить bicycle_company и другие
     }
@@ -633,30 +640,26 @@ function generateBattalion(faction, supportIds) {
   // Поддержка
   preset.supportOptions.forEach(opt => {
     if (supportIds.includes(opt.id)) {
-       if (opt.templates) {
-        const squads = opt.templates.map(t => {
-          const squad = cloneTemplate(faction, t.name, t.templateName);
-          if (squad) {
-            squad.icon = t.icon || squad.icon || null;
-          }
-          return squad;
-        }).filter(Boolean);
-        battalion.units.push({
-          type: opt.id,
-          name: opt.name,
-          icon: opt.icon || null,
-          squads
-        });
-      } else if (opt.template) {
-        const squad = cloneTemplate(faction, opt.name, opt.template);
-        if (squad) squad.icon = opt.icon || squad.icon || null;
-        battalion.units.push({
-          type: opt.id,
-          name: opt.name,
-          icon: opt.icon || null,
-          squads: [squad].filter(Boolean)
-        });
-        }
+if (opt.templates) {
+  const squads = opt.templates.map(t => {
+    const squad = cloneTemplate(faction, t.name, t.templateName, t.icon || opt.icon || null);
+    return squad;
+  }).filter(Boolean);
+  battalion.units.push({
+    type: opt.id,
+    name: opt.name,
+    icon: opt.icon || null,
+    squads
+  });
+} else if (opt.template) {
+  const squad = cloneTemplate(faction, opt.name, opt.template, opt.icon || null);
+  battalion.units.push({
+    type: opt.id,
+    name: opt.name,
+    icon: opt.icon || null,
+    squads: [squad].filter(Boolean)
+  });
+}
     }
   });
 
@@ -918,19 +921,20 @@ function addOpUnit(name, type, squads, icon = null) {
           });
         }
         break;
-      case 'dots':
-      case 'sau_battery':
-      case 'btr_platoon':
-      case 'tank_platoon':
-      case 'regimental_artillery':
-        if (unit.squads && unit.squads.length > 0) {
-          unit.squads.forEach((squad) => {
-            const vehName = squad.name || unit.name;
-            addOpUnit(vehName, unit.type, [squad], squad.icon || unit.icon || null);
-          });
-        } else {
-          addOpUnit(unit.name, unit.type, [], unit.icon || null);
-        }
+case 'dots':
+case 'sau_battery':
+case 'btr_platoon':
+case 'tank_platoon':
+case 'regimental_artillery':
+  if (unit.squads && unit.squads.length > 0) {
+    unit.squads.forEach((squad) => {
+      const vehName = squad.name || unit.name;
+      addOpUnit(vehName, unit.type, [squad], squad.icon || unit.icon || null);
+    });
+  } else {
+    addOpUnit(unit.name, unit.type, [], unit.icon || null);
+  }
+  break;
         break;
       default:
         // На случай новых типов
@@ -1223,18 +1227,6 @@ function redrawOperationalMap() {
   // Очистка
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   
-  // Рисуем фоновое изображение, если есть
-  if (appData.campaign.opMapImage) {
-    if (!loadedOpMapImage || loadedOpMapImage.src !== appData.campaign.opMapImage) {
-      loadedOpMapImage = new Image();
-      loadedOpMapImage.src = appData.campaign.opMapImage;
-    }
-    if (loadedOpMapImage.complete && loadedOpMapImage.naturalWidth > 0) {
-      ctx.drawImage(loadedOpMapImage, 0, 0, canvas.width, canvas.height);
-    } else {
-      loadedOpMapImage.onload = () => redrawOperationalMap();
-    }
-  }
   // Рисуем сетку
   for (let row = 0; row < OP_MAP_ROWS; row++) {
     for (let col = 0; col < OP_MAP_COLS; col++) {
@@ -2180,7 +2172,7 @@ if (!appData.campaign.opMapMode) appData.campaign.opMapMode = 'view';
 if (!appData.campaign.selectedPlaceUnitId) appData.campaign.selectedPlaceUnitId = null;
 if (!appData.campaign.currentTurn) appData.campaign.currentTurn = 1;
 if (appData.campaign.scenario === 'valencia' && !appData.campaign.opMapImage) {
-  appData.campaign.opMapImage = 'images/map_valencia.jpg';
+  appData.campaign.opMapImage = 'maps/Dаленсия.png';
 }
 if (appData.campaign.opMapScaleX === undefined) appData.campaign.opMapScaleX = 1.0;
 if (appData.campaign.opMapScaleY === undefined) appData.campaign.opMapScaleY = 1.0;
@@ -7864,6 +7856,7 @@ function updateOpMapDisplayParams() {
   appData.campaign.opMapOffsetY = parseFloat(document.getElementById('opMapOffsetY').value);
   saveData();
   redrawOperationalMap();
+  updateOpMapDisplayParams()
 }
       
     function setupMapControls() {
