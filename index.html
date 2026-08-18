@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.83 — бат  </title>
+  <title>Боевой модуль v12.84 — бат  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -242,7 +242,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.83</h1>
+    <h1>⚔️ Боевой модуль v12.84</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
@@ -269,7 +269,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.83 — бат </h2>
+  <h2>⚔️ Боевой модуль v12.84 — бат </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -587,9 +587,9 @@ function generateBattalion(faction, supportIds) {
     squad.hidden = false;
     if (templateName.includes('Мотоциклетный') || name.includes('Мотоциклетный')) {
   squad.mobilityType = 'motorcycle';
-} else if (templateName.includes('Самокатное') || name.includes('Самокатное') ||
-           templateName.includes('Самокатный') || name.includes('Самокатный') ||
-           templateName.includes('Самокатной') || name.includes('Самокатной')) {
+} else if (templateName.includes('Самокат') || name.includes('Самокат') ||
+           templateName.includes('Самокат') || name.includes('Самокат') ||
+           templateName.includes('Самокат') || name.includes('Самокат')) {
   squad.mobilityType = 'bicycle';
   squad.dismounted = false;
 } else {
@@ -1406,7 +1406,7 @@ function drawOperationalHex(ctx, x, y, size, type) {
 }
 
 function drawOperationalUnits(ctx) {
-  const size = OP_HEX_SIZE;
+  const size = OP_HEX_SIZE * (appData.campaign.opZoomLevel || 1);
 
   function drawUnit(unit, isEnemy = false, offsetX = 0, offsetY = 0) {
     if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
@@ -3220,17 +3220,25 @@ function renderActiveCardButtons() {
   // Индикатор подавления
   const isSuppressed = currentSquad.suppressed;
   shootHtml += `<button onclick="toggleSuppression()" style="background:#f39c12;">${isSuppressed ? '💫 Подавлен (снять)' : '😐 Не подавлен'}</button> `;
-    if (currentSquad.mobilityType === 'bicycle' && !currentSquad.dismounted) {
-  moveHtml += `<button onclick="dismountBicycle()">🚲 Спешиться (оставить стоянку)</button> `;
-}
 
   // ========== ПАНЕЛЬ ДВИЖЕНИЯ ==========
+ 
+}
   if (getAP(currentSquadIndex) > 0 && !currentSquad.armor) {
     moveHtml += `<button onclick="moveSquad('open')">🌄 Бег (откр.)</button> `;
     moveHtml += `<button onclick="moveSquad('forest')">🌲 Лес</button> `;
     moveHtml += `<button onclick="moveSquad('road')">🛣️ Дорога</button> `;
     moveHtml += `<button onclick="moveSquad('bad')">🌋 Тяжёлая</button> `;
     moveHtml += `<button onclick="moveSquad('crouch')">🐍 Переползание</button> `;
+     if (currentSquad.mobilityType === 'bicycle' && !currentSquad.dismounted) {
+    moveHtml += `<button onclick="dismountBicycle()">🚲 Спешиться (оставить стоянку)</button> `;
+     if (currentSquad.mobilityType === 'bicycle' && currentSquad.dismounted) {
+  const hex = appData.map.grid[currentSquad.hexPos ? currentSquad.hexPos.join(',') : ''];
+  const hasBikePark = hex && hex.markers && hex.markers.includes('bicyclePark');
+  if (hasBikePark) {
+    moveHtml += `<button onclick="remountBicycle()">🚲 Сесть на велосипед</button> `;
+  }
+}
   }
   if (currentSquad.armor && getAP(currentSquadIndex) > 0) {
     moveHtml += `<button onclick="moveSquad('open')">🌄 Открытая</button> `;
@@ -4165,7 +4173,7 @@ const OP_HEX_SIZE = 55; // размер гекса в пикселях
   for (let [dc, dr] of offsets) {
     const nc = col + dc;
     const nr = row + dr;
-    if (nc >= 0 && nc < TACTICAL_MAP_SIZE && nr >= 0 && nr < 15) {
+    if (nc >= 0 && nc < TACTICAL_MAP_SIZE && nr >= 0 && nr < 20) {
       neighbors.push(`${nc},${nr}`);
     }
   }
@@ -5128,6 +5136,22 @@ function addAwardToFighter(fighterIndex) {
   updateUI();
   redrawMap();
   log('Отряд спешился, оставлена велосипедная стоянка.');
+}
+function remountBicycle() {
+  if (!currentSquad || currentSquad.mobilityType !== 'bicycle' || !currentSquad.dismounted) return;
+  if (!currentSquad.hexPos) return;
+  const key = currentSquad.hexPos.join(',');
+  const hex = appData.map.grid[key];
+  if (!hex || !hex.markers || !hex.markers.includes('bicyclePark')) return;
+
+  currentSquad.dismounted = false;
+  // Убираем метку, так как велосипеды забраны
+  hex.markers = hex.markers.filter(m => m !== 'bicyclePark');
+
+  saveData();
+  updateUI();
+  redrawMap();
+  log('Отряд снова сел на велосипеды.');
 }
       
 function attackSmallArms() {
