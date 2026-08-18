@@ -1102,7 +1102,8 @@ function initOperationalMap() {
   if (!canvas) return;
 
   // Настройка размеров canvas
-  const size = OP_HEX_SIZE;
+  const zoom = appData.campaign.opZoomLevel || 1;
+  const size = OP_HEX_SIZE * zoom;
   canvas.width = (OP_MAP_COLS + 0.5) * Math.sqrt(3) * size;
   canvas.height = (OP_MAP_ROWS + 0.5) * 1.5 * size;
   canvas.style.width = canvas.width + 'px';
@@ -1121,7 +1122,8 @@ function redrawOperationalMap() {
   const canvas = document.getElementById('opMapCanvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  const size = OP_HEX_SIZE;
+  const zoom = appData.campaign.opZoomLevel || 1;
+  const size = OP_HEX_SIZE * zoom;
 
   // Очистка
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1194,7 +1196,7 @@ function handleOpMapClick(e) {
   const clickX = (e.clientX - rect.left) * scaleX;
   const clickY = (e.clientY - rect.top) * scaleY;
 
-  const size = OP_HEX_SIZE;
+  const size = OP_HEX_SIZE * (appData.campaign.opZoomLevel || 1);
   // Обработка режимов размещения
   if (appData.campaign.opMapMode === 'placePlayer' || appData.campaign.opMapMode === 'placeEnemy') {
     const sel = document.getElementById('opPlaceSelect');
@@ -2021,6 +2023,7 @@ document.getElementById('battleApp').style.display = 'none';
   "currentTime": 840,
   "opMapMode": "view",
   "selectedPlaceUnitId": null,
+  "opZoomLevel": 1,
   "activeBattles": []
 }
       };
@@ -2051,6 +2054,7 @@ if (!appData.campaign.selectedPlaceUnitId) appData.campaign.selectedPlaceUnitId 
 if (!appData.campaign.currentTurn) appData.campaign.currentTurn = 1;
 if (!appData.campaign.opUnits) appData.campaign.opUnits = null;
 if (!appData.campaign.selectedOpUnit) appData.campaign.selectedOpUnit = null;
+if (!appData.campaign.opZoomLevel) appData.campaign.opZoomLevel = 1;
   } else {
     appData = getDefaultData();
   }
@@ -6716,18 +6720,18 @@ const BATTALION_PRESETS = {
             ]
           },
          { name: "2-й взвод (гол.)", squads: [
-              { name: "Пехотное отделение №4", templateName: "Самокатное отделение №1" },
-              { name: "Пехотное отделение №5", templateName: "Самокатное отделение №2" },
-              { name: "Пехотное отделение №6", templateName: "Самокатное отделение №3" },
+              { name: "Самокатное отделение №4", templateName: "Самокатное отделение №4" },
+              { name: "Самокатное отделение №5", templateName: "Самокатное отделение №5" },
+              { name: "Самокатное отделение №6", templateName: "Самокатное отделение №6" },
               { name: "Отделение поддержки №2 Самокатное", templateName: "Отделение поддержки №2 Самокатное" },
               { name: "Штаб взвода №2 Самокатный", templateName: "Штаб взвода №8 Самокатный" },
               { name: "Мотоциклетный Пулеметный расчёт №2", templateName: "Мотоциклетный Пулеметный расчёт №2" }
             ]
           },
          { name: "3-й взвод (гол.)", squads: [
-              { name: "Пехотное отделение №7", templateName: "Самокатное отделение №1" },
-              { name: "Пехотное отделение №8", templateName: "Самокатное отделение №1" },
-              { name: "Пехотное отделение №9", templateName: "Самокатное отделение №1" },
+              { name: "Самокатное отделение №7", templateName: "Самокатное отделение №7" },
+              { name: "Самокатное отделение №8", templateName: "Самокатное отделение №8" },
+              { name: "Самокатное отделение №9", templateName: "Самокатное отделение №9" },
               { name: "Отделение поддержки №3 Самокатное", templateName: "Отделение поддержки №3 Самокатное" },
               { name: "Штаб взвода №3 Самокатный", templateName: "Штаб взвода №9 Самокатный" },
               { name: "Мотоциклетный Пулеметный расчёт №3", templateName: "Мотоциклетный Пулеметный расчёт №3" }
@@ -7626,8 +7630,7 @@ function setMapMode(mode) {
       }).join('');
       if (available.length === 0) sel.innerHTML = '<option value="-1">Нет отрядов</option>';
     }
-
-    function zoomMap(factor) {
+ function zoomMap(factor) {
         let newZoom = appData.map.zoomLevel * factor;
         newZoom = Math.max(0.5, Math.min(5, newZoom)); 
         appData.map.zoomLevel = newZoom;
@@ -7641,6 +7644,20 @@ function setMapMode(mode) {
         container.scrollTop = (3000 - container.clientHeight) / 2;
         redrawMap();
     }
+      
+   function zoomOpMap(factor) {
+  let newZoom = (appData.campaign.opZoomLevel || 1) * factor;
+  newZoom = Math.max(0.5, Math.min(3, newZoom)); // ограничение масштаба
+  appData.campaign.opZoomLevel = newZoom;
+  saveData();
+  initOperationalMap(); // переинициализируем размер и перерисуем
+}
+
+function resetOpMapZoom() {
+  appData.campaign.opZoomLevel = 1;
+  saveData();
+  initOperationalMap();
+}
 
     function setupMapControls() {
         const container = document.getElementById('mapContainer');
@@ -8312,6 +8329,9 @@ function placeExistingEnemyOnHex(hex, enemyIdx, key) {
       <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:8px;">
   <button onclick="setOpMapMode('view')" style="background:#555;">🖱️ Просмотр</button>
   <button onclick="setOpMapMode('move')" style="background:#2980b9;">🚶 Перемещение</button>
+  <button onclick="zoomOpMap(1.2)">➕</button>
+  <button onclick="zoomOpMap(0.8)">➖</button>
+  <button onclick="resetOpMapZoom()">🔄</button>
   <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Разместить свои</button>
   <button onclick="setOpMapMode('placeEnemy')" style="background:#c0392b;">☠️ Разместить врага</button>
   <label>Юнит: <select id="opPlaceSelect"></select></label>
