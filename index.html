@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.89 — карта  </title>
+  <title>Боевой модуль v12.90 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
@@ -242,7 +242,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.89</h1>
+    <h1>⚔️ Боевой модуль v12.90</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
@@ -269,7 +269,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.89 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.90 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -633,17 +633,30 @@ function generateBattalion(faction, supportIds) {
   // Поддержка
   preset.supportOptions.forEach(opt => {
     if (supportIds.includes(opt.id)) {
-      if (opt.templates) {
+       if (opt.templates) {
+        const squads = opt.templates.map(t => {
+          const squad = cloneTemplate(faction, t.name, t.templateName);
+          if (squad) {
+            squad.icon = t.icon || squad.icon || null;
+          }
+          return squad;
+        }).filter(Boolean);
         battalion.units.push({
-          type: opt.id, name: opt.name,
-          squads: opt.templates.map((t, idx) => cloneTemplate(`${opt.name} ${idx+1}`, t)).filter(Boolean)
+          type: opt.id,
+          name: opt.name,
+          icon: opt.icon || null,
+          squads
         });
       } else if (opt.template) {
+        const squad = cloneTemplate(faction, opt.name, opt.template);
+        if (squad) squad.icon = opt.icon || squad.icon || null;
         battalion.units.push({
-          type: opt.id, name: opt.name,
-          squads: [cloneTemplate(opt.name, opt.template)].filter(Boolean)
+          type: opt.id,
+          name: opt.name,
+          icon: opt.icon || null,
+          squads: [squad].filter(Boolean)
         });
-      }
+        }
     }
   });
 
@@ -910,15 +923,13 @@ function addOpUnit(name, type, squads, icon = null) {
       case 'btr_platoon':
       case 'tank_platoon':
       case 'regimental_artillery':
-        // Для поддержки и специальных подразделений каждая машина/отделение – отдельная фишка
         if (unit.squads && unit.squads.length > 0) {
-          unit.squads.forEach((squad, idx) => {
-            const vehName = squad.name || `${unit.name} ${idx+1}`;
-            addOpUnit(vehName, unit.type, [squad]);
+          unit.squads.forEach((squad) => {
+            const vehName = squad.name || unit.name;
+            addOpUnit(vehName, unit.type, [squad], squad.icon || unit.icon || null);
           });
         } else {
-          // Если squads нет – просто одна фишка
-          addOpUnit(unit.name, unit.type, []);
+          addOpUnit(unit.name, unit.type, [], unit.icon || null);
         }
         break;
       default:
@@ -1175,16 +1186,26 @@ function redrawOperationalMap() {
   
   // Рисуем фоновое изображение, если есть
   if (appData.campaign.opMapImage) {
-    let img = loadedOpMapImage;
-    if (!img || img.src !== appData.campaign.opMapImage) {
-      img = new Image();
-      img.src = appData.campaign.opMapImage;
-      loadedOpMapImage = img;
+    if (!loadedOpMapImage || loadedOpMapImage.src !== appData.campaign.opMapImage) {
+      loadedOpMapImage = new Image();
+      loadedOpMapImage.src = appData.campaign.opMapImage;
     }
-    if (img.complete && img.naturalWidth > 0) {
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    if (loadedOpMapImage.complete && loadedOpMapImage.naturalWidth > 0) {
+      const imgRatio = loadedOpMapImage.naturalWidth / loadedOpMapImage.naturalHeight;
+      const canvasRatio = canvas.width / canvas.height;
+      let drawWidth, drawHeight;
+      if (imgRatio > canvasRatio) {
+        drawHeight = canvas.height;
+        drawWidth = canvas.height * imgRatio;
+      } else {
+        drawWidth = canvas.width;
+        drawHeight = canvas.width / imgRatio;
+      }
+      const dx = (canvas.width - drawWidth) / 2;
+      const dy = (canvas.height - drawHeight) / 2;
+      ctx.drawImage(loadedOpMapImage, dx, dy, drawWidth, drawHeight);
     } else {
-      img.onload = () => redrawOperationalMap();
+      loadedOpMapImage.onload = () => redrawOperationalMap();
     }
   }
   // Очистка
@@ -1488,7 +1509,66 @@ function drawOperationalUnits(ctx) {
     const y = unit.row * 1.5 * size + size;
     const drawX = x + offsetX;
     const drawY = y + offsetY;
-    const radius = 10;
+        // Если есть иконка, рисуем её
+    if (unit.icon) {
+      let img = loadedOpUnitIcons[unit.icon];
+      if (!img) {
+        img = new Image();
+        img.src = unit.icon;
+        loadedOpUnitIcons[unit.icon] = img;
+      }
+      if (img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, drawX - radius, drawY - radius, radius * 2, radius * 2);
+      } else {
+        img.onload = () => redrawOperationalMap();
+        ctx.fillStyle = isEnemy ? '#555' : '#c0392b';
+        ctx.beginPath();
+        ctx.arc(drawX, drawY, radius, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+      }
+      // Подпись (первые 3 буквы)
+      ctx.fillStyle = '#fff';
+      ctx.fillText(unit.name.substring(0, 3), drawX, drawY);
+      // ОД
+      if (!isEnemy) {
+        ctx.fillStyle = '#fff';
+        ctx.font = `${size * 0.2}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(`ОД:${unit.ap}`, drawX, drawY - radius - 2);
+      }
+      return;
+    }
+    const radius = 10 * (appData.campaign.opZoomLevel || 1);
+        if (unit.icon) {
+      let img = loadedOpUnitIcons[unit.icon];
+      if (!img) {
+        img = new Image();
+        img.src = unit.icon;
+        loadedOpUnitIcons[unit.icon] = img;
+      }
+      if (img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, drawX - radius, drawY - radius, radius * 2, radius * 2);
+      } else {
+        img.onload = () => redrawOperationalMap();
+        ctx.fillStyle = isEnemy ? '#555' : '#c0392b';
+        ctx.beginPath();
+        ctx.arc(drawX, drawY, radius, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#fff';
+      ctx.fillText(unit.name.substring(0, 3), drawX, drawY);
+      if (!isEnemy) {
+        ctx.fillStyle = '#fff';
+        ctx.font = `${size * 0.2}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(`ОД:${unit.ap}`, drawX, drawY - radius - 2);
+      }
+      return;
+    }
 if (unit.icon) {
   let img = loadedOpUnitIcons[unit.icon];
   if (!img) {
@@ -8552,7 +8632,7 @@ function placeExistingEnemyOnHex(hex, enemyIdx, key) {
   <h4>⚔️ Текущие бои</h4>
   <div id="activeBattlesList"></div>
 </div>
-  <div id="opMapContainer" style="position:relative; width:100%; height:70vh; border:1px solid #444; border-radius:8px; overflow:auto; background:#2c3e50;">
+  <div id="opMapContainer" style="position:relative; width:100%; height:70vh; overflow: auto; border:1px solid #444; border-radius:8px; overflow:auto; background:#2c3e50;">
     <canvas id="opMapCanvas" style="display:block; width:2000px; height:1500px;"></canvas>
   </div>
 <div id="contactModal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#2c2c2c; border:2px solid #c0392b; border-radius:12px; padding:20px; z-index:1000; width:400px; color:#ddd;">
