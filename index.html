@@ -3,9 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.92 — карта  </title>
+  <title>Боевой модуль v12.93 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
+    @media (max-width: 768px) {
+  #campaignMapScreen {
+    padding: 0 !important;
+  }
+  #opMapContainer {
+    width: 100vw !important;
+    height: 80vh !important;
+    margin-left: calc(-50vw + 50%) !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+  #opMapCanvas {
+    width: 100% !important;
+    height: auto !important;
+  }
+}
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
     button,select,input,textarea{font-size:.9rem;padding:5px 8px;margin:2px;border-radius:4px;border:none}
     button{background:#c0392b;color:#fff;font-weight:bold;cursor:pointer}
@@ -242,9 +258,10 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.92</h1>
+    <h1>⚔️ Боевой модуль v12.93</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
+    <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
     <button class="menu-btn" onclick="openInfo('history')">📜 История</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
@@ -269,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.92 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.93 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -568,6 +585,8 @@ function closeCampaign() {
   document.getElementById('campaignMapScreen').style.display = 'none';
   document.getElementById('battalionRosterScreen').style.display = 'none'; // новая строка
   document.getElementById('mainMenu').style.display = 'block';
+  document.getElementById('btnReturnToCampaignMenu').style.display = 
+  (appData.campaign.active && appData.campaign.scenario) ? 'inline-block' : 'none';
 }
 function generateBattalion(faction, supportIds) {
   const preset = BATTALION_PRESETS[faction];
@@ -680,8 +699,8 @@ function showScenarioSelection() {
 
 function selectScenario(scenarioId) {
   if (scenarioId === 'valencia') {
-    appData.campaign.scenario = 'valencia'; // сохраняем сценарий (если ещё не было)
-    appData.campaign.opMapImage = 'maps/Валенсия.png'; // фиксированный путь
+    appData.campaign.scenario = 'valencia';
+    appData.campaign.opMapImage = 'maps/Валенсия.png'; // путь к вашей карте
     saveData();
     showScenarioDetails('valencia');
   }
@@ -1086,49 +1105,48 @@ function buildEnemyOperationalUnits() {
   if (appData.campaign.enemyOpUnits && appData.campaign.enemyOpUnits.length > 0) return;
 
   const enemyUnits = [];
-  function addEnemyOpUnit(name, type, squads) {
-    enemyUnits.push({
-      name,
-      type,
-      squads: squads || [],
-      col: null,
-      row: null,
-      side: 'enemy',
-      maxAp: 3,
-      ap: 3,
-      faction: battalion.faction || 'A.I.R.F.',
-      icon: null
-    });
-  }
+function addEnemyOpUnit(name, type, squads, icon = null) {
+  enemyUnits.push({
+    name,
+    type,
+    squads: squads || [],
+    col: null,
+    row: null,
+    side: 'enemy',
+    maxAp: 3,
+    ap: 3,
+    faction: battalion.faction || 'A.I.R.F.',
+    icon: icon
+  });
+}
 
 battalion.units.forEach(unit => {
     switch (unit.type) {
-      case 'hq':
-        addEnemyOpUnit(unit.name, 'battalion_hq', unit.squads);
-        break;
-      case 'mortar_battery':
-        addEnemyOpUnit(unit.name, 'mortar_battery', unit.squads);
-        break;
-      case 'at_battery':
-        // Каждое ПТО – отдельный юнит
-        unit.squads.forEach(squad => {
-          addEnemyOpUnit(squad.name, 'at_gun', [squad]);
-        });
-        break;
-      case 'infantry_company':
-        unit.platoons.forEach(pl => {
-          if (pl.type === 'armored_vehicle_platoon') {
-            pl.squads.forEach(squad => {
-              addEnemyOpUnit(squad.name, 'vehicle', [squad]);
-            });
-          } else {
-            addEnemyOpUnit(pl.name, 'infantry_platoon', pl.squads);
-          }
-        });
-        if (unit.hq) {
-          addEnemyOpUnit(unit.hq.name || 'Штаб роты', 'company_hq', [unit.hq]);
-        }
-        break;
+case 'hq':
+  addEnemyOpUnit(unit.name, 'battalion_hq', unit.squads, unit.icon || null);
+  break;
+case 'mortar_battery':
+  addEnemyOpUnit(unit.name, 'mortar_battery', unit.squads, unit.icon || null);
+  break;
+case 'at_battery':
+  unit.squads.forEach(squad => {
+    addEnemyOpUnit(squad.name, 'at_gun', [squad], squad.icon || unit.icon || null);
+  });
+  break;
+case 'infantry_company':
+  unit.platoons.forEach(pl => {
+    if (pl.type === 'armored_vehicle_platoon') {
+      pl.squads.forEach(squad => {
+        addEnemyOpUnit(squad.name, 'vehicle', [squad], squad.icon || pl.icon || unit.icon || null);
+      });
+    } else {
+      addEnemyOpUnit(pl.name, 'infantry_platoon', pl.squads, pl.icon || unit.icon || null);
+    }
+  });
+  if (unit.hq) {
+    addEnemyOpUnit(unit.hq.name || 'Штаб роты', 'company_hq', [unit.hq], unit.hq.icon || unit.icon || null);
+  }
+  break;
       case 'engineer_platoon':
       case 'recon_platoon':
       case 'armored_vehicles':
@@ -1139,10 +1157,10 @@ battalion.units.forEach(unit => {
       case 'regimental_artillery':
         if (unit.squads && unit.squads.length > 0) {
           unit.squads.forEach(squad => {
-            addEnemyOpUnit(squad.name, unit.type, [squad]);
+            addEnemyOpUnit(squad.name, unit.type, [squad], squad.icon || unit.icon || null);
           });
         } else {
-          addEnemyOpUnit(unit.name, unit.type, []);
+          addEnemyOpUnit(unit.name, unit.type, [], unit.icon || null);
         }
         break;
       default:
@@ -1182,6 +1200,8 @@ function initOperationalMap() {
 }
 
 function redrawOperationalMap() {
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   const canvas = document.getElementById('opMapCanvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
@@ -1202,7 +1222,11 @@ function redrawOperationalMap() {
       const offsetX = appData.campaign.opMapOffsetX || 0;
       const offsetY = appData.campaign.opMapOffsetY || 0;
 
-      // Сначала рисуем изображение без искажения, сохраняя пропорции
+ 
+  // Очистка
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+     // Сначала рисуем изображение без искажения, сохраняя пропорции
       const imgRatio = loadedOpMapImage.naturalWidth / loadedOpMapImage.naturalHeight;
       const canvasRatio = baseWidth / baseHeight;
       let drawWidth, drawHeight;
@@ -1224,9 +1248,7 @@ function redrawOperationalMap() {
       loadedOpMapImage.onload = () => redrawOperationalMap();
     }
   }
-  // Очистка
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
+      
   // Рисуем сетку
   for (let row = 0; row < OP_MAP_ROWS; row++) {
     for (let col = 0; col < OP_MAP_COLS; col++) {
@@ -1508,12 +1530,14 @@ function drawOperationalUnits(ctx) {
   const size = OP_HEX_SIZE * (appData.campaign.opZoomLevel || 1);
 
 function drawUnit(unit, isEnemy = false, offsetX = 0, offsetY = 0) {
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
   const x = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
   const y = unit.row * 1.5 * size + size;
   const drawX = x + offsetX;
   const drawY = y + offsetY;
-  const radius = 10 * (appData.campaign.opZoomLevel || 1);
+  const radius = 18 * (appData.campaign.opZoomLevel || 1);
 
   ctx.fillStyle = isEnemy ? '#555' : '#c0392b';
   ctx.strokeStyle = isEnemy ? '#e74c3c' : '#fff';
@@ -2594,26 +2618,44 @@ function syncBattleLossesToCampaign(battleId) {
   const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
   if (!battle) return;
 
-  // Перебираем отряды игрока в бою
+  // Обновляем свои отряды
   battle.playerSquads.forEach(battleSquad => {
-    // Ищем операционный юнит, в котором есть squad с таким же именем
     for (let unit of appData.campaign.opUnits) {
       const targetSquad = unit.squads.find(s => s.name === battleSquad.name);
       if (targetSquad) {
-        // Копируем состояние бойцов и боеприпасы
         targetSquad.fighters = battleSquad.fighters.map(f => ({ ...f }));
         targetSquad.ammoSmall = battleSquad.ammoSmall;
         targetSquad.ammoOrdnance = battleSquad.ammoOrdnance;
         targetSquad.grenades = battleSquad.grenades;
         targetSquad.currentMorale = battleSquad.currentMorale;
-        // Обновляем ссылку в unit.squads
         unit.squads = unit.squads.map(s => s.name === battleSquad.name ? targetSquad : s);
         break;
       }
     }
   });
 
-  // Можно также учесть врага, если нужно, но пока враг не сохраняется в батальоне
+  // Удаляем уничтоженные свои подразделения
+  appData.campaign.opUnits = appData.campaign.opUnits.filter(unit => {
+    const alive = unit.squads.some(squad => squad.fighters.some(f => f.hp > 0));
+    return alive;
+  });
+
+  // Аналогично для врагов
+  battle.enemySquads.forEach(enemySquad => {
+    for (let unit of appData.campaign.enemyOpUnits) {
+      const targetSquad = unit.squads.find(s => s.name === enemySquad.name);
+      if (targetSquad) {
+        targetSquad.fighters = enemySquad.fighters.map(f => ({ ...f }));
+        unit.squads = unit.squads.map(s => s.name === enemySquad.name ? targetSquad : s);
+        break;
+      }
+    }
+  });
+  appData.campaign.enemyOpUnits = appData.campaign.enemyOpUnits.filter(unit => {
+    const alive = unit.squads.some(squad => squad.fighters.some(f => f.hp > 0));
+    return alive;
+  });
+
   saveData();
 }
       
@@ -6821,17 +6863,17 @@ const loadedOpUnitIcons = {}; // кэш для иконок операционн
 const BATTALION_PRESETS = {
   "BeVe": {
     standard: [
-      { type: "hq", name: "Штаб батальона", templateName: "Штаб Батальона", icon: "" }, // используем шаблон штаба, можно потом расширить
-      { type: "mortar_battery", name: "Батарея 82-мм миномётов", icon: "", templates: [
+      { type: "hq", name: "Штаб батальона", templateName: "Штаб Батальона", icon: "images/штаб батальона BeVe.jpg" }, // используем шаблон штаба, можно потом расширить
+      { type: "mortar_battery", name: "Батарея 82-мм миномётов", icon: "images/мина 82 1.jpg", templates: [
           { name: "Миномет 82-мм №1", templateName: "Минометный расчёт 82-мм №1" },
           { name: "Миномет 82-мм №2", templateName: "Минометный расчёт 82-мм №2" },
           { name: "Миномет 82-мм №3", templateName: "Минометный расчёт 82-мм №3" }
       ]},
       { type: "at_battery", name: "Батарея 47-мм ПТО", templates: [
-          { name: "Расчёт ПТО №1", templateName: "Противотанковый расчёт №1", icon: "" },
+          { name: "Расчёт ПТО №1", templateName: "Противотанковый расчёт №1", icon: "images/пто.jpg" },
           { name: "Расчёт ПТО №2", templateName: "Противотанковый расчёт №2", icon: "" }
       ]},
-      { type: "infantry_company", name: "1-я пехотная рота", icon: "", platoons: [
+      { type: "infantry_company", name: "1-я пехотная рота", icon: "images/штаб роты BeVe бел.jpg", platoons: [
            { name: "1-й взвод (бельг.)", icon: "images/штаб бел.jpg", squads: [
               { name: "Пехотное отделение №1", templateName: "Пехотное отделение №1 Бельгийцы" },
               { name: "Пехотное отделение №2", templateName: "Пехотное отделение №2 Бельгийцы" },
@@ -6842,7 +6884,7 @@ const BATTALION_PRESETS = {
               { name: "Пулемётный расчёт №1", templateName: "Пулеметный расчёт №1" }
             ]
           },
-         { name: "2-й взвод (бельг.)", icon: "", squads: [
+         { name: "2-й взвод (бельг.)", icon: "images/штаб бел вззод 2.jpg", squads: [
               { name: "Пехотное отделение №1", templateName: "Пехотное отделение №4 Бельгийцы" },
               { name: "Пехотное отделение №2", templateName: "Пехотное отделение №5 Бельгийцы" },
               { name: "Пехотное отделение №3", templateName: "Пехотное отделение №6 Бельгийцы" },
@@ -6852,7 +6894,7 @@ const BATTALION_PRESETS = {
               { name: "Пулемётный расчёт №1", templateName: "Пулеметный расчёт №2" }
             ]
           },
-         { name: "3-й взвод (бельг.)", icon: "", squads: [
+         { name: "3-й взвод (бельг.)", icon: "images/штаб бел вззод 3.jpg", squads: [
               { name: "Пехотное отделение №1", templateName: "Пехотное отделение №7 Бельгийцы" },
               { name: "Пехотное отделение №2", templateName: "Пехотное отделение №8 Бельгийцы" },
               { name: "Пехотное отделение №3", templateName: "Пехотное отделение №9 Бельгийцы" },
@@ -6863,10 +6905,10 @@ const BATTALION_PRESETS = {
             ]
           },
       ], 
-       hq: { name: "Штаб роты (бельг.)", icon: "", templateName: "Штаб роты №1 Бельгийцы" } 
+       hq: { name: "Штаб роты (бельг.)", icon: "images/штаб роты BeVe бел.jpg", templateName: "Штаб роты №1 Бельгийцы" } 
       },
       // вторая пехотная рота
-            { type: "infantry_company", name: "2-я пехотная рота", icon: "", platoons: [
+            { type: "infantry_company", name: "2-я пехотная рота", icon: "images/штаб роты  BeVe гол.jpg", platoons: [
            { name: "1-й взвод (гол.)", icon: "images/штаб гол.jpg", squads: [
               { name: "Пехотное отделение №1", templateName: "Пехотное отделение №1 Голландцы" },
               { name: "Пехотное отделение №2", templateName: "Пехотное отделение №2 Голландцы" },
@@ -6877,7 +6919,7 @@ const BATTALION_PRESETS = {
               { name: "Пулемётный расчёт №4", templateName: "Пулеметный расчёт №4" }
             ]
           },
-         { name: "2-й взвод (гол.)", icon: "", squads: [
+         { name: "2-й взвод (гол.)", icon: "images/штаб гол взв 2.jpg", squads: [
               { name: "Пехотное отделение №4", templateName: "Пехотное отделение №4 Голландцы" },
               { name: "Пехотное отделение №5", templateName: "Пехотное отделение №5 Голландцы" },
               { name: "Пехотное отделение №6", templateName: "Пехотное отделение №6 Голландцы" },
@@ -6887,7 +6929,7 @@ const BATTALION_PRESETS = {
               { name: "Пулемётный расчёт №5", templateName: "Пулеметный расчёт №2" }
             ]
           },
-         { name: "3-й взвод (гол.)", icon: "", squads: [
+         { name: "3-й взвод (гол.)", icon: "images/штаб гол взв 3.jpg", squads: [
               { name: "Пехотное отделение №7", templateName: "Пехотное отделение №7 Голландцы" },
               { name: "Пехотное отделение №8", templateName: "Пехотное отделение №8 Голландцы" },
               { name: "Пехотное отделение №9", templateName: "Пехотное отделение №9 Голландцы" },
@@ -6898,11 +6940,11 @@ const BATTALION_PRESETS = {
             ]
           },
       ], 
-       hq: { name: "Штаб роты №2 (гол.)", icon: "", templateName: "Штаб роты №2 Голландцы" } 
+       hq: { name: "Штаб роты №2 (гол.)", icon: "images/штаб роты  BeVe гол.jpg", templateName: "Штаб роты №2 Голландцы" } 
       },
          // третья самокатная рота
-            { type: "infantry_company", name: "3-я самокатная рота", icon: "", platoons: [
-           { name: "1-й самокатный взвод", icon: "", squads: [
+            { type: "infantry_company", name: "3-я самокатная рота", icon: "images/штаб роты BeVe сам.jpg", platoons: [
+           { name: "1-й самокатный взвод", icon: "images/штаб самокат вззод 1.jpg", squads: [
               { name: "Самокатное отделение №1", templateName: "Самокатное отделение №1" },
               { name: "Самокатное отделение №2", templateName: "Самокатное отделение №2" },
               { name: "Самокатное отделение №3", templateName: "Самокатное отделение №3" },
@@ -6911,7 +6953,7 @@ const BATTALION_PRESETS = {
               { name: "Мотоциклетный Пулеметный расчёт №1", templateName: "Мотоциклетный Пулеметный расчёт №1" }
             ]
           },
-         { name: "2-й самокатный взвод", icon: "", squads: [
+         { name: "2-й самокатный взвод", icon: "images/штаб самокат вззод 2.jpg", squads: [
               { name: "Самокатное отделение №4", templateName: "Самокатное отделение №4" },
               { name: "Самокатное отделение №5", templateName: "Самокатное отделение №5" },
               { name: "Самокатное отделение №6", templateName: "Самокатное отделение №6" },
@@ -6920,7 +6962,7 @@ const BATTALION_PRESETS = {
               { name: "Мотоциклетный Пулеметный расчёт №2", templateName: "Мотоциклетный Пулеметный расчёт №2" }
             ]
           },
-         { name: "3-й самокатный взвод", icon: "", squads: [
+         { name: "3-й самокатный взвод", icon: "images/штаб самокат вззод 3.jpg", squads: [
               { name: "Самокатное отделение №7", templateName: "Самокатное отделение №7" },
               { name: "Самокатное отделение №8", templateName: "Самокатное отделение №8" },
               { name: "Самокатное отделение №9", templateName: "Самокатное отделение №9" },
@@ -6930,29 +6972,29 @@ const BATTALION_PRESETS = {
             ]
           }
                       ],
-               hq: { name: "Штаб роты №3 (самокат.)", icon: "", templateName: "Штаб роты №3 Самокатной" } 
+               hq: { name: "Штаб роты №3 (самокат.)", icon: "images/штаб роты BeVe сам.jpg", templateName: "Штаб роты №3 Самокатной" } 
       }
     ],
         supportOptions: [
-      { id: "dots", name: "Расчёты ДОТов и ДОТы (стационарные)", template: "ДОТ Bosh", icon: "" },
+      { id: "dots", name: "Расчёты ДОТов и ДОТы (стационарные)", template: "ДОТ Bosh", icon: "images/ДОТ Bosh.png" },
       { id: "regimental_artillery", name: "Поддержка полковой артиллерии" },
       { id: "sau_battery", name: "Батарея САУ (3 САУ)", templates: [
-        { name: "САУ Brugge №1", templateName: "САУ Brugge №1", icon: ""},
-        { name: "САУ Brugge №2", templateName: "САУ Brugge №2", icon: ""},
-        { name: "САУ Brugge №3", templateName: "САУ Brugge №3", icon: ""}
+        { name: "САУ Brugge №1", templateName: "САУ Brugge №1", icon: "images/САУ Brugge №1.jpg"},
+        { name: "САУ Brugge №2", templateName: "САУ Brugge №2", icon: "images/САУ Brugge №2.jpg"},
+        { name: "САУ Brugge №3", templateName: "САУ Brugge №3", icon: "images/САУ Brugge №3.jpg"}
       ]},
       { id: "armored_vehicle_platoon", name: "Взвод бронеавтомобилей", templates: [
-        { name: "Бронеавтомобиль Landsverk 183 №1", templateName: "Бронеавтомобиль Landsverk 183 №1", icon: ""},
-        { name: "Бронеавтомобиль Landsverk 183 №2", templateName: "Бронеавтомобиль Landsverk 183 №2", icon: ""},
-        { name: "Бронеавтомобиль Landsverk 183 №3", templateName: "Бронеавтомобиль Landsverk 183 №3", icon: ""}
+        { name: "Бронеавтомобиль Landsverk 183 №1", templateName: "Бронеавтомобиль Landsverk 183 №1", icon: "images/БА Landsverk 183 №1.jpg"},
+        { name: "Бронеавтомобиль Landsverk 183 №2", templateName: "Бронеавтомобиль Landsverk 183 №2", icon: "images/БА Landsverk 183 №2.jpg"},
+        { name: "Бронеавтомобиль Landsverk 183 №3", templateName: "Бронеавтомобиль Landsverk 183 №3", icon: "images/БА Landsverk 183 №3.jpg"}
       ]} 
           
     ]
   },
   "A.I.R.F.": {
     standard: [
-     { type: "hq", name: "Штаб Батальона", templateName: "Штаб Батальона", icon: "" }, 
-      { type: "mortar_battery", name: "Батарея 82-мм миномётов", templates: [
+     { type: "hq", name: "Штаб Батальона", templateName: "Штаб Батальона", icon: "images/бат аирф.png" }, 
+      { type: "mortar_battery", name: "Батарея 82-мм миномётов", icon: "images/мин аирф 82.png", templates: [
           { name: "Миномет 82-мм №1", templateName: "Минометный расчёт 82-мм №1" },
           { name: "Миномет 82-мм №2", templateName: "Минометный расчёт 82-мм №2" },
           { name: "Миномет 82-мм №3", templateName: "Минометный расчёт 82-мм №3" }
@@ -6963,14 +7005,14 @@ const BATTALION_PRESETS = {
               { name: "Саперное отделение №3", templateName: "Саперное отделение №3" },
               { name: "Штаб саперного взвода", templateName: "Штаб саперного взвода" }
              ]
-          },{ type: "hq", name: "Развед. взвод", icon: "", squads: [
+          },{ type: "hq", name: "Развед. взвод", icon: "images/развед аирф.png", squads: [
               { name: "Развед. отделение №1", templateName: "Развед. отделение №1" },
               { name: "Развед. отделение №2", templateName: "Развед. отделение №2" },
               { name: "Штаб развед. взвода", templateName: "Штаб развед. взвода" }
              ]
           },
-      { type: "infantry_company", name: "1-я стрелковая рота", icon: "", platoons: [
-            { name: "1-й стрелковый взвод", icon: "images/штаб1.jpg", squads: [
+      { type: "infantry_company", name: "1-я стрелковая рота", icon: "images/рота аирф 1.png", platoons: [
+            { name: "1-й стрелковый взвод", icon: "images/гиаб взв аирф 1.png", squads: [
               { name: "Стрелковое отделение №1", templateName: "Стрелковое отделение №1" },
               { name: "Стрелковое отделение №2", templateName: "Стрелковое отделение №2" },
               { name: "Стрелковое отделение №3", templateName: "Стрелковое отделение №3" },
@@ -6979,7 +7021,7 @@ const BATTALION_PRESETS = {
               { name: "Пулемётный расчёт №1", templateName: "Пулеметный расчёт №1" }
             ]
           },
-          { name: "2-й стрелковый взвод", icon: "", squads: [
+          { name: "2-й стрелковый взвод", icon: "images/гиаб взв аирф 2.png", squads: [
               { name: "Стрелковое отделение №5", templateName: "Стрелковое отделение №5" },
               { name: "Стрелковое отделение №6", templateName: "Стрелковое отделение №6" },
               { name: "Стрелковое отделение №7", templateName: "Стрелковое отделение №7" },
@@ -6988,7 +7030,7 @@ const BATTALION_PRESETS = {
               { name: "Пулемётный расчёт №2", templateName: "Пулеметный расчёт №2" }
             ]
           },
-         { name: "3-й штурмовой взвод", icon: "", squads: [
+         { name: "3-й штурмовой взвод", icon: "images/гиаб взв аирф 3.png", squads: [
               { name: "Штурмовое отделение №1", templateName: "Штурмовое отделение №1" },
               { name: "Штурмовое отделение №2", templateName: "Штурмовое отделение №2" },
               { name: "Штурмовое отделение №3", templateName: "Штурмовое отделение №3" },
@@ -6998,10 +7040,10 @@ const BATTALION_PRESETS = {
             ]
           },
       ], 
-       hq: { name: "Штаб роты №1", templateName: "Штаб роты №1", icon: "" } 
+       hq: { name: "Штаб роты №1", templateName: "Штаб роты №1", icon: "images/рота аирф 1.png" } 
       },
       // вторая стрелковая рота
-                  { type: "infantry_company", name: "2-я стрелковая рота", icon: "", platoons: [
+                  { type: "infantry_company", name: "2-я стрелковая рота", icon: "images/рота аирф 2.png", platoons: [
             { name: "4-й стрелковый взвод", icon: "", squads: [
               { name: "Стрелковое отделение №9", templateName: "Стрелковое отделение №9" },
               { name: "Стрелковое отделение №10", templateName: "Стрелковое отделение №10" },
@@ -7030,10 +7072,10 @@ const BATTALION_PRESETS = {
             ]
           },
       ], 
-       hq: { name: "Штаб роты №2", templateName: "Штаб роты №2", icon: "" } 
+       hq: { name: "Штаб роты №2", templateName: "Штаб роты №2", icon: "images/рота аирф 2.png" } 
       },
               //третья стрелковая рота
-                  { type: "infantry_company", name: "3-я стрелковая рота", icon: "", platoons: [
+                  { type: "infantry_company", name: "3-я стрелковая рота", icon: "images/рота аирф 3.png", platoons: [
             { name: "7-й стрелковый взвод", icon: "", squads: [
               { name: "Стрелковое отделение №17", templateName: "Стрелковое отделение №17" },
               { name: "Стрелковое отделение №18", templateName: "Стрелковое отделение №18" },
@@ -7062,7 +7104,7 @@ const BATTALION_PRESETS = {
             ]
           },
       ], 
-       hq: { name: "Штаб роты №3", templateName: "Штаб роты №3", icon: "" } 
+       hq: { name: "Штаб роты №3", templateName: "Штаб роты №3", icon: "images/рота аирф 3.png" } 
       }
     ],
     supportOptions: [
@@ -8470,7 +8512,17 @@ function placeExistingEnemyOnHex(hex, enemyIdx, key) {
   redrawMap();
 }
 
-      
+function returnToCampaignFromMenu() {
+  if (!appData.campaign.active || !appData.campaign.scenario) return;
+  document.getElementById('mainMenu').style.display = 'none';
+  document.getElementById('campaignApp').style.display = 'block';
+  // Показываем карту операции или экран выбора сценария в зависимости от этапа
+  if (appData.campaign.battalions.player) {
+    showOperationalMap();
+  } else {
+    showScenarioSelection();
+  }
+}      
       
   </script> 
   
