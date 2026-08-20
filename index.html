@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.96 — карта  </title>
+  <title>Боевой модуль v12.97 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.96</h1>
+    <h1>⚔️ Боевой модуль v12.97</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.96 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.97 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -2519,7 +2519,7 @@ document.getElementById('btnFinishBattle').style.display = 'inline-block';
   }
 
   // ===== Создание нового боя =====
-  // 1. Собираем отряды игрока
+   // 1. Собираем отряды игрока
   let playerSquads = [];
   if (playerUnit.squads && playerUnit.squads.length > 0) {
     playerSquads = playerUnit.squads.map(s => JSON.parse(JSON.stringify(s)));
@@ -2692,56 +2692,66 @@ function finishBattle() {
   
        
 function syncBattleLossesToCampaign(battleId) {
+  console.log('syncBattleLossesToCampaign called, battleId=', battleId);
   const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
-  if (!battle) return;
+  if (!battle) {
+    console.warn('Бой не найден');
+    return;
+  }
+
+  console.log('battle.playerSquads:', battle.playerSquads);
+  console.log('appData.campaign.opUnits:', appData.campaign.opUnits);
 
   // Обновляем свои отряды
-  battle.playerSquads.forEach(battleSquad => {
-    for (let unit of appData.campaign.opUnits) {
-      const targetSquad = unit.squads.find(s => s.name === battleSquad.name);
-      if (targetSquad) {
-        targetSquad.fighters = battleSquad.fighters.map(f => ({ ...f }));
-        targetSquad.ammoSmall = battleSquad.ammoSmall;
-        targetSquad.ammoOrdnance = battleSquad.ammoOrdnance;
-        targetSquad.grenades = battleSquad.grenades;
-        targetSquad.currentMorale = battleSquad.currentMorale;
-        unit.squads = unit.squads.map(s => s.name === battleSquad.name ? targetSquad : s);
-        break;
+  if (appData.campaign.opUnits) {
+    battle.playerSquads.forEach(battleSquad => {
+      for (let unit of appData.campaign.opUnits) {
+        const targetSquad = unit.squads.find(s => s.name === battleSquad.name);
+        if (targetSquad) {
+          console.log(`Обновляем ${targetSquad.name} в ${unit.name}`);
+          targetSquad.fighters = battleSquad.fighters.map(f => ({ ...f }));
+          targetSquad.ammoSmall = battleSquad.ammoSmall;
+          targetSquad.ammoOrdnance = battleSquad.ammoOrdnance;
+          targetSquad.grenades = battleSquad.grenades;
+          targetSquad.currentMorale = battleSquad.currentMorale;
+          // Заменяем в массиве, чтобы ссылка обновилась
+          unit.squads = unit.squads.map(s => s.name === battleSquad.name ? targetSquad : s);
+          break;
+        } else {
+          console.warn(`Не найден targetSquad для ${battleSquad.name}`);
+        }
       }
-    }
-  });
+    });
+  } else {
+    console.warn('opUnits is null');
+  }
 
-  // Удаляем уничтоженные свои подразделения
-  appData.campaign.opUnits = appData.campaign.opUnits.filter(unit => {
-    const alive = unit.squads.some(squad => squad.fighters.some(f => f.hp > 0));
-    return alive;
-  });
-
-  // Аналогично для врагов
-  battle.enemySquads.forEach(enemySquad => {
-    for (let unit of appData.campaign.enemyOpUnits) {
-      const targetSquad = unit.squads.find(s => s.name === enemySquad.name);
-      if (targetSquad) {
-        targetSquad.fighters = enemySquad.fighters.map(f => ({ ...f }));
-        unit.squads = unit.squads.map(s => s.name === enemySquad.name ? targetSquad : s);
-        break;
-      }
-    }
-  });
-  appData.campaign.enemyOpUnits = appData.campaign.enemyOpUnits.filter(unit => {
-    const alive = unit.squads.some(squad => squad.fighters.some(f => f.hp > 0));
-    return alive;
-  });
   // Удаляем уничтоженные свои подразделения (все бойцы hp == 0)
   appData.campaign.opUnits = appData.campaign.opUnits.filter(unit => {
     return unit.squads.some(squad => squad.fighters.some(f => f.hp > 0));
   });
 
-  // Удаляем уничтоженные вражеские подразделения
-  appData.campaign.enemyOpUnits = appData.campaign.enemyOpUnits.filter(unit => {
-    return unit.squads.some(squad => squad.fighters.some(f => f.hp > 0));
-  });
+  // Аналогично для врагов
+  if (appData.campaign.enemyOpUnits) {
+    battle.enemySquads.forEach(enemySquad => {
+      for (let unit of appData.campaign.enemyOpUnits) {
+        const targetSquad = unit.squads.find(s => s.name === enemySquad.name);
+        if (targetSquad) {
+          targetSquad.fighters = enemySquad.fighters.map(f => ({ ...f }));
+          unit.squads = unit.squads.map(s => s.name === enemySquad.name ? targetSquad : s);
+          break;
+        }
+      }
+    });
+    appData.campaign.enemyOpUnits = appData.campaign.enemyOpUnits.filter(unit => {
+      return unit.squads.some(squad => squad.fighters.some(f => f.hp > 0));
+    });
+  } else {
+    console.warn('enemyOpUnits is null');
+  }
+
   saveData();
+  console.log('После синхронизации opUnits:', appData.campaign.opUnits);
 }
       
     function getAP(squadIndex) {
