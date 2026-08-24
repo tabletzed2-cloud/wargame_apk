@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.100 — карта  </title>
+  <title>Боевой модуль v12.101 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.99</h1>
+    <h1>⚔️ Боевой модуль v12.101</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.99 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.101 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -601,22 +601,21 @@ function generateBattalion(faction, supportIds) {
   squad.name = name;
   squad.currentMorale = squad.baseMorale;
   squad.hidden = false;
-
-    // Определяем мобильность по названию шаблона или отряда
-    const isMotorcycle = (templateName || '').includes('Мотоцикл') || (name || '').includes('Мотоцикл');
-    const isBicycle = (templateName || '').includes('Самокат') || (name || '').includes('Самокат');
-    
-    if (isMotorcycle) {
-      squad.mobilityType = 'motorcycle';
-    } else if (isBicycle) {
-      squad.mobilityType = 'bicycle';
-      squad.dismounted = false;
-    } else {
-      squad.mobilityType = 'foot';
-    }
-    assignUniqueCrewKeys(squad);
-    return squad;
+  // Определяем мобильность по названию шаблона или отряда
+  const isMotorcycle = (templateName || '').includes('Мотоцикл') || (name || '').includes('Мотоцикл');
+  const isBicycle = (templateName || '').includes('Самокат') || (name || '').includes('Самокат');
+  
+  if (isMotorcycle) {
+    squad.mobilityType = 'motorcycle';
+  } else if (isBicycle) {
+    squad.mobilityType = 'bicycle';
+    squad.dismounted = false;
+  } else {
+    squad.mobilityType = 'foot';
   }
+  assignUniqueCrewKeys(squad);
+  return squad;
+}
 
   // Обработка стандартных подразделений
   preset.standard.forEach(item => {
@@ -696,7 +695,16 @@ function showScenarioSelection() {
 function selectScenario(scenarioId) {
   if (scenarioId === 'valencia') {
     appData.campaign.scenario = 'valencia';
-    appData.campaign.opMapImage = 'maps/Валенсия.png'; // путь к вашей карте
+    appData.campaign.opMapImage = 'maps/Валенсия.png';
+
+    // Применяем фиксированные параметры из константы
+    const mapSettings = SCENARIO_OP_MAP_SETTINGS[scenarioId];
+    if (mapSettings) {
+      appData.campaign.opMapScaleX = mapSettings.scaleX;
+      appData.campaign.opMapScaleY = mapSettings.scaleY;
+      appData.campaign.opMapOffsetX = mapSettings.offsetX;
+      appData.campaign.opMapOffsetY = mapSettings.offsetY;
+    }
     saveData();
     showScenarioDetails('valencia');
   }
@@ -1225,8 +1233,9 @@ function redrawOperationalMap() {
       // Применяем масштаб и смещение
       const finalWidth = drawWidth * scaleX;
       const finalHeight = drawHeight * scaleY;
-      const dx = (baseWidth - finalWidth) / 2 + offsetX;
-      const dy = (baseHeight - finalHeight) / 2 + offsetY;
+      const zoom = appData.campaign.opZoomLevel || 1;
+      const dx = (baseWidth - finalWidth) / 2 + offsetX * zoom;
+      const dy = (baseHeight - finalHeight) / 2 + offsetY * zoom;
 
       ctx.drawImage(loadedOpMapImage, dx, dy, finalWidth, finalHeight);
     } else {
@@ -4490,7 +4499,14 @@ const TACTICAL_MAP_SIZE = 20;   // размер тактической карт�
 const OP_MAP_COLS = 20;
 const OP_MAP_ROWS = 15;
 const OP_HEX_SIZE = 55; // размер гекса в пикселях
-      
+const SCENARIO_OP_MAP_SETTINGS = {
+  valencia: {
+    scaleX: 1.0,
+    scaleY: 1.0,
+    offsetX: 0,
+    offsetY: 0
+  }
+};      
       function getHexNeighbors(key) {
   const [col, row] = key.split(',').map(Number);
   const neighbors = [];
@@ -8668,6 +8684,12 @@ function returnToCampaignFromMenu() {
     showScenarioSelection();
   }
 }      
+function showCurrentMapParams() {
+  const p = appData.campaign;
+  const msg = `scaleX: ${p.opMapScaleX}\nscaleY: ${p.opMapScaleY}\noffsetX: ${p.opMapOffsetX}\noffsetY: ${p.opMapOffsetY}`;
+  alert(msg);
+  console.log('Текущие параметры карты:\n' + msg);
+}
       
   </script> 
   
@@ -8727,11 +8749,12 @@ function returnToCampaignFromMenu() {
   </div>
       <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:8px;">
   <button onclick="setOpMapMode('view')" style="background:#555;">🖱️ Просмотр</button>
+  <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Разместить свои</button>
   <button onclick="setOpMapMode('move')" style="background:#2980b9;">🚶 Перемещение</button>
   <button onclick="zoomOpMap(1.2)">➕</button>
   <button onclick="zoomOpMap(0.8)">➖</button>
+  <button onclick="showCurrentMapParams()">📋 Показать параметры</button>       
   <button onclick="resetOpMapZoom()">🔄</button>
-  <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Разместить свои</button>
   <button onclick="setOpMapMode('placeEnemy')" style="background:#c0392b;">☠️ Разместить врага</button>
   <button onclick="setOpMapMode('moveEnemy')" style="background:#e67e22;">🚶 Переместить врага</button>
   <label>Юнит: <select id="opPlaceSelect"></select></label>
