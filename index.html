@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.97 — карта  </title>
+  <title>Боевой модуль v12.99 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.97</h1>
+    <h1>⚔️ Боевой модуль v12.99</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -273,9 +273,6 @@
   <!-- Приложение (бой) – изначально скрыто -->
   <div id="battleApp" style="display:none;">
     
-  <div id="factionModal" class="faction-modal">
-  <div class="faction-modal-content" id="factionModalContent"></div>
-</div>
   <div id="detectionModal" class="detection-modal">
   <div class="detection-modal-content">
     <h3 id="detectionTitle">Условия обнаружения</h3>
@@ -286,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.97 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.99 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -2534,15 +2531,19 @@ document.getElementById('btnFinishBattle').style.display = 'inline-block';
     }
   }
 
-  // 2. Собираем отряды врага (заглушка)
+  // 2. Собираем отряды врага
   let enemySquads = [];
   const enemyFaction = appData.campaign.playerFaction === 'BeVe' ? 'A.I.R.F.' : 'BeVe';
-  const enemyTemplates = appData.templates.filter(t => t.faction === enemyFaction && !t.armor);
-  if (enemyTemplates.length > 0) {
-    enemySquads = [JSON.parse(JSON.stringify(enemyTemplates[0]))];
+  if (enemyUnit.squads && enemyUnit.squads.length > 0) {
+    enemySquads = enemyUnit.squads.map(s => JSON.parse(JSON.stringify(s)));
   } else {
-    console.error('Нет шаблонов для вражеской фракции', enemyFaction);
-    return;
+    const enemyTemplates = appData.templates.filter(t => t.faction === enemyFaction && !t.armor);
+    if (enemyTemplates.length > 0) {
+      enemySquads = [JSON.parse(JSON.stringify(enemyTemplates[0]))];
+    } else {
+      console.error('Нет шаблонов для вражеской фракции', enemyFaction);
+      return;
+    }
   }
 
   // 3. Генерируем тактическую карту 20x20
@@ -2559,7 +2560,7 @@ document.getElementById('btnFinishBattle').style.display = 'inline-block';
     currentTime: appData.currentTime || 840
   };
 
-  for (let row = 0; row < TACTICAL_MAP_SIZE; row++) {
+    for (let row = 0; row < TACTICAL_MAP_SIZE; row++) {
     for (let col = 0; col < TACTICAL_MAP_SIZE; col++) {
       const key = `${col},${row}`;
       tacticalMap.grid[key] = {
@@ -2573,6 +2574,16 @@ document.getElementById('btnFinishBattle').style.display = 'inline-block';
       };
     }
   }
+
+  // Добавляем врагов в тактическую карту
+  enemySquads.forEach(squad => {
+    tacticalMap.enemySquads.push({
+      name: squad.name,
+      faction: enemyFaction,
+      icon: squad.icon || null,
+      fighters: squad.fighters || []
+    });
+  });
 
   // 6. Сохраняем бой в массив активных боёв
   const newBattle = {
@@ -2660,21 +2671,39 @@ function returnToCampaign() {
   saveData();
 }
 function finishBattle() {
-  // Находим текущий бой по id
   const battleId = appData.currentBattleId;
   if (!battleId) return;
-  const battleIndex = appData.campaign.activeBattles.findIndex(b => b.id === battleId);
-  if (battleIndex === -1) return;
+
+  const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
+  if (!battle) return;
+
+  // СОХРАНЯЕМ ТЕКУЩЕЕ СОСТОЯНИЕ БОЯ В ОБЪЕКТ БОЯ
+  battle.playerSquads = appData.squads.map(s => JSON.parse(JSON.stringify(s)));
+  battle.enemySquads = appData.map.enemySquads.map(e => JSON.parse(JSON.stringify(e)));
+  battle.currentTurn = currentTurn;
 
   // Синхронизируем потери
   syncBattleLossesToCampaign(battleId);
 
   // Удаляем бой из списка активных
-  appData.campaign.activeBattles.splice(battleIndex, 1);
+  const battleIndex = appData.campaign.activeBattles.findIndex(b => b.id === battleId);
+  if (battleIndex !== -1) {
+    appData.campaign.activeBattles.splice(battleIndex, 1);
+  }
 
   // Очищаем тактические данные
   appData.squads = [];
-  appData.map = { grid: {}, baseHexSize: 45, zoomLevel: 1, mode: 'view', enemySquads: [], selectedMoveSquadIdx: null, selectedEnemyMoveIdx: null, reachableHexes: [], isCrouchMode: false };
+  appData.map = {
+    grid: {},
+    baseHexSize: 45,
+    zoomLevel: 1,
+    mode: 'view',
+    enemySquads: [],
+    selectedMoveSquadIdx: null,
+    selectedEnemyMoveIdx: null,
+    reachableHexes: [],
+    isCrouchMode: false
+  };
   appData.currentBattleId = null;
 
   // Возвращаемся на карту кампании
