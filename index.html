@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.101 — карта  </title>
+  <title>Боевой модуль v12.102 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.101</h1>
+    <h1>⚔️ Боевой модуль v12.102</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.101 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.102 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -420,7 +420,7 @@
       <canvas id="gameMap" style="transform-origin: 0 0; touch-action:none; display:block; width:3000px; height:3000px;"></canvas>
       <div id="mapInfo" style="margin-top:6px; font-size:0.9rem; color:#aaa;"></div>
     </div>
-    
+    <div id="opHexInfo" style="margin:4px 0; font-size:0.9rem; color:#aaa;"></div>
     <!-- Панель меток и врагов (исправленные ID) -->
     <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
       <button onclick="setMarkerFromClick()" style="background:#8e44ad;">📌 Установить метку</button>
@@ -902,7 +902,9 @@ function addOpUnit(name, type, squads, icon = null) {
       side: 'player',
       ap: maxAp,
       maxAp: maxAp,
-      icon: icon
+      icon: icon,
+      detected: false,
+      noiseMarker: false
     });
 }
 
@@ -1109,7 +1111,9 @@ function addEnemyOpUnit(name, type, squads, icon = null) {
     maxAp: 3,
     ap: 3,
     faction: battalion.faction || 'A.I.R.F.',
-    icon: icon
+    icon: icon,
+    detected: false,
+    noiseMarker: false
   });
 }
 
@@ -1174,7 +1178,22 @@ case 'infantry_company':
 function initOperationalMap() {
   const canvas = document.getElementById('opMapCanvas');
   if (!canvas) return;
+// Инициализируем opMapGrid, если пусто
+  if (!appData.campaign.opMapGrid) {
+    appData.campaign.opMapGrid = {};
+    const scenarioTerrain = appData.campaign.scenario === 'valencia' 
+      ? SCENARIO_OP_MAP_TERRAIN.valencia 
+      : {};
 
+    for (let row = 0; row < OP_MAP_ROWS; row++) {
+      for (let col = 0; col < OP_MAP_COLS; col++) {
+        const key = `${col},${row}`;
+        // Если для гекса задан собственный состав типов – используем его, иначе трава
+        appData.campaign.opMapGrid[key] = scenarioTerrain[key] || ['grass'];
+      }
+    }
+    saveData();
+  }
   // Настройка размеров canvas
   const zoom = appData.campaign.opZoomLevel || 1;
   const size = OP_HEX_SIZE * zoom;
@@ -1191,7 +1210,17 @@ function initOperationalMap() {
   updateOperationalTimeDisplay();
   renderActiveBattlesList();
 }
+function getOpHexTypes(col, row) {
+  const key = `${col},${row}`;
+  const grid = appData.campaign.opMapGrid;
+  if (!grid || !grid[key]) return ['grass'];
+  return Array.isArray(grid[key]) ? grid[key] : [grid[key]];
+}
 
+function hasOpTerrain(col, row, terrainType) {
+  return getOpHexTypes(col, row).includes(terrainType);
+}
+      
 function redrawOperationalMap() {
   const canvas = document.getElementById('opMapCanvas');
   if (!canvas) return;
@@ -1331,6 +1360,24 @@ function handleOpMapClick(e) {
   const clickY = (e.clientY - rect.top) * scaleY;
 
   const size = OP_HEX_SIZE * (appData.campaign.opZoomLevel || 1);
+    // Определяем ближайший гекс для вывода координат
+  let closestOpHex = null;
+  let minOpDist = Infinity;
+  if (appData.campaign.opCenters) {
+    for (let center of appData.campaign.opCenters) {
+      const dist = Math.sqrt((clickX - center.x) ** 2 + (clickY - center.y) ** 2);
+      if (dist < minOpDist) {
+        minOpDist = dist;
+        closestOpHex = center.key;
+      }
+    }
+  }
+  if (closestOpHex && minOpDist < size) {
+    const hexInfo = document.getElementById('opHexInfo');
+    if (hexInfo) {
+      hexInfo.textContent = `Гекс: ${closestOpHex}`;
+    }
+  }
   // Обработка режимов размещения
   if (appData.campaign.opMapMode === 'placePlayer' || appData.campaign.opMapMode === 'placeEnemy') {
     const sel = document.getElementById('opPlaceSelect');
@@ -1448,12 +1495,17 @@ function handleOpMapClick(e) {
     const hexCenterY = h.row * 1.5 * size + size;
     const dist = Math.sqrt((clickX - hexCenterX) ** 2 + (clickY - hexCenterY) ** 2);
     if (dist < size * 0.8) {
-      // Проверяем, есть ли враг на этом гексе
       const enemyOnTarget = appData.campaign.enemyOpUnits?.find(enemy => 
         enemy.col === h.col && enemy.row === h.row
       );
       if (enemyOnTarget) {
-        // Контакт с врагом – бой без перемещения
+        // Если враг не обнаружен, бой не начинаем
+        if (!enemyOnTarget.detected) {
+          document.getElementById('mapInfo').innerHTML = 'Враг не обнаружен! Сначала проведите разведку.';
+          // не сбрасываем выделение полностью, оставляем возможность действовать дальше
+          return;
+        }
+        // Контакт с обнаруженным врагом – бой
         appData.campaign.selectedOpUnit = null;
         if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
         redrawOperationalMap();
@@ -1690,7 +1742,19 @@ function drawUnit(unit, isEnemy = false, offsetX = 0, offsetY = 0) {
       img.onload = () => redrawOperationalMap();
     }
   }
-
+if (!isEnemy) {
+  if (unit.detected) {
+    ctx.fillStyle = '#e74c3c';
+    ctx.beginPath();
+    ctx.arc(drawX + radius, drawY - radius, 4, 0, 2 * Math.PI);
+    ctx.fill();
+  } else if (unit.noiseMarker) {
+    ctx.fillStyle = '#f39c12';
+    ctx.beginPath();
+    ctx.arc(drawX + radius, drawY - radius, 4, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+}
   // Подпись (первые 3 буквы)
   ctx.fillStyle = '#fff';
   ctx.fillText(unit.name.substring(0, 3), drawX, drawY);
@@ -2249,6 +2313,7 @@ document.getElementById('battleApp').style.display = 'none';
   "opMapScaleY": 1.0,
   "opMapOffsetX": 0,
   "opMapOffsetY": 0,
+  "opMapGrid": null,
   "activeBattles": []
 }
       };
@@ -2285,6 +2350,7 @@ if (appData.campaign.opMapScaleY === undefined) appData.campaign.opMapScaleY = 1
 if (appData.campaign.opMapOffsetX === undefined) appData.campaign.opMapOffsetX = 0;
 if (appData.campaign.opMapOffsetY === undefined) appData.campaign.opMapOffsetY = 0;
 if (!appData.campaign.opMapImage) appData.campaign.opMapImage = null;
+if (!appData.campaign.opMapGrid) appData.campaign.opMapGrid = null;    
 if (!appData.campaign.opUnits) appData.campaign.opUnits = null;
 if (!appData.campaign.selectedOpUnit) appData.campaign.selectedOpUnit = null;
 if (!appData.campaign.opZoomLevel) appData.campaign.opZoomLevel = 1;
@@ -4506,7 +4572,19 @@ const SCENARIO_OP_MAP_SETTINGS = {
     offsetX: -380,
     offsetY: -45
   }
-};      
+};
+  const SCENARIO_OP_MAP_TERRAIN = {
+  valencia: {
+    // Формат: "колонка,строка": ["тип1", "тип2", ...]
+    // Типы: grass, forest, road, hill, water, swamp_passable, swamp_impassable,
+    //       bushes, rocks, trenches
+    "0,0": ["grass"],
+    "1,0": ["grass", "bushes"],
+    "2,0": ["forest", "bushes"],
+    // ... и так далее для всех гексов
+  }
+};
+      
       function getHexNeighbors(key) {
   const [col, row] = key.split(',').map(Number);
   const neighbors = [];
@@ -8613,10 +8691,32 @@ function updateOperationalTimeDisplay() {
   }
 }
 function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
-  // Пока все гексы операционной карты считаем травой (grass).
-  // В будущем здесь будет логика для разных типов местности.
-  // Для пехоты и техники на траве стоимость 1 ОД за гекс.
-  return 1;
+  const types = getOpHexTypes(toCol, toRow);
+  let bestCost = Infinity;
+
+  for (let terrain of types) {
+    let cost = Infinity;
+    // Используем упрощённые стоимости, аналогичные тактическим, но в ОД (1 гекс)
+    switch (terrain) {
+      case 'road': cost = 0.5; break;          // 2 гекса за 1 ОД
+      case 'grass': cost = 1; break;
+      case 'bushes': cost = 1.5; break;
+      case 'forest': cost = 2; break;
+      case 'swamp_passable': cost = 3; break;
+      case 'hill': cost = 2; break;
+      case 'rocks': cost = 3; break;
+      case 'trenches': cost = 1.5; break;
+      // вода и непроходимые – запрещены
+      case 'water':
+      case 'swamp_impassable':
+      default:
+        continue; // пропускаем запрещённые
+    }
+    if (cost < bestCost) bestCost = cost;
+  }
+
+  // Если ни один тип не подходит – возвращаем Infinity (нельзя)
+  return bestCost === Infinity ? Infinity : bestCost;
 }
 function setOpMapMode(mode) {
   if (mode === 'moveEnemy') {
@@ -8690,6 +8790,68 @@ function showCurrentMapParams() {
   alert(msg);
   console.log('Текущие параметры карты:\n' + msg);
 }
+function getOpDetectionModifier(unit) {
+  if (!unit || unit.col === null || unit.row === null) return 0;
+
+  const types = getOpHexTypes(unit.col, unit.row);
+  let bestMod = 0; // наибольший отрицательный (благоприятный для скрытия)
+
+  for (let terrain of types) {
+    let mod = 0;
+    switch (terrain) {
+      case 'forest': mod = -2; break;        // лес даёт хорошее укрытие
+      case 'bushes': mod = -1; break;
+      case 'trenches': mod = -3; break;      // окопы ещё лучше
+      case 'swamp_passable': mod = -1; break;
+      case 'rocks': mod = -1; break;
+      case 'hill': mod = 0; break;
+      case 'road': mod = 1; break;           // дорога – хуже скрытность
+      case 'water': mod = 2; break;          // открытая вода
+      case 'grass': mod = 1; break;          // открытое поле
+      default: mod = 0;
+    }
+    if (mod < bestMod) bestMod = mod;
+  }
+
+  // Бонусы/штрафы от типа юнита
+  if (unit.type === 'recon_platoon' || unit.type === 'infantry_platoon' && unit.name.includes('Развед')) bestMod -= 1;
+  if (unit.type === 'vehicle' || unit.type === 'tank_platoon' || unit.type === 'btr_platoon') bestMod += 2;
+
+  return bestMod;
+}
+function checkOpDetection() {
+  const unit = appData.campaign.selectedOpUnit;
+  if (!unit) {
+    document.getElementById('mapInfo').innerHTML = 'Сначала выберите свой юнит.';
+    return;
+  }
+
+  let mod = getOpDetectionModifier(unit);
+  // Автоматические модификаторы
+  if (unit.movedThisTurn) mod += 1;   // если двигался – легче обнаружить
+  if (unit.type === 'vehicle' || unit.type === 'tank_platoon' || unit.type === 'btr_platoon') mod += 2;
+  if (unit.suppressed) mod += 1; // если есть подавление (опционально)
+
+  const roll = rollD10();
+  const result = roll + mod;
+
+  log(`Проверка обнаружения для "${unit.name}": d10=${roll} + мод=${mod} = ${result}`);
+  if (result > 6) {
+    unit.detected = true;
+    unit.noiseMarker = false;
+    document.getElementById('mapInfo').innerHTML = '🔴 Отряд обнаружен!';
+  } else if (result === 6) {
+    unit.noiseMarker = true;
+    unit.detected = false;
+    document.getElementById('mapInfo').innerHTML = '❗ Маркер «Шум» установлен.';
+  } else {
+    unit.detected = false;
+    unit.noiseMarker = false;
+    document.getElementById('mapInfo').innerHTML = '🟢 Отряд остаётся незамеченным.';
+  }
+  saveData();
+  redrawOperationalMap();
+}
       
   </script> 
   
@@ -8751,12 +8913,13 @@ function showCurrentMapParams() {
   <button onclick="setOpMapMode('view')" style="background:#555;">🖱️ Просмотр</button>
   <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Разместить свои</button>
   <button onclick="setOpMapMode('move')" style="background:#2980b9;">🚶 Перемещение</button>
+  <button onclick="checkOpDetection()" style="background:#8e44ad;">🔍 Проверить обнаружение</button>
+  <button onclick="setOpMapMode('placeEnemy')" style="background:#c0392b;">☠️ Разместить врага</button>
+  <button onclick="setOpMapMode('moveEnemy')" style="background:#e67e22;">🚶 Переместить врага</button>
   <button onclick="zoomOpMap(1.2)">➕</button>
   <button onclick="zoomOpMap(0.8)">➖</button>
   <button onclick="showCurrentMapParams()">📋 Показать параметры</button>       
   <button onclick="resetOpMapZoom()">🔄</button>
-  <button onclick="setOpMapMode('placeEnemy')" style="background:#c0392b;">☠️ Разместить врага</button>
-  <button onclick="setOpMapMode('moveEnemy')" style="background:#e67e22;">🚶 Переместить врага</button>
   <label>Юнит: <select id="opPlaceSelect"></select></label>
   <label>Фракция врага: 
   <select id="opEnemyFactionSelect" onchange="updateOpPlaceSelect()">
