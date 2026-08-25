@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.104 — карта  </title>
+  <title>Боевой модуль v12.105 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.104</h1>
+    <h1>⚔️ Боевой модуль v12.105</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.104 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.105 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1011,7 +1011,7 @@ function renderBattalionRoster() {
     return;
   }
 
-  opUnits.forEach(unit => {
+  opUnits.forEach((unit, index) => {
     let unitTotal = 0, unitAlive = 0, unitLost = 0;
     (unit.squads || []).forEach(squad => {
       (squad.fighters || []).forEach(f => {
@@ -1027,17 +1027,43 @@ function renderBattalionRoster() {
       });
     });
 
-    // Пропускаем юниты без бойцов
     if (unitTotal === 0) return;
 
     const color = unitLost > 0 ? '#e74c3c' : '#27ae60';
-    html += `<div style="background:#2c2c2c; padding:8px; margin:6px 0; border-radius:6px; border-left:4px solid ${color};">
-      <strong>${unit.name}</strong> (${unit.type}) — бойцов: ${unitAlive}/${unitTotal}${unitLost > 0 ? `, потерь: ${unitLost}` : ''}
-    </div>`;
+    html += `
+      <div style="background:#2c2c2c; padding:8px; margin:6px 0; border-radius:6px; border-left:4px solid ${color}; cursor:pointer;" onclick="showUnitDetails(${index})">
+        <strong>${unit.name}</strong> (${unit.type}) — бойцов: ${unitAlive}/${unitTotal}${unitLost > 0 ? `, потерь: ${unitLost}` : ''}
+      </div>`;
   });
 
   summaryDiv.innerHTML = `Всего бойцов: ${totalFighters} | Живых: ${totalAlive} | Потерь: ${totalLost}`;
-  listDiv.innerHTML = html || '<p>Нет данных о бойцах.</p>';
+  listDiv.innerHTML = html;
+  document.getElementById('battalionUnitDetails').style.display = 'none';
+  document.getElementById('btnBackToRosterList').style.display = 'none';
+}
+
+function showUnitDetails(index) {
+  const unit = appData.campaign.opUnits[index];
+  if (!unit) return;
+  let html = `<h4>${unit.name} (${unit.type})</h4>`;
+  (unit.squads || []).forEach(squad => {
+    html += `<div style="margin-bottom:6px;"><strong>${squad.name}</strong>`;
+    (squad.fighters || []).forEach(f => {
+      const hpColor = f.hp === 0 ? '#e74c3c' : '#27ae60';
+      html += `<div style="padding-left:12px; color:${hpColor};">${f.name} — HP: ${f.hp}/${f.maxHp} [${f.weapon}]</div>`;
+    });
+    html += `</div>`;
+  });
+  document.getElementById('battalionUnitDetails').innerHTML = html;
+  document.getElementById('battalionUnitDetails').style.display = 'block';
+  document.getElementById('btnBackToRosterList').style.display = 'inline-block';
+  document.getElementById('battalionRosterList').style.display = 'none';
+}
+
+function backToRosterList() {
+  document.getElementById('battalionUnitDetails').style.display = 'none';
+  document.getElementById('btnBackToRosterList').style.display = 'none';
+  document.getElementById('battalionRosterList').style.display = 'block';
 }
 
 function backToOperationalMapFromRoster() {
@@ -1495,12 +1521,14 @@ function handleOpMapClick(e) {
         }
       }
     }
-    if (clickedEnemy && minDistToEnemy < size * 0.6) {
-      // Выбираем врага и подсвечиваем доступные гексы
+   if (clickedEnemy && minDistToEnemy < size * 0.6) {
+      if (clickedEnemy.ap <= 0) {
+        document.getElementById('mapInfo').innerHTML = 'У врага нет ОД для перемещения.';
+        return;
+      }
       appData.campaign.selectedEnemyOpUnit = clickedEnemy;
       clickedEnemy.availableHexes = getOpHexNeighbors(clickedEnemy.col, clickedEnemy.row);
-      // Ограничим доступные гексы по ОД врага (пока все гексы стоят 1 ОД, поэтому доступно ap гексов)
-      clickedEnemy.availableHexes = clickedEnemy.availableHexes.filter(() => clickedEnemy.ap > 0); // грубо
+      clickedEnemy.availableHexes = clickedEnemy.availableHexes.slice(0, clickedEnemy.ap); // ограничиваем по ОД
       document.getElementById('mapInfo').innerHTML = `Выбран враг: ${clickedEnemy.name}. Кликните по гексу для перемещения.`;
       redrawOperationalMap();
       return;
@@ -2025,7 +2053,7 @@ document.getElementById('battleApp').style.display = 'none';
           {"name":"Штаб взвода №4 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб гол.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
           {"name":"Штаб взвода №5 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб гол.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
           {"name":"Штаб взвода №6 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб гол.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб роты №2 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":5,"currentMorale":5,"icon":"images/штаб гол.jpg","fighters":[{"name":"Капитан","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб роты №2 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб роты  BeVe гол.jpg","fighters":[{"name":"Капитан","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
           {"name":"Штаб взвода №7 Самокатный","faction":"BeVe","baseMorale":4,"currentMorale":5,"icon":"images/BeVe/штаб самокат вззод 1.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
           {"name":"Штаб взвода №8 Самокатный","faction":"BeVe","baseMorale":4,"currentMorale":5,"icon":"images/BeVe/штаб самокат вззод 2.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
           {"name":"Штаб взвода №9 Самокатный","faction":"BeVe","baseMorale":4,"currentMorale":5,"icon":"images/BeVe/штаб самокат вззод 3.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
@@ -2346,6 +2374,7 @@ document.getElementById('battleApp').style.display = 'none';
   "opMapOffsetX": 0,
   "opMapOffsetY": 0,
   "opMapGrid": null,
+  "opTurnStartTime": 840,  // 14:00
   "activeBattles": []
 }
       };
@@ -2374,6 +2403,7 @@ document.getElementById('battleApp').style.display = 'none';
 if (!appData.campaign.opMapMode) appData.campaign.opMapMode = 'view';
 if (!appData.campaign.selectedPlaceUnitId) appData.campaign.selectedPlaceUnitId = null;
 if (!appData.campaign.currentTurn) appData.campaign.currentTurn = 1;
+if (appData.campaign.opTurnStartTime === undefined) appData.campaign.opTurnStartTime = appData.campaign.currentTime;
 if (appData.campaign.scenario === 'valencia' && !appData.campaign.opMapImage) {
   appData.campaign.opMapImage = 'maps/Валенсия.png';
 }
@@ -2593,6 +2623,17 @@ function getMaxAP(squad) {
 }
 
 function startTacticalBattle(playerUnit, enemyUnit) {
+   // Проверяем, есть ли бой на этом гексе
+  const hexKey = `${playerUnit.col},${playerUnit.row}`;
+  const battleOnHex = appData.campaign.activeBattles.find(b => 
+    b.hexKey === hexKey
+  );
+
+  if (battleOnHex) {
+    // Добавляем подкрепление в существующий бой
+    addReinforcementsToBattle(battleOnHex.id, playerUnit, enemyUnit);
+    return;
+  }
   appData.currentTime = appData.campaign.currentTime;
   // Проверяем, есть ли активный бой с этими же юнитами
   const existingBattle = appData.campaign.activeBattles.find(b => 
@@ -2692,15 +2733,16 @@ document.getElementById('btnFinishBattle').style.display = 'inline-block';
   });
 
   // 6. Сохраняем бой в массив активных боёв
-  const newBattle = {
-    id: Date.now(), // уникальный идентификатор
-    playerUnitName: playerUnit.name,
-    enemyUnitName: enemyUnit.name,
-    playerSquads: playerSquads.map(s => JSON.parse(JSON.stringify(s))),
-    enemySquads: enemySquads.map(s => JSON.parse(JSON.stringify(s))),
-    tacticalMap: JSON.parse(JSON.stringify(tacticalMap)),
-    currentTurn: 1
-  };
+const newBattle = {
+  id: Date.now(),
+  playerUnitName: playerUnit.name,
+  enemyUnitName: enemyUnit.name,
+  playerSquads: playerSquads.map(s => JSON.parse(JSON.stringify(s))),
+  enemySquads: enemySquads.map(s => JSON.parse(JSON.stringify(s))),
+  tacticalMap: JSON.parse(JSON.stringify(tacticalMap)),
+  currentTurn: 1,
+  hexKey: `${playerUnit.col},${playerUnit.row}` // <-- сохраняем координаты
+};
   appData.campaign.activeBattles.push(newBattle);
 
   // 7. Подменяем глобальные данные
@@ -2979,6 +3021,15 @@ function nextTurn() {
   appData.currentTime += 2;
 if (appData.currentTime >= 1440) appData.currentTime -= 1440;
   appData.campaign.currentTime = appData.currentTime;
+    // Проверяем, не превысило ли время тактического боя границу операционного хода
+  const opTurnDuration = 20; // минут
+  const opTurnStart = appData.campaign.opTurnStartTime;
+  const opTurnEnd = opTurnStart + opTurnDuration;
+  if (appData.currentTime >= opTurnEnd) {
+    log('⚠️ Внимание: наступил новый операционный ход!');
+    // Можно автоматически восстановить ОД и уведомить игрока
+    // Для простоты просто показываем сообщение
+  }
 checkNightTime();
   // === Санитар (лечит случайного раненого из любого отряда) ===
   const medics = appData.squads.flatMap(s => s.fighters.filter(f => f.isMedic && f.hp > 0));
@@ -7192,7 +7243,7 @@ const BATTALION_PRESETS = {
        hq: { name: "Штаб роты №2 (гол.)", icon: "images/BeVe/штаб роты  BeVe гол.jpg", templateName: "Штаб роты №2 Голландцы" } 
       },
          // третья самокатная рота
-            { type: "infantry_company", name: "3-я самокатная рота", icon: "images/BeVe/штаб роты BeVe сам.jpg", platoons: [
+            { type: "infantry_company", name: "3-я самокатная рота", icon: "images/BeVe/штаб самокат вззод 1.jpg", platoons: [
            { name: "1-й самокатный взвод", icon: "images/штаб самокат вззод 1.jpg", squads: [
               { name: "Самокатное отделение №1", templateName: "Самокатное отделение №1" },
               { name: "Самокатное отделение №2", templateName: "Самокатное отделение №2" },
@@ -8699,15 +8750,19 @@ function backToBattalionAssembly() {
   startBattalionAssembly(appData.campaign.playerFaction);
 }
 function endOperationalTurn() {
-  // Увеличиваем время на 20 минут
-  appData.campaign.currentTime += 20;
-  if (appData.campaign.currentTime >= 1440) appData.campaign.currentTime -= 1440;
-  appData.currentTime = appData.campaign.currentTime; // синхронизируем с тактикой
+  // Увеличиваем время начала хода на 20 минут
+  appData.campaign.opTurnStartTime += 20;
+  if (appData.campaign.opTurnStartTime >= 1440) appData.campaign.opTurnStartTime -= 1440;
+  appData.campaign.currentTime = appData.campaign.opTurnStartTime;
+  appData.currentTime = appData.campaign.currentTime;
   appData.campaign.currentTurn++;
 
-  // Восстанавливаем ОД всем операционным юнитам игрока
+  // Восстанавливаем ОД всем игровым и вражеским юнитам
   if (appData.campaign.opUnits) {
     appData.campaign.opUnits.forEach(u => { u.ap = u.maxAp; });
+  }
+  if (appData.campaign.enemyOpUnits) {
+    appData.campaign.enemyOpUnits.forEach(u => { u.ap = u.maxAp; });
   }
 
   saveData();
@@ -8884,18 +8939,21 @@ function checkOpDetection() {
   const result = roll + mod;
 
   log(`Проверка обнаружения для "${unit.name}": d10=${roll} + мод=${mod} = ${result}`);
-  if (result > 6) {
+   if (result > 6) {
     unit.detected = true;
     unit.noiseMarker = false;
     document.getElementById('mapInfo').innerHTML = '🔴 Отряд обнаружен!';
+    alert('🔴 Отряд обнаружен!');
   } else if (result === 6) {
     unit.noiseMarker = true;
     unit.detected = false;
     document.getElementById('mapInfo').innerHTML = '❗ Маркер «Шум» установлен.';
+    alert('❗ Маркер «Шум» установлен.');
   } else {
     unit.detected = false;
     unit.noiseMarker = false;
     document.getElementById('mapInfo').innerHTML = '🟢 Отряд остаётся незамеченным.';
+    alert('🟢 Отряд остаётся незамеченным.');
   }
   saveData();
   redrawOperationalMap();
@@ -8926,7 +8984,62 @@ function saveTerrainEditor(hexKey) {
 function closeTerrainEditor() {
   document.getElementById('terrainEditorModal').style.display = 'none';
 }
+function addReinforcementsToBattle(battleId, playerUnit, enemyUnit) {
+  const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
+  if (!battle) return;
 
+  // Добавляем свои отряды, если их ещё нет
+  if (playerUnit.squads) {
+    playerUnit.squads.forEach(squad => {
+      const exists = battle.playerSquads.some(s => s.name === squad.name);
+      if (!exists) {
+        battle.playerSquads.push(JSON.parse(JSON.stringify(squad)));
+      }
+    });
+  }
+
+  // Добавляем вражеские отряды, если это необходимо (пока можно пропустить или добавить)
+  if (enemyUnit && enemyUnit.squads) {
+    enemyUnit.squads.forEach(squad => {
+      const exists = battle.enemySquads.some(s => s.name === squad.name);
+      if (!exists) {
+        battle.enemySquads.push(JSON.parse(JSON.stringify(squad)));
+      }
+    });
+  }
+
+  // Обновляем тактическую карту, чтобы новые отряды появились
+  const tacticalMap = battle.tacticalMap;
+  const startCol = 2; // левый край (можно привязать к стороне подхода)
+  const startRow = 2;
+  let idx = 0;
+  playerUnit.squads.forEach(squad => {
+    // Пропускаем уже существующих
+    if (battle.playerSquads.some(s => s.name === squad.name)) return;
+    const key = `${startCol + Math.floor(idx / 3)},${startRow + (idx % 3)}`;
+    tacticalMap.grid[key].squadIds.push(battle.playerSquads.length + idx);
+    squad.hexPos = [startCol + Math.floor(idx / 3), startRow + (idx % 3)];
+    idx++;
+  });
+
+  saveData();
+  // Переключаемся на бой
+  appData.squads = battle.playerSquads.map(s => JSON.parse(JSON.stringify(s)));
+  appData.map = JSON.parse(JSON.stringify(tacticalMap));
+  appData.currentTurn = battle.currentTurn || 1;
+  currentTurn = appData.currentTurn;
+  appData.squads.forEach((_, i) => ensureAP(i));
+  if (appData.squads.length > 0) selectSquad(0);
+  appData.currentBattleId = battle.id;
+  renderSquadSelector();
+  updateUI();
+  document.getElementById('campaignMapScreen').style.display = 'none';
+  document.getElementById('campaignApp').style.display = 'none';
+  document.getElementById('battleApp').style.display = 'block';
+  activateBattleTab();
+  document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
+  document.getElementById('mapInfo').innerHTML = `Подкрепление введено в бой на гексе ${hexKey}.`;
+}
       
   </script> 
   
@@ -9067,6 +9180,8 @@ function closeTerrainEditor() {
   <button onclick="backToOperationalMapFromRoster()" style="background:#555;">← Назад к карте</button>
   <div id="battalionRosterSummary" style="margin:10px 0; font-weight:bold;"></div>
   <div id="battalionRosterList"></div>
+  <div id="battalionUnitDetails" style="display:none; margin-top:10px; padding:10px; background:#2a2a2a; border-radius:6px;"></div>
+<button id="btnBackToRosterList" style="display:none; margin-top:6px;" onclick="backToRosterList()">← Назад к списку</button>
 </div>
 </div>
 
