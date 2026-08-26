@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.107 — карта  </title>
+  <title>Боевой модуль v12.108 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.107</h1>
+    <h1>⚔️ Боевой модуль v12.108</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.107 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.108 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -372,6 +372,7 @@
       <button onclick="nextTurn()" style="background:#2980b9;">⏭️ Завершить ход</button>
       <button id="btnReturnToCampaign" style="display:none; background:#f39c12;" onclick="returnToCampaign()">↩️ В кампанию</button>
       <button id="btnFinishBattle" onclick="finishBattle()" style="display:none; position:fixed; top:50px; right:10px; z-index:999; background:#27ae60;">✅ Завершить бой</button>
+      <button id="btnRetreatBattle" onclick="retreatFromBattle()" style="display:none; position:fixed; top:90px; right:10px; z-index:999; background:#c0392b;">🏳️ Отступить</button>
       
       <div id="timeDisplayMap">Время: --:--</div>
 
@@ -1571,6 +1572,7 @@ function handleOpMapClick(e) {
         showContactModal(selectedUnit, enemyOnTarget);
         return;
       }
+    
             // Проверяем стоимость перемещения (1 ОД за гекс, пока всё трава)
         const moveCost = getOpMoveCost(selectedUnit, selectedUnit.col, selectedUnit.row, h.col, h.row);
         if (!spendOpAP(selectedUnit, moveCost)) {
@@ -1578,7 +1580,15 @@ function handleOpMapClick(e) {
         redrawOperationalMap();
         return;
       }
-
+// Проверяем, не участвует ли юнит в активном бою
+const inBattle = appData.campaign.activeBattles.some(b => 
+    b.playerUnitName === selectedUnit.name
+);
+if (inBattle) {
+    document.getElementById('mapInfo').innerHTML = '⚠️ Этот юнит участвует в тактическом бою и не может двигаться.';
+    redrawOperationalMap();
+    return;
+}
       // Если врага нет, перемещаемся
       selectedUnit.col = h.col;
       selectedUnit.row = h.row;
@@ -1592,29 +1602,37 @@ function handleOpMapClick(e) {
   }
   }
 
-  // 2. Ищем, не кликнули ли по своему юниту
-  let clickedUnit = null;
-  let minDistToUnit = Infinity;
-  if (appData.campaign.opUnits) {
-    for (let unit of appData.campaign.opUnits) {
-      if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) continue;
-      const unitX = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2 + (unit.drawOffsetX || 0);
-      const unitY = unit.row * 1.5 * size + size + (unit.drawOffsetY || 0);
-      const dist = Math.sqrt((clickX - unitX) ** 2 + (clickY - unitY) ** 2);
-      if (dist < minDistToUnit) {
-        minDistToUnit = dist;
-        clickedUnit = unit;
-      }
+// 2. Ищем, не кликнули ли по своему юниту
+let clickedUnit = null;
+let minDistToUnit = Infinity;
+if (appData.campaign.opUnits) {
+  for (let unit of appData.campaign.opUnits) {
+    if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) continue;
+    const unitX = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2 + (unit.drawOffsetX || 0);
+    const unitY = unit.row * 1.5 * size + size + (unit.drawOffsetY || 0);
+    const dist = Math.sqrt((clickX - unitX) ** 2 + (clickY - unitY) ** 2);
+    if (dist < minDistToUnit) {
+      minDistToUnit = dist;
+      clickedUnit = unit;
     }
   }
-  if (clickedUnit && minDistToUnit < size * 0.6) {
-    // Выбрали свой юнит
-    appData.campaign.selectedOpUnit = clickedUnit;
-    clickedUnit.availableHexes = getOpHexNeighbors(clickedUnit.col, clickedUnit.row);
-    redrawOperationalMap();
-    document.getElementById('mapInfo').innerHTML = `Выбран: ${clickedUnit.name}`;
-    return;
+}
+if (clickedUnit && minDistToUnit < size * 0.6) {
+  // Проверяем, не участвует ли юнит в активном бою
+  const inBattle = appData.campaign.activeBattles.some(b => 
+      b.playerUnitName === clickedUnit.name
+  );
+  if (inBattle) {
+      document.getElementById('mapInfo').innerHTML = '⚠️ Этот юнит участвует в тактическом бою и не может двигаться.';
+      return;
   }
+  // Выбрали свой юнит
+  appData.campaign.selectedOpUnit = clickedUnit;
+  clickedUnit.availableHexes = getOpHexNeighbors(clickedUnit.col, clickedUnit.row);
+  redrawOperationalMap();
+  document.getElementById('mapInfo').innerHTML = `Выбран: ${clickedUnit.name}`;
+  return;
+}
     // Поиск вражеского юнита (если свой не найден)
   let clickedEnemy = null;
   let minDistToEnemy = Infinity;
@@ -7183,37 +7201,37 @@ const BATTALION_PRESETS = {
       ]},
       { type: "at_battery", name: "Батарея 47-мм ПТО", templates: [
           { name: "Расчёт ПТО №1", templateName: "Противотанковый расчёт №1", icon: "images/BeVe/пто.jpg" },
-          { name: "Расчёт ПТО №2", templateName: "Противотанковый расчёт №2", icon: "" }
+          { name: "Расчёт ПТО №2", templateName: "Противотанковый расчёт №2", icon: "images/BeVe/пто2.jpg" }
       ]},
       { type: "infantry_company", name: "1-я пехотная рота", icon: "images/BeVe/штаб роты BeVe бел.jpg", platoons: [
            { name: "1-й взвод (бельг.)", icon: "images/BeVe/штаб бел.jpg", squads: [
-              { name: "Пехотное отделение №1", templateName: "Пехотное отделение №1 Бельгийцы" },
-              { name: "Пехотное отделение №2", templateName: "Пехотное отделение №2 Бельгийцы" },
-              { name: "Пехотное отделение №3", templateName: "Пехотное отделение №3 Бельгийцы" },
-              { name: "Отделение поддержки №1 Самокатное", templateName: "Отделение поддержки №1 Бельгийцы" },
+              { name: "Пехотное отделение №1 Бельгийцы", templateName: "Пехотное отделение №1 Бельгийцы" },
+              { name: "Пехотное отделение №2 Бельгийцы", templateName: "Пехотное отделение №2 Бельгийцы" },
+              { name: "Пехотное отделение №3 Бельгийцы", templateName: "Пехотное отделение №3 Бельгийцы" },
+              { name: "Отделение поддержки №1 Бельгийцы", templateName: "Отделение поддержки №1 Бельгийцы" },
               { name: "Миномётный расчёт №1", templateName: "Минометный расчёт 50-мм №1" },
               { name: "Штаб взвода №1 Бельгийцы", templateName: "Штаб взвода №1 Бельгийцы" },
               { name: "Пулемётный расчёт №1", templateName: "Пулеметный расчёт №1" }
             ]
           },
          { name: "2-й взвод (бельг.)", icon: "images/BeVe/штаб бел вззод 2.jpg", squads: [
-              { name: "Пехотное отделение №1", templateName: "Пехотное отделение №4 Бельгийцы" },
-              { name: "Пехотное отделение №2", templateName: "Пехотное отделение №5 Бельгийцы" },
-              { name: "Пехотное отделение №3", templateName: "Пехотное отделение №6 Бельгийцы" },
-              { name: "Отделение поддержки №1", templateName: "Отделение поддержки №2 Бельгийцы" },
-              { name: "Миномётный расчёт №1", templateName: "Минометный расчёт 50-мм №2" },
+              { name: "Пехотное отделение №4 Бельгийцы", templateName: "Пехотное отделение №4 Бельгийцы" },
+              { name: "Пехотное отделение №5 Бельгийцы", templateName: "Пехотное отделение №5 Бельгийцы" },
+              { name: "Пехотное отделение №6 Бельгийцы", templateName: "Пехотное отделение №6 Бельгийцы" },
+              { name: "Отделение поддержки №2 Бельгийцы", templateName: "Отделение поддержки №2 Бельгийцы" },
+              { name: "Миномётный расчёт №2", templateName: "Минометный расчёт 50-мм №2" },
               { name: "Штаб взвода №2 Бельгийцы", templateName: "Штаб взвода №2 Бельгийцы" },
-              { name: "Пулемётный расчёт №1", templateName: "Пулеметный расчёт №2" }
+              { name: "Пулемётный расчёт №2", templateName: "Пулеметный расчёт №2" }
             ]
           },
          { name: "3-й взвод (бельг.)", icon: "images/BeVe/штаб бел вззод 3.jpg", squads: [
-              { name: "Пехотное отделение №1", templateName: "Пехотное отделение №7 Бельгийцы" },
-              { name: "Пехотное отделение №2", templateName: "Пехотное отделение №8 Бельгийцы" },
-              { name: "Пехотное отделение №3", templateName: "Пехотное отделение №9 Бельгийцы" },
-              { name: "Отделение поддержки №1", templateName: "Отделение поддержки №3 Бельгийцы" },
-              { name: "Миномётный расчёт №1", templateName: "Минометный расчёт 50-мм №3" },
+              { name: "Пехотное отделение №7 Бельгийцы", templateName: "Пехотное отделение №7 Бельгийцы" },
+              { name: "Пехотное отделение №8 Бельгийцы", templateName: "Пехотное отделение №8 Бельгийцы" },
+              { name: "Пехотное отделение №9 Бельгийцы", templateName: "Пехотное отделение №9 Бельгийцы" },
+              { name: "Отделение поддержки №3 Бельгийцы", templateName: "Отделение поддержки №3 Бельгийцы" },
+              { name: "Миномётный расчёт №3", templateName: "Минометный расчёт 50-мм №3" },
               { name: "Штаб взвода №3 Бельгийцы", templateName: "Штаб взвода №3 Бельгийцы" },
-              { name: "Пулемётный расчёт №1", templateName: "Пулеметный расчёт №3" }
+              { name: "Пулемётный расчёт №3", templateName: "Пулеметный расчёт №3" }
             ]
           },
       ], 
@@ -7222,30 +7240,30 @@ const BATTALION_PRESETS = {
       // вторая пехотная рота
             { type: "infantry_company", name: "2-я пехотная рота", icon: "images/BeVe/штаб роты  BeVe гол.jpg", platoons: [
            { name: "1-й взвод (гол.)", icon: "images/BeVe/штаб гол.jpg", squads: [
-              { name: "Пехотное отделение №1", templateName: "Пехотное отделение №1 Голландцы" },
-              { name: "Пехотное отделение №2", templateName: "Пехотное отделение №2 Голландцы" },
-              { name: "Пехотное отделение №3", templateName: "Пехотное отделение №3 Голландцы" },
-              { name: "Отделение поддержки №1", templateName: "Отделение поддержки №1 Голландцы" },
+              { name: "Пехотное отделение №1 Голландцы", templateName: "Пехотное отделение №1 Голландцы" },
+              { name: "Пехотное отделение №2 Голландцы", templateName: "Пехотное отделение №2 Голландцы" },
+              { name: "Пехотное отделение №3 Голландцы", templateName: "Пехотное отделение №3 Голландцы" },
+              { name: "Отделение поддержки №1 Голландцы", templateName: "Отделение поддержки №1 Голландцы" },
               { name: "Миномётный расчёт №4", templateName: "Минометный расчёт 50-мм №4" },
               { name: "Штаб взвода №1 Голландцы", templateName: "Штаб взвода №4 Голландцы" },
               { name: "Пулемётный расчёт №4", templateName: "Пулеметный расчёт №4" }
             ]
           },
          { name: "2-й взвод (гол.)", icon: "images/BeVe/штаб гол взв 2.jpg", squads: [
-              { name: "Пехотное отделение №4", templateName: "Пехотное отделение №4 Голландцы" },
-              { name: "Пехотное отделение №5", templateName: "Пехотное отделение №5 Голландцы" },
-              { name: "Пехотное отделение №6", templateName: "Пехотное отделение №6 Голландцы" },
-              { name: "Отделение поддержки №2", templateName: "Отделение поддержки №2 Голландцы" },
+              { name: "Пехотное отделение №4 Голландцы", templateName: "Пехотное отделение №4 Голландцы" },
+              { name: "Пехотное отделение №5 Голландцы", templateName: "Пехотное отделение №5 Голландцы" },
+              { name: "Пехотное отделение №6 Голландцы", templateName: "Пехотное отделение №6 Голландцы" },
+              { name: "Отделение поддержки №2 Голландцы", templateName: "Отделение поддержки №2 Голландцы" },
               { name: "Миномётный расчёт №5", templateName: "Минометный расчёт 50-мм №5" },
               { name: "Штаб взвода №2 Голландцы", templateName: "Штаб взвода №5 Голландцы" },
               { name: "Пулемётный расчёт №5", templateName: "Пулеметный расчёт №2" }
             ]
           },
          { name: "3-й взвод (гол.)", icon: "images/BeVe/штаб гол взв 3.jpg", squads: [
-              { name: "Пехотное отделение №7", templateName: "Пехотное отделение №7 Голландцы" },
-              { name: "Пехотное отделение №8", templateName: "Пехотное отделение №8 Голландцы" },
-              { name: "Пехотное отделение №9", templateName: "Пехотное отделение №9 Голландцы" },
-              { name: "Отделение поддержки №3", templateName: "Отделение поддержки №3 Голландцы" },
+              { name: "Пехотное отделение №7 Голландцы", templateName: "Пехотное отделение №7 Голландцы" },
+              { name: "Пехотное отделение №8 Голландцы", templateName: "Пехотное отделение №8 Голландцы" },
+              { name: "Пехотное отделение №9 Голландцы", templateName: "Пехотное отделение №9 Голландцы" },
+              { name: "Отделение поддержки №3 Голландцы", templateName: "Отделение поддержки №3 Голландцы" },
               { name: "Миномётный расчёт №6", templateName: "Минометный расчёт 50-мм №6" },
               { name: "Штаб взвода №3 Голландцы", templateName: "Штаб взвода №6 Голландцы" },
               { name: "Пулемётный расчёт №6", templateName: "Пулеметный расчёт №3" }
@@ -9083,7 +9101,47 @@ function getOpReachableHexesForUnit(unit) {
     return { col: c, row: r };
   });
 }
+function retreatFromBattle() {
+    const battleId = appData.currentBattleId;
+    if (!battleId) return;
 
+    const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
+    if (!battle) return;
+
+    // Сохраняем состояние боя (как в finishBattle)
+    battle.playerSquads = appData.squads.map(s => JSON.parse(JSON.stringify(s)));
+    battle.enemySquads = appData.map.enemySquads.map(e => JSON.parse(JSON.stringify(e)));
+    battle.currentTurn = currentTurn;
+
+    // Синхронизируем потери
+    syncBattleLossesToCampaign(battleId);
+
+    // Удаляем бой
+    const battleIndex = appData.campaign.activeBattles.findIndex(b => b.id === battleId);
+    if (battleIndex !== -1) {
+        appData.campaign.activeBattles.splice(battleIndex, 1);
+    }
+
+    // Очищаем тактические данные
+    appData.squads = [];
+    appData.map = { grid: {}, baseHexSize: 45, zoomLevel: 1, mode: 'view', enemySquads: [], selectedMoveSquadIdx: null, selectedEnemyMoveIdx: null, reachableHexes: [], isCrouchMode: false };
+    appData.currentBattleId = null;
+
+    // Возвращаемся на карту кампании
+    document.getElementById('battleApp').style.display = 'none';
+    document.getElementById('campaignApp').style.display = 'block';
+    document.getElementById('campaignMapScreen').style.display = 'block';
+    document.getElementById('btnReturnToCampaign').style.display = 'none';
+    document.getElementById('btnFinishBattle').style.display = 'none';
+
+    // Обновляем интерфейс
+    initOperationalMap();
+    renderActiveBattlesList();
+    saveData();
+
+    log('❌ Бой завершён отступлением.');
+    alert('Вы отступили с поля боя.');
+}
       
   </script> 
   
