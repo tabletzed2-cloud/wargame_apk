@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.109 — карта  </title>
+  <title>Боевой модуль v12.110 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.109</h1>
+    <h1>⚔️ Боевой модуль v12.110</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.109 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.110 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1477,73 +1477,100 @@ function handleOpMapClick(e) {
     }
     return;
   }
-    // ======== РЕЖИМ ПЕРЕМЕЩЕНИЯ ВРАГА ========
-  if (appData.campaign.opMapMode === 'moveEnemy') {
+// ======== РЕЖИМ ПЕРЕМЕЩЕНИЯ ВРАГА ========
+if (appData.campaign.opMapMode === 'moveEnemy') {
     const selectedEnemy = appData.campaign.selectedEnemyOpUnit;
 
     // 1. Если враг уже выбран, проверяем клик по доступному гексу
     if (selectedEnemy && selectedEnemy.availableHexes) {
-      for (let i = 0; i < selectedEnemy.availableHexes.length; i++) {
-        const h = selectedEnemy.availableHexes[i];
-        const hexCenterX = h.col * Math.sqrt(3) * size + (h.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
-        const hexCenterY = h.row * 1.5 * size + size;
-        const dist = Math.sqrt((clickX - hexCenterX) ** 2 + (clickY - hexCenterY) ** 2);
-        if (dist < size * 0.8) {
-          // Перемещаем врага, если хватает ОД
-          const moveCost = getOpMoveCost(selectedEnemy, selectedEnemy.col, selectedEnemy.row, h.col, h.row);
-          if (!spendOpAP(selectedEnemy, moveCost)) {
-            document.getElementById('mapInfo').innerHTML = 'Недостаточно ОД для перемещения врага.';
-            return;
-          }
-          selectedEnemy.col = h.col;
-          selectedEnemy.row = h.row;
-          appData.campaign.selectedEnemyOpUnit = null;
-          delete selectedEnemy.availableHexes;
-          saveData();
-          redrawOperationalMap();
-          document.getElementById('mapInfo').innerHTML = `Враг "${selectedEnemy.name}" перемещён.`;
-          return;
+        let targetHex = null;
+        let targetCost = Infinity;
+        for (let i = 0; i < selectedEnemy.availableHexes.length; i++) {
+            const h = selectedEnemy.availableHexes[i];
+            const hexCenterX = h.col * Math.sqrt(3) * size + (h.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+            const hexCenterY = h.row * 1.5 * size + size;
+            const dist = Math.sqrt((clickX - hexCenterX) ** 2 + (clickY - hexCenterY) ** 2);
+            if (dist < size * 0.8) {
+                targetHex = h;
+                targetCost = getOpMoveCost(selectedEnemy, selectedEnemy.col, selectedEnemy.row, h.col, h.row);
+                if (targetCost <= selectedEnemy.ap) break;
+                else targetHex = null;
+            }
         }
-      }
+        if (targetHex && targetCost <= selectedEnemy.ap) {
+            // Проверяем, есть ли на целевом гексе мой отряд
+            const playerUnitOnHex = appData.campaign.opUnits?.find(u => u.col === targetHex.col && u.row === targetHex.row);
+            if (playerUnitOnHex) {
+                // Контакт с моим отрядом – начинаем бой или добавляем в существующий
+                const hexKey = `${targetHex.col},${targetHex.row}`;
+                const existingBattle = appData.campaign.activeBattles.find(b => b.hexKey === hexKey);
+                if (existingBattle) {
+                    alert(`⚔️ Враг "${selectedEnemy.name}" вступает в бой на гексе ${hexKey}!`);
+                    // Добавляем врага в бой (используем отдельную функцию)
+                    addEnemyReinforcementsToBattle(existingBattle.id, selectedEnemy);
+                } else {
+                    // Новый бой
+                    showContactModal(playerUnitOnHex, selectedEnemy);
+                }
+                // Сбрасываем выделение врага
+                appData.campaign.selectedEnemyOpUnit = null;
+                if (selectedEnemy.availableHexes) delete selectedEnemy.availableHexes;
+                redrawOperationalMap();
+                return;
+            } else {
+                // Перемещаем врага
+                if (!spendOpAP(selectedEnemy, targetCost)) {
+                    document.getElementById('mapInfo').innerHTML = 'Недостаточно ОД для перемещения врага.';
+                    return;
+                }
+                selectedEnemy.col = targetHex.col;
+                selectedEnemy.row = targetHex.row;
+                appData.campaign.selectedEnemyOpUnit = null;
+                if (selectedEnemy.availableHexes) delete selectedEnemy.availableHexes;
+                saveData();
+                redrawOperationalMap();
+                document.getElementById('mapInfo').innerHTML = `Враг "${selectedEnemy.name}" перемещён.`;
+                return;
+            }
+        }
     }
 
     // 2. Ищем, не кликнули ли по вражескому юниту
     let clickedEnemy = null;
     let minDistToEnemy = Infinity;
     if (appData.campaign.enemyOpUnits) {
-      for (let enemy of appData.campaign.enemyOpUnits) {
-        if (enemy.col === null || enemy.col === undefined || enemy.row === null || enemy.row === undefined) continue;
-        const unitX = enemy.col * Math.sqrt(3) * size + (enemy.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2 + (enemy.drawOffsetX || 0);
-        const unitY = enemy.row * 1.5 * size + size + (enemy.drawOffsetY || 0);
-        const dist = Math.sqrt((clickX - unitX) ** 2 + (clickY - unitY) ** 2);
-        if (dist < minDistToEnemy) {
-          minDistToEnemy = dist;
-          clickedEnemy = enemy;
+        for (let enemy of appData.campaign.enemyOpUnits) {
+            if (enemy.col === null || enemy.col === undefined || enemy.row === null || enemy.row === undefined) continue;
+            const unitX = enemy.col * Math.sqrt(3) * size + (enemy.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2 + (enemy.drawOffsetX || 0);
+            const unitY = enemy.row * 1.5 * size + size + (enemy.drawOffsetY || 0);
+            const dist = Math.sqrt((clickX - unitX) ** 2 + (clickY - unitY) ** 2);
+            if (dist < minDistToEnemy) {
+                minDistToEnemy = dist;
+                clickedEnemy = enemy;
+            }
         }
-      }
     }
-   if (clickedEnemy && minDistToEnemy < size * 0.6) {
-      if (clickedEnemy.ap <= 0) {
-        document.getElementById('mapInfo').innerHTML = 'У врага нет ОД для перемещения.';
+    if (clickedEnemy && minDistToEnemy < size * 0.6) {
+        if (clickedEnemy.ap <= 0) {
+            document.getElementById('mapInfo').innerHTML = 'У врага нет ОД для перемещения.';
+            return;
+        }
+        appData.campaign.selectedEnemyOpUnit = clickedEnemy;
+        clickedEnemy.availableHexes = getOpReachableHexesForUnit(clickedEnemy);
+        document.getElementById('mapInfo').innerHTML = `Выбран враг: ${clickedEnemy.name}. Кликните по гексу для перемещения.`;
+        redrawOperationalMap();
         return;
-      }
-      appData.campaign.selectedEnemyOpUnit = clickedEnemy;
-      clickedEnemy.availableHexes = getOpReachableHexesForUnit(clickedEnemy);
-      document.getElementById('mapInfo').innerHTML = `Выбран враг: ${clickedEnemy.name}. Кликните по гексу для перемещения.`;
-      redrawOperationalMap();
-      return;
     }
 
     // 3. Клик в пустоту – сброс
     appData.campaign.selectedEnemyOpUnit = null;
     if (appData.campaign.enemyOpUnits) {
-      appData.campaign.enemyOpUnits.forEach(e => { if (e.availableHexes) delete e.availableHexes; });
+        appData.campaign.enemyOpUnits.forEach(e => { if (e.availableHexes) delete e.availableHexes; });
     }
     document.getElementById('mapInfo').innerHTML = '';
     redrawOperationalMap();
     return;
-  }
-  
+}
   // Проверяем, есть ли уже выбранный юнит
   const selectedUnit = appData.campaign.selectedOpUnit;
 
@@ -1963,6 +1990,22 @@ if (inBattle) {
   // Рисуем только один раз
   drawGroupedUnits(appData.campaign.opUnits, false);
   drawGroupedUnits(appData.campaign.enemyOpUnits, true);
+  // Проверка, в бою ли юнит (враг)
+if (isEnemy) {
+    const inBattle = appData.campaign.activeBattles.some(b => b.enemyUnitName === unit.name);
+    if (inBattle) {
+        ctx.strokeStyle = '#ff0000';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(drawX, drawY, radius + 4, 0, 2 * Math.PI);
+        ctx.stroke();
+        ctx.fillStyle = '#ff0000';
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('⚔️', drawX, drawY - radius - 8);
+    }
+}
 }
       
 // Загружаем сохранённый выбор (если есть)
@@ -2116,7 +2159,7 @@ document.getElementById('battleApp').style.display = 'none';
         "squads": [],
         "templates": [
           {"name":"Пехотное отделение №1 Бельгийцы",
-           "faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе1.jpg",
+           "faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе1 бельг.jpg",
            "fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},
                        {"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},
                        {"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},
@@ -2127,23 +2170,23 @@ document.getElementById('battleApp').style.display = 'none';
                        {"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},
                        {"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],
            "crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Пехотное отделение №2 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе2.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Пехотное отделение №3 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе3.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Пехотное отделение №4 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Пехотное отделение №5 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе2.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Пехотное отделение №6 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе3.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Пехотное отделение №7 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Пехотное отделение №8 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе2.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Пехотное отделение №9 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе3.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Пехотное отделение №2 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе2 бельг.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Пехотное отделение №3 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе3 бельг.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Пехотное отделение №4 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе4 бельг.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Пехотное отделение №5 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе5 бельг.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Пехотное отделение №6 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе6 бельг.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Пехотное отделение №7 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе7 бельг.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Пехотное отделение №8 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе8 бельг.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Пехотное отделение №9 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе9 бельг.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
           {"name":"Пехотное отделение №1 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение бе1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
           {"name":"Пехотное отделение №2 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение бе2.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
           {"name":"Пехотное отделение №3 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение бе3.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Пехотное отделение №4 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение бе1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Пехотное отделение №5 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение бе2.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Пехотное отделение №6 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение бе3.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Пехотное отделение №7 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение бе1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Пехотное отделение №8 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение бе2.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Пехотное отделение №9 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение бе3.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Пехотное отделение №4 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение бе4.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Пехотное отделение №5 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение бе5.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Пехотное отделение №6 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение бе6.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Пехотное отделение №7 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение бе7.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Пехотное отделение №8 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение бе8.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Пехотное отделение №9 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение бе9.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
           {"name":"Самокатное отделение №1","faction":"BeVe","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/влосипедисты 1.png","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
           {"name":"Самокатное отделение №2","faction":"BeVe","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/влосипедисты 2.png","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
           {"name":"Самокатное отделение №3","faction":"BeVe","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/влосипедисты 3.png","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
@@ -2154,50 +2197,50 @@ document.getElementById('battleApp').style.display = 'none';
           {"name":"Самокатное отделение №8","faction":"BeVe","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/влосипедисты 8.png","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
           {"name":"Самокатное отделение №9","faction":"BeVe","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/влосипедисты 9.png","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
           {"name":"Штаб взвода №1 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб бел.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб взвода №2 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб бел.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб взвода №3 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб бел.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб взвода №2 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб бел вззод 2.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб взвода №3 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб бел вззод 3.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
           {"name":"Штаб роты №1 Бельгийцы","faction":"BeVe","subfaction":"belgian","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб бел.jpg","fighters":[{"name":"Капитан","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
           {"name":"Штаб взвода №4 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб гол.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб взвода №5 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб гол.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб взвода №6 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб гол.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб взвода №5 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб гол взв 2.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб взвода №6 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб гол взв 3.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
           {"name":"Штаб роты №2 Голландцы","faction":"BeVe","subfaction":"dutch","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/штаб роты  BeVe гол.jpg","fighters":[{"name":"Капитан","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
           {"name":"Штаб взвода №7 Самокатный","faction":"BeVe","baseMorale":4,"currentMorale":5,"icon":"images/BeVe/штаб самокат вззод 1.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
           {"name":"Штаб взвода №8 Самокатный","faction":"BeVe","baseMorale":4,"currentMorale":5,"icon":"images/BeVe/штаб самокат вззод 2.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
           {"name":"Штаб взвода №9 Самокатный","faction":"BeVe","baseMorale":4,"currentMorale":5,"icon":"images/BeVe/штаб самокат вззод 3.jpg","fighters":[{"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
           {"name":"Штаб роты №3 Самокатной","faction":"BeVe","baseMorale":4,"currentMorale":5,"icon":"images/BeVe/штаб роты BeVe сам.jpg","fighters":[{"name":"Капитан","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
           {"name":"Штаб Батальона","faction":"BeVe","baseMorale":4,"currentMorale":5,"icon":"images/BeVe/штаб батальона BeVe.jpg","fighters":[{"name":"Майор","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Посыльный","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Снайперское звено OIP №1","faction":"BeVe","subfaction":"common","baseMorale":6,"currentMorale":6,"icon":"images/снайпер Беве 1.png","ammoSmall":10,"ammoOrdnance":0,"grenades":0,"fighters":[{"name":"Снайпер","weapon":"Geweer OIP M.38","hp":3,"maxHp":3,"isCommander":true},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3}],"crewInstances":[]},
-          {"name":"Снайперское звено OIP №2","faction":"BeVe","subfaction":"common","baseMorale":6,"currentMorale":6,"icon":"images/снайпер Беве 1.png","ammoSmall":10,"ammoOrdnance":0,"grenades":0,"fighters":[{"name":"Снайпер","weapon":"Geweer OIP M.38","hp":3,"maxHp":3,"isCommander":true},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3}],"crewInstances":[]},
-          {"name":"Снайперское звено OIP №3","faction":"BeVe","subfaction":"common","baseMorale":6,"currentMorale":6,"icon":"images/снайпер Беве 1.png","ammoSmall":10,"ammoOrdnance":0,"grenades":0,"fighters":[{"name":"Снайпер","weapon":"Geweer OIP M.38","hp":3,"maxHp":3,"isCommander":true},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3}],"crewInstances":[]},
+          {"name":"Снайперское звено OIP №1","faction":"BeVe","subfaction":"common","baseMorale":6,"currentMorale":6,"icon":"images/снайпер беве 1.png","ammoSmall":10,"ammoOrdnance":0,"grenades":0,"fighters":[{"name":"Снайпер","weapon":"Geweer OIP M.38","hp":3,"maxHp":3,"isCommander":true},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3}],"crewInstances":[]},
+          {"name":"Снайперское звено OIP №2","faction":"BeVe","subfaction":"common","baseMorale":6,"currentMorale":6,"icon":"images/снайпер беве 2.png","ammoSmall":10,"ammoOrdnance":0,"grenades":0,"fighters":[{"name":"Снайпер","weapon":"Geweer OIP M.38","hp":3,"maxHp":3,"isCommander":true},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3}],"crewInstances":[]},
+          {"name":"Снайперское звено OIP №3","faction":"BeVe","subfaction":"common","baseMorale":6,"currentMorale":6,"icon":"images/снайпер беве 3.png","ammoSmall":10,"ammoOrdnance":0,"grenades":0,"fighters":[{"name":"Снайпер","weapon":"Geweer OIP M.38","hp":3,"maxHp":3,"isCommander":true},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3}],"crewInstances":[]},
           {"name":"Пулеметный расчёт №1","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль1.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
-          {"name":"Пулеметный расчёт №2","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль1.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
-          {"name":"Пулеметный расчёт №3","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль1.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
-          {"name":"Пулеметный расчёт №4","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль1.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
-          {"name":"Пулеметный расчёт №5","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль1.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
-          {"name":"Пулеметный расчёт №6","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль1.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
-          {"name":"Мотоциклетный Пулеметный расчёт №1","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль1.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
-          {"name":"Мотоциклетный Пулеметный расчёт №2","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль1.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
-          {"name":"Мотоциклетный Пулеметный расчёт №3","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль1.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
+          {"name":"Пулеметный расчёт №2","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль2.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
+          {"name":"Пулеметный расчёт №3","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль3.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
+          {"name":"Пулеметный расчёт №4","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль4.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
+          {"name":"Пулеметный расчёт №5","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль5.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
+          {"name":"Пулеметный расчёт №6","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль6.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
+          {"name":"Мотоциклетный Пулеметный расчёт №1","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/мотоцикл беве 1.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
+          {"name":"Мотоциклетный Пулеметный расчёт №2","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/мотоцикл беве 2.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
+          {"name":"Мотоциклетный Пулеметный расчёт №3","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/мотоцикл беве 3.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
           {"name":"Противотанковый расчёт №1","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/пто.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Расчёт ПТО Bohler M37","fighterIndices":[0,1,2],"active":true}],"ammoSmall":72,"ammoOrdnance":40,"grenades":12},
           {"name":"Противотанковый расчёт №2","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/пто2.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Расчёт ПТО Bohler M37","fighterIndices":[0,1,2],"active":true}],"ammoSmall":72,"ammoOrdnance":40,"grenades":12},
           {"name":"Минометный расчёт 50-мм №1","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/штаб мин.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 50мм DBT","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
-          {"name":"Минометный расчёт 50-мм №2","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/штаб мин.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 50мм DBT","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
-          {"name":"Минометный расчёт 50-мм №3","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/штаб мин.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 50мм DBT","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
-          {"name":"Минометный расчёт 50-мм №4","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/штаб мин.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 50мм DBT","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
-          {"name":"Минометный расчёт 50-мм №5","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/штаб мин.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 50мм DBT","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
-          {"name":"Минометный расчёт 50-мм №6","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/штаб мин.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 50мм DBT","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
-          {"name":"Минометный расчёт 82-мм №1","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/штаб мин.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 82мм","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
-          {"name":"Минометный расчёт 82-мм №2","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/штаб мин.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 82мм","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
-          {"name":"Минометный расчёт 82-мм №3","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/штаб мин.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 82мм","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
+          {"name":"Минометный расчёт 50-мм №2","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/штаб мин2.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 50мм DBT","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
+          {"name":"Минометный расчёт 50-мм №3","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/штаб мин3.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 50мм DBT","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
+          {"name":"Минометный расчёт 50-мм №4","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/штаб мин4.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 50мм DBT","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
+          {"name":"Минометный расчёт 50-мм №5","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/штаб мин5.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 50мм DBT","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
+          {"name":"Минометный расчёт 50-мм №6","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/штаб мин6.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 50мм DBT","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
+          {"name":"Минометный расчёт 82-мм №1","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/мина 82 1.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 82мм","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
+          {"name":"Минометный расчёт 82-мм №2","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/мина 82 2.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 82мм","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
+          {"name":"Минометный расчёт 82-мм №3","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/мина 82 3.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Минометный расчёт 82мм","fighterIndices":[0,1,2],"active":true}],"ammoSmall":32,"ammoOrdnance":12,"grenades":6},
           {"name":"Отделение поддержки №1 Бельгийцы","subfaction":"belgian","faction":"BeVe","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение под1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Пулемётчик 1","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик 2","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
           {"name":"Отделение поддержки №2 Бельгийцы","subfaction":"belgian","faction":"BeVe","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение под1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Пулемётчик 1","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик 2","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
           {"name":"Отделение поддержки №3 Бельгийцы","subfaction":"belgian","faction":"BeVe","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение под1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Пулемётчик 1","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 1","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Пулемётчик 2","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 2","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
           {"name":"Отделение поддержки №1 Голландцы","subfaction":"dutch","faction":"BeVe","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение под1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Пулемётчик 1","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик 2","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
           {"name":"Отделение поддержки №2 Голландцы","subfaction":"dutch","faction":"BeVe","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение под1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Пулемётчик 1","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик 2","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
           {"name":"Отделение поддержки №3 Голландцы","subfaction":"dutch","faction":"BeVe","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/отделение под1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Пулемётчик 1","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик 2","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Отделение поддержки №1 Самокатное","faction":"BeVe","baseMorale":7,"currentMorale":7,"icon":"images/отделение под1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Пулемётчик 1","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик 2","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Отделение поддержки №2 Самокатное","faction":"BeVe","baseMorale":7,"currentMorale":7,"icon":"images/отделение под1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Пулемётчик 1","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик 2","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
-          {"name":"Отделение поддержки №3 Самокатное","faction":"BeVe","baseMorale":7,"currentMorale":7,"icon":"images/отделение под1.jpg","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Пулемётчик 1","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик 2","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Отделение поддержки №1 Самокатное","faction":"BeVe","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/влосипедисты поддержка 1.png","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Пулемётчик 1","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик 2","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Отделение поддержки №2 Самокатное","faction":"BeVe","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/влосипедисты поддержка 2.png","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Пулемётчик 1","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик 2","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
+          {"name":"Отделение поддержки №3 Самокатное","faction":"BeVe","baseMorale":7,"currentMorale":7,"icon":"images/BeVe/влосипедисты поддержка 3.png","fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Пулемётчик 1","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 1","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Пулемётчик 2","weapon":"Ручной пулемет FN model D","hp":3,"maxHp":3},{"name":"Второй номер 2","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":72,"ammoOrdnance":0,"grenades":18},
           {"name":"Пулеметный расчёт №1","faction":"A.I.R.F.","baseMorale":5,"currentMorale":5,"icon":"images/пуль1.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Vz.24","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Подносчик 1","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Подносчик 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Hotchkiss Mle 1914","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
           {"name":"Пулеметный расчёт №2","faction":"A.I.R.F.","baseMorale":5,"currentMorale":5,"icon":"images/пуль1.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Vz.24","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Подносчик 1","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Подносчик 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Hotchkiss Mle 1914","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
           {"name":"Пулеметный расчёт №3","faction":"A.I.R.F.","baseMorale":5,"currentMorale":5,"icon":"images/пуль1.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Vz.24","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Подносчик 1","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Подносчик 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Hotchkiss Mle 1914","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
@@ -9106,61 +9149,88 @@ function closeTerrainEditor() {
   document.getElementById('terrainEditorModal').style.display = 'none';
 }
 function addReinforcementsToBattle(battleId, playerUnit, enemyUnit) {
-  const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
-  if (!battle) return;
+    const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
+    if (!battle) return;
 
-  // Добавляем свои отряды, если их ещё нет
-  if (playerUnit.squads) {
-    playerUnit.squads.forEach(squad => {
-      const exists = battle.playerSquads.some(s => s.name === squad.name);
-      if (!exists) {
-        battle.playerSquads.push(JSON.parse(JSON.stringify(squad)));
-      }
-    });
-  }
+    // ----- Добавляем свои отряды -----
+    if (playerUnit.squads) {
+        const newSquads = [];
+        playerUnit.squads.forEach(squad => {
+            const exists = battle.playerSquads.some(s => s.name === squad.name);
+            if (!exists) {
+                const newSquad = JSON.parse(JSON.stringify(squad));
+                battle.playerSquads.push(newSquad);
+                newSquads.push(newSquad);
+            }
+        });
+        // Размещаем новые отряды на тактической карте (левая сторона)
+        if (newSquads.length > 0) {
+            const map = battle.tacticalMap;
+            // Ищем свободные гексы (первые 5 колонок)
+            let placed = 0;
+            for (let col = 0; col < 5 && placed < newSquads.length; col++) {
+                for (let row = 0; row < TACTICAL_MAP_SIZE && placed < newSquads.length; row++) {
+                    const key = `${col},${row}`;
+                    const hex = map.grid[key];
+                    if (hex && (!hex.squadIds || hex.squadIds.length === 0)) {
+                        const idx = battle.playerSquads.length - newSquads.length + placed;
+                        hex.squadIds.push(idx);
+                        newSquads[placed].hexPos = [col, row];
+                        placed++;
+                    }
+                }
+            }
+        }
+    }
 
-  // Добавляем вражеские отряды, если это необходимо (пока можно пропустить или добавить)
-  if (enemyUnit && enemyUnit.squads) {
-    enemyUnit.squads.forEach(squad => {
-      const exists = battle.enemySquads.some(s => s.name === squad.name);
-      if (!exists) {
-        battle.enemySquads.push(JSON.parse(JSON.stringify(squad)));
-      }
-    });
-  }
+    // ----- Добавляем вражеские отряды (если нужно) -----
+    if (enemyUnit && enemyUnit.squads) {
+        const newEnemySquads = [];
+        enemyUnit.squads.forEach(squad => {
+            const exists = battle.enemySquads.some(s => s.name === squad.name);
+            if (!exists) {
+                const newSquad = JSON.parse(JSON.stringify(squad));
+                battle.enemySquads.push(newSquad);
+                newEnemySquads.push(newSquad);
+            }
+        });
+        // Размещаем врагов на правой стороне
+        if (newEnemySquads.length > 0) {
+            const map = battle.tacticalMap;
+            let placed = 0;
+            for (let col = TACTICAL_MAP_SIZE - 5; col < TACTICAL_MAP_SIZE && placed < newEnemySquads.length; col++) {
+                for (let row = 0; row < TACTICAL_MAP_SIZE && placed < newEnemySquads.length; row++) {
+                    const key = `${col},${row}`;
+                    const hex = map.grid[key];
+                    if (hex && (!hex.enemySquadIds || hex.enemySquadIds.length === 0)) {
+                        const idx = battle.enemySquads.length - newEnemySquads.length + placed;
+                        hex.enemySquadIds.push(idx);
+                        placed++;
+                    }
+                }
+            }
+        }
+    }
 
-  // Обновляем тактическую карту, чтобы новые отряды появились
-  const tacticalMap = battle.tacticalMap;
-  const startCol = 2; // левый край (можно привязать к стороне подхода)
-  const startRow = 2;
-  let idx = 0;
-  playerUnit.squads.forEach(squad => {
-    // Пропускаем уже существующих
-    if (battle.playerSquads.some(s => s.name === squad.name)) return;
-    const key = `${startCol + Math.floor(idx / 3)},${startRow + (idx % 3)}`;
-    tacticalMap.grid[key].squadIds.push(battle.playerSquads.length + idx);
-    squad.hexPos = [startCol + Math.floor(idx / 3), startRow + (idx % 3)];
-    idx++;
-  });
+    saveData();
 
-  saveData();
-  // Переключаемся на бой
-appData.squads = battle.playerSquads.map(s => JSON.parse(JSON.stringify(s)));
-appData.map = JSON.parse(JSON.stringify(tacticalMap));
-appData.currentTurn = battle.currentTurn || 1;
-currentTurn = appData.currentTurn;
-appData.squads.forEach((_, i) => ensureAP(i));
-if (appData.squads.length > 0) selectSquad(0);
-appData.currentBattleId = battle.id;
-renderSquadSelector();
-updateUI();
-document.getElementById('campaignMapScreen').style.display = 'none';
-document.getElementById('campaignApp').style.display = 'none';
-document.getElementById('battleApp').style.display = 'block';
-activateBattleTab();
-document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
-document.getElementById('btnFinishBattle').style.display = 'inline-block';
-document.getElementById('mapInfo').innerHTML = `Подкрепление введено в бой на гексе ${battle.hexKey}.`;
+    // Переключаемся на этот бой
+    appData.squads = battle.playerSquads.map(s => JSON.parse(JSON.stringify(s)));
+    appData.map = JSON.parse(JSON.stringify(battle.tacticalMap));
+    appData.currentTurn = battle.currentTurn || 1;
+    currentTurn = appData.currentTurn;
+    appData.squads.forEach((_, i) => ensureAP(i));
+    if (appData.squads.length > 0) selectSquad(0);
+    appData.currentBattleId = battle.id;
+    renderSquadSelector();
+    updateUI();
+    document.getElementById('campaignMapScreen').style.display = 'none';
+    document.getElementById('campaignApp').style.display = 'none';
+    document.getElementById('battleApp').style.display = 'block';
+    activateBattleTab();
+    document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
+    document.getElementById('btnFinishBattle').style.display = 'inline-block';
+    document.getElementById('mapInfo').innerHTML = `Подкрепление введено в бой на гексе ${battle.hexKey}.`;
 }
 function getOpReachableHexesForUnit(unit) {
   if (!unit || unit.col === null || unit.row === null) return [];
@@ -9233,6 +9303,91 @@ function retreatFromBattle() {
     log('❌ Бой завершён отступлением.');
     alert('Вы отступили с поля боя.');
 }
+
+function addEnemyReinforcementsToBattle(battleId, enemyUnit) {
+    const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
+    if (!battle) return;
+
+    if (enemyUnit.squads) {
+        const newEnemySquads = [];
+        enemyUnit.squads.forEach(squad => {
+            const exists = battle.enemySquads.some(s => s.name === squad.name);
+            if (!exists) {
+                const newSquad = JSON.parse(JSON.stringify(squad));
+                battle.enemySquads.push(newSquad);
+                newEnemySquads.push(newSquad);
+            }
+        });
+        // Размещаем на правой стороне тактической карты
+        if (newEnemySquads.length > 0) {
+            const map = battle.tacticalMap;
+            let placed = 0;
+            for (let col = TACTICAL_MAP_SIZE - 5; col < TACTICAL_MAP_SIZE && placed < newEnemySquads.length; col++) {
+                for (let row = 0; row < TACTICAL_MAP_SIZE && placed < newEnemySquads.length; row++) {
+                    const key = `${col},${row}`;
+                    const hex = map.grid[key];
+                    if (hex && (!hex.enemySquadIds || hex.enemySquadIds.length === 0)) {
+                        const idx = battle.enemySquads.length - newEnemySquads.length + placed;
+                        hex.enemySquadIds.push(idx);
+                        placed++;
+                    }
+                }
+            }
+        }
+    }
+
+    saveData();
+
+    // Переключаемся на бой
+    appData.squads = battle.playerSquads.map(s => JSON.parse(JSON.stringify(s)));
+    appData.map = JSON.parse(JSON.stringify(battle.tacticalMap));
+    appData.currentTurn = battle.currentTurn || 1;
+    currentTurn = appData.currentTurn;
+    appData.squads.forEach((_, i) => ensureAP(i));
+    if (appData.squads.length > 0) selectSquad(0);
+    appData.currentBattleId = battle.id;
+    renderSquadSelector();
+    updateUI();
+    document.getElementById('campaignMapScreen').style.display = 'none';
+    document.getElementById('campaignApp').style.display = 'none';
+    document.getElementById('battleApp').style.display = 'block';
+    activateBattleTab();
+    document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
+    document.getElementById('btnFinishBattle').style.display = 'inline-block';
+    document.getElementById('mapInfo').innerHTML = `Враг добавлен в бой на гексе ${battle.hexKey}.`;
+}
+
+function retreatFromBattle() {
+    const battleId = appData.currentBattleId;
+    if (!battleId) return;
+    const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
+    if (!battle) return;
+
+    battle.playerSquads = appData.squads.map(s => JSON.parse(JSON.stringify(s)));
+    battle.enemySquads = appData.map.enemySquads.map(e => JSON.parse(JSON.stringify(e)));
+    battle.currentTurn = currentTurn;
+    syncBattleLossesToCampaign(battleId);
+
+    const battleIndex = appData.campaign.activeBattles.findIndex(b => b.id === battleId);
+    if (battleIndex !== -1) appData.campaign.activeBattles.splice(battleIndex, 1);
+
+    appData.squads = [];
+    appData.map = { grid: {}, baseHexSize: 45, zoomLevel: 1, mode: 'view', enemySquads: [], selectedMoveSquadIdx: null, selectedEnemyMoveIdx: null, reachableHexes: [], isCrouchMode: false };
+    appData.currentBattleId = null;
+
+    document.getElementById('battleApp').style.display = 'none';
+    document.getElementById('campaignApp').style.display = 'block';
+    document.getElementById('campaignMapScreen').style.display = 'block';
+    document.getElementById('btnReturnToCampaign').style.display = 'none';
+    document.getElementById('btnFinishBattle').style.display = 'none';
+    document.getElementById('btnRetreatBattle').style.display = 'none';
+
+    initOperationalMap();
+    renderActiveBattlesList();
+    saveData();
+    alert('Вы отступили с поля боя.');
+}
+      
       
   </script> 
   
@@ -9262,6 +9417,7 @@ function retreatFromBattle() {
     <button onclick="goToMenu()" style="position:fixed; top:10px; right:10px; z-index:999;">↩️ В меню</button>
     <button id="btnReturnToCampaign" onclick="returnToCampaign()" style="display:none; position:fixed; top:10px; right:150px; z-index:999; background:#f39c12;">↩️ В кампанию</button>
     <button id="btnFinishBattle" onclick="finishBattle()" style="display:none; position:fixed; top:50px; right:10px; z-index:999; background:#27ae60;">✅ Завершить бой</button>
+    <button id="btnRetreatBattle" onclick="retreatFromBattle()" style="display:none; position:fixed; top:90px; right:10px; z-index:999; background:#c0392b;">🏳️ Отступить</button>
   </div>
 
   <!-- Раздел «Правила» -->
