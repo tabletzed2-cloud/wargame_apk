@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.143 — карта  </title>
+  <title>Боевой модуль v12.144 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.143</h1>
+    <h1>⚔️ Боевой модуль v12.144</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.143 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.144 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -9675,6 +9675,12 @@ function toggleDismount() {
         return;
     }
     
+    // Проверяем, что юнит - самокатчик/мотоциклист
+    if (unit.mobility !== 'bicycle' && unit.mobility !== 'motorcycle') {
+        document.getElementById('mapInfo').innerHTML = '❌ Этот юнит не является самокатчиком.';
+        return;
+    }
+    
     // Если юнит уже спешен - проверяем велостоянку
     if (unit.dismounted) {
         const key = `${unit.col},${unit.row}`;
@@ -9683,38 +9689,33 @@ function toggleDismount() {
             document.getElementById('mapInfo').innerHTML = '❌ На этом гексе нет велостоянки!';
             return;
         }
-    }
-    
-    // Проверяем, что юнит - самокатчик/мотоциклист
-    if (unit.mobility !== 'bicycle' && unit.mobility !== 'motorcycle') {
-        document.getElementById('mapInfo').innerHTML = '❌ Этот юнит не является самокатчиком.';
-        return;
-    }
-
-    // Переключаем состояние
-    unit.dismounted = !unit.dismounted;
-    
-    if (unit.dismounted) {
+        // Посадка обратно
+        unit.dismounted = false;
+        unit.mobility = 'bicycle';
+        document.getElementById('mapInfo').innerHTML = `🚲 ${unit.name} сел на велосипеды. ОД: ${unit.ap}/${unit.maxAp}`;
+        
+        // Убираем метку велостоянки
+        if (unit.col !== null && unit.row !== null) {
+            const key2 = `${unit.col},${unit.row}`;
+            if (appData.campaign.opMapGrid[key2] && appData.campaign.opMapGrid[key2].markers) {
+                appData.campaign.opMapGrid[key2].markers = appData.campaign.opMapGrid[key2].markers.filter(m => m !== 'bicyclePark');
+            }
+        }
+    } else {
+        // Спешивание
+        unit.dismounted = true;
         unit.mobility = 'foot';
         document.getElementById('mapInfo').innerHTML = `🚲 ${unit.name} спешился. ОД: ${unit.ap}/${unit.maxAp}`;
-    } else {
-        unit.mobility = 'bicycle';
-        document.getElementById('mapInfo').innerHTML = `🚲 ${unit.name} сел на транспорт. ОД: ${unit.ap}/${unit.maxAp}`;
-    }
-    
-    // Ставим/убираем метку велостоянки
-    if (unit.dismounted && unit.col !== null && unit.row !== null) {
-        const key = `${unit.col},${unit.row}`;
-        if (!appData.campaign.opMapGrid[key].markers) {
-            appData.campaign.opMapGrid[key].markers = [];
-        }
-        if (!appData.campaign.opMapGrid[key].markers.includes('bicyclePark')) {
-            appData.campaign.opMapGrid[key].markers.push('bicyclePark');
-        }
-    } else if (!unit.dismounted && unit.col !== null && unit.row !== null) {
-        const key = `${unit.col},${unit.row}`;
-        if (appData.campaign.opMapGrid[key] && appData.campaign.opMapGrid[key].markers) {
-            appData.campaign.opMapGrid[key].markers = appData.campaign.opMapGrid[key].markers.filter(m => m !== 'bicyclePark');
+        
+        // Ставим метку велостоянки
+        if (unit.col !== null && unit.row !== null) {
+            const key = `${unit.col},${unit.row}`;
+            if (!appData.campaign.opMapGrid[key].markers) {
+                appData.campaign.opMapGrid[key].markers = [];
+            }
+            if (!appData.campaign.opMapGrid[key].markers.includes('bicyclePark')) {
+                appData.campaign.opMapGrid[key].markers.push('bicyclePark');
+            }
         }
     }
     
@@ -9733,7 +9734,7 @@ function updateDismountPanel() {
 
     const unit = appData.campaign.selectedOpUnit;
     
-    // Проверяем, что юнит - самокатчик/мотоциклист (по mobility)
+    // Проверяем, что юнит существует и является самокатчиком/мотоциклистом
     const isBicycleOrMotorcycle = unit && (unit.mobility === 'bicycle' || unit.mobility === 'motorcycle');
 
     if (!isBicycleOrMotorcycle) {
@@ -9743,21 +9744,23 @@ function updateDismountPanel() {
 
     panel.style.display = 'block';
     
-    // Меняем текст в зависимости от состояния
+    // Если юнит спешен - проверяем велостоянку
     if (unit.dismounted) {
-        // Если спешен - проверяем, есть ли велостоянка на его гексе
         const key = `${unit.col},${unit.row}`;
         const hasBikePark = appData.campaign.opMapGrid[key]?.markers?.includes('bicyclePark');
         if (hasBikePark) {
             btn.textContent = '🚲 Сесть на транспорт';
             btn.disabled = false;
+            btn.title = 'Сесть на велосипеды (нужна велостоянка)';
         } else {
             btn.textContent = '🚲 Нет велостоянки';
             btn.disabled = true;
+            btn.title = 'На этом гексе нет велостоянки';
         }
     } else {
         btn.textContent = '🚲 Спешиться';
         btn.disabled = false;
+        btn.title = 'Спешиться и оставить велосипеды';
     }
 }
       
