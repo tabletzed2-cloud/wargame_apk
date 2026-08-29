@@ -894,12 +894,12 @@ function buildOperationalUnits() {
   if (appData.campaign.opUnits && appData.campaign.opUnits.length > 0) {
     appData.campaign.opUnits.forEach(u => {
       if (u.ap === undefined) {
-let maxAp = 8;
-if (type === 'company_hq' || type === 'battalion_hq') maxAp = 6;
-else if (type === 'vehicle' || type === 'tank_platoon' || type === 'btr_platoon' || type === 'sau_battery') maxAp = 6;
-else if (type === 'mortar_battery' || type === 'at_battery') maxAp = 6;
-        u.maxAp = 8;
-        u.ap = 8;
+let maxAp = 4;
+if (type === 'company_hq' || type === 'battalion_hq') maxAp = 4;
+else if (type === 'vehicle' || type === 'tank_platoon' || type === 'btr_platoon' || type === 'sau_battery') maxAp = 4;
+else if (type === 'mortar_battery' || type === 'at_battery') maxAp = 4;
+        u.maxAp = 4;
+        u.ap = 4;
       }
     });
     saveData();
@@ -912,24 +912,24 @@ else if (type === 'mortar_battery' || type === 'at_battery') maxAp = 6;
 function addOpUnit(name, type, squads, icon = null) {
     // Определяем мобильность
     let mobility = 'foot';
-    let maxAp = 5; // пехота по умолчанию
+    let maxAp = 4; // пехота по умолчанию
 
     if (type === 'battalion_hq' || type === 'company_hq' || type === 'infantry_platoon' || type === 'mortar_battery' || type === 'at_gun' || type === 'engineer_platoon' || type === 'recon_platoon') {
         mobility = 'foot';
-        maxAp = 6;
+        maxAp = 4;
     } else if (type === 'bicycle_platoon' || name.includes('Самокат')) {
         mobility = 'bicycle';
-        maxAp = 8;
+        maxAp = 4;
     } else if (type === 'motorcycle_platoon' || name.includes('Мотоцикл')) {
         mobility = 'motorcycle';
-        maxAp = 8;
+        maxAp = 4;
     } else if (type === 'tank_platoon' || type === 'btr_platoon' || type === 'sau_battery' || type === 'armored_vehicle_platoon' || type === 'vehicle' || type === 'armored_vehicles' || type === 'dots' || type === 'regimental_artillery') {
         mobility = 'vehicle';
-        maxAp = 6;
+        maxAp = 4;
     } else {
         // fallback
         mobility = 'foot';
-        maxAp = 8;
+        maxAp = 4;
     }
 
     opUnits.push({
@@ -1164,22 +1164,22 @@ function importCampaignProgress() {
 function addEnemyOpUnit(name, type, squads, icon = null) {
   // Та же логика определения mobility и maxAp
   let mobility = 'foot';
-  let maxAp = 5;
+  let maxAp = 4;
   if (type === 'battalion_hq' || type === 'company_hq' || type === 'infantry_platoon' || type === 'mortar_battery' || type === 'at_gun' || type === 'engineer_platoon' || type === 'recon_platoon') {
       mobility = 'foot';
-      maxAp = 5;
+      maxAp = 4;
   } else if (type === 'bicycle_platoon' || name.includes('Самокат')) {
       mobility = 'bicycle';
-      maxAp = 6;
+      maxAp = 4;
   } else if (type === 'motorcycle_platoon' || name.includes('Мотоцикл')) {
       mobility = 'motorcycle';
-      maxAp = 6;
+      maxAp = 4;
   } else if (type === 'tank_platoon' || type === 'btr_platoon' || type === 'sau_battery' || type === 'armored_vehicle_platoon' || type === 'vehicle' || type === 'armored_vehicles' || type === 'dots' || type === 'regimental_artillery') {
       mobility = 'vehicle';
       maxAp = 4;
   } else {
       mobility = 'foot';
-      maxAp = 5;
+      maxAp = 4;
   }
 
   enemyUnits.push({
@@ -2022,7 +2022,7 @@ if (isEnemy && unit === appData.campaign.selectedEnemyOpUnit) {
   ctx.font = `${size * 0.2}px Arial`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
-  ctx.fillText(`ОД:${Math.floor(unit.ap / 2)}`, drawX, drawY - radius - 2);
+  ctx.fillText(`ОД:${unit.ap}`, drawX, drawY - radius - 2);
   
   // Проверка, в бою ли юнит
 const inBattle = appData.campaign.activeBattles.some(b => {
@@ -9575,14 +9575,19 @@ function importTerrainMap() {
   };
   input.click();
 }     
- function toggleDismount() {
+function toggleDismount() {
   const unit = appData.campaign.selectedOpUnit;
   if (!unit) return;
   if (unit.mobility !== 'bicycle' && unit.mobility !== 'motorcycle') return;
 
   unit.dismounted = !unit.dismounted;
   
-  // Если спешились – ставим метку велостоянки на гексе
+  // При спешивании и посадке ОД всегда = 4
+  unit.maxAp = 4;
+  if (unit.ap > 4) unit.ap = 4;
+  if (unit.ap < 4) unit.ap = 4; // восстанавливаем до 4 при посадке
+  
+  // Ставим/убираем метку велостоянки
   if (unit.dismounted && unit.col !== null && unit.row !== null) {
     const key = `${unit.col},${unit.row}`;
     if (!appData.campaign.opMapGrid[key].markers) {
@@ -9591,16 +9596,13 @@ function importTerrainMap() {
     if (!appData.campaign.opMapGrid[key].markers.includes('bicyclePark')) {
       appData.campaign.opMapGrid[key].markers.push('bicyclePark');
     }
+  } else if (!unit.dismounted && unit.col !== null && unit.row !== null) {
+    const key = `${unit.col},${unit.row}`;
+    if (appData.campaign.opMapGrid[key] && appData.campaign.opMapGrid[key].markers) {
+      appData.campaign.opMapGrid[key].markers = appData.campaign.opMapGrid[key].markers.filter(m => m !== 'bicyclePark');
+    }
   }
-  // Меняем ОД: если спешились – maxAp = 5, иначе восстанавливаем до 6 (или 4 для мото?)
-  const baseAp = (unit.mobility === 'bicycle' || unit.mobility === 'motorcycle') ? 6 : 5;
-  if (unit.dismounted) {
-    unit.maxAp = 5;
-    if (unit.ap > 5) unit.ap = 5;
-  } else {
-    unit.maxAp = baseAp;
-    if (unit.ap < baseAp) unit.ap = baseAp;
-  }
+  
   saveData();
   redrawOperationalMap();
   updateDismountPanel();
@@ -9671,7 +9673,6 @@ function updateDismountPanel() {
       <div id="opTimeDisplay" style="font-weight:bold; margin-bottom:10px;"></div>
   <div style="display:flex; gap:10px; margin-bottom:10px;">
     <button onclick="backToBattalionAssembly()" style="background:#555;">← Назад к сбору</button>
-    <button onclick="closeCampaign()" style="background:#c0392b;">↩️ В меню</button>
     <button onclick="showBattalionRoster()" style="background:#8e44ad;">👥 Батальон</button>
     <button onclick="exportCampaignProgress()" style="background:#27ae60;">💾 Сохранить прогресс</button>
     <button onclick="importCampaignProgress()" style="background:#2980b9;">📂 Загрузить прогресс</button>
