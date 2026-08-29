@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.125 — карта  </title>
+  <title>Боевой модуль v12.126 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.125</h1>
+    <h1>⚔️ Боевой модуль v12.126</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.125 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.126 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1509,25 +1509,21 @@ if (appData.campaign.opMapMode === 'moveEnemy') {
         }
         if (targetHex && targetCost <= selectedEnemy.ap) {
             // Проверяем, есть ли на целевом гексе мой отряд
-            const playerUnitOnHex = appData.campaign.opUnits?.find(u => u.col === targetHex.col && u.row === targetHex.row);
-            if (playerUnitOnHex) {
-                // Контакт с моим отрядом – начинаем бой или добавляем в существующий
-                const hexKey = `${targetHex.col},${targetHex.row}`;
-                const existingBattle = appData.campaign.activeBattles.find(b => b.hexKey === hexKey);
-                if (existingBattle) {
-                    alert(`⚔️ Враг "${selectedEnemy.name}" вступает в бой на гексе ${hexKey}!`);
-                    // Добавляем врага в бой (используем отдельную функцию)
-                    addEnemyReinforcementsToBattle(existingBattle.id, selectedEnemy);
-                } else {
-                    // Новый бой
-                    showContactModal(playerUnitOnHex, selectedEnemy);
-                }
-                // Сбрасываем выделение врага
-                appData.campaign.selectedEnemyOpUnit = null;
-                if (selectedEnemy.availableHexes) delete selectedEnemy.availableHexes;
-                redrawOperationalMap();
-                return;
-            } else {
+const playerUnitsOnHex = appData.campaign.opUnits?.filter(u => u.col === targetHex.col && u.row === targetHex.row) || [];
+if (playerUnitsOnHex.length > 0) {
+    const hexKey = `${targetHex.col},${targetHex.row}`;
+    const existingBattle = appData.campaign.activeBattles.find(b => b.hexKey === hexKey);
+    if (existingBattle) {
+        addEnemyReinforcementsToBattle(existingBattle.id, selectedEnemy, playerUnitsOnHex);
+    } else {
+        showContactModal(playerUnitsOnHex, [selectedEnemy]);
+    }
+    // Сбрасываем выделение врага
+    appData.campaign.selectedEnemyOpUnit = null;
+    if (selectedEnemy.availableHexes) delete selectedEnemy.availableHexes;
+    redrawOperationalMap();
+    return;
+} else {
                 // Перемещаем врага
                 if (!spendOpAP(selectedEnemy, targetCost)) {
                     document.getElementById('mapInfo').innerHTML = 'Недостаточно ОД для перемещения врага.';
@@ -1593,26 +1589,25 @@ if (clickedEnemy && minDistToEnemy < iconRadius * 1.5) {
     const hexCenterY = h.row * 1.5 * size + size;
     const dist = Math.sqrt((clickX - hexCenterX) ** 2 + (clickY - hexCenterY) ** 2);
     if (dist < size * 0.8) {
-      const enemyOnTarget = appData.campaign.enemyOpUnits?.find(enemy => 
-        enemy.col === h.col && enemy.row === h.row
-      );
-if (enemyOnTarget) {
-    if (!enemyOnTarget.detected) {
-        document.getElementById('mapInfo').innerHTML = 'Враг не обнаружен! Сначала проведите разведку.';
-        return;
-    }
-    // Проверяем, есть ли активный бой на этом гексе
+const enemiesOnTarget = appData.campaign.enemyOpUnits?.filter(enemy => 
+    enemy.col === h.col && enemy.row === h.row
+) || [];
+if (enemiesOnTarget.length > 0) {
     const hexKey = `${h.col},${h.row}`;
     const existingBattle = appData.campaign.activeBattles.find(b => b.hexKey === hexKey);
     if (existingBattle) {
-        // Добавляем подкрепление в существующий бой
-        alert(`⚔️ Подразделение "${selectedUnit.name}" вступает в бой на гексе ${hexKey}!`);
-        addReinforcementsToBattle(existingBattle.id, selectedUnit, enemyOnTarget);
-        appData.campaign.selectedOpUnit = null;
-        if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
-        redrawOperationalMap();
-        return;
+        // Добавляем подкрепление: все враги на гексе и текущий юнит
+        addReinforcementsToBattle(existingBattle.id, selectedUnit, enemiesOnTarget);
     } else {
+        // Собираем все свои юниты на этом гексе
+        const playerUnitsOnHex = appData.campaign.opUnits.filter(u => u.col === selectedUnit.col && u.row === selectedUnit.row);
+        showContactModal(playerUnitsOnHex, enemiesOnTarget);
+    }
+    appData.campaign.selectedOpUnit = null;
+    if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
+    redrawOperationalMap();
+    return;
+} else {
         // Новый бой
         appData.campaign.selectedOpUnit = null;
         if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
@@ -1805,29 +1800,31 @@ function checkContactAfterMove(movedUnit) {
   }
 }
       
-let pendingContactPlayer = null;
-let pendingContactEnemy = null;
+let pendingContactPlayers = [];
+let pendingContactEnemies = [];
 
-function showContactModal(playerUnit, enemyUnit) {
-  pendingContactPlayer = playerUnit;
-  pendingContactEnemy = enemyUnit;
-  document.getElementById('contactPlayerName').textContent = playerUnit.name;
-  document.getElementById('contactEnemyName').textContent = enemyUnit.name;
+function showContactModal(playerUnits, enemyUnits) {
+  pendingContactPlayers = playerUnits;
+  pendingContactEnemies = enemyUnits;
+  const playerName = playerUnits.length > 0 ? playerUnits[0].name : '?';
+  const enemyName = enemyUnits.length > 0 ? enemyUnits[0].name : '?';
+  document.getElementById('contactPlayerName').textContent = playerName;
+  document.getElementById('contactEnemyName').textContent = enemyName;
   document.getElementById('contactModal').style.display = 'block';
 }
 
 function cancelContact() {
-  pendingContactPlayer = null;
-  pendingContactEnemy = null;
+  pendingContactPlayers = [];
+  pendingContactEnemies = [];
   document.getElementById('contactModal').style.display = 'none';
 }
 
 function confirmStartBattle() {
-  if (!pendingContactPlayer || !pendingContactEnemy) return;
-  const playerUnit = pendingContactPlayer;
-  const enemyUnit = pendingContactEnemy;
-  pendingContactPlayer = null;
-  pendingContactEnemy = null;
+  if (pendingContactPlayers.length === 0 || pendingContactEnemies.length === 0) return;
+  const playerUnit = pendingContactPlayers[0];
+  const enemyUnit = pendingContactEnemies[0];
+  pendingContactPlayers = [];
+  pendingContactEnemies = [];
   document.getElementById('contactModal').style.display = 'none';
   startTacticalBattle(playerUnit, enemyUnit);
 }
@@ -2788,149 +2785,150 @@ function getMaxAP(squad) {
 }
 
 function startTacticalBattle(playerUnit, enemyUnit) {
-console.log('startTacticalBattle вызван');
-console.log('playerUnit:', playerUnit.name, 'at', playerUnit.col, playerUnit.row);
-console.log('enemyUnit:', enemyUnit.name, 'at', enemyUnit.col, enemyUnit.row);
-console.log('activeBattles:', appData.campaign.activeBattles);
-   // Проверяем, есть ли бой на этом гексе
-  const hexKey = `${enemyUnit.col},${enemyUnit.row}`;
-  const battleOnHex = appData.campaign.activeBattles.find(b => {
-  const [col, row] = b.hexKey.split(',').map(Number);
-  return col === enemyUnit.col && row === enemyUnit.row;
-});
-  if (battleOnHex) {
-    // Добавляем подкрепление в существующий бой
-    addReinforcementsToBattle(battleOnHex.id, playerUnit, enemyUnit);
-    return;
-  }
-  appData.currentTime = appData.campaign.currentTime;
-  // Проверяем, есть ли активный бой с этими же юнитами
-  const existingBattle = appData.campaign.activeBattles.find(b => 
-    b.playerUnitName === playerUnit.name && b.enemyUnitName === enemyUnit.name
-  );
+    console.log('startTacticalBattle вызван');
 
-  if (existingBattle) {
-       // Восстанавливаем бой
-    appData.currentTime = appData.campaign.currentTime;
-    appData.squads = existingBattle.playerSquads.map(s => JSON.parse(JSON.stringify(s)));
-    appData.map = JSON.parse(JSON.stringify(existingBattle.tacticalMap));
-    appData.currentTurn = existingBattle.currentTurn || 1;
-    currentTurn = appData.currentTurn;
+    // Собираем все юниты игрока на гексе playerUnit
+    const playerUnits = appData.campaign.opUnits.filter(u => u.col === playerUnit.col && u.row === playerUnit.row);
+    const enemyUnits = appData.campaign.enemyOpUnits.filter(u => u.col === enemyUnit.col && u.row === enemyUnit.row);
+
+    const hexKey = `${enemyUnit.col},${enemyUnit.row}`;
+    const existingBattle = appData.campaign.activeBattles.find(b => b.hexKey === hexKey);
+
+    if (existingBattle) {
+        // Если бой уже есть – добавляем все отряды с этого гекса как подкрепление
+        playerUnits.forEach(u => {
+            if (u.squads) {
+                u.squads.forEach(squad => {
+                    const exists = existingBattle.playerSquads.some(s => s.name === squad.name);
+                    if (!exists) existingBattle.playerSquads.push(JSON.parse(JSON.stringify(squad)));
+                });
+            }
+        });
+        enemyUnits.forEach(u => {
+            if (u.squads) {
+                u.squads.forEach(squad => {
+                    const exists = existingBattle.enemySquads.some(s => s.name === squad.name);
+                    if (!exists) existingBattle.enemySquads.push(JSON.parse(JSON.stringify(squad)));
+                });
+            }
+        });
+
+        appData.squads = existingBattle.playerSquads.map(s => JSON.parse(JSON.stringify(s)));
+        appData.map = JSON.parse(JSON.stringify(existingBattle.tacticalMap));
+        appData.currentTurn = existingBattle.currentTurn || 1;
+        currentTurn = appData.currentTurn;
+        appData.squads.forEach((_, i) => ensureAP(i));
+        if (appData.squads.length > 0) selectSquad(0);
+        renderSquadSelector();
+        updateUI();
+        document.getElementById('campaignMapScreen').style.display = 'none';
+        document.getElementById('campaignApp').style.display = 'none';
+        document.getElementById('battleApp').style.display = 'block';
+        activateBattleTab();
+        document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
+        document.getElementById('btnFinishBattle').style.display = 'inline-block';
+        appData.currentBattleId = existingBattle.id;
+        saveData();
+        return;
+    }
+
+    // --- Новый бой ---
+    // Собираем все отряды со всех юнитов на обеих сторонах
+    let playerSquads = [];
+    playerUnits.forEach(u => {
+        if (u.squads) {
+            u.squads.forEach(s => {
+                const exists = playerSquads.some(ps => ps.name === s.name);
+                if (!exists) playerSquads.push(JSON.parse(JSON.stringify(s)));
+            });
+        }
+    });
+    let enemySquads = [];
+    enemyUnits.forEach(u => {
+        if (u.squads) {
+            u.squads.forEach(s => {
+                const exists = enemySquads.some(es => es.name === s.name);
+                if (!exists) enemySquads.push(JSON.parse(JSON.stringify(s)));
+            });
+        }
+    });
+
+    if (playerSquads.length === 0 || enemySquads.length === 0) {
+        console.error('Нет отрядов для боя');
+        return;
+    }
+
+    // Генерируем тактическую карту 20x20
+    const tacticalMap = {
+        grid: {},
+        baseHexSize: 45,
+        zoomLevel: 1,
+        mode: 'view',
+        enemySquads: [],
+        selectedMoveSquadIdx: null,
+        selectedEnemyMoveIdx: null,
+        reachableHexes: [],
+        isCrouchMode: false,
+        currentTime: appData.currentTime || 840
+    };
+
+    for (let row = 0; row < TACTICAL_MAP_SIZE; row++) {
+        for (let col = 0; col < TACTICAL_MAP_SIZE; col++) {
+            const key = `${col},${row}`;
+            tacticalMap.grid[key] = {
+                type: 'grass',
+                squadIds: [],
+                enemySquadIds: [],
+                markers: [],
+                rotation: 0,
+                variant: 0,
+                level: 0
+            };
+        }
+    }
+
+    // Добавляем врагов в тактическую карту (только их отряды)
+    enemySquads.forEach(squad => {
+        tacticalMap.enemySquads.push({
+            name: squad.name,
+            faction: squad.faction || 'A.I.R.F.',
+            icon: squad.icon || null,
+            fighters: squad.fighters || []
+        });
+    });
+
+    // Создаём объект боя
+    const newBattle = {
+        id: Date.now(),
+        playerUnitName: playerUnits.map(u => u.name).join(', '),
+        enemyUnitName: enemyUnits.map(u => u.name).join(', '),
+        playerSquads: playerSquads.map(s => JSON.parse(JSON.stringify(s))),
+        enemySquads: enemySquads.map(s => JSON.parse(JSON.stringify(s))),
+        tacticalMap: JSON.parse(JSON.stringify(tacticalMap)),
+        currentTurn: 1,
+        hexKey: hexKey
+    };
+    appData.campaign.activeBattles.push(newBattle);
+
+    // Подменяем глобальные данные
+    appData.squads = playerSquads;
+    appData.map = tacticalMap;
+    currentTurn = 1;
+    appData.currentTurn = 1;
     appData.squads.forEach((_, i) => ensureAP(i));
     if (appData.squads.length > 0) selectSquad(0);
     renderSquadSelector();
     updateUI();
+    saveData();
+
     // Переключаемся на бой
     document.getElementById('campaignMapScreen').style.display = 'none';
     document.getElementById('campaignApp').style.display = 'none';
     document.getElementById('battleApp').style.display = 'block';
     activateBattleTab();
     document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
-document.getElementById('btnFinishBattle').style.display = 'inline-block';
-    appData.currentBattleId = existingBattle.id;
-    return;
-  }
-  // ===== Создание нового боя =====
-   // 1. Собираем отряды игрока
-  let playerSquads = [];
-  if (playerUnit.squads && playerUnit.squads.length > 0) {
-    playerSquads = playerUnit.squads.map(s => JSON.parse(JSON.stringify(s)));
-  } else {
-    const faction = appData.campaign.playerFaction;
-    const factionTemplates = appData.templates.filter(t => t.faction === faction && !t.armor);
-    if (factionTemplates.length > 0) {
-      playerSquads = [JSON.parse(JSON.stringify(factionTemplates[0]))];
-    } else {
-      console.error('Нет шаблонов для фракции', faction);
-      return;
-    }
-  }
-
-  // 2. Собираем отряды врага
-  let enemySquads = [];
-  const enemyFaction = appData.campaign.playerFaction === 'BeVe' ? 'A.I.R.F.' : 'BeVe';
-  if (enemyUnit.squads && enemyUnit.squads.length > 0) {
-    enemySquads = enemyUnit.squads.map(s => JSON.parse(JSON.stringify(s)));
-  } else {
-    const enemyTemplates = appData.templates.filter(t => t.faction === enemyFaction && !t.armor);
-    if (enemyTemplates.length > 0) {
-      enemySquads = [JSON.parse(JSON.stringify(enemyTemplates[0]))];
-    } else {
-      console.error('Нет шаблонов для вражеской фракции', enemyFaction);
-      return;
-    }
-  }
-
-  // 3. Генерируем тактическую карту 20x20
-  const tacticalMap = {
-    grid: {},
-    baseHexSize: 45,
-    zoomLevel: 1,
-    mode: 'view',
-    enemySquads: [],
-    selectedMoveSquadIdx: null,
-    selectedEnemyMoveIdx: null,
-    reachableHexes: [],
-    isCrouchMode: false,
-    currentTime: appData.currentTime || 840
-  };
-
-    for (let row = 0; row < TACTICAL_MAP_SIZE; row++) {
-    for (let col = 0; col < TACTICAL_MAP_SIZE; col++) {
-      const key = `${col},${row}`;
-      tacticalMap.grid[key] = {
-        type: 'grass',
-        squadIds: [],
-        enemySquadIds: [],
-        markers: [],
-        rotation: 0,
-        variant: 0,
-        level: 0
-      };
-    }
-  }
-
-  // Добавляем врагов в тактическую карту
-  enemySquads.forEach(squad => {
-    tacticalMap.enemySquads.push({
-      name: squad.name,
-      faction: enemyFaction,
-      icon: squad.icon || null,
-      fighters: squad.fighters || []
-    });
-  });
-
-  // 6. Сохраняем бой в массив активных боёв
-const newBattle = {
-  id: Date.now(),
-  playerUnitName: playerUnit.name,
-  enemyUnitName: enemyUnit.name,
-  playerSquads: playerSquads.map(s => JSON.parse(JSON.stringify(s))),
-  enemySquads: enemySquads.map(s => JSON.parse(JSON.stringify(s))),
-  tacticalMap: JSON.parse(JSON.stringify(tacticalMap)),
-  currentTurn: 1,
-  hexKey: `${enemyUnit.col},${enemyUnit.row}` // <-- сохраняем координаты
-};
-  appData.campaign.activeBattles.push(newBattle);
-
-  // 7. Подменяем глобальные данные
-  appData.squads = playerSquads;
-  appData.map = tacticalMap;
-  currentTurn = 1;
-  appData.currentTurn = 1;
-  appData.squads.forEach((_, i) => ensureAP(i));
-  if (appData.squads.length > 0) selectSquad(0);
-  renderSquadSelector();
-  updateUI();
-  saveData();
-
-  // 8. Переключаемся на бой
-  document.getElementById('campaignMapScreen').style.display = 'none';
-  document.getElementById('campaignApp').style.display = 'none';
-  document.getElementById('battleApp').style.display = 'block';
-  activateBattleTab();
-  document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
-  appData.currentBattleId = existingBattle ? existingBattle.id : newBattle.id;
+    document.getElementById('btnFinishBattle').style.display = 'inline-block';
+    appData.currentBattleId = newBattle.id;
 }
 
 // Вспомогательная функция активации вкладки боя
@@ -9169,50 +9167,32 @@ function saveTerrainEditor(hexKey) {
 function closeTerrainEditor() {
   document.getElementById('terrainEditorModal').style.display = 'none';
 }
-function addReinforcementsToBattle(battleId, playerUnit, enemyUnit) {
+function addReinforcementsToBattle(battleId, playerUnit, enemyUnits) {
     const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
     if (!battle) return;
 
-    // ----- Добавляем свои отряды -----
+    // Добавляем свои отряды (только один юнит)
     if (playerUnit.squads) {
-        const newSquads = [];
         playerUnit.squads.forEach(squad => {
             const exists = battle.playerSquads.some(s => s.name === squad.name);
             if (!exists) {
-                const newSquad = JSON.parse(JSON.stringify(squad));
-                battle.playerSquads.push(newSquad);
-                newSquads.push(newSquad);
+                battle.playerSquads.push(JSON.parse(JSON.stringify(squad)));
             }
         });
     }
 
-    // ----- Добавляем вражеские отряды (если нужно) -----
-    if (enemyUnit && enemyUnit.squads) {
-        const newEnemySquads = [];
-        enemyUnit.squads.forEach(squad => {
-            const exists = battle.enemySquads.some(s => s.name === squad.name);
-            if (!exists) {
-                const newSquad = JSON.parse(JSON.stringify(squad));
-                battle.enemySquads.push(newSquad);
-                newEnemySquads.push(newSquad);
+    // Добавляем всех вражеских юнитов (массив)
+    if (enemyUnits && enemyUnits.length > 0) {
+        enemyUnits.forEach(enemy => {
+            if (enemy.squads) {
+                enemy.squads.forEach(squad => {
+                    const exists = battle.enemySquads.some(s => s.name === squad.name);
+                    if (!exists) {
+                        battle.enemySquads.push(JSON.parse(JSON.stringify(squad)));
+                    }
+                });
             }
         });
-        // Размещаем врагов на правой стороне
-        if (newEnemySquads.length > 0) {
-            const map = battle.tacticalMap;
-            let placed = 0;
-            for (let col = TACTICAL_MAP_SIZE - 5; col < TACTICAL_MAP_SIZE && placed < newEnemySquads.length; col++) {
-                for (let row = 0; row < TACTICAL_MAP_SIZE && placed < newEnemySquads.length; row++) {
-                    const key = `${col},${row}`;
-                    const hex = map.grid[key];
-                    if (hex && (!hex.enemySquadIds || hex.enemySquadIds.length === 0)) {
-                        const idx = battle.enemySquads.length - newEnemySquads.length + placed;
-                        hex.enemySquadIds.push(idx);
-                        placed++;
-                    }
-                }
-            }
-        }
     }
 
     saveData();
@@ -9225,7 +9205,6 @@ function addReinforcementsToBattle(battleId, playerUnit, enemyUnit) {
     appData.squads.forEach((_, i) => ensureAP(i));
     if (appData.squads.length > 0) selectSquad(0);
     appData.currentBattleId = battle.id;
-    log('Ваши отряды добавлены в бой. Перейдите на вкладку «Поле боя» и разместите их в режиме «Разместить».');
     renderSquadSelector();
     updateUI();
     document.getElementById('campaignMapScreen').style.display = 'none';
@@ -9309,36 +9288,32 @@ function retreatFromBattle() {
     alert('Вы отступили с поля боя.');
 }
 
-function addEnemyReinforcementsToBattle(battleId, enemyUnit) {
+function addEnemyReinforcementsToBattle(battleId, enemyUnit, playerUnits) {
     const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
     if (!battle) return;
 
+    // Добавляем вражеские отряды (один юнит)
     if (enemyUnit.squads) {
-        const newEnemySquads = [];
         enemyUnit.squads.forEach(squad => {
             const exists = battle.enemySquads.some(s => s.name === squad.name);
             if (!exists) {
-                const newSquad = JSON.parse(JSON.stringify(squad));
-                battle.enemySquads.push(newSquad);
-                newEnemySquads.push(newSquad);
+                battle.enemySquads.push(JSON.parse(JSON.stringify(squad)));
             }
         });
-        // Размещаем на правой стороне тактической карты
-        if (newEnemySquads.length > 0) {
-            const map = battle.tacticalMap;
-            let placed = 0;
-            for (let col = TACTICAL_MAP_SIZE - 5; col < TACTICAL_MAP_SIZE && placed < newEnemySquads.length; col++) {
-                for (let row = 0; row < TACTICAL_MAP_SIZE && placed < newEnemySquads.length; row++) {
-                    const key = `${col},${row}`;
-                    const hex = map.grid[key];
-                    if (hex && (!hex.enemySquadIds || hex.enemySquadIds.length === 0)) {
-                        const idx = battle.enemySquads.length - newEnemySquads.length + placed;
-                        hex.enemySquadIds.push(idx);
-                        placed++;
+    }
+
+    // Добавляем всех игроков (массив)
+    if (playerUnits && playerUnits.length > 0) {
+        playerUnits.forEach(player => {
+            if (player.squads) {
+                player.squads.forEach(squad => {
+                    const exists = battle.playerSquads.some(s => s.name === squad.name);
+                    if (!exists) {
+                        battle.playerSquads.push(JSON.parse(JSON.stringify(squad)));
                     }
-                }
+                });
             }
-        }
+        });
     }
 
     saveData();
@@ -9360,6 +9335,7 @@ function addEnemyReinforcementsToBattle(battleId, enemyUnit) {
     document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
     document.getElementById('btnFinishBattle').style.display = 'inline-block';
     document.getElementById('mapInfo').innerHTML = `Враг добавлен в бой на гексе ${battle.hexKey}.`;
+    redrawOperationalMap();
 }
 
 function retreatFromBattle() {
