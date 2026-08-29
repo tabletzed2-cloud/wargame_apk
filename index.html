@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.142 — карта  </title>
+  <title>Боевой модуль v12.143 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.142</h1>
+    <h1>⚔️ Боевой модуль v12.143</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.142 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.143 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -9093,26 +9093,28 @@ function backToBattalionAssembly() {
   startBattalionAssembly(appData.campaign.playerFaction);
 }
 function endOperationalTurn() {
-  // Увеличиваем время начала хода на 10 минут
-  appData.campaign.opTurnStartTime += 10;
-  if (appData.campaign.opTurnStartTime >= 1440) appData.campaign.opTurnStartTime -= 1440;
-  appData.campaign.currentTime = appData.campaign.opTurnStartTime;
-  appData.currentTime = appData.campaign.currentTime;
-  appData.campaign.currentTurn++;
+    appData.campaign.opTurnStartTime += 10;
+    if (appData.campaign.opTurnStartTime >= 1440) appData.campaign.opTurnStartTime -= 1440;
+    appData.campaign.currentTime = appData.campaign.opTurnStartTime;
+    appData.currentTime = appData.campaign.currentTime;
+    appData.campaign.currentTurn++;
 
-  // Восстанавливаем ОД всем игровым и вражеским юнитам
-  if (appData.campaign.opUnits) {
-    appData.campaign.opUnits.forEach(u => { u.ap = u.maxAp; });
-  }
-  if (appData.campaign.enemyOpUnits) {
-    appData.campaign.enemyOpUnits.forEach(u => { u.ap = u.maxAp; });
-  }
+    // Восстанавливаем ОД ВСЕМ юнитам (включая спешенных)
+    if (appData.campaign.opUnits) {
+        appData.campaign.opUnits.forEach(u => {
+            u.ap = u.maxAp;
+            // mobility НЕ меняем - если спешен, так и остается пехотой
+        });
+    }
+    if (appData.campaign.enemyOpUnits) {
+        appData.campaign.enemyOpUnits.forEach(u => {
+            u.ap = u.maxAp;
+        });
+    }
 
-  saveData();
-  redrawOperationalMap();
-  document.getElementById('mapInfo').innerHTML = `Операционный ход завершён. Время: ${formatTime(appData.campaign.currentTime)}`;
-  alert(`Операционный ход завершён. Время: ${formatTime(appData.campaign.currentTime)}`);
-  updateOperationalTimeDisplay();
+    saveData();
+    redrawOperationalMap();
+    updateOperationalTimeDisplay();
 }
       
 function updateOperationalTimeDisplay() {
@@ -9158,7 +9160,7 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
         }
     }
 
-    // ---- ВЕЛОСИПЕДИСТЫ И МОТОЦИКЛИСТЫ (не спешены) ----
+    // ---- ВЕЛОСИПЕДИСТЫ И МОТОЦИКЛИСТЫ (НЕ спешены) ----
     if ((mobility === 'bicycle' || mobility === 'motorcycle') && !dismounted) {
         if (terrain === 'hill' || terrain === 'swamp_passable' || terrain === 'rocks') return Infinity;
         switch (terrain) {
@@ -9171,7 +9173,7 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
         }
     }
 
-    // ---- ПЕХОТА (и спешенные велосипедисты/мотоциклисты) ----
+    // ---- ПЕХОТА (включая спешенных велосипедистов/мотоциклистов) ----
     // mobility === 'foot' или dismounted === true
     if (terrain === 'hill') return 3;
     if (terrain === 'swamp_passable') return 3;
@@ -9667,37 +9669,58 @@ function importTerrainMap() {
   input.click();
 }     
 function toggleDismount() {
-  const unit = appData.campaign.selectedOpUnit;
-  if (!unit) return;
-  if (unit.mobility !== 'bicycle' && unit.mobility !== 'motorcycle') return;
+    const unit = appData.campaign.selectedOpUnit;
+    if (!unit) {
+        document.getElementById('mapInfo').innerHTML = '❌ Сначала выберите юнит.';
+        return;
+    }
+    
+    // Если юнит уже спешен - проверяем велостоянку
+    if (unit.dismounted) {
+        const key = `${unit.col},${unit.row}`;
+        const hasBikePark = appData.campaign.opMapGrid[key]?.markers?.includes('bicyclePark');
+        if (!hasBikePark) {
+            document.getElementById('mapInfo').innerHTML = '❌ На этом гексе нет велостоянки!';
+            return;
+        }
+    }
+    
+    // Проверяем, что юнит - самокатчик/мотоциклист
+    if (unit.mobility !== 'bicycle' && unit.mobility !== 'motorcycle') {
+        document.getElementById('mapInfo').innerHTML = '❌ Этот юнит не является самокатчиком.';
+        return;
+    }
 
-  unit.dismounted = !unit.dismounted;
-  
-  // При спешивании и посадке ОД всегда = 4
-  unit.maxAp = 4;
-  if (unit.ap > 4) unit.ap = 4;
-  if (unit.ap < 4) unit.ap = 4; // восстанавливаем до 4 при посадке
-  
-  // Ставим/убираем метку велостоянки
-  if (unit.dismounted && unit.col !== null && unit.row !== null) {
-    const key = `${unit.col},${unit.row}`;
-    if (!appData.campaign.opMapGrid[key].markers) {
-      appData.campaign.opMapGrid[key].markers = [];
+    // Переключаем состояние
+    unit.dismounted = !unit.dismounted;
+    
+    if (unit.dismounted) {
+        unit.mobility = 'foot';
+        document.getElementById('mapInfo').innerHTML = `🚲 ${unit.name} спешился. ОД: ${unit.ap}/${unit.maxAp}`;
+    } else {
+        unit.mobility = 'bicycle';
+        document.getElementById('mapInfo').innerHTML = `🚲 ${unit.name} сел на транспорт. ОД: ${unit.ap}/${unit.maxAp}`;
     }
-    if (!appData.campaign.opMapGrid[key].markers.includes('bicyclePark')) {
-      appData.campaign.opMapGrid[key].markers.push('bicyclePark');
+    
+    // Ставим/убираем метку велостоянки
+    if (unit.dismounted && unit.col !== null && unit.row !== null) {
+        const key = `${unit.col},${unit.row}`;
+        if (!appData.campaign.opMapGrid[key].markers) {
+            appData.campaign.opMapGrid[key].markers = [];
+        }
+        if (!appData.campaign.opMapGrid[key].markers.includes('bicyclePark')) {
+            appData.campaign.opMapGrid[key].markers.push('bicyclePark');
+        }
+    } else if (!unit.dismounted && unit.col !== null && unit.row !== null) {
+        const key = `${unit.col},${unit.row}`;
+        if (appData.campaign.opMapGrid[key] && appData.campaign.opMapGrid[key].markers) {
+            appData.campaign.opMapGrid[key].markers = appData.campaign.opMapGrid[key].markers.filter(m => m !== 'bicyclePark');
+        }
     }
-  } else if (!unit.dismounted && unit.col !== null && unit.row !== null) {
-    const key = `${unit.col},${unit.row}`;
-    if (appData.campaign.opMapGrid[key] && appData.campaign.opMapGrid[key].markers) {
-      appData.campaign.opMapGrid[key].markers = appData.campaign.opMapGrid[key].markers.filter(m => m !== 'bicyclePark');
-    }
-  }
-  
-  saveData();
-  redrawOperationalMap();
-  updateDismountPanel();
-  document.getElementById('mapInfo').innerHTML = unit.dismounted ? `${unit.name} спешился.` : `${unit.name} сел на транспорт.`;
+    
+    saveData();
+    redrawOperationalMap();
+    updateDismountPanel();
 }
 function updateDismountPanel() {
     const panel = document.getElementById('dismountPanel');
@@ -9710,7 +9733,7 @@ function updateDismountPanel() {
 
     const unit = appData.campaign.selectedOpUnit;
     
-    // ИСПРАВЛЕНО: используем mobility
+    // Проверяем, что юнит - самокатчик/мотоциклист (по mobility)
     const isBicycleOrMotorcycle = unit && (unit.mobility === 'bicycle' || unit.mobility === 'motorcycle');
 
     if (!isBicycleOrMotorcycle) {
@@ -9719,7 +9742,23 @@ function updateDismountPanel() {
     }
 
     panel.style.display = 'block';
-    btn.textContent = unit.dismounted ? '🚲 Сесть на транспорт' : '🚲 Спешиться';
+    
+    // Меняем текст в зависимости от состояния
+    if (unit.dismounted) {
+        // Если спешен - проверяем, есть ли велостоянка на его гексе
+        const key = `${unit.col},${unit.row}`;
+        const hasBikePark = appData.campaign.opMapGrid[key]?.markers?.includes('bicyclePark');
+        if (hasBikePark) {
+            btn.textContent = '🚲 Сесть на транспорт';
+            btn.disabled = false;
+        } else {
+            btn.textContent = '🚲 Нет велостоянки';
+            btn.disabled = true;
+        }
+    } else {
+        btn.textContent = '🚲 Спешиться';
+        btn.disabled = false;
+    }
 }
       
   </script> 
