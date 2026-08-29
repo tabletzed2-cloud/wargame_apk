@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.128 — карта  </title>
+  <title>Боевой модуль v12.129 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.128</h1>
+    <h1>⚔️ Боевой модуль v12.129</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.128 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.129 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1567,21 +1567,51 @@ if (playerUnitsOnHex.length > 0) {
         }
     }
 
-    // 2. Ищем, не кликнули ли по вражескому юниту
-    let clickedEnemy = null;
-    let minDistToEnemy = Infinity;
-    if (appData.campaign.enemyOpUnits) {
-        for (let enemy of appData.campaign.enemyOpUnits) {
-            if (enemy.col === null || enemy.col === undefined || enemy.row === null || enemy.row === undefined) continue;
-            const unitX = enemy.col * Math.sqrt(3) * size + (enemy.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2 + (enemy.drawOffsetX || 0);
-            const unitY = enemy.row * 1.5 * size + size + (enemy.drawOffsetY || 0);
-            const dist = Math.sqrt((clickX - unitX) ** 2 + (clickY - unitY) ** 2);
+// 2. Ищем, не кликнули ли по вражескому юниту (с учётом группировки)
+let clickedEnemy = null;
+let minDistToEnemy = Infinity;
+const enemyUnits = appData.campaign.enemyOpUnits || [];
+if (enemyUnits.length > 0) {
+    const groups = new Map();
+    enemyUnits.forEach(unit => {
+        if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
+        const key = `${unit.col},${unit.row}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(unit);
+    });
+    const offsetDist = 30;
+    groups.forEach((group) => {
+        const [col, row] = group[0].col + ',' + group[0].row; // или можно взять из ключа
+        // Но лучше из ключа:
+        const key = `${group[0].col},${group[0].row}`;
+        const [col, row] = key.split(',').map(Number);
+        const baseX = col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+        const baseY = row * 1.5 * size + size;
+        if (group.length === 1) {
+            const unit = group[0];
+            const ux = baseX;
+            const uy = baseY;
+            const dist = Math.sqrt((clickX - ux) ** 2 + (clickY - uy) ** 2);
             if (dist < minDistToEnemy) {
                 minDistToEnemy = dist;
-                clickedEnemy = enemy;
+                clickedEnemy = unit;
             }
+        } else {
+            const angleStep = (2 * Math.PI) / group.length;
+            group.forEach((unit, idx) => {
+                const offsetX = Math.cos(idx * angleStep) * offsetDist;
+                const offsetY = Math.sin(idx * angleStep) * offsetDist;
+                const ux = baseX + offsetX;
+                const uy = baseY + offsetY;
+                const dist = Math.sqrt((clickX - ux) ** 2 + (clickY - uy) ** 2);
+                if (dist < minDistToEnemy) {
+                    minDistToEnemy = dist;
+                    clickedEnemy = unit;
+                }
+            });
         }
-    }
+    });
+}
     const zoom = appData.campaign.opZoomLevel || 1;
 if (clickedEnemy && minDistToEnemy < iconRadius * 1.6) {
         if (clickedEnemy.ap <= 0) {
