@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.130 — карта  </title>
+  <title>Боевой модуль v12.131 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.130</h1>
+    <h1>⚔️ Боевой модуль v12.131</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.130 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.131 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -9368,7 +9368,7 @@ function addEnemyReinforcementsToBattle(battleId, enemyUnit, playerUnits) {
     const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
     if (!battle) return;
 
-    // Добавляем вражеские отряды (один юнит)
+    // Добавляем вражеские отряды из enemyUnit
     if (enemyUnit.squads) {
         enemyUnit.squads.forEach(squad => {
             const exists = battle.enemySquads.some(s => s.name === squad.name);
@@ -9378,7 +9378,7 @@ function addEnemyReinforcementsToBattle(battleId, enemyUnit, playerUnits) {
         });
     }
 
-    // Добавляем всех игроков (массив)
+    // Добавляем свои отряды (если переданы)
     if (playerUnits && playerUnits.length > 0) {
         playerUnits.forEach(player => {
             if (player.squads) {
@@ -9392,8 +9392,57 @@ function addEnemyReinforcementsToBattle(battleId, enemyUnit, playerUnits) {
         });
     }
 
+    // ---- ОБНОВЛЯЕМ ТАКТИЧЕСКУЮ КАРТУ ----
+    // 1. Синхронизируем battle.tacticalMap.enemySquads с battle.enemySquads
+    // (добавляем только те, которых ещё нет)
+    battle.enemySquads.forEach(enemySquad => {
+        const exists = battle.tacticalMap.enemySquads.some(s => s.name === enemySquad.name);
+        if (!exists) {
+            battle.tacticalMap.enemySquads.push(JSON.parse(JSON.stringify(enemySquad)));
+        }
+    });
+
+    // 2. Размещаем новых врагов на гексах тактической карты
+    // Находим гекс, где уже есть враги (если есть), иначе используем (10,10)
+    let targetHexKey = null;
+    for (let key in battle.tacticalMap.grid) {
+        if (battle.tacticalMap.grid[key].enemySquadIds && battle.tacticalMap.grid[key].enemySquadIds.length > 0) {
+            targetHexKey = key;
+            break;
+        }
+    }
+    if (!targetHexKey) targetHexKey = '10,10';
+
+    // Убеждаемся, что гекс существует
+    if (!battle.tacticalMap.grid[targetHexKey]) {
+        battle.tacticalMap.grid[targetHexKey] = {
+            type: 'grass',
+            squadIds: [],
+            enemySquadIds: [],
+            markers: [],
+            rotation: 0,
+            variant: 0,
+            level: 0
+        };
+    }
+    if (!battle.tacticalMap.grid[targetHexKey].enemySquadIds) {
+        battle.tacticalMap.grid[targetHexKey].enemySquadIds = [];
+    }
+
+    // Добавляем индексы новых врагов (их индексы в battle.tacticalMap.enemySquads)
+    // Мы добавляем все новые отряды (которые только что добавились)
+    // Для простоты – перебираем все enemySquads и добавляем их индексы, если их ещё нет в этом гексе
+    battle.tacticalMap.enemySquads.forEach((squad, idx) => {
+        // Проверяем, есть ли этот индекс уже в targetHex
+        if (!battle.tacticalMap.grid[targetHexKey].enemySquadIds.includes(idx)) {
+            battle.tacticalMap.grid[targetHexKey].enemySquadIds.push(idx);
+        }
+    });
+
+    // Сохраняем изменения
     saveData();
-      // Если этот бой сейчас открыт – обновляем глобальные данные
+
+    // ---- Если этот бой сейчас открыт, обновляем глобальные данные ----
     if (appData.currentBattleId === battleId) {
         appData.squads = battle.playerSquads.map(s => JSON.parse(JSON.stringify(s)));
         appData.map = JSON.parse(JSON.stringify(battle.tacticalMap));
@@ -9403,28 +9452,10 @@ function addEnemyReinforcementsToBattle(battleId, enemyUnit, playerUnits) {
         if (appData.squads.length > 0) selectSquad(0);
         renderSquadSelector();
         updateUI();
-        // Перерисовываем тактическую карту
         redrawMap();
+        // Обновляем список врагов в интерфейсе тактического боя (если есть)
+        updateEnemyDropdown();
     }
-
-    // Переключаемся на бой
-    appData.squads = battle.playerSquads.map(s => JSON.parse(JSON.stringify(s)));
-    appData.map = JSON.parse(JSON.stringify(battle.tacticalMap));
-    appData.currentTurn = battle.currentTurn || 1;
-    currentTurn = appData.currentTurn;
-    appData.squads.forEach((_, i) => ensureAP(i));
-    if (appData.squads.length > 0) selectSquad(0);
-    appData.currentBattleId = battle.id;
-    renderSquadSelector();
-    updateUI();
-    document.getElementById('campaignMapScreen').style.display = 'none';
-    document.getElementById('campaignApp').style.display = 'none';
-    document.getElementById('battleApp').style.display = 'block';
-    activateBattleTab();
-    document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
-    document.getElementById('btnFinishBattle').style.display = 'inline-block';
-    document.getElementById('mapInfo').innerHTML = `Враг добавлен в бой на гексе ${battle.hexKey}.`;
-    redrawOperationalMap();
 }
 
 function retreatFromBattle() {
