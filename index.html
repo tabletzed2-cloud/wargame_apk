@@ -1907,217 +1907,110 @@ function buildEnemyOperationalUnits() {
   if (appData.campaign.enemyOpUnits && appData.campaign.enemyOpUnits.length > 0) return;
 
   const enemyUnits = [];
-
-function addEnemyOpUnit(name, type, squads, icon = null) {
-  enemyUnits.push({
-    name,
-    type,
-    squads: squads || [],
-    col: null,
-    row: null,
-    side: 'enemy',
-    maxAp: 6,
-    ap: 6,
-    faction: battalion.faction || 'A.I.R.F.',
-    icon: icon,
-    detected: true,
-    noiseMarker: false
-  });
-}
-function drawOperationalUnits(ctx) {
-   const size = OP_HEX_SIZE * (appData.campaign.opZoomLevel || 1);
-  const iconRadius = 18 * (appData.campaign.opZoomLevel || 1);   
   
-function drawUnit(unit, isEnemy = false, offsetX = 0, offsetY = 0) {
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
-  const x = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
-  const y = unit.row * 1.5 * size + size;
-  const drawX = x + offsetX;
-  const drawY = y + offsetY;
-  const radius = 18 * (appData.campaign.opZoomLevel || 1);
+  function addEnemyOpUnit(name, type, squads, icon = null) {
+    // Определяем мобильность
+    let mobility = 'foot';
+    let maxAp = 4;  // У ВСЕХ 4 ОД
 
-  ctx.fillStyle = isEnemy ? '#555' : '#c0392b';
-  ctx.strokeStyle = isEnemy ? '#e74c3c' : '#fff';
-  ctx.lineWidth = 2;
-  ctx.font = '10px Arial';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-
-  // Рисуем стандартную фигуру
-  switch (unit.type) {
-    case 'battalion_hq':
-      ctx.beginPath();
-      ctx.moveTo(drawX, drawY - radius);
-      ctx.lineTo(drawX + radius/2, drawY);
-      ctx.lineTo(drawX, drawY + radius);
-      ctx.lineTo(drawX - radius/2, drawY);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      break;
-    case 'company_hq':
-      ctx.beginPath();
-      ctx.rect(drawX - radius/2, drawY - radius/2, radius, radius);
-      ctx.fill();
-      ctx.stroke();
-      break;
-    case 'mortar_battery':
-      ctx.beginPath();
-      ctx.moveTo(drawX, drawY - radius);
-      ctx.lineTo(drawX + radius, drawY + radius);
-      ctx.lineTo(drawX - radius, drawY + radius);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      break;
-    case 'vehicle':
-    case 'tank_platoon':
-    case 'btr_platoon':
-    case 'sau_battery':
-    case 'at_gun':
-    case 'armored_vehicle_platoon':
-      ctx.beginPath();
-      ctx.moveTo(drawX, drawY - radius);
-      ctx.lineTo(drawX + radius, drawY);
-      ctx.lineTo(drawX, drawY + radius);
-      ctx.lineTo(drawX - radius, drawY);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      break;
-    default:
-      ctx.beginPath();
-      ctx.arc(drawX, drawY, radius, 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.stroke();
-      break;
-  }
-
-  // Если есть иконка, рисуем её поверх фигуры
-  if (unit.icon) {
-    let img = loadedOpUnitIcons[unit.icon];
-    if (!img) {
-      img = new Image();
-      img.src = unit.icon;
-      loadedOpUnitIcons[unit.icon] = img;
-    }
-    if (img.complete && img.naturalWidth > 0) {
-      ctx.drawImage(img, drawX - radius, drawY - radius, radius * 2, radius * 2);
+    // Проверяем по типу или по названию
+    if (type === 'battalion_hq' || type === 'company_hq' || type === 'infantry_platoon' || 
+        type === 'mortar_battery' || type === 'at_gun' || type === 'engineer_platoon' || 
+        type === 'recon_platoon' || type === 'regimental_artillery') {
+        mobility = 'foot';
+        maxAp = 4;
+    } else if (name.includes('Самокат') || name.includes('самокат') || name.includes('Велосипед') || 
+               name.includes('bicycle') || name.includes('велосипед')) {
+        mobility = 'bicycle';
+        maxAp = 4;
+    } else if (name.includes('Мотоцикл') || name.includes('мотоцикл') || name.includes('motorcycle')) {
+        mobility = 'motorcycle';
+        maxAp = 4;
+    } else if (type === 'tank_platoon' || type === 'btr_platoon' || type === 'sau_battery' || 
+               type === 'armored_vehicle_platoon' || type === 'vehicle' || type === 'armored_vehicles' || 
+               type === 'dots') {
+        mobility = 'vehicle';
+        maxAp = 4;
     } else {
-      // Если ещё не загрузилась, после загрузки перерисуем карту
-      img.onload = () => redrawOperationalMap();
+        mobility = 'foot';
+        maxAp = 4;
     }
-  }
-  // Подсветка выбранного своего юнита
-if (!isEnemy && unit === appData.campaign.selectedOpUnit) {
-    ctx.strokeStyle = '#00ff00';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(drawX, drawY, radius + 6, 0, 2 * Math.PI);
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(0,255,0,0.2)';
-    ctx.fill();
-}
-if (!isEnemy) {
-  if (unit.detected) {
-    ctx.fillStyle = '#e74c3c';
-    ctx.beginPath();
-    ctx.arc(drawX + radius, drawY - radius, 4, 0, 2 * Math.PI);
-    ctx.fill();
-  } else if (unit.noiseMarker) {
-    ctx.fillStyle = '#f39c12';
-    ctx.beginPath();
-    ctx.arc(drawX + radius, drawY - radius, 4, 0, 2 * Math.PI);
-    ctx.fill();
-  }
-}
-// Подсветка выбранного врага
-if (isEnemy && unit === appData.campaign.selectedEnemyOpUnit) {
-    ctx.strokeStyle = '#ffff00';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(drawX, drawY, radius + 6, 0, 2 * Math.PI);
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,0,0.2)';
-    ctx.fill();
-}
-  // Подпись (первые 3 буквы)
-  ctx.fillStyle = '#fff';
-  ctx.fillText(unit.name.substring(0, 3), drawX, drawY);
 
- // ОД
-  ctx.fillStyle = isEnemy ? '#ffcc00' : '#fff';
-  ctx.font = `${size * 0.2}px Arial`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'bottom';
-  ctx.fillText(`ОД:${unit.ap}`, drawX, drawY - radius - 2);
-  
-  // Проверка, в бою ли юнит
-const inBattle = appData.campaign.activeBattles.some(b => {
-  if (b.hexKey !== `${unit.col},${unit.row}`) return false;
-  return b.playerSquads.some(s => s.name === unit.name);
-});
-if (inBattle) {
-    ctx.strokeStyle = '#ff0000';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(drawX, drawY, radius + 4, 0, 2 * Math.PI);
-    ctx.stroke();
-    ctx.fillStyle = '#ff0000';
-    ctx.font = '14px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText('⚔️', drawX, drawY - radius - 8);
-}
-  // Проверка, в бою ли юнит (враг)
-if (isEnemy) {
-    const inBattle = appData.campaign.activeBattles.some(b => b.enemyUnitName === unit.name);
-    if (inBattle) {
-        ctx.strokeStyle = '#ff0000';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(drawX, drawY, radius + 4, 0, 2 * Math.PI);
-        ctx.stroke();
-        ctx.fillStyle = '#ff0000';
-        ctx.font = '14px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText('⚔️', drawX, drawY - radius - 8);
-    }
-}
-}
-
-  function drawGroupedUnits(units, isEnemy) {
-    if (!units) return;
-    const map = new Map();
-    units.forEach(unit => {
-      if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
-      const key = `${unit.col},${unit.row}`;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(unit);
+    enemyUnits.push({
+        name,
+        type,
+        squads: squads || [],
+        col: null,
+        row: null,
+        side: 'enemy',
+        maxAp: maxAp,
+        ap: maxAp,
+        mobility: mobility,
+        dismounted: false,
+        faction: battalion.faction || 'A.I.R.F.',
+        icon: icon,
+        detected: true,
+        noiseMarker: false
     });
-    map.forEach((group) => {
-      if (group.length === 1) {
-        drawUnit(group[0], isEnemy, 0, 0);
-      } else {
-        const angleStep = (2 * Math.PI) / group.length;
-        group.forEach((unit, idx) => {
-          const offsetDist = 30;
-          const offsetX = Math.cos(idx * angleStep) * offsetDist;
-          const offsetY = Math.sin(idx * angleStep) * offsetDist;
-          drawUnit(unit, isEnemy, offsetX, offsetY);
+  } // <-- ЗАКРЫВАЕМ addEnemyOpUnit
+
+  battalion.units.forEach(unit => {
+    switch (unit.type) {
+      case 'hq':
+        addEnemyOpUnit(unit.name, 'battalion_hq', unit.squads, unit.icon || null);
+        break;
+      case 'mortar_battery':
+        addEnemyOpUnit(unit.name, 'mortar_battery', unit.squads, unit.icon || null);
+        break;
+      case 'at_battery':
+        unit.squads.forEach(squad => {
+          addEnemyOpUnit(squad.name, 'at_gun', [squad], squad.icon || unit.icon || null);
         });
-      }
-    });
-  }
+        break;
+      case 'infantry_company':
+        unit.platoons.forEach(pl => {
+          if (pl.type === 'armored_vehicle_platoon') {
+            pl.squads.forEach(squad => {
+              addEnemyOpUnit(squad.name, 'vehicle', [squad], squad.icon || pl.icon || unit.icon || null);
+            });
+          } else {
+            addEnemyOpUnit(pl.name, 'infantry_platoon', pl.squads, pl.icon || unit.icon || null);
+          }
+        });
+        if (unit.hq) {
+          addEnemyOpUnit(unit.hq.name || 'Штаб роты', 'company_hq', [unit.hq], unit.hq.icon || unit.icon || null);
+        }
+        break;
+      case 'engineer_platoon':
+      case 'recon_platoon':
+      case 'armored_vehicles':
+      case 'dots':
+      case 'sau_battery':
+      case 'btr_platoon':
+      case 'tank_platoon':
+      case 'regimental_artillery':
+        if (unit.squads && unit.squads.length > 0) {
+          unit.squads.forEach(squad => {
+            addEnemyOpUnit(squad.name, unit.type, [squad], squad.icon || unit.icon || null);
+          });
+        } else {
+          addEnemyOpUnit(unit.name, unit.type, [], unit.icon || null);
+        }
+        break;
+      default:
+        if (unit.squads && unit.squads.length > 0) {
+          unit.squads.forEach(squad => {
+            addEnemyOpUnit(`${unit.name} ${squad.name}`, unit.type, [squad]);
+          });
+        } else {
+          addEnemyOpUnit(unit.name, unit.type, []);
+        }
+    }
+  });
 
-  // Рисуем только один раз
-  drawGroupedUnits(appData.campaign.opUnits, false);
-  drawGroupedUnits(appData.campaign.enemyOpUnits, true);
-}
-}      
+  appData.campaign.enemyOpUnits = enemyUnits;
+  saveData();
+} // <-- ЗАКРЫВАЕМ buildEnemyOperationalUnits    
 // Загружаем сохранённый выбор (если есть)
 try {
   const savedChoice = JSON.parse(safeLocalStorage('getItem', 'wargame_choice'));
