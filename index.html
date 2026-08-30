@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.146 — карта  </title>
+  <title>Боевой модуль v12.147 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.146</h1>
+    <h1>⚔️ Боевой модуль v12.147</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.146 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.147 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1333,6 +1333,8 @@ if (!appData.campaign.opMapGrid || Object.keys(appData.campaign.opMapGrid).lengt
   renderActiveBattlesList();
   updateDismountPanel();
   updateBtrPanel();
+  updateVehicleGroupInfo();
+
 }
 function getOpHexTypes(col, row) {
   const key = `${col},${row}`;
@@ -1775,6 +1777,30 @@ if (inBattle) {
       // Если врага нет, перемещаемся
       selectedUnit.col = h.col;
       selectedUnit.row = h.row;
+      
+// ======== ПЕРЕМЕЩЕНИЕ ГРУППЫ ========
+// Если выбранный юнит - это группа, перемещаем все машины в группе
+if (selectedUnit.isGroup && selectedUnit.groupMembers && selectedUnit.groupMembers.length > 0) {
+    selectedUnit.groupMembers.forEach(memberId => {
+        const member = appData.campaign.opUnits[memberId];
+        if (member) {
+            member.col = h.col;
+            member.row = h.row;
+        }
+    });
+    console.log(`Группа "${selectedUnit.name}" перемещена вместе с ${selectedUnit.groupMembers.length} машинами`);
+}
+
+// ======== ПЕРЕМЕЩЕНИЕ ПЕХОТЫ В БТР ========
+// Если выбранный юнит - это БТР и в нем есть пехота
+if (selectedUnit.embarkedUnitId !== undefined && selectedUnit.embarkedUnitId !== null) {
+    const infantryUnit = appData.campaign.opUnits[selectedUnit.embarkedUnitId];
+    if (infantryUnit) {
+        infantryUnit.col = h.col;
+        infantryUnit.row = h.row;
+        console.log(`Пехота "${infantryUnit.name}" перемещена вместе с БТР`);
+    }
+}
       // ======== ПЕРЕМЕЩЕНИЕ ПЕХОТЫ ВМЕСТЕ С БТР ========
 // Если выбранный юнит - это БТР и в нем есть пехота
 if (selectedUnit.embarkedUnitId !== undefined && selectedUnit.embarkedUnitId !== null) {
@@ -1856,10 +1882,19 @@ if (clickedUnit && minDistToUnit < iconRadius * 1.5) {
         updateBtrPanel();
         clickedUnit.availableHexes = getOpReachableHexesForUnit(clickedUnit);
         
-      let infoText = `Выбран: ${clickedUnit.name}`;
+      // ======== ПОКАЗЫВАЕМ ИНФОРМАЦИЮ О ВЫБРАННОМ ЮНИТЕ ========
+let infoText = `Выбран: ${clickedUnit.name}`;
+
+// Если это группа - показываем количество машин
+if (clickedUnit.isGroup && clickedUnit.groupSize) {
+    infoText += ` (${clickedUnit.groupSize} машин)`;
+}
+
+// Если это БТР с пехотой - показываем
 if (clickedUnit.embarkedUnit) {
     infoText += ` (внутри: ${clickedUnit.embarkedUnit})`;
 }
+
 document.getElementById('mapInfo').innerHTML = infoText;
         updateDismountPanel();
         redrawOperationalMap();
@@ -1945,6 +1980,7 @@ if (appData.campaign.selectedEnemyOpUnit) {
 }
 document.getElementById('mapInfo').innerHTML = '';
 redrawOperationalMap();
+updateVehicleGroupInfo();  
   }
 
 function checkContactAfterMove(movedUnit) {
@@ -10056,6 +10092,217 @@ function getUnitBtrRequirement(unit) {
         const available = getAvailableBtrs().length;
         embarkBtn.textContent = `🚌 Посадить в БТР (нужно ${required}, есть ${available})`;
         embarkBtn.disabled = (available < required);
+    }
+}
+
+// ==================== СИСТЕМА ГРУППИРОВКИ ТЕХНИКИ ====================
+
+function getAvailableVehicles() {
+    if (!appData.campaign.opUnits) return [];
+    return appData.campaign.opUnits.filter(u => {
+        const isVehicle = u.type === 'tank_platoon' || 
+                         u.type === 'btr_platoon' || 
+                         u.type === 'sau_battery' || 
+                         u.type === 'armored_vehicle_platoon' ||
+                         (u.name && (u.name.includes('БТР') ||
+                         u.name.includes('CL/39') ||
+                         u.name.includes('САУ') ||
+                         u.name.includes('Бронеавтомобиль') ||
+                         u.name.includes('Landsverk')));
+        if (!isVehicle) return false;
+        if (u.isGroup) return false;
+        if (u.embarkedUnit) return false;
+        if (u.hidden) return false;
+        return true;
+    });
+}
+
+function getVehicleDisplayName(unit) {
+    if (!unit) return 'Техника';
+    const name = unit.name || '';
+    if (name.includes('БТР')) return 'БТР';
+    if (name.includes('CL/39') || name.includes('Танк')) return 'Танк';
+    if (name.includes('САУ')) return 'САУ';
+    if (name.includes('Landsverk') || name.includes('Бронеавтомобиль')) return 'БА';
+    return 'Техника';
+}
+
+function showGroupDialog() {
+    const available = getAvailableVehicles();
+    
+    if (available.length < 2) {
+        document.getElementById('mapInfo').innerHTML = '❌ Нужно минимум 2 единицы техники для группировки.';
+        return;
+    }
+    
+    const byHex = {};
+    available.forEach(v => {
+        const key = `${v.col},${v.row}`;
+        if (!byHex[key]) byHex[key] = [];
+        byHex[key].push(v);
+    });
+    
+    let hasGroupable = false;
+    let message = 'Выберите технику для объединения в отряд.\n\n';
+    let idx = 0;
+    const vehicleList = [];
+    
+    for (let hex in byHex) {
+        const vehicles = byHex[hex];
+        if (vehicles.length < 2) continue;
+        hasGroupable = true;
+        
+        message += `Гекс ${hex} (${vehicles.length} машин):\n`;
+        vehicles.forEach((v, i) => {
+            const displayName = getVehicleDisplayName(v);
+            message += `  ${idx+1}. ${displayName} - ${v.name}\n`;
+            vehicleList.push(v);
+            idx++;
+        });
+        message += '\n';
+    }
+    
+    if (!hasGroupable) {
+        document.getElementById('mapInfo').innerHTML = '❌ На одном гексе должно быть минимум 2 машины.';
+        return;
+    }
+    
+    message += 'Введите номера машин через запятую для объединения в отряд (например: 1,2,3):';
+    
+    const choice = prompt(message);
+    if (!choice) return;
+    
+    const indices = choice.split(',').map(s => parseInt(s.trim()) - 1).filter(i => !isNaN(i) && i >= 0 && i < vehicleList.length);
+    
+    if (indices.length < 2) {
+        document.getElementById('mapInfo').innerHTML = '❌ Нужно минимум 2 машины для группировки.';
+        return;
+    }
+    
+    const selected = indices.map(i => vehicleList[i]);
+    
+    const first = selected[0];
+    const allSameHex = selected.every(v => v.col === first.col && v.row === first.row);
+    if (!allSameHex) {
+        document.getElementById('mapInfo').innerHTML = '❌ Все машины должны быть на одном гексе.';
+        return;
+    }
+    
+    createVehicleGroup(selected);
+}
+
+function createVehicleGroup(vehicles) {
+    const firstVehicle = vehicles[0];
+    const displayName = getVehicleDisplayName(firstVehicle);
+    
+    const groupUnit = {
+        name: `Отряд ${displayName} (${vehicles.length}шт)`,
+        type: firstVehicle.type,
+        squads: [],
+        col: firstVehicle.col,
+        row: firstVehicle.row,
+        side: 'player',
+        ap: firstVehicle.ap,
+        maxAp: firstVehicle.maxAp,
+        mobility: 'vehicle',
+        dismounted: false,
+        icon: firstVehicle.icon,
+        detected: false,
+        noiseMarker: false,
+        isGroup: true,
+        groupMembers: vehicles.map(v => appData.campaign.opUnits.indexOf(v)),
+        groupSize: vehicles.length,
+        isVehicle: true,
+        vehicleType: firstVehicle.type
+    };
+    
+    appData.campaign.opUnits.push(groupUnit);
+    const groupIndex = appData.campaign.opUnits.length - 1;
+    
+    vehicles.forEach(v => {
+        v.isGroup = true;
+        v.groupParentIndex = groupIndex;
+        v.hidden = true;
+    });
+    
+    saveData();
+    redrawOperationalMap();
+    document.getElementById('mapInfo').innerHTML = `✅ Создан отряд из ${vehicles.length} машин.`;
+}
+
+function showSplitDialog() {
+    const groups = appData.campaign.opUnits.filter(u => u.isGroup === true);
+    
+    if (groups.length === 0) {
+        document.getElementById('mapInfo').innerHTML = '❌ Нет отрядов для разбивки.';
+        return;
+    }
+    
+    let message = 'Выберите отряд для разбивки:\n\n';
+    groups.forEach((g, idx) => {
+        const pos = (g.col !== null && g.row !== null) ? `(${g.col},${g.row})` : '(не размещен)';
+        message += `${idx+1}. ${g.name} (${g.groupSize} машин) - ${pos}\n`;
+    });
+    message += '\nВведите номер отряда:';
+    
+    const choice = prompt(message);
+    if (!choice) return;
+    
+    const idx = parseInt(choice) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= groups.length) {
+        document.getElementById('mapInfo').innerHTML = '❌ Неверный номер.';
+        return;
+    }
+    
+    splitVehicleGroup(groups[idx]);
+}
+
+function splitVehicleGroup(group) {
+    if (!group.isGroup || !group.groupMembers || group.groupMembers.length === 0) {
+        document.getElementById('mapInfo').innerHTML = '❌ Это не группа.';
+        return;
+    }
+    
+    const members = group.groupMembers.map(id => appData.campaign.opUnits[id]).filter(u => u);
+    
+    members.forEach(m => {
+        m.isGroup = false;
+        m.groupParentIndex = undefined;
+        m.hidden = false;
+        m.col = group.col;
+        m.row = group.row;
+    });
+    
+    const groupIndex = appData.campaign.opUnits.indexOf(group);
+    if (groupIndex !== -1) {
+        appData.campaign.opUnits.splice(groupIndex, 1);
+    }
+    
+    saveData();
+    redrawOperationalMap();
+    document.getElementById('mapInfo').innerHTML = `✅ Отряд разбит на ${members.length} отдельных машин.`;
+}
+
+function renameGroup() {
+    const unit = appData.campaign.selectedOpUnit;
+    if (!unit || !unit.isGroup) {
+        document.getElementById('mapInfo').innerHTML = '❌ Сначала выберите группу.';
+        return;
+    }
+    
+    const newName = prompt('Введите новое название отряда:', unit.name);
+    if (newName && newName.trim()) {
+        unit.name = newName.trim();
+        saveData();
+        redrawOperationalMap();
+        document.getElementById('mapInfo').innerHTML = `✅ Отряд переименован в "${unit.name}"`;
+    }
+}
+  function updateVehicleGroupInfo() {
+    // Можно добавить отображение количества групп на карте
+    const groups = appData.campaign.opUnits.filter(u => u.isGroup === true);
+    if (groups.length > 0) {
+        // Ничего не делаем, информация уже на карте
     }
 }
       
