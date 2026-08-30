@@ -572,6 +572,7 @@ updateUI();
 }
 // ========== РЕЖИМ КАМПАНИИ ==========
 function openCampaign() {
+  console.log('openCampaign вызвана');
   document.getElementById('mainMenu').style.display = 'none';
   document.getElementById('campaignApp').style.display = 'block';
   showScenarioSelection();
@@ -1563,6 +1564,445 @@ function getOpHexNeighbors(col, row) {
 }
 
 function handleOpMapClick(e) {
+  const canvas = document.getElementById('opMapCanvas');
+  if (!canvas) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const clickX = (e.clientX - rect.left) * scaleX;
+  const clickY = (e.clientY - rect.top) * scaleY;
+
+  const size = OP_HEX_SIZE * (appData.campaign.opZoomLevel || 1);
+  const iconRadius = 18 * (appData.campaign.opZoomLevel || 1);
+  
+  let closestOpHex = null;
+  let minOpDist = Infinity;
+  if (appData.campaign.opCenters) {
+    for (let center of appData.campaign.opCenters) {
+      const dist = Math.sqrt((clickX - center.x) ** 2 + (clickY - center.y) ** 2);
+      if (dist < minOpDist) {
+        minOpDist = dist;
+        closestOpHex = center.key;
+      }
+    }
+  }
+  
+  const closestKey = closestOpHex;
+  
+  if (closestOpHex && minOpDist < size) {
+    const hexInfo = document.getElementById('opHexInfo');
+    if (hexInfo) {
+      hexInfo.textContent = `Гекс: ${closestOpHex}`;
+    }
+  }
+
+  // ====== РЕЖИМ ВЫБОРА ЦЕЛИ ДЛЯ ОБСТРЕЛА ======
+  if (appData.campaign.opMapMode === 'selectTarget') {
+    if (!closestKey) {
+      document.getElementById('mapInfo').innerHTML = '❌ Не удалось определить гекс.';
+      return;
+    }
+    const targetUnit = getEnemyUnitAtHex(closestKey);
+    if (targetUnit) {
+      const shooter = opShootingState.shooter;
+      if (!shooter) {
+        document.getElementById('mapInfo').innerHTML = '❌ Ошибка: стрелок не выбран!';
+        appData.campaign.opMapMode = 'view';
+        return;
+      }
+      const distance = getOpHexDistance(shooter.col, shooter.row, targetUnit.col, targetUnit.row);
+      if (distance <= 3) {
+        opShootingState.target = targetUnit;
+        opShootingState.step = 'confirm';
+        document.getElementById('mapInfo').innerHTML = 
+          `🎯 Цель: ${targetUnit.name} (дистанция ${distance} гексов). Нажмите "Подтвердить обстрел" или выберите другую цель.`;
+        showShootingConfirm(distance);
+      } else {
+        document.getElementById('mapInfo').innerHTML = `❌ Цель слишком далеко! (${distance} гексов, максимум 3)`;
+      }
+    } else {
+      document.getElementById('mapInfo').innerHTML = '❌ На этом гексе нет вражеских юнитов!';
+    }
+    return;
+  }
+
+  // ====== РЕЖИМ РЕДАКТИРОВАНИЯ МЕСТНОСТИ ======
+  if (appData.campaign.opMapMode === 'editTerrain') {
+    if (!closestKey) return;
+    openTerrainEditor(closestKey);
+    return;
+  }
+
+  // ====== РЕЖИМ РАЗМЕЩЕНИЯ ======
+  if (appData.campaign.opMapMode === 'placePlayer' || appData.campaign.opMapMode === 'placeEnemy') {
+    const sel = document.getElementById('opPlaceSelect');
+    if (!sel || sel.value === '-1') {
+      document.getElementById('mapInfo').innerHTML = 'Выберите юнит для размещения.';
+      return;
+    }
+    const idx = parseInt(sel.value);
+    let targetUnit;
+    if (appData.campaign.opMapMode === 'placePlayer') {
+      targetUnit = appData.campaign.opUnits[idx];
+    } else {
+      targetUnit = appData.campaign.enemyOpUnits[idx];
+    }
+    if (!targetUnit) {
+      document.getElementById('mapInfo').innerHTML = 'Юнит не найден.';
+      return;
+    }
+    if (!closestKey) {
+      document.getElementById('mapInfo').innerHTML = 'Не удалось определить гекс.';
+      return;
+    }
+    const [col, row] = closestKey.split(',').map(Number);
+    targetUnit.col = col;
+    targetUnit.row = row;
+    saveData();
+    redrawOperationalMap();
+    updateOpPlaceSelect();
+    document.getElementById('mapInfo').innerHTML = `${targetUnit.name} размещён на гексе ${closestKey}`;
+    return;
+  }
+
+  // ====== РЕЖИМ ПЕРЕМЕЩЕНИЯ ВРАГА ======
+  if (appData.campaign.opMapMode === 'moveEnemy') {
+    const selectedEnemy = appData.campaign.selectedEnemyOpUnit;
+    if (selectedEnemy && selectedEnemy.availableHexes) {
+      let targetHex = null;
+      let targetCost = Infinity;
+      for (let i = 0; i < selectedEnemy.availableHexes.length; i++) {
+        const h = selectedEnemy.availableHexes[i];
+        const hexCenterX = h.col * Math.sqrt(3) * size + (h.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+        const hexCenterY = h.row * 1.5 * size + size;
+        const dist = Math.sqrt((clickX - hexCenterX) ** 2 + (clickY - hexCenterY) ** 2);
+        if (dist < size * 0.8) {
+          targetHex = h;
+          targetCost = h.cost || getOpMoveCost(selectedEnemy, selectedEnemy.col, selectedEnemy.row, h.col, h.row);
+          if (targetCost <= selectedEnemy.ap) break;
+          else targetHex = null;
+        }
+      }
+      if (targetHex && targetCost <= selectedEnemy.ap) {
+        const playerUnitsOnHex = appData.campaign.opUnits?.filter(u => u.col === targetHex.col && u.row === targetHex.row) || [];
+        if (playerUnitsOnHex.length > 0) {
+          selectedEnemy.col = targetHex.col;
+          selectedEnemy.row = targetHex.row;
+          saveData();
+          const hexKey = `${targetHex.col},${targetHex.row}`;
+          const existingBattle = appData.campaign.activeBattles.find(b => b.hexKey === hexKey);
+          if (existingBattle) {
+            addEnemyReinforcementsToBattle(existingBattle.id, selectedEnemy, playerUnitsOnHex);
+          } else {
+            showContactModal(playerUnitsOnHex, [selectedEnemy]);
+          }
+          appData.campaign.selectedEnemyOpUnit = null;
+          if (selectedEnemy.availableHexes) delete selectedEnemy.availableHexes;
+          redrawOperationalMap();
+          return;
+        } else {
+          if (!spendOpAP(selectedEnemy, targetCost)) {
+            document.getElementById('mapInfo').innerHTML = 'Недостаточно ОД для перемещения врага.';
+            return;
+          }
+          selectedEnemy.col = targetHex.col;
+          selectedEnemy.row = targetHex.row;
+          appData.campaign.selectedEnemyOpUnit = null;
+          if (selectedEnemy.availableHexes) delete selectedEnemy.availableHexes;
+          saveData();
+          redrawOperationalMap();
+          document.getElementById('mapInfo').innerHTML = `Враг "${selectedEnemy.name}" перемещён.`;
+          return;
+        }
+      }
+    }
+
+    let clickedEnemy = null;
+    let minDistToEnemy = Infinity;
+    const enemyUnits = appData.campaign.enemyOpUnits || [];
+    if (enemyUnits.length > 0) {
+      const groups = new Map();
+      enemyUnits.forEach(unit => {
+        if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
+        const key = `${unit.col},${unit.row}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(unit);
+      });
+      const offsetDist = 30;
+      groups.forEach((group) => {
+        const key = `${group[0].col},${group[0].row}`;
+        const [col, row] = key.split(',').map(Number);
+        const baseX = col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+        const baseY = row * 1.5 * size + size;
+        if (group.length === 1) {
+          const unit = group[0];
+          const ux = baseX;
+          const uy = baseY;
+          const dist = Math.sqrt((clickX - ux) ** 2 + (clickY - uy) ** 2);
+          if (dist < minDistToEnemy) {
+            minDistToEnemy = dist;
+            clickedEnemy = unit;
+          }
+        } else {
+          const angleStep = (2 * Math.PI) / group.length;
+          group.forEach((unit, idx) => {
+            const offsetX = Math.cos(idx * angleStep) * offsetDist;
+            const offsetY = Math.sin(idx * angleStep) * offsetDist;
+            const ux = baseX + offsetX;
+            const uy = baseY + offsetY;
+            const dist = Math.sqrt((clickX - ux) ** 2 + (clickY - uy) ** 2);
+            if (dist < minDistToEnemy) {
+              minDistToEnemy = dist;
+              clickedEnemy = unit;
+            }
+          });
+        }
+      });
+    }
+    const zoom = appData.campaign.opZoomLevel || 1;
+    if (clickedEnemy && minDistToEnemy < iconRadius * 1.6) {
+      if (clickedEnemy.ap <= 0) {
+        document.getElementById('mapInfo').innerHTML = 'У врага нет ОД для перемещения.';
+        return;
+      }
+      appData.campaign.selectedEnemyOpUnit = clickedEnemy;
+      clickedEnemy.availableHexes = getOpReachableHexesForUnit(clickedEnemy);
+      document.getElementById('mapInfo').innerHTML = `Выбран враг: ${clickedEnemy.name}. Кликните по гексу для перемещения.`;
+      redrawOperationalMap();
+      return;
+    }
+    appData.campaign.selectedEnemyOpUnit = null;
+    if (appData.campaign.enemyOpUnits) {
+      appData.campaign.enemyOpUnits.forEach(e => { if (e.availableHexes) delete e.availableHexes; });
+    }
+    document.getElementById('mapInfo').innerHTML = '';
+    redrawOperationalMap();
+    return;
+  }
+
+  // ====== ПЕРЕМЕЩЕНИЕ СВОИХ ЮНИТОВ ======
+  const selectedUnit = appData.campaign.selectedOpUnit;
+  if (selectedUnit && selectedUnit.availableHexes && selectedUnit.availableHexes.length) {
+    for (let i = 0; i < selectedUnit.availableHexes.length; i++) {
+      const h = selectedUnit.availableHexes[i];
+      const hexCenterX = h.col * Math.sqrt(3) * size + (h.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+      const hexCenterY = h.row * 1.5 * size + size;
+      const dist = Math.sqrt((clickX - hexCenterX) ** 2 + (clickY - hexCenterY) ** 2);
+      if (dist < size * 0.8) {
+        const enemiesOnTarget = appData.campaign.enemyOpUnits?.filter(enemy => 
+          enemy.col === h.col && enemy.row === h.row
+        ) || [];
+        const moveCost = h.cost || getOpMoveCost(selectedUnit, selectedUnit.col, selectedUnit.row, h.col, h.row);
+        if (!spendOpAP(selectedUnit, moveCost)) {
+          document.getElementById('mapInfo').innerHTML = 'Недостаточно ОД для перемещения.';
+          redrawOperationalMap();
+          return;
+        }
+        if (enemiesOnTarget.length > 0) {
+          selectedUnit.col = h.col;
+          selectedUnit.row = h.row;
+          saveData();
+          const hexKey = `${h.col},${h.row}`;
+          const existingBattle = appData.campaign.activeBattles.find(b => b.hexKey === hexKey);
+          if (existingBattle) {
+            addReinforcementsToBattle(existingBattle.id, selectedUnit, enemiesOnTarget);
+          } else {
+            const playerUnitsOnHex = appData.campaign.opUnits.filter(u => u.col === h.col && u.row === h.row);
+            showContactModal(playerUnitsOnHex, enemiesOnTarget);
+          }
+          appData.campaign.selectedOpUnit = null;
+          if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
+          redrawOperationalMap();
+          return;
+        }
+        const inBattle = appData.campaign.activeBattles.some(b => 
+          b.playerUnitName === selectedUnit.name
+        );
+        if (inBattle) {
+          document.getElementById('mapInfo').innerHTML = '⚠️ Этот юнит участвует в тактическом бою и не может двигаться.';
+          redrawOperationalMap();
+          return;
+        }
+        selectedUnit.col = h.col;
+        selectedUnit.row = h.row;
+        if (selectedUnit.isGroup && selectedUnit.groupMembers && selectedUnit.groupMembers.length > 0) {
+          selectedUnit.groupMembers.forEach(memberId => {
+            const member = appData.campaign.opUnits[memberId];
+            if (member) {
+              member.col = h.col;
+              member.row = h.row;
+            }
+          });
+        }
+        if (selectedUnit.embarkedUnitId !== undefined && selectedUnit.embarkedUnitId !== null) {
+          const infantryUnit = appData.campaign.opUnits[selectedUnit.embarkedUnitId];
+          if (infantryUnit) {
+            infantryUnit.col = h.col;
+            infantryUnit.row = h.row;
+          }
+        }
+        appData.campaign.selectedOpUnit = null;
+        if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
+        if (selectedUnit.ap > 0) {
+          appData.campaign.selectedOpUnit = selectedUnit;
+          selectedUnit.availableHexes = getOpReachableHexesForUnit(selectedUnit);
+          document.getElementById('mapInfo').innerHTML = `Выбран: ${selectedUnit.name} (ОД: ${selectedUnit.ap})`;
+        } else {
+          document.getElementById('mapInfo').innerHTML = `${selectedUnit.name} потратил все ОД.`;
+        }
+        saveData();
+        redrawOperationalMap();
+        checkContactAfterMove(selectedUnit);
+        return;
+      }
+    }
+  }
+
+  // ---- Поиск своего юнита ----
+  let clickedUnit = null;
+  let minDistToUnit = Infinity;
+  const ownUnits = appData.campaign.opUnits || [];
+  if (ownUnits.length > 0) {
+    const groups = new Map();
+    ownUnits.forEach(unit => {
+      if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
+      const key = `${unit.col},${unit.row}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(unit);
+    });
+    groups.forEach((group, key) => {
+      const [col, row] = key.split(',').map(Number);
+      const baseX = col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+      const baseY = row * 1.5 * size + size;
+      const offsetDist = 30;
+      if (group.length === 1) {
+        const unit = group[0];
+        const ux = baseX;
+        const uy = baseY;
+        const dist = Math.sqrt((clickX - ux) ** 2 + (clickY - uy) ** 2);
+        if (dist < minDistToUnit) {
+          minDistToUnit = dist;
+          clickedUnit = unit;
+        }
+      } else {
+        const angleStep = (2 * Math.PI) / group.length;
+        group.forEach((unit, idx) => {
+          const offsetX = Math.cos(idx * angleStep) * offsetDist;
+          const offsetY = Math.sin(idx * angleStep) * offsetDist;
+          const ux = baseX + offsetX;
+          const uy = baseY + offsetY;
+          const dist = Math.sqrt((clickX - ux) ** 2 + (clickY - uy) ** 2);
+          if (dist < minDistToUnit) {
+            minDistToUnit = dist;
+            clickedUnit = unit;
+          }
+        });
+      }
+    });
+  }
+  if (clickedUnit && minDistToUnit < iconRadius * 1.5) {
+    const inBattle = appData.campaign.activeBattles.some(b => 
+      b.playerUnitName === clickedUnit.name
+    );
+    if (inBattle) {
+      document.getElementById('mapInfo').innerHTML = '⚠️ Этот юнит участвует в тактическом бою и не может двигаться.';
+      clickedUnit = null;
+    } else {
+      appData.campaign.selectedOpUnit = clickedUnit;
+      updateDismountPanel();
+      updateBtrPanel();
+      clickedUnit.availableHexes = getOpReachableHexesForUnit(clickedUnit);
+      let infoText = `Выбран: ${clickedUnit.name}`;
+      if (clickedUnit.isGroup && clickedUnit.groupSize) {
+        infoText += ` (${clickedUnit.groupSize} машин)`;
+      }
+      if (clickedUnit.embarkedUnit) {
+        infoText += ` (внутри: ${clickedUnit.embarkedUnit})`;
+      }
+      document.getElementById('mapInfo').innerHTML = infoText;
+      updateDismountPanel();
+      redrawOperationalMap();
+      return;
+    }
+  }
+  if (!clickedUnit) {
+    appData.campaign.selectedOpUnit = null;
+    if (appData.campaign.opUnits) {
+      appData.campaign.opUnits.forEach(u => { if (u.availableHexes) delete u.availableHexes; });
+    }
+    redrawOperationalMap();
+  }
+
+  // ---- Поиск вражеского юнита ----
+  let clickedEnemyUnit = null;
+  let minDistToEnemyUnit = Infinity;
+  const enemyUnits2 = appData.campaign.enemyOpUnits || [];
+  if (enemyUnits2.length > 0) {
+    const groups = new Map();
+    enemyUnits2.forEach(unit => {
+      if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
+      const key = `${unit.col},${unit.row}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(unit);
+    });
+    const offsetDist = 30;
+    groups.forEach((group, key) => {
+      const [col, row] = key.split(',').map(Number);
+      const baseX = col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+      const baseY = row * 1.5 * size + size;
+      if (group.length === 1) {
+        const unit = group[0];
+        const ux = baseX;
+        const uy = baseY;
+        const dist = Math.sqrt((clickX - ux) ** 2 + (clickY - uy) ** 2);
+        if (dist < minDistToEnemyUnit) {
+          minDistToEnemyUnit = dist;
+          clickedEnemyUnit = unit;
+        }
+      } else {
+        const angleStep = (2 * Math.PI) / group.length;
+        group.forEach((unit, idx) => {
+          const offsetX = Math.cos(idx * angleStep) * offsetDist;
+          const offsetY = Math.sin(idx * angleStep) * offsetDist;
+          const ux = baseX + offsetX;
+          const uy = baseY + offsetY;
+          const dist = Math.sqrt((clickX - ux) ** 2 + (clickY - uy) ** 2);
+          if (dist < minDistToEnemyUnit) {
+            minDistToEnemyUnit = dist;
+            clickedEnemyUnit = unit;
+          }
+        });
+      }
+    });
+  }
+  if (clickedEnemyUnit && minDistToEnemyUnit < iconRadius * 1.6) {
+    appData.campaign.selectedEnemyOpUnit = clickedEnemyUnit;
+    appData.campaign.selectedOpUnit = null;
+    if (appData.campaign.opUnits) {
+      appData.campaign.opUnits.forEach(u => { if (u.availableHexes) delete u.availableHexes; });
+    }
+    let infoText = `Выбран враг: ${clickedEnemyUnit.name}`;
+    document.getElementById('mapInfo').innerHTML = infoText;
+    redrawOperationalMap();
+    return;
+  }
+
+  // Если клик в пустоту, сброс выделений
+  if (appData.campaign.selectedOpUnit) {
+    appData.campaign.selectedOpUnit = null;
+    if (appData.campaign.opUnits) {
+      appData.campaign.opUnits.forEach(u => { if (u.availableHexes) delete u.availableHexes; });
+    }
+  }
+  if (appData.campaign.selectedEnemyOpUnit) {
+    appData.campaign.selectedEnemyOpUnit = null;
+  }
+  document.getElementById('mapInfo').innerHTML = '';
+  redrawOperationalMap();
+  updateVehicleGroupInfo();  
+  updateVehiclePanel();
+}  
 
 function checkContactAfterMove(movedUnit) {
   console.log('checkContactAfterMove called', movedUnit);
@@ -1912,7 +2352,7 @@ if (isEnemy) {
   // Рисуем только один раз
   drawGroupedUnits(appData.campaign.opUnits, false);
   drawGroupedUnits(appData.campaign.enemyOpUnits, true);
-}
+
       
 // Загружаем сохранённый выбор (если есть)
 try {
