@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.156 — карта  </title>
+  <title>Боевой модуль v12.157 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.156</h1>
+    <h1>⚔️ Боевой модуль v12.157</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.156 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.157 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1436,6 +1436,9 @@ function hasOpTerrain(col, row, terrainType) {
 }
       
 function redrawOperationalMap() {
+  if (appData.campaign.opMapMode !== 'selectTarget') {
+        clearEnemyHighlight();
+    }
   const canvas = document.getElementById('opMapCanvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
@@ -1647,39 +1650,79 @@ function handleOpMapClick(e) {
   }
 
   // ====== РЕЖИМ ВЫБОРА ЦЕЛИ ДЛЯ ОБСТРЕЛА ======
-  if (appData.campaign.opMapMode === 'selectTarget') {
-    // Проверяем, что клик был по гексу
+// ====== РЕЖИМ ВЫБОРА ЦЕЛИ ДЛЯ ОБСТРЕЛА ======
+if (appData.campaign.opMapMode === 'selectTarget') {
     if (!closestOpHex || minOpDist >= size) {
-      document.getElementById('mapInfo').innerHTML = '❌ Кликните по гексу с врагом.';
-      return;
+        document.getElementById('mapInfo').innerHTML = '❌ Кликните по гексу с врагом.';
+        return;
     }
-    
+
+    // Проверяем, есть ли враг на этом гексе
     const targetUnit = getEnemyUnitAtHex(closestOpHex);
     if (!targetUnit) {
-      document.getElementById('mapInfo').innerHTML = '❌ На этом гексе нет вражеских юнитов!';
-      return;
+        document.getElementById('mapInfo').innerHTML = '❌ На этом гексе нет вражеских юнитов!';
+        return;
     }
-    
+
     const shooter = opShootingState.shooter;
     if (!shooter) {
-      document.getElementById('mapInfo').innerHTML = '❌ Ошибка: стрелок не выбран!';
-      appData.campaign.opMapMode = 'view';
-      return;
+        document.getElementById('mapInfo').innerHTML = '❌ Ошибка: стрелок не выбран!';
+        appData.campaign.opMapMode = 'view';
+        return;
     }
-    
+
+    // Проверяем дистанцию
     const distance = getOpHexDistance(shooter.col, shooter.row, targetUnit.col, targetUnit.row);
     if (distance > 3) {
-      document.getElementById('mapInfo').innerHTML = `❌ Цель слишком далеко! (${distance} гексов, максимум 3)`;
-      return;
+        document.getElementById('mapInfo').innerHTML = `❌ Цель слишком далеко! (${distance} гексов, максимум 3)`;
+        return;
+    }
+
+    // Сохраняем цель и вычисляем урон
+    opShootingState.target = targetUnit;
+    
+    // Сразу рассчитываем урон
+    const result = calculateOpShootDamage(shooter, targetUnit, distance);
+    
+    // Подсвечиваем врага красным
+    highlightEnemyUnit(targetUnit);
+    
+    // Показываем модальное окно с результатом
+    showShootResultModal(shooter, targetUnit, distance, result);
+    
+    // Тратим ОД стрелка
+    const spentAP = shooter.ap;
+    shooter.ap = 0;
+    
+    // Применяем урон
+    const applied = applyDamageToOpUnit(targetUnit, result.damage);
+    
+    // Сбрасываем состояние
+    opShootingState.active = false;
+    opShootingState.shooter = null;
+    opShootingState.target = null;
+    opShootingState.step = 'selectShooter';
+    appData.campaign.opMapMode = 'view';
+    
+    // Логируем
+    const logMsg = `🎯 ОБСТРЕЛ: ${shooter.name} → ${targetUnit.name} (${distance} гексов) | Урон: ${result.damage} | Попаданий: ${result.hits}`;
+    log(logMsg);
+    document.getElementById('mapInfo').innerHTML = logMsg;
+    document.getElementById('mapInfo').style.color = '#aaa';
+    
+    if (applied.killed > 0) {
+        log(`💀 ${targetUnit.name} потерял ${applied.killed} бойцов!`);
+        if (targetUnit.isDestroyed) {
+            log(`☠️ ${targetUnit.name} УНИЧТОЖЕН!`);
+            document.getElementById('mapInfo').innerHTML += ' 💀 УНИЧТОЖЕН!';
+        }
     }
     
-    opShootingState.target = targetUnit;
-    opShootingState.step = 'confirm';
-    document.getElementById('mapInfo').innerHTML = 
-      `🎯 Цель: ${targetUnit.name} (дистанция ${distance} гексов). Нажмите "Подтвердить обстрел" или выберите другую цель.`;
-    showShootingConfirm(distance);
+    saveData();
+    redrawOperationalMap();
+    updateOpPlaceSelect();
     return;
-  }
+}
 
   // ====== РЕЖИМ РЕДАКТИРОВАНИЯ МЕСТНОСТИ ======
   if (appData.campaign.opMapMode === 'editTerrain') {
@@ -2337,6 +2380,24 @@ if (isEnemy && unit === appData.campaign.selectedEnemyOpUnit) {
   ctx.fillStyle = '#fff';
   ctx.fillText(unit.name.substring(0, 3), drawX, drawY);
 
+// Подсветка красным для выбранной цели обстрела
+if (isEnemy && unit._highlighted) {
+    ctx.strokeStyle = '#ff0000';
+    ctx.lineWidth = 6;
+    ctx.shadowColor = '#ff0000';
+    ctx.shadowBlur = 20;
+    ctx.beginPath();
+    ctx.arc(drawX, drawY, radius + 10, 0, 2 * Math.PI);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    // Анимируем пульсирующую рамку
+    ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.arc(drawX, drawY, radius + 16, 0, 2 * Math.PI);
+    ctx.stroke();
+}
  // ОД
   ctx.fillStyle = isEnemy ? '#ffcc00' : '#fff';
   ctx.font = `${size * 0.2}px Arial`;
@@ -10853,33 +10914,35 @@ let opShootingState = {
 
 // Начать обстрел
 function startOpShooting() {
-    // Проверяем, есть ли выбранный юнит
     const selectedUnit = appData.campaign.selectedOpUnit;
     if (!selectedUnit) {
         document.getElementById('mapInfo').innerHTML = '❌ Сначала выберите свой юнит на карте!';
         return;
     }
-    
-    // Проверяем, что юнит может стрелять (не техника без оружия, не штаб и т.д.)
+
     if (!canUnitShoot(selectedUnit)) {
         document.getElementById('mapInfo').innerHTML = '❌ Этот юнит не может вести огонь!';
         return;
     }
-    
-    // Проверяем, есть ли у юнита ОД
+
     if (selectedUnit.ap <= 0) {
         document.getElementById('mapInfo').innerHTML = '❌ У юнита нет ОД для стрельбы!';
         return;
     }
-    
+
+    // Сбрасываем подсветку врагов
+    clearEnemyHighlight();
+
     opShootingState.active = true;
     opShootingState.shooter = selectedUnit;
     opShootingState.step = 'selectTarget';
+    opShootingState.target = null;
+
+    appData.campaign.opMapMode = 'selectTarget';
     
     document.getElementById('mapInfo').innerHTML = `🎯 Выбран стрелок: ${selectedUnit.name}. Кликните по вражескому юниту в радиусе 3 гексов.`;
+    document.getElementById('mapInfo').style.color = '#f1c40f';
     
-    // Включаем режим выбора цели на карте
-    appData.campaign.opMapMode = 'selectTarget';
     redrawOperationalMap();
 }
 
@@ -11322,8 +11385,103 @@ function applyDamageToAllUnits() {
   alert(`✅ Применено урона: ${totalDamageApplied}, убито бойцов: ${killedCount}`);
   log(`💥 На батальон применён урон: ${totalDamageApplied} единиц, убито: ${killedCount}`);
 }
+// Храним ID подсвеченного врага
+let highlightedEnemyUnit = null;
 
-      
+function highlightEnemyUnit(unit) {
+    // Снимаем подсветку с предыдущего
+    clearEnemyHighlight();
+    
+    if (!unit) return;
+    
+    // Сохраняем ссылку на подсвеченный юнит
+    highlightedEnemyUnit = unit;
+    
+    // Добавляем маркер подсветки в данные юнита
+    unit._highlighted = true;
+    
+    // Перерисовываем карту
+    redrawOperationalMap();
+}
+
+function clearEnemyHighlight() {
+    if (highlightedEnemyUnit) {
+        highlightedEnemyUnit._highlighted = false;
+        highlightedEnemyUnit = null;
+    }
+    
+    // Очищаем подсветку у всех врагов
+    if (appData.campaign.enemyOpUnits) {
+        appData.campaign.enemyOpUnits.forEach(u => {
+            u._highlighted = false;
+        });
+    }
+}
+ function showShootResultModal(shooter, target, distance, result) {
+    // Удаляем старые модальные окна
+    const oldModals = document.querySelectorAll('.shoot-result-modal');
+    oldModals.forEach(el => el.remove());
+
+    const modalHtml = `
+        <div class="shoot-result-modal" style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); 
+                    background:#2c2c2c; border:3px solid #c0392b; border-radius:16px; 
+                    padding:30px; z-index:9999; min-width:420px; max-width:600px; color:#ddd;
+                    box-shadow: 0 0 60px rgba(192,57,43,0.4);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h2 style="color:#e74c3c; margin:0;">🎯 РЕЗУЛЬТАТ ОБСТРЕЛА</h2>
+                <button onclick="this.closest('.shoot-result-modal').remove()" 
+                        style="background:#555; color:#fff; border:none; border-radius:50%; width:30px; height:30px; font-size:18px; cursor:pointer;">✕</button>
+            </div>
+            <hr style="border-color:#555; margin:10px 0;">
+            
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px 20px;">
+                <div><strong style="color:#f1c40f;">Стрелок:</strong></div>
+                <div>${shooter.name}</div>
+                
+                <div><strong style="color:#e74c3c;">Цель:</strong></div>
+                <div>${target.name}</div>
+                
+                <div><strong style="color:#f1c40f;">Дистанция:</strong></div>
+                <div>${distance} гексов (мод. ${result.distanceMod})</div>
+                
+                <div><strong style="color:#f1c40f;">Местность цели:</strong></div>
+                <div>${result.terrainMod === 1 ? 'Открытая' : result.terrainMod === 0.7 ? 'Умеренное укрытие' : result.terrainMod === 0.6 ? 'Лес' : 'Окопы/здание'} (мод. ${result.terrainMod})</div>
+                
+                <div><strong style="color:#f1c40f;">Базовый урон:</strong></div>
+                <div>${result.totalBaseDamage} ед.</div>
+                
+                <div><strong style="color:#f1c40f;">Попаданий:</strong></div>
+                <div>${result.hits}</div>
+                
+                <div><strong style="color:#f1c40f;">Бойцов в цели:</strong></div>
+                <div>${result.targetAlive}</div>
+                
+                <div><strong style="color:#f1c40f;">ОД потрачено:</strong></div>
+                <div>${shooter.ap === 0 ? 'Все' : shooter.ap + ' осталось'}</div>
+            </div>
+            
+            <hr style="border-color:#555; margin:15px 0;">
+            
+            <div style="text-align:center; font-size:1.4rem;">
+                <strong style="color:#f1c40f;">ИТОГОВЫЙ УРОН:</strong>
+                <span style="color:#e74c3c; font-size:2rem; font-weight:bold; margin-left:10px;">${result.damage}</span>
+            </div>
+            
+            ${result.details ? `<div style="margin-top:10px; padding:8px; background:#1a1a1a; border-radius:6px; font-size:0.8rem; color:#aaa; max-height:80px; overflow-y:auto;">Состав: ${result.details}</div>` : ''}
+            
+            <div style="margin-top:18px; text-align:center;">
+                <button onclick="this.closest('.shoot-result-modal').remove()" 
+                        style="background:#c0392b; color:#fff; padding:10px 30px; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:1rem;">
+                    ✅ Принять
+                </button>
+            </div>
+        </div>
+    `;
+
+    const modalDiv = document.createElement('div');
+    modalDiv.innerHTML = modalHtml;
+    document.body.appendChild(modalDiv.firstElementChild);
+}     
   </script> 
   
  <div id="awardsTab" class="tabcontent">
