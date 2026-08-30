@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.148 — карта  </title>
+  <title>Боевой модуль v12.149 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.148</h1>
+    <h1>⚔️ Боевой модуль v12.149</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.148 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.149 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1759,13 +1759,14 @@ if (enemiesOnTarget.length > 0) {
     return;
 }
     
-            // Проверяем стоимость перемещения (1 ОД за гекс, пока всё трава)
-        const moveCost = getOpMoveCost(selectedUnit, selectedUnit.col, selectedUnit.row, h.col, h.row);
-        if (!spendOpAP(selectedUnit, moveCost)) {
-        document.getElementById('mapInfo').innerHTML = 'Недостаточно ОД для перемещения.';
-        redrawOperationalMap();
-        return;
-      }
+// Проверяем стоимость перемещения
+const moveCost = getOpMoveCost(selectedUnit, selectedUnit.col, selectedUnit.row, h.col, h.row);
+if (!spendOpAP(selectedUnit, moveCost)) {
+    document.getElementById('mapInfo').innerHTML = 'Недостаточно ОД для перемещения.';
+    redrawOperationalMap();
+    return;
+}
+
 // Проверяем, не участвует ли юнит в активном бою
 const inBattle = appData.campaign.activeBattles.some(b => 
     b.playerUnitName === selectedUnit.name
@@ -1775,23 +1776,23 @@ if (inBattle) {
     redrawOperationalMap();
     return;
 }
-      // Если врага нет, перемещаемся
-      selectedUnit.col = h.col;
-      selectedUnit.row = h.row;
-      
-// ======== ПЕРЕМЕЩЕНИЕ ГРУППЫ ========
-// Если выбранный юнит - это группа, перемещаем все машины в группе
-if (selectedUnit.isGroup && selectedUnit.groupMembers && selectedUnit.groupMembers.length > 0) {
-    selectedUnit.groupMembers.forEach(memberId => {
-        const member = appData.campaign.opUnits[memberId];
-        if (member) {
-            member.col = h.col;
-            member.row = h.row;
-        }
-    });
-    console.log(`Группа "${selectedUnit.name}" перемещена вместе с ${selectedUnit.groupMembers.length} машинами`);
-}
 
+// Если врага нет, перемещаемся
+selectedUnit.col = h.col;
+selectedUnit.row = h.row;
+
+// ======== ПРОВЕРКА ОД ПОСЛЕ ПЕРЕМЕЩЕНИЯ ========
+// Сначала обновляем доступные гексы с новым количеством ОД
+if (selectedUnit.ap > 0) {
+    // Пересчитываем доступные гексы с новым количеством ОД
+    selectedUnit.availableHexes = getOpReachableHexesForUnit(selectedUnit);
+    document.getElementById('mapInfo').innerHTML = `Выбран: ${selectedUnit.name} (ОД: ${selectedUnit.ap})`;
+} else {
+    // ОД кончились - снимаем выделение
+    appData.campaign.selectedOpUnit = null;
+    if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
+    document.getElementById('mapInfo').innerHTML = `${selectedUnit.name} потратил все ОД.`;
+}
 // ======== ПЕРЕМЕЩЕНИЕ ПЕХОТЫ В БТР ========
 // Если выбранный юнит - это БТР и в нем есть пехота
 if (selectedUnit.embarkedUnitId !== undefined && selectedUnit.embarkedUnitId !== null) {
@@ -2071,7 +2072,92 @@ function drawUnit(unit, isEnemy = false, offsetX = 0, offsetY = 0) {
   ctx.font = '10px Arial';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-
+// ======== ОТРИСОВКА ГРУППЫ ТЕХНИКИ ========
+if (unit.isGroup && unit.groupSize > 1) {
+    const count = unit.groupSize;
+    
+    // Получаем иконку для группы конкретного юнита
+    const iconUrl = getGroupIcon(unit);
+    
+    if (iconUrl) {
+        // Загружаем иконку
+        let img = loadedOpUnitIcons[iconUrl];
+        if (!img) {
+            img = new Image();
+            img.src = iconUrl;
+            loadedOpUnitIcons[iconUrl] = img;
+        }
+        
+        if (img.complete && img.naturalWidth > 0) {
+            // Рисуем иконку
+            const iconSize = radius * 2.2;
+            ctx.drawImage(img, drawX - iconSize/2, drawY - iconSize/2, iconSize, iconSize);
+        } else {
+            img.onload = () => redrawOperationalMap();
+            // Пока иконка грузится, рисуем заглушку
+            ctx.fillStyle = '#c0392b';
+            ctx.beginPath();
+            ctx.arc(drawX, drawY, radius, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.font = `bold ${radius * 0.7}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(`×${count}`, drawX, drawY);
+        }
+    } else {
+        // Если иконки нет - рисуем стандартную фигуру с числом
+        ctx.fillStyle = '#c0392b';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(drawX, drawY, radius, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${radius * 0.8}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`×${count}`, drawX, drawY);
+    }
+    
+    // Подпись (название группы)
+    ctx.fillStyle = '#fff';
+    ctx.font = `${radius * 0.4}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    let shortName = unit.name;
+    if (shortName.length > 12) shortName = shortName.substring(0, 12) + '...';
+    ctx.fillText(shortName, drawX, drawY + radius + 8);
+    
+    // ОД
+    ctx.fillStyle = '#fff';
+    ctx.font = `${radius * 0.35}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`ОД:${unit.ap}`, drawX, drawY - radius - 10);
+    
+    // Подсветка выбранной группы
+    if (!isEnemy && unit === appData.campaign.selectedOpUnit) {
+        ctx.strokeStyle = '#00ff00';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(drawX, drawY, radius + 6, 0, 2 * Math.PI);
+        ctx.stroke();
+    }
+    
+    // Если в группе есть пехота (для БТР)
+    if (unit.embarkedUnit) {
+        ctx.fillStyle = '#00ff00';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('👥', drawX, drawY - radius - 22);
+    }
+    
+    return; // Выходим, чтобы не рисовать стандартную фигуру
+}
+// ======== КОНЕЦ ОТРИСОВКИ ГРУППЫ ========
   // Если это БТР и в нем есть пехота — рисуем значок
     if (unit.embarkedUnit) {
         ctx.fillStyle = '#00ff00';
@@ -2532,22 +2618,22 @@ document.getElementById('battleApp').style.display = 'none';
           {"name":"Штурмовое отделение №10","faction":"A.I.R.F.","baseMorale":10,"currentMorale":10,"icon":"images/штурм 2.jpg","fighters":[{"name":"Сержант","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 7","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Пулеметчик","weapon":"Ручной пулемет Zb.26","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":80,"ammoOrdnance":0,"grenades":20},
           {"name":"Штурмовое отделение №11","faction":"A.I.R.F.","baseMorale":10,"currentMorale":10,"icon":"images/штурм 2.jpg","fighters":[{"name":"Сержант","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 7","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Пулеметчик","weapon":"Ручной пулемет Zb.26","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":80,"ammoOrdnance":0,"grenades":20},
           {"name":"Штурмовое отделение №12","faction":"A.I.R.F.","baseMorale":10,"currentMorale":10,"icon":"images/штурм 2.jpg","fighters":[{"name":"Сержант","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 5","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 6","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 7","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Пулеметчик","weapon":"Ручной пулемет Zb.26","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":80,"ammoOrdnance":0,"grenades":20},
-          {"name":"Штаб взвода №1","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штаб1.jpg","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб взвода №2","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штаб1.jpg","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб взвода №3","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штаб1.jpg","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб взвода №4","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штаб1.jpg","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб взвода №5","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штаб1.jpg","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб взвода №6","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штаб1.jpg","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб взвода №7","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штаб1.jpg","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб взвода №8","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штаб1.jpg","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб взвода №9","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штаб1.jpg","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб роты №1","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штаб1.jpg","fighters":[{"name":"Ком.Роты","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб роты №2","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штаб1.jpg","fighters":[{"name":"Ком.Роты","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб роты №3","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штаб1.jpg","fighters":[{"name":"Ком.Роты","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб взвода №1","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/стрелковый взвод аирф №1.png","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб взвода №2","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/стрелковый взвод аирф №2.png","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб взвода №3","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штурмовой взвод аирф №3.png","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб взвода №4","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/стрелковый взвод аирф №4.png","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб взвода №5","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/стрелковый взвод аирф №5.png","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб взвода №6","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штурмовой взвод аирф №6.png","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб взвода №7","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/стрелковый взвод аирф №7.png","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб взвода №8","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/стрелковый взвод аирф №8.png","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб взвода №9","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штурмовой взвод аирф №9.png","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб роты №1","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/AIRF/рота аирф 1.png","fighters":[{"name":"Ком.Роты","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб роты №2","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/AIRF/рота аирф 2.png","fighters":[{"name":"Ком.Роты","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб роты №3","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/AIRF/рота аирф 3.png","fighters":[{"name":"Ком.Роты","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
           {"name":"Штаб Батальона","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/штаб1.jpg","fighters":[{"name":"Ком.Батальона","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Штаб развед. взвода","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"","fighters":[{"name":"Ком.взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
-          {"name":"Развед. отделение №1","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"","fighters":[{"name":"Сержант","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Пулеметчик ","weapon":"Ручной пулемет Zb.26","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":42,"ammoOrdnance":0,"grenades":28},
-          {"name":"Развед. отделение №2","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"","fighters":[{"name":"Сержант","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Пулеметчик ","weapon":"Ручной пулемет Zb.26","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":42,"ammoOrdnance":0,"grenades":28},
+          {"name":"Штаб развед. взвода","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/AIRF/развед аирф.png","fighters":[{"name":"Ком.взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Развед. отделение №1","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/развед аирф 1.png","fighters":[{"name":"Сержант","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Пулеметчик ","weapon":"Ручной пулемет Zb.26","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":42,"ammoOrdnance":0,"grenades":28},
+          {"name":"Развед. отделение №2","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/развед аирф 2.png","fighters":[{"name":"Сержант","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Пулеметчик ","weapon":"Ручной пулемет Zb.26","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":42,"ammoOrdnance":0,"grenades":28},
           {"name":"Штаб саперного взвода","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/штаб1 саперский.png","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Сапер 1","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Сапер 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Сапер 3","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Сапер 4","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Пулеметчик ","weapon":"Ручной пулемет Zb.26","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":42,"ammoOrdnance":0,"grenades":28},
           {"name":"Саперное отделение №1","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/сапер1.jpg","fighters":[{"name":"Сержант","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Сапер 1","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Сапер 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Сапер 3","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Сапер 4","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Пулеметчик ","weapon":"Ручной пулемет Zb.26","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":42,"ammoOrdnance":0,"grenades":28},
           {"name":"Саперное отделение №2","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/сапер2.jpg","fighters":[{"name":"Сержант","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Сапер 1","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Сапер 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Сапер 3","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Сапер 4","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Пулеметчик ","weapon":"Ручной пулемет Zb.26","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":42,"ammoOrdnance":0,"grenades":28},
@@ -2675,7 +2761,7 @@ document.getElementById('battleApp').style.display = 'none';
           ],
           "armor": { "front": 25, "side": 15, "rear": 10, "turret": null },
           "embarkedSquadIndex": null},
-           {"name":"БТР Llanero №4","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/бтр3.jpg","ammoSmall":40,"ammoOrdnance":0,"grenades":0,"fighters":[
+           {"name":"БТР Llanero №4","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/бтр4.png","ammoSmall":40,"ammoOrdnance":0,"grenades":0,"fighters":[
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3}
           ],
           "crewInstances":[
@@ -2683,7 +2769,7 @@ document.getElementById('battleApp').style.display = 'none';
           ],
           "armor": { "front": 25, "side": 15, "rear": 10, "turret": null },
           "embarkedSquadIndex": null},
-          {"name":"БТР Llanero №5","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/бтр3.jpg","ammoSmall":40,"ammoOrdnance":0,"grenades":0,"fighters":[
+          {"name":"БТР Llanero №5","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/бтр5.png","ammoSmall":40,"ammoOrdnance":0,"grenades":0,"fighters":[
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3}
           ],
           "crewInstances":[
@@ -2692,7 +2778,7 @@ document.getElementById('battleApp').style.display = 'none';
           "armor": { "front": 25, "side": 15, "rear": 10, "turret": null },
           "embarkedSquadIndex": null},
           
-                        {"name":"Легкий танк CL/39 №1","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
+                        {"name":"Легкий танк CL/39 №1","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/лт аирф CL39 №1.png","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},
             {"name":"Стрелок-радист","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},
             {"name":"Заряжающий","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},
@@ -2702,7 +2788,7 @@ document.getElementById('battleApp').style.display = 'none';
             {"weaponName": "Танковый пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true } ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
           
-                     {"name":"Легкий танк CL/39 №2","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
+                     {"name":"Легкий танк CL/39 №2","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/лт аирф CL39 №2.png","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},
             {"name":"Стрелок-радист","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},
             {"name":"Заряжающий","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},
@@ -2713,7 +2799,7 @@ document.getElementById('battleApp').style.display = 'none';
             {"weaponName": "Танковый пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
           ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
-                     {"name":"Легкий танк CL/39 №3","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
+                     {"name":"Легкий танк CL/39 №3","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/лт аирф CL39 №3.png","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},
             {"name":"Стрелок-радист","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},
             {"name":"Заряжающий","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},
@@ -2724,7 +2810,7 @@ document.getElementById('battleApp').style.display = 'none';
             {"weaponName": "Танковый пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
           ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
-                     {"name":"Легкий танк CL/39 №4","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
+                     {"name":"Легкий танк CL/39 №4","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/лт аирф CL39 №4.png","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},
             {"name":"Стрелок-радист","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},
             {"name":"Заряжающий","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},
@@ -2735,7 +2821,7 @@ document.getElementById('battleApp').style.display = 'none';
             {"weaponName": "Танковый пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
           ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
-                     {"name":"Легкий танк CL/39 №5","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
+                     {"name":"Легкий танк CL/39 №5","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/лт аирф CL39 №5.png","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},
             {"name":"Стрелок-радист","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},
             {"name":"Заряжающий","weapon":"Пистолет Star M1914","hp":3,"maxHp":3},
@@ -7576,7 +7662,167 @@ const markerIconMap = {
 };
 const loadedMarkerImages = {};
 const loadedOpUnitIcons = {}; // кэш для иконок операционных юнитов
-  
+      // ========== ФУНКЦИЯ ПОЛУЧЕНИЯ ИКОНКИ ДЛЯ ГРУППЫ КОНКРЕТНОГО ЮНИТА ==========
+function getGroupIcon(unit) {
+    if (!unit || !unit.isGroup || !unit.groupSize) return null;
+    
+    const count = unit.groupSize;
+    const iconCount = count > 5 ? '5' : String(count);
+    
+    // Определяем фракцию юнита
+    let faction = '';
+    if (unit.faction) {
+        faction = unit.faction;
+    } else if (unit.squads && unit.squads.length > 0 && unit.squads[0].faction) {
+        faction = unit.squads[0].faction;
+    } else {
+        // Если фракция не определена, пробуем определить по имени юнита
+        const name = unit.name || '';
+        if (name.includes('BeVe') || name.includes('Бельгий') || name.includes('Голланд')) {
+            faction = 'BeVe';
+        } else if (name.includes('A.I.R.F.') || name.includes('AIRF')) {
+            faction = 'A.I.R.F.';
+        }
+    }
+    
+    // Определяем тип техники
+    let type = 'default';
+    const name = unit.name || '';
+    const typeName = unit.vehicleType || unit.type || '';
+    
+    if (name.includes('БТР') || typeName === 'btr_platoon') {
+        type = 'btr';
+    } else if (name.includes('CL/39') || name.includes('Танк') || typeName === 'tank_platoon') {
+        type = 'tank';
+    } else if (name.includes('САУ') || typeName === 'sau_battery' || name.includes('Brugge')) {
+        type = 'sau';
+    } else if (name.includes('Landsverk') || name.includes('Бронеавтомобиль') || typeName === 'armored_vehicle_platoon') {
+        type = 'landsverk';
+    }
+    
+    // Формируем путь к иконке: images/Фракция/groups/тип_количество.png
+    let iconPath = '';
+    
+    if (faction) {
+        iconPath = `images/${faction}/groups/${type}_${iconCount}.png`;
+    } else {
+        // Если фракция не определена, ищем в общей папке
+        iconPath = `images/groups/${type}_${iconCount}.png`;
+    }
+    
+    // Проверяем, есть ли такая иконка в кэше
+    // Если нет - возвращаем путь, иконка загрузится при отрисовке
+    return iconPath;
+}
+// ========== ИКОНКИ ДЛЯ ГРУПП ТЕХНИКИ ==========
+const GROUP_ICONS = {
+    // БТР
+    'btr_2': 'images/AIRF/БТР аирф Llanero группа из 2.png',
+    'btr_3': 'images/AIRF/БТР аирф Llanero группа из 3.png',
+    'btr_4': 'images/AIRF/БТР аирф Llanero группа из 4.png',
+    'btr_5': 'images/AIRF/БТР аирф Llanero группа из 5.png',
+    // Танки
+    'tank_2': 'images/AIRF/лт аирф CL39 группа из 2.png',
+    'tank_3': 'images/AIRF/лт аирф CL39 группа из 3.png',
+    'tank_4': 'images/AIRF/лт аирф CL39 группа из 4.png',
+    'tank_5': 'images/AIRF/лт аирф CL39 группа из 5.png',
+    // САУ
+    'sau_2': 'images/BeVe/САУ Brugge группа из 2.png',
+    'sau_3': 'images/BeVe/САУ Brugge группа из 3.png',
+    'sau_4': 'images/groups/sau_4.png',
+    'sau_5': 'images/groups/sau_5.png',
+    // Бронеавтомобили
+    'ba_2': 'images/BeVe/Landsverk 183 группа из 2.png',
+    'ba_3': 'images/BeVe/Landsverk 183 группа из 3.png',
+    'ba_4': 'images/groups/ba_4.png',
+    'ba_5': 'images/groups/ba_5.png',
+    // Универсальная иконка (если нет специальной)
+    'default_2': 'images/groups/default_2.png',
+    'default_3': 'images/groups/default_3.png',
+    'default_4': 'images/groups/default_4.png',
+    'default_5': 'images/groups/default_5.png',
+};
+// ========== ФУНКЦИЯ ПОЛУЧЕНИЯ ИКОНКИ ДЛЯ ГРУППЫ ==========
+// ========== ФУНКЦИЯ ПОЛУЧЕНИЯ ИКОНКИ ДЛЯ ГРУППЫ ==========
+function getGroupIcon(unit) {
+    if (!unit || !unit.isGroup || !unit.groupSize) return null;
+    
+    const count = unit.groupSize;
+    const iconCount = count > 5 ? '5' : String(count);
+    
+    // Определяем тип техники
+    let type = 'default';
+    const name = unit.name || '';
+    const typeName = unit.vehicleType || unit.type || '';
+    const vehicleClass = unit.vehicleClass || '';
+    
+    // Сначала проверяем vehicleClass (устанавливается при создании группы)
+    if (vehicleClass === 'btr') {
+        type = 'btr';
+    } else if (vehicleClass === 'tank') {
+        type = 'tank';
+    } else if (vehicleClass === 'sau') {
+        type = 'sau';
+    } else if (vehicleClass === 'ba' || vehicleClass === 'landsverk') {
+        type = 'ba';
+    } else if (name.includes('БТР') || typeName === 'btr_platoon') {
+        type = 'btr';
+    } else if (name.includes('CL/39') || name.includes('Танк') || typeName === 'tank_platoon') {
+        type = 'tank';
+    } else if (name.includes('САУ') || typeName === 'sau_battery' || name.includes('Brugge')) {
+        type = 'sau';
+    } else if (name.includes('Landsverk') || name.includes('Бронеавтомобиль') || typeName === 'armored_vehicle_platoon') {
+        type = 'ba';
+    }
+    
+    // Определяем фракцию для выбора правильной папки
+    let faction = '';
+    if (unit.faction) {
+        faction = unit.faction;
+    } else if (unit.squads && unit.squads.length > 0 && unit.squads[0].faction) {
+        faction = unit.squads[0].faction;
+    }
+    
+    // Определяем ключ для поиска в GROUP_ICONS
+    // Если фракция определена, ищем иконку с учетом фракции
+    let iconKey = '';
+    
+    // Сначала проверяем, есть ли иконка для конкретной фракции
+    // Формируем ключ: faction_type_count
+    if (faction) {
+        // Для AIRF используем их иконки БТР и танков
+        if (faction === 'A.I.R.F.') {
+            if (type === 'btr') iconKey = `btr_${iconCount}`;
+            else if (type === 'tank') iconKey = `tank_${iconCount}`;
+            else if (type === 'sau') iconKey = `sau_${iconCount}`;
+            else if (type === 'ba') iconKey = `ba_${iconCount}`;
+        }
+        // Для BeVe используем их иконки САУ и бронеавтомобилей
+        else if (faction === 'BeVe') {
+            if (type === 'sau') iconKey = `sau_${iconCount}`;
+            else if (type === 'ba') iconKey = `ba_${iconCount}`;
+            else if (type === 'btr') iconKey = `btr_${iconCount}`;
+            else if (type === 'tank') iconKey = `tank_${iconCount}`;
+        }
+        // Для других фракций - используем общие иконки
+        else {
+            iconKey = `${type}_${iconCount}`;
+        }
+    }
+    
+    // Если иконка для фракции не найдена, ищем общую
+    if (!iconKey || !GROUP_ICONS[iconKey]) {
+        iconKey = `${type}_${iconCount}`;
+    }
+    
+    // Если и общей нет - берем дефолтную
+    if (!GROUP_ICONS[iconKey]) {
+        iconKey = `default_${iconCount}`;
+    }
+    
+    return GROUP_ICONS[iconKey] || null;
+}
+      
 // ========== СТРУКТУРА БАТАЛЬОНОВ ==========
 const BATTALION_PRESETS = {
   "BeVe": {
@@ -7729,8 +7975,8 @@ const BATTALION_PRESETS = {
               { name: "Штаб развед. взвода", templateName: "Штаб развед. взвода" }
              ]
           },
-      { type: "infantry_company", name: "1-я стрелковая рота", icon: "images/рота аирф 1.png", platoons: [
-            { name: "1-й стрелковый взвод", icon: "images/гиаб взв аирф 1.png", squads: [
+      { type: "infantry_company", name: "1-я стрелковая рота", icon: "images/AIRF/рота аирф 1.png", platoons: [
+            { name: "1-й стрелковый взвод", icon: "images/стрелковый взвод аирф №1.png", squads: [
               { name: "Стрелковое отделение №1", templateName: "Стрелковое отделение №1" },
               { name: "Стрелковое отделение №2", templateName: "Стрелковое отделение №2" },
               { name: "Стрелковое отделение №3", templateName: "Стрелковое отделение №3" },
@@ -7739,7 +7985,7 @@ const BATTALION_PRESETS = {
               { name: "Пулемётный расчёт №1", templateName: "Пулеметный расчёт №1" }
             ]
           },
-          { name: "2-й стрелковый взвод", icon: "images/гиаб взв аирф 2.png", squads: [
+          { name: "2-й стрелковый взвод", icon: "iimages/стрелковый взвод аирф №2.png", squads: [
               { name: "Стрелковое отделение №5", templateName: "Стрелковое отделение №5" },
               { name: "Стрелковое отделение №6", templateName: "Стрелковое отделение №6" },
               { name: "Стрелковое отделение №7", templateName: "Стрелковое отделение №7" },
@@ -7748,7 +7994,7 @@ const BATTALION_PRESETS = {
               { name: "Пулемётный расчёт №2", templateName: "Пулеметный расчёт №2" }
             ]
           },
-         { name: "3-й штурмовой взвод", icon: "images/гиаб взв аирф 3.png", squads: [
+         { name: "3-й штурмовой взвод", icon: "images/штурмовой взвод аирф №3.png", squads: [
               { name: "Штурмовое отделение №1", templateName: "Штурмовое отделение №1" },
               { name: "Штурмовое отделение №2", templateName: "Штурмовое отделение №2" },
               { name: "Штурмовое отделение №3", templateName: "Штурмовое отделение №3" },
@@ -7758,11 +8004,11 @@ const BATTALION_PRESETS = {
             ]
           },
       ], 
-       hq: { name: "Штаб роты №1", templateName: "Штаб роты №1", icon: "images/рота аирф 1.png" } 
+       hq: { name: "Штаб роты №1", templateName: "Штаб роты №1", icon: "images/AIRF/рота аирф 1.png" } 
       },
       // вторая стрелковая рота
-                  { type: "infantry_company", name: "2-я стрелковая рота", icon: "images/рота аирф 2.png", platoons: [
-            { name: "4-й стрелковый взвод", icon: "", squads: [
+                  { type: "infantry_company", name: "2-я стрелковая рота", icon: "images/AIRF/рота аирф 2.png", platoons: [
+            { name: "4-й стрелковый взвод", icon: "images/стрелковый взвод аирф №4.png", squads: [
               { name: "Стрелковое отделение №9", templateName: "Стрелковое отделение №9" },
               { name: "Стрелковое отделение №10", templateName: "Стрелковое отделение №10" },
               { name: "Стрелковое отделение №11", templateName: "Стрелковое отделение №11" },
@@ -7771,7 +8017,7 @@ const BATTALION_PRESETS = {
               { name: "Пулемётный расчёт №4", templateName: "Пулеметный расчёт №4" }
             ]
           },
-          { name: "5-й стрелковый взвод", icon: "", squads: [
+          { name: "5-й стрелковый взвод", icon: "images/стрелковый взвод аирф №5.png", squads: [
               { name: "Стрелковое отделение №13", templateName: "Стрелковое отделение №13" },
               { name: "Стрелковое отделение №14", templateName: "Стрелковое отделение №14" },
               { name: "Стрелковое отделение №15", templateName: "Стрелковое отделение №15" },
@@ -7780,7 +8026,7 @@ const BATTALION_PRESETS = {
               { name: "Пулемётный расчёт №5", templateName: "Пулеметный расчёт №5" }
             ]
           },
-         { name: "6-й штурмовой взвод", icon: "", squads: [
+         { name: "6-й штурмовой взвод", icon: "images/штурмовой взвод аирф №6.png", squads: [
               { name: "Штурмовое отделение №5", templateName: "Штурмовое отделение №5" },
               { name: "Штурмовое отделение №6", templateName: "Штурмовое отделение №6" },
               { name: "Штурмовое отделение №7", templateName: "Штурмовое отделение №7" },
@@ -7790,11 +8036,11 @@ const BATTALION_PRESETS = {
             ]
           },
       ], 
-       hq: { name: "Штаб роты №2", templateName: "Штаб роты №2", icon: "images/рота аирф 2.png" } 
+       hq: { name: "Штаб роты №2", templateName: "Штаб роты №2", icon: "images/AIRF/рота аирф 2.png" } 
       },
               //третья стрелковая рота
-                  { type: "infantry_company", name: "3-я стрелковая рота", icon: "images/рота аирф 3.png", platoons: [
-            { name: "7-й стрелковый взвод", icon: "", squads: [
+                  { type: "infantry_company", name: "3-я стрелковая рота", icon: "images/AIRF/рота аирф 3.png", platoons: [
+            { name: "7-й стрелковый взвод", icon: "images/стрелковый взвод аирф №7.png", squads: [
               { name: "Стрелковое отделение №17", templateName: "Стрелковое отделение №17" },
               { name: "Стрелковое отделение №18", templateName: "Стрелковое отделение №18" },
               { name: "Стрелковое отделение №19", templateName: "Стрелковое отделение №19" },
@@ -7803,7 +8049,7 @@ const BATTALION_PRESETS = {
               { name: "Пулемётный расчёт №7", templateName: "Пулеметный расчёт №7" }
             ]
           },
-          { name: "8-й стрелковый взвод", icon: "", squads: [
+          { name: "8-й стрелковый взвод", icon: "images/стрелковый взвод аирф №8.png", squads: [
               { name: "Стрелковое отделение №21", templateName: "Стрелковое отделение №21" },
               { name: "Стрелковое отделение №22", templateName: "Стрелковое отделение №22" },
               { name: "Стрелковое отделение №23", templateName: "Стрелковое отделение №23" },
@@ -7812,7 +8058,7 @@ const BATTALION_PRESETS = {
               { name: "Пулемётный расчёт №8", templateName: "Пулеметный расчёт №8" }
             ]
           },
-         { name: "6-й штурмовой взвод", icon: "", squads: [
+         { name: "9-й штурмовой взвод", icon: "images/штурмовой взвод аирф №9.png", squads: [
               { name: "Штурмовое отделение №9", templateName: "Штурмовое отделение №9" },
               { name: "Штурмовое отделение №10", templateName: "Штурмовое отделение №10" },
               { name: "Штурмовое отделение №11", templateName: "Штурмовое отделение №11" },
@@ -7822,7 +8068,7 @@ const BATTALION_PRESETS = {
             ]
           },
       ], 
-       hq: { name: "Штаб роты №3", templateName: "Штаб роты №3", icon: "images/рота аирф 3.png" } 
+       hq: { name: "Штаб роты №3", templateName: "Штаб роты №3", icon: "images/AIRF/рота аирф 3.png" } 
       }
     ],
     supportOptions: [
@@ -7830,15 +8076,15 @@ const BATTALION_PRESETS = {
         { name: "БТР Llanero №1", templateName: "БТР Llanero №1", icon: "images/бтр1.jpg"},
         { name: "БТР Llanero №2", templateName: "БТР Llanero №2", icon: "images/бтр2.jpg"},
         { name: "БТР Llanero №3", templateName: "БТР Llanero №3", icon: "images/бтр3.jpg"},
-        { name: "БТР Llanero №4", templateName: "БТР Llanero №4", icon: ""},
-        { name: "БТР Llanero №5", templateName: "БТР Llanero №5", icon: ""}
+        { name: "БТР Llanero №4", templateName: "БТР Llanero №4", icon: "images/AIRF/бтр4.png"},
+        { name: "БТР Llanero №5", templateName: "БТР Llanero №5", icon: "images/AIRF/бтр5.png"}
       ] },
       { id: "tank_platoon", name: "Взвод Легких танков CL/39 (5 Легких танков CL/39)", templates: [
-        { name: "Легкий танк CL/39 №1", templateName: "Легкий танк CL/39 №1", icon: ""},
-        { name: "Легкий танк CL/39 №2", templateName: "Легкий танк CL/39 №2", icon: ""},
-        { name: "Легкий танк CL/39 №3", templateName: "Легкий танк CL/39 №3", icon: ""},
-        { name: "Легкий танк CL/39 №4", templateName: "Легкий танк CL/39 №4", icon: ""},
-        { name: "Легкий танк CL/39 №5", templateName: "Легкий танк CL/39 №5", icon: ""}
+        { name: "Легкий танк CL/39 №1", templateName: "Легкий танк CL/39 №1", icon: "images/AIRF/лт аирф CL39 №1.png"},
+        { name: "Легкий танк CL/39 №2", templateName: "Легкий танк CL/39 №2", icon: "images/AIRF/лт аирф CL39 №2.png"},
+        { name: "Легкий танк CL/39 №3", templateName: "Легкий танк CL/39 №3", icon: "images/AIRF/лт аирф CL39 №3.png"},
+        { name: "Легкий танк CL/39 №4", templateName: "Легкий танк CL/39 №4", icon: "images/AIRF/лт аирф CL39 №4.png"},
+        { name: "Легкий танк CL/39 №5", templateName: "Легкий танк CL/39 №5", icon: "images/AIRF/лт аирф CL39 №5.png"}
       ] }
     ]
   }
@@ -9876,6 +10122,11 @@ function updateDismountPanel() {
 function getUnitBtrRequirement(unit) {
     if (!unit) return BTR_REQUIREMENTS.default;
     
+    // Если это группа - возвращаем количество машин в группе
+    if (unit.isGroup && unit.groupSize) {
+        return unit.groupSize;
+    }
+    
     // Проверяем тип
     const type = unit.type || '';
     const name = unit.name || '';
@@ -9898,17 +10149,24 @@ function getUnitBtrRequirement(unit) {
     
     return BTR_REQUIREMENTS.default;
 }
-      function getAvailableBtrs() {
+function getAvailableBtrs() {
     if (!appData.campaign.opUnits) return [];
     return appData.campaign.opUnits.filter(u => {
         // БТР - это тип 'btr_platoon' или название содержит 'БТР'
         const isBtr = u.type === 'btr_platoon' || (u.name && u.name.includes('БТР'));
         if (!isBtr) return false;
         // Проверяем, что БТР не занят
-        return !u.embarkedUnit;
+        if (u.embarkedUnit) return false;
+        // Если это группа - проверяем, что в ней нет пехоты
+        if (u.isGroup) {
+            // Группа БТР считается как одна единица для посадки
+            // Но мы можем посадить пехоту на группу БТР
+            return true;
+        }
+        return true;
     });
 }
-      function showBtrEmbarkDialog() {
+function showBtrEmbarkDialog() {
     const unit = appData.campaign.selectedOpUnit;
     if (!unit) {
         document.getElementById('mapInfo').innerHTML = '❌ Сначала выберите отряд для посадки.';
@@ -9927,7 +10185,7 @@ function getUnitBtrRequirement(unit) {
         return;
     }
     
-    // Получаем нужное количество БТР
+    // Получаем нужное количество БТР (для группы это размер группы)
     const required = getUnitBtrRequirement(unit);
     const availableBtrs = getAvailableBtrs();
     
@@ -9936,15 +10194,27 @@ function getUnitBtrRequirement(unit) {
         return;
     }
     
-    if (availableBtrs.length < required) {
-        document.getElementById('mapInfo').innerHTML = `❌ Недостаточно БТР. Нужно: ${required}, доступно: ${availableBtrs.length}`;
+    // Проверяем, хватает ли БТР (учитывая группы)
+    let totalBtrCount = 0;
+    availableBtrs.forEach(btr => {
+        if (btr.isGroup && btr.groupSize) {
+            totalBtrCount += btr.groupSize;
+        } else {
+            totalBtrCount += 1;
+        }
+    });
+    
+    if (totalBtrCount < required) {
+        document.getElementById('mapInfo').innerHTML = `❌ Недостаточно БТР. Нужно: ${required}, доступно: ${totalBtrCount}`;
         return;
     }
     
     // Показываем диалог выбора БТР
     let message = `Для посадки отряда "${unit.name}" нужно ${required} БТР.\n\nДоступные БТР:\n`;
     availableBtrs.forEach((btr, idx) => {
-        message += `${idx+1}. ${btr.name} (гекс ${btr.col},${btr.row})\n`;
+        const count = btr.isGroup && btr.groupSize ? btr.groupSize : 1;
+        const pos = (btr.col !== null && btr.row !== null) ? `(${btr.col},${btr.row})` : '(не размещен)';
+        message += `${idx+1}. ${btr.name} (${count} шт) - ${pos}\n`;
     });
     message += `\nВведите номера БТР через запятую (например: 1,2,3,4,5):`;
     
@@ -9953,15 +10223,23 @@ function getUnitBtrRequirement(unit) {
     
     const indices = choice.split(',').map(s => parseInt(s.trim()) - 1).filter(i => !isNaN(i) && i >= 0 && i < availableBtrs.length);
     
-    if (indices.length !== required) {
-        document.getElementById('mapInfo').innerHTML = `❌ Нужно выбрать ровно ${required} БТР.`;
+    // Проверяем, что выбрано достаточно БТР
+    let selectedCount = 0;
+    const selectedBtrs = indices.map(i => availableBtrs[i]);
+    selectedBtrs.forEach(btr => {
+        if (btr.isGroup && btr.groupSize) {
+            selectedCount += btr.groupSize;
+        } else {
+            selectedCount += 1;
+        }
+    });
+    
+    if (selectedCount !== required) {
+        document.getElementById('mapInfo').innerHTML = `❌ Нужно выбрать ровно ${required} БТР (выбрано ${selectedCount}).`;
         return;
     }
     
-    // Выбранные БТР
-    const selectedBtrs = indices.map(i => availableBtrs[i]);
-    
-    // Проверяем, что все БТР на одном гексе (или хотя бы рядом)
+    // Проверяем, что все БТР на одном гексе
     const firstBtr = selectedBtrs[0];
     const allSameHex = selectedBtrs.every(b => b.col === firstBtr.col && b.row === firstBtr.row);
     if (!allSameHex) {
@@ -9977,21 +10255,16 @@ function getUnitBtrRequirement(unit) {
     
     // Производим посадку
     unit.embarkedInBtr = true;
-    unit.btrIds = selectedBtrs.map(b => {
-        // Находим индекс БТР в массиве opUnits
-        const idx = appData.campaign.opUnits.indexOf(b);
-        return idx;
-    });
-    unit.mobility = 'vehicle'; // БТР движется как техника
+    unit.btrIds = selectedBtrs.map(b => appData.campaign.opUnits.indexOf(b));
+    unit.mobility = 'vehicle';
+    unit.hidden = true;
+    unit.ap = 4;
+    unit.maxAp = 4;
     
-    // Помечаем БТР как занятые
     selectedBtrs.forEach(b => {
         b.embarkedUnit = unit.name;
         b.embarkedUnitId = appData.campaign.opUnits.indexOf(unit);
     });
-    
-    // Скрываем пехоту (она теперь в БТР)
-    unit.hidden = true;
     
     saveData();
     redrawOperationalMap();
@@ -10132,6 +10405,7 @@ function showGroupDialog() {
         return;
     }
     
+    // Группируем по гексам и показываем только те гексы, где есть несколько машин
     const byHex = {};
     available.forEach(v => {
         const key = `${v.col},${v.row}`;
@@ -10139,6 +10413,7 @@ function showGroupDialog() {
         byHex[key].push(v);
     });
     
+    // Проверяем, есть ли гекс с несколькими машинами
     let hasGroupable = false;
     let message = 'Выберите технику для объединения в отряд.\n\n';
     let idx = 0;
@@ -10178,10 +10453,11 @@ function showGroupDialog() {
     
     const selected = indices.map(i => vehicleList[i]);
     
+    // ПРОВЕРЯЕМ, ЧТО ВСЕ МАШИНЫ НА ОДНОМ ГЕКСЕ
     const first = selected[0];
     const allSameHex = selected.every(v => v.col === first.col && v.row === first.row);
     if (!allSameHex) {
-        document.getElementById('mapInfo').innerHTML = '❌ Все машины должны быть на одном гексе.';
+        document.getElementById('mapInfo').innerHTML = '❌ Все машины должны быть на одном гексе!';
         return;
     }
     
@@ -10192,37 +10468,65 @@ function createVehicleGroup(vehicles) {
     const firstVehicle = vehicles[0];
     const displayName = getVehicleDisplayName(firstVehicle);
     
-    // Собираем все машины, которые будут в группе
-    const memberIndices = vehicles.map(v => appData.campaign.opUnits.indexOf(v));
+    // Определяем фракцию первого юнита
+    let faction = firstVehicle.faction || '';
+    if (!faction && firstVehicle.squads && firstVehicle.squads.length > 0) {
+        faction = firstVehicle.squads[0].faction || '';
+    }
+    
+    // Определяем тип техники
+    let groupType = firstVehicle.type;
+    let vehicleType = 'default';
+    
+    if (firstVehicle.name.includes('БТР') || firstVehicle.type === 'btr_platoon') {
+        groupType = 'btr_platoon';
+        vehicleType = 'btr';
+    } else if (firstVehicle.name.includes('CL/39') || firstVehicle.name.includes('Танк') || firstVehicle.type === 'tank_platoon') {
+        groupType = 'tank_platoon';
+        vehicleType = 'tank';
+    } else if (firstVehicle.name.includes('САУ') || firstVehicle.type === 'sau_battery' || firstVehicle.name.includes('Brugge')) {
+        groupType = 'sau_battery';
+        vehicleType = 'sau';
+    } else if (firstVehicle.name.includes('Landsverk') || firstVehicle.name.includes('Бронеавтомобиль') || firstVehicle.type === 'armored_vehicle_platoon') {
+        groupType = 'armored_vehicle_platoon';
+        vehicleType = 'landsverk';
+    }
     
     // Создаем новый юнит-группу
     const groupUnit = {
         name: `Отряд ${displayName} (${vehicles.length}шт)`,
-        type: firstVehicle.type,
+        type: groupType,
+        faction: faction,  // <-- СОХРАНЯЕМ ФРАКЦИЮ
         squads: [],
         col: firstVehicle.col,
         row: firstVehicle.row,
         side: 'player',
-        ap: firstVehicle.ap,
-        maxAp: firstVehicle.maxAp,
+        ap: 4,
+        maxAp: 4,
         mobility: 'vehicle',
         dismounted: false,
         icon: firstVehicle.icon,
         detected: false,
         noiseMarker: false,
         isGroup: true,
-        groupMembers: memberIndices,
+        groupMembers: [],
         groupSize: vehicles.length,
         isVehicle: true,
-        vehicleType: firstVehicle.type
+        vehicleType: groupType,
+        vehicleClass: vehicleType,  // <-- СОХРАНЯЕМ ТИП ТЕХНИКИ
+        // Сохраняем информацию о каждой машине
+        vehicleList: vehicles.map(v => ({
+            name: v.name,
+            type: v.type,
+            icon: v.icon,
+            faction: v.faction || faction
+        }))
     };
     
     // Добавляем группу в opUnits
     appData.campaign.opUnits.push(groupUnit);
-    const groupIndex = appData.campaign.opUnits.length - 1;
     
-    // ПОМЕЧАЕМ И УДАЛЯЕМ СТАРЫЕ МАШИНЫ ИЗ ОТОБРАЖЕНИЯ
-    // Собираем индексы машин, которые нужно удалить
+    // Удаляем старые машины
     const indicesToRemove = [];
     vehicles.forEach(v => {
         const idx = appData.campaign.opUnits.indexOf(v);
@@ -10231,26 +10535,10 @@ function createVehicleGroup(vehicles) {
         }
     });
     
-    // Сортируем индексы в обратном порядке (чтобы удаление не сбивало индексы)
     indicesToRemove.sort((a, b) => b - a);
-    
-    // Удаляем старые машины из opUnits
     indicesToRemove.forEach(idx => {
         appData.campaign.opUnits.splice(idx, 1);
     });
-    
-    // Обновляем groupMembers, так как индексы изменились после удаления
-    // Новые индексы будут указывать на оставшиеся юниты (группа теперь имеет новый индекс)
-    // Но groupMembers нам больше не нужны для отдельных машин, так как они удалены
-    // Вместо этого мы будем хранить только количество машин в группе
-    
-    // Находим группу в обновленном массиве (она последняя)
-    const newGroupIndex = appData.campaign.opUnits.length - 1;
-    const newGroup = appData.campaign.opUnits[newGroupIndex];
-    if (newGroup) {
-        newGroup.groupMembers = []; // Очищаем, так как машины удалены
-        newGroup.groupSize = vehicles.length;
-    }
     
     saveData();
     redrawOperationalMap();
@@ -10362,13 +10650,14 @@ function updateVehicleGroupInfo() {
         // Ничего не делаем, информация уже на карте
     }
 }
- function updateVehiclePanel() {
+function updateVehiclePanel() {
     const panel = document.getElementById('vehiclePanel');
     const groupBtn = document.getElementById('groupBtn');
     const splitBtn = document.getElementById('splitBtn');
     const renameBtn = document.getElementById('renameBtn');
+    const detailsBtn = document.getElementById('detailsBtn');
     
-    if (!panel || !groupBtn || !splitBtn || !renameBtn) return;
+    if (!panel || !groupBtn || !splitBtn || !renameBtn || !detailsBtn) return;
     
     const unit = appData.campaign.selectedOpUnit;
     if (!unit) {
@@ -10376,7 +10665,7 @@ function updateVehicleGroupInfo() {
         return;
     }
     
-    // Проверяем, является ли юнит техникой (не пехота, не штаб, не миномёт)
+    // Проверяем, является ли юнит техникой
     const isVehicle = unit.type === 'tank_platoon' || 
                      unit.type === 'btr_platoon' || 
                      unit.type === 'sau_battery' || 
@@ -10388,7 +10677,7 @@ function updateVehicleGroupInfo() {
                      unit.name.includes('Бронеавтомобиль') ||
                      unit.name.includes('Landsverk')));
     
-    // Проверяем, что это не пехота и не штаб
+    // Проверяем, что это не пехота
     const isInfantry = unit.type === 'infantry_platoon' || 
                        unit.type === 'bicycle_platoon' || 
                        unit.type === 'motorcycle_platoon' ||
@@ -10407,19 +10696,47 @@ function updateVehicleGroupInfo() {
     
     panel.style.display = 'block';
     
-    // Обновляем текст кнопок в зависимости от состояния
+    // Если это группа
     if (unit.isGroup) {
-        groupBtn.textContent = '📦 В группе';
-        groupBtn.disabled = true;
+        groupBtn.style.display = 'none';
         splitBtn.style.display = 'inline-block';
         renameBtn.style.display = 'inline-block';
+        detailsBtn.style.display = 'inline-block';
+        splitBtn.textContent = `✂️ Разбить (${unit.groupSize} машин)`;
     } else {
-        groupBtn.textContent = '📦 Объединить в отряд';
-        groupBtn.disabled = false;
+        groupBtn.style.display = 'inline-block';
         splitBtn.style.display = 'none';
         renameBtn.style.display = 'none';
+        detailsBtn.style.display = 'none';
+        groupBtn.textContent = '📦 Объединить в отряд';
+        groupBtn.disabled = false;
     }
-}     
+}    
+function showGroupDetails() {
+    const unit = appData.campaign.selectedOpUnit;
+    if (!unit || !unit.isGroup) {
+        document.getElementById('mapInfo').innerHTML = '❌ Сначала выберите группу.';
+        return;
+    }
+    
+    let message = `=== ${unit.name} ===\n`;
+    message += `Количество машин: ${unit.groupSize}\n\n`;
+    message += `Состав отряда:\n`;
+    
+    if (unit.vehicleList && unit.vehicleList.length > 0) {
+        unit.vehicleList.forEach((v, idx) => {
+            message += `  ${idx+1}. ${v.name} (${v.type || 'Техника'})\n`;
+        });
+    } else {
+        message += `  (информация о составе недоступна)\n`;
+    }
+    
+    message += `\nОД: ${unit.ap}/${unit.maxAp}`;
+    message += `\nГекс: (${unit.col},${unit.row})`;
+    
+    alert(message);
+}
+      
   </script> 
   
  <div id="awardsTab" class="tabcontent">
@@ -10494,6 +10811,7 @@ function updateVehicleGroupInfo() {
     <button onclick="showGroupDialog()" id="groupBtn" style="background:#8e44ad;">📦 Объединить в отряд</button>
     <button onclick="showSplitDialog()" id="splitBtn" style="display:none; background:#e67e22;">✂️ Разбить отряд</button>
     <button onclick="renameGroup()" id="renameBtn" style="display:none; background:#2980b9;">✏️ Переименовать</button>
+    <button onclick="showGroupDetails()" id="detailsBtn" style="display:none; background:#27ae60;">📋 Состав</button>
 </div>
       <div style="margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
   <strong>☠️ Противник</strong>
