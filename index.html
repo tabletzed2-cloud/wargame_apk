@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.154 — карта  </title>
+  <title>Боевой модуль v12.155 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.154</h1>
+    <h1>⚔️ Боевой модуль v12.155</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.154 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.155 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1175,12 +1175,17 @@ function renderBattalionRoster() {
     listDiv.style.display = 'block';
   }
   
+  // Проверяем, что opUnits существуют
+  if (!appData.campaign.opUnits) {
+    buildOperationalUnits();
+  }
+  
   const opUnits = appData.campaign.opUnits || [];
   let totalFighters = 0, totalAlive = 0, totalLost = 0;
   let html = '';
 
   if (opUnits.length === 0) {
-    listDiv.innerHTML = '<p>Нет данных о батальоне. Сначала сформируйте батальон.</p>';
+    listDiv.innerHTML = '<p>Нет данных о батальоне. Сначала сформируйте батальон и разместите юниты на карте.</p>';
     summaryDiv.innerHTML = '';
     return;
   }
@@ -1192,19 +1197,34 @@ function renderBattalionRoster() {
   </div>`;
 
   opUnits.forEach((unit, index) => {
+    // Проверяем, что у юнита есть squads
+    if (!unit.squads || unit.squads.length === 0) {
+      html += `
+        <div style="background:#2c2c2c; padding:10px; margin:6px 0; border-radius:6px; border-left:4px solid #f39c12;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <div>
+              <strong>${unit.name}</strong> (${unit.type}) — <span style="color:#f39c12;">нет отрядов</span> ${unit.col !== null && unit.col !== undefined ? `(${unit.col},${unit.row})` : '(не размещён)'}
+            </div>
+          </div>
+        </div>`;
+      return;
+    }
+    
     let unitTotal = 0, unitAlive = 0, unitLost = 0;
-    (unit.squads || []).forEach(squad => {
-      (squad.fighters || []).forEach(f => {
-        unitTotal++;
-        totalFighters++;
-        if (f.hp > 0) {
-          unitAlive++;
-          totalAlive++;
-        } else {
-          unitLost++;
-          totalLost++;
-        }
-      });
+    unit.squads.forEach(squad => {
+      if (squad.fighters) {
+        squad.fighters.forEach(f => {
+          unitTotal++;
+          totalFighters++;
+          if (f.hp > 0) {
+            unitAlive++;
+            totalAlive++;
+          } else {
+            unitLost++;
+            totalLost++;
+          }
+        });
+      }
     });
 
     if (unitTotal === 0) return;
@@ -1218,6 +1238,7 @@ function renderBattalionRoster() {
           <div>
             <strong>${unit.name}</strong> (${unit.type}) — бойцов: ${unitAlive}/${unitTotal}${unitLost > 0 ? `, потерь: ${unitLost}` : ''} ${pos}
             ${unit.isDestroyed ? ' <span style="color:#e74c3c;">💀 УНИЧТОЖЕН</span>' : ''}
+            ${unit.embarkedInBtr ? ' 🚌 В БТР' : ''}
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
             <label style="color:#aaa; font-size:0.85rem;">Урон:</label>
@@ -1225,7 +1246,7 @@ function renderBattalionRoster() {
             <span style="color:#aaa; font-size:0.8rem;">(макс. ${unitAlive})</span>
           </div>
         </div>
-        <div style="font-size:0.8rem; color:#aaa; margin-top:4px; cursor:pointer;" onclick="showUnitDetails(${index})">
+        <div style="font-size:0.8rem; color:#aaa; margin-top:4px; cursor:pointer; padding:4px; border-radius:4px; hover:background:#3a3a3a;" onclick="showUnitDetails(${index})">
           👆 Кликните для просмотра состава
         </div>
       </div>`;
@@ -1248,21 +1269,49 @@ function renderBattalionRoster() {
 }
 
 function showUnitDetails(index) {
+  // Проверяем, что opUnits существуют
+  if (!appData.campaign.opUnits || index >= appData.campaign.opUnits.length) {
+    alert('Юнит не найден!');
+    return;
+  }
+  
   const unit = appData.campaign.opUnits[index];
-  if (!unit) return;
+  if (!unit) {
+    alert('Юнит не найден!');
+    return;
+  }
+  
+  // Проверяем, есть ли у юнита отряды
+  if (!unit.squads || unit.squads.length === 0) {
+    document.getElementById('battalionUnitDetails').innerHTML = `<h4>${unit.name}</h4><p style="color:#aaa;">У этого юнита нет отрядов.</p>`;
+    document.getElementById('battalionUnitDetails').style.display = 'block';
+    document.getElementById('btnBackToRosterList').style.display = 'inline-block';
+    document.getElementById('battalionRosterList').style.display = 'block';
+    return;
+  }
+  
   let html = `<h4>${unit.name} (${unit.type})</h4>`;
-  (unit.squads || []).forEach(squad => {
-    html += `<div style="margin-bottom:6px;"><strong>${squad.name}</strong>`;
-    (squad.fighters || []).forEach(f => {
+  html += `<div style="margin-bottom:8px; color:#aaa;">Гекс: ${unit.col !== null && unit.col !== undefined ? `(${unit.col},${unit.row})` : 'не размещён'}</div>`;
+  
+  unit.squads.forEach(squad => {
+    if (!squad.fighters || squad.fighters.length === 0) {
+      html += `<div style="margin-bottom:6px;"><strong>${squad.name}</strong> — <span style="color:#aaa;">нет бойцов</span></div>`;
+      return;
+    }
+    
+    html += `<div style="margin-bottom:6px; background:#2a2a2a; padding:6px; border-radius:4px;"><strong>${squad.name}</strong>`;
+    squad.fighters.forEach(f => {
       const hpColor = f.hp === 0 ? '#e74c3c' : '#27ae60';
-      html += `<div style="padding-left:12px; color:${hpColor};">${f.name} — HP: ${f.hp}/${f.maxHp} [${f.weapon}]</div>`;
+      const status = f.hp === 0 ? '💀' : '✅';
+      html += `<div style="padding-left:12px; color:${hpColor};">${status} ${f.name} — HP: ${f.hp}/${f.maxHp} [${f.weapon}]</div>`;
     });
     html += `</div>`;
   });
+  
   document.getElementById('battalionUnitDetails').innerHTML = html;
   document.getElementById('battalionUnitDetails').style.display = 'block';
   document.getElementById('btnBackToRosterList').style.display = 'inline-block';
-  document.getElementById('battalionRosterList').style.display = 'block'; // <-- НЕ скрываем список
+  document.getElementById('battalionRosterList').style.display = 'block';
 }
 
 function backToRosterList() {
@@ -1599,31 +1648,36 @@ function handleOpMapClick(e) {
 
   // ====== РЕЖИМ ВЫБОРА ЦЕЛИ ДЛЯ ОБСТРЕЛА ======
   if (appData.campaign.opMapMode === 'selectTarget') {
-    if (!closestKey) {
-      document.getElementById('mapInfo').innerHTML = '❌ Не удалось определить гекс.';
+    // Проверяем, что клик был по гексу
+    if (!closestOpHex || minOpDist >= size) {
+      document.getElementById('mapInfo').innerHTML = '❌ Кликните по гексу с врагом.';
       return;
     }
-    const targetUnit = getEnemyUnitAtHex(closestKey);
-    if (targetUnit) {
-      const shooter = opShootingState.shooter;
-      if (!shooter) {
-        document.getElementById('mapInfo').innerHTML = '❌ Ошибка: стрелок не выбран!';
-        appData.campaign.opMapMode = 'view';
-        return;
-      }
-      const distance = getOpHexDistance(shooter.col, shooter.row, targetUnit.col, targetUnit.row);
-      if (distance <= 3) {
-        opShootingState.target = targetUnit;
-        opShootingState.step = 'confirm';
-        document.getElementById('mapInfo').innerHTML = 
-          `🎯 Цель: ${targetUnit.name} (дистанция ${distance} гексов). Нажмите "Подтвердить обстрел" или выберите другую цель.`;
-        showShootingConfirm(distance);
-      } else {
-        document.getElementById('mapInfo').innerHTML = `❌ Цель слишком далеко! (${distance} гексов, максимум 3)`;
-      }
-    } else {
+    
+    const targetUnit = getEnemyUnitAtHex(closestOpHex);
+    if (!targetUnit) {
       document.getElementById('mapInfo').innerHTML = '❌ На этом гексе нет вражеских юнитов!';
+      return;
     }
+    
+    const shooter = opShootingState.shooter;
+    if (!shooter) {
+      document.getElementById('mapInfo').innerHTML = '❌ Ошибка: стрелок не выбран!';
+      appData.campaign.opMapMode = 'view';
+      return;
+    }
+    
+    const distance = getOpHexDistance(shooter.col, shooter.row, targetUnit.col, targetUnit.row);
+    if (distance > 3) {
+      document.getElementById('mapInfo').innerHTML = `❌ Цель слишком далеко! (${distance} гексов, максимум 3)`;
+      return;
+    }
+    
+    opShootingState.target = targetUnit;
+    opShootingState.step = 'confirm';
+    document.getElementById('mapInfo').innerHTML = 
+      `🎯 Цель: ${targetUnit.name} (дистанция ${distance} гексов). Нажмите "Подтвердить обстрел" или выберите другую цель.`;
+    showShootingConfirm(distance);
     return;
   }
 
