@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.151 — карта  </title>
+  <title>Боевой модуль v12.152 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.151</h1>
+    <h1>⚔️ Боевой модуль v12.152</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.151 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.152 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1616,7 +1616,7 @@ if (appData.campaign.opMapMode === 'moveEnemy') {
             const dist = Math.sqrt((clickX - hexCenterX) ** 2 + (clickY - hexCenterY) ** 2);
             if (dist < size * 0.8) {
                 targetHex = h;
-                targetCost = getOpMoveCost(selectedEnemy, selectedEnemy.col, selectedEnemy.row, h.col, h.row);
+                targetCost = h.cost;
                 if (targetCost <= selectedEnemy.ap) break;
                 else targetHex = null;
             }
@@ -1643,7 +1643,7 @@ if (playerUnitsOnHex.length > 0) {
     return;
 } else {
                 // Перемещаем врага
-                if (!spendOpAP(selectedEnemy, targetCost)) {
+               if (!spendOpAP(selectedEnemy, targetCost)) {
                     document.getElementById('mapInfo').innerHTML = 'Недостаточно ОД для перемещения врага.';
                     return;
                 }
@@ -1727,101 +1727,86 @@ if (clickedEnemy && minDistToEnemy < iconRadius * 1.6) {
   // Проверяем, есть ли уже выбранный юнит
   const selectedUnit = appData.campaign.selectedOpUnit;
 
-  // 1. Если есть выбранный юнит, проверяем клик по доступному гексу
- if (selectedUnit && selectedUnit.availableHexes && selectedUnit.availableHexes.length) {
-  for (let i = 0; i < selectedUnit.availableHexes.length; i++) {
-    const h = selectedUnit.availableHexes[i];
-    const hexCenterX = h.col * Math.sqrt(3) * size + (h.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
-    const hexCenterY = h.row * 1.5 * size + size;
-    const dist = Math.sqrt((clickX - hexCenterX) ** 2 + (clickY - hexCenterY) ** 2);
-    if (dist < size * 0.8) {
-const enemiesOnTarget = appData.campaign.enemyOpUnits?.filter(enemy => 
-    enemy.col === h.col && enemy.row === h.row
-) || [];
-if (enemiesOnTarget.length > 0) {
-    // Перемещаем СВОЙ юнит на гекс с врагом
-    selectedUnit.col = h.col;
-    selectedUnit.row = h.row;
-    saveData();
-
-    const hexKey = `${h.col},${h.row}`;
-    const existingBattle = appData.campaign.activeBattles.find(b => b.hexKey === hexKey);
-    if (existingBattle) {
-        addReinforcementsToBattle(existingBattle.id, selectedUnit, enemiesOnTarget);
-    } else {
-        // Собираем все свои юниты на этом гексе (теперь там есть selectedUnit)
-        const playerUnitsOnHex = appData.campaign.opUnits.filter(u => u.col === h.col && u.row === h.row);
-        showContactModal(playerUnitsOnHex, enemiesOnTarget);
-    }
-    appData.campaign.selectedOpUnit = null;
-    if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
-    redrawOperationalMap();
-    return;
-}
-    
-// Проверяем стоимость перемещения
-const moveCost = getOpMoveCost(selectedUnit, selectedUnit.col, selectedUnit.row, h.col, h.row);
-if (!spendOpAP(selectedUnit, moveCost)) {
-    document.getElementById('mapInfo').innerHTML = 'Недостаточно ОД для перемещения.';
-    redrawOperationalMap();
-    return;
-}
-
-// Проверяем, не участвует ли юнит в активном бою
-const inBattle = appData.campaign.activeBattles.some(b => 
-    b.playerUnitName === selectedUnit.name
-);
-if (inBattle) {
-    document.getElementById('mapInfo').innerHTML = '⚠️ Этот юнит участвует в тактическом бою и не может двигаться.';
-    redrawOperationalMap();
-    return;
-}
-
-// Если врага нет, перемещаемся
-selectedUnit.col = h.col;
-selectedUnit.row = h.row;
-
-// ======== ПЕРЕМЕЩЕНИЕ ГРУППЫ (ЕСЛИ ГРУППА) ========
-if (selectedUnit.isGroup && selectedUnit.groupMembers && selectedUnit.groupMembers.length > 0) {
-    selectedUnit.groupMembers.forEach(memberId => {
-        const member = appData.campaign.opUnits[memberId];
-        if (member) {
-            member.col = h.col;
-            member.row = h.row;
+// 1. Если есть выбранный юнит, проверяем клик по доступному гексу
+if (selectedUnit && selectedUnit.availableHexes && selectedUnit.availableHexes.length) {
+    for (let i = 0; i < selectedUnit.availableHexes.length; i++) {
+        const h = selectedUnit.availableHexes[i];
+        const hexCenterX = h.col * Math.sqrt(3) * size + (h.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+        const hexCenterY = h.row * 1.5 * size + size;
+        const dist = Math.sqrt((clickX - hexCenterX) ** 2 + (clickY - hexCenterY) ** 2);
+        if (dist < size * 0.8) {
+            // ИСПОЛЬЗУЕМ СОХРАНЁННУЮ СТОИМОСТЬ ПУТИ
+            const moveCost = h.cost; // <-- ГЛАВНОЕ ИЗМЕНЕНИЕ
+            if (!spendOpAP(selectedUnit, moveCost)) {
+                document.getElementById('mapInfo').innerHTML = 'Недостаточно ОД для перемещения.';
+                redrawOperationalMap();
+                return;
+            }
+            
+            // Проверяем врагов на целевом гексе
+            const enemiesOnTarget = appData.campaign.enemyOpUnits?.filter(enemy => 
+                enemy.col === h.col && enemy.row === h.row
+            ) || [];
+            
+            if (enemiesOnTarget.length > 0) {
+                selectedUnit.col = h.col;
+                selectedUnit.row = h.row;
+                saveData();
+                const hexKey = `${h.col},${h.row}`;
+                const existingBattle = appData.campaign.activeBattles.find(b => b.hexKey === hexKey);
+                if (existingBattle) {
+                    addReinforcementsToBattle(existingBattle.id, selectedUnit, enemiesOnTarget);
+                } else {
+                    const playerUnitsOnHex = appData.campaign.opUnits.filter(u => u.col === h.col && u.row === h.row);
+                    showContactModal(playerUnitsOnHex, enemiesOnTarget);
+                }
+                appData.campaign.selectedOpUnit = null;
+                if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
+                redrawOperationalMap();
+                return;
+            }
+            
+            // Перемещение
+            selectedUnit.col = h.col;
+            selectedUnit.row = h.row;
+            
+            // Перемещение группы
+            if (selectedUnit.isGroup && selectedUnit.groupMembers && selectedUnit.groupMembers.length > 0) {
+                selectedUnit.groupMembers.forEach(memberId => {
+                    const member = appData.campaign.opUnits[memberId];
+                    if (member) {
+                        member.col = h.col;
+                        member.row = h.row;
+                    }
+                });
+            }
+            
+            // Перемещение пехоты в БТР
+            if (selectedUnit.embarkedUnitId !== undefined && selectedUnit.embarkedUnitId !== null) {
+                const infantryUnit = appData.campaign.opUnits[selectedUnit.embarkedUnitId];
+                if (infantryUnit) {
+                    infantryUnit.col = h.col;
+                    infantryUnit.row = h.row;
+                }
+            }
+            
+            appData.campaign.selectedOpUnit = null;
+            if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
+            
+            if (selectedUnit.ap > 0) {
+                appData.campaign.selectedOpUnit = selectedUnit;
+                selectedUnit.availableHexes = getOpReachableHexesForUnit(selectedUnit);
+                document.getElementById('mapInfo').innerHTML = `Выбран: ${selectedUnit.name} (ОД: ${selectedUnit.ap})`;
+            } else {
+                document.getElementById('mapInfo').innerHTML = `${selectedUnit.name} потратил все ОД.`;
+            }
+            
+            saveData();
+            redrawOperationalMap();
+            checkContactAfterMove(selectedUnit);
+            return;
         }
-    });
-}
-
-// ======== ПЕРЕМЕЩЕНИЕ ПЕХОТЫ В БТР ========
-if (selectedUnit.embarkedUnitId !== undefined && selectedUnit.embarkedUnitId !== null) {
-    const infantryUnit = appData.campaign.opUnits[selectedUnit.embarkedUnitId];
-    if (infantryUnit) {
-        infantryUnit.col = h.col;
-        infantryUnit.row = h.row;
     }
-}
-
-// ======== ПРОВЕРКА ОД ПОСЛЕ ПЕРЕМЕЩЕНИЯ ========
-// СБРАСЫВАЕМ ВЫДЕЛЕНИЕ ВСЕГДА, ЧТОБЫ НЕ БЫЛО БЕСКОНЕЧНЫХ ПЕРЕМЕЩЕНИЙ
-appData.campaign.selectedOpUnit = null;
-if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
-
-// Если ОД остались - сохраняем юнит выбранным
-if (selectedUnit.ap > 0) {
-    appData.campaign.selectedOpUnit = selectedUnit;
-    // Пересчитываем доступные гексы с новым количеством ОД
-    selectedUnit.availableHexes = getOpReachableHexesForUnit(selectedUnit);
-    document.getElementById('mapInfo').innerHTML = `Выбран: ${selectedUnit.name} (ОД: ${selectedUnit.ap})`;
-} else {
-    document.getElementById('mapInfo').innerHTML = `${selectedUnit.name} потратил все ОД.`;
-}
-
-saveData();
-redrawOperationalMap();
-checkContactAfterMove(selectedUnit);
-return;
-    }
-  }
 }
 
 // ---- Поиск своего юнита с учётом группировки и смещений ----
@@ -9777,14 +9762,12 @@ function getOpReachableHexesForUnit(unit) {
             if (moveCost === Infinity) continue;
             
             const newCost = cost + moveCost;
-            // НЕ ХВАТАЕТ ОД - НЕ ДОБАВЛЯЕМ В РЕЗУЛЬТАТ
             if (newCost > ap) continue;
             
             if (!visited.has(nKey) || newCost < visited.get(nKey)) {
                 visited.set(nKey, newCost);
                 queue.push({ key: nKey, cost: newCost });
-                // Добавляем только если хватает ОД
-                result.push({ col: n.col, row: n.row, cost: newCost });
+                result.push({ col: n.col, row: n.row, cost: newCost }); // <-- ЗДЕСЬ СОХРАНЯЕТСЯ СТОИМОСТЬ
             }
         }
     }
