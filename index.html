@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.155 — карта  </title>
+  <title>Боевой модуль v12.156 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.155</h1>
+    <h1>⚔️ Боевой модуль v12.156</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.155 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.156 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1425,10 +1425,10 @@ if (!appData.campaign.opMapGrid || Object.keys(appData.campaign.opMapGrid).lengt
   updateVehiclePanel();
 }
 function getOpHexTypes(col, row) {
-  const key = `${col},${row}`;
-  const grid = appData.campaign.opMapGrid;
-  if (!grid || !grid[key]) return ['grass'];
-  return Array.isArray(grid[key]) ? grid[key] : [grid[key]];
+    const key = `${col},${row}`;
+    const grid = appData.campaign.opMapGrid;
+    if (!grid || !grid[key]) return ['grass'];
+    return Array.isArray(grid[key]) ? grid[key] : [grid[key]];
 }
 
 function hasOpTerrain(col, row, terrainType) {
@@ -10960,42 +10960,71 @@ function showShootingConfirm(distance) {
 function executeOpShoot() {
     const shooter = opShootingState.shooter;
     const target = opShootingState.target;
-    
+
     if (!shooter || !target) {
         document.getElementById('mapInfo').innerHTML = '❌ Ошибка: не выбран стрелок или цель!';
         cancelOpShooting();
         return;
     }
-    
+
     const distance = getOpHexDistance(shooter.col, shooter.row, target.col, target.row);
-    
+    const result = calculateOpShootDamage(shooter, target, distance);
+
     // Тратим все ОД стрелка
     const spentAP = shooter.ap;
     shooter.ap = 0;
-    
-    // Рассчитываем урон
-    const result = calculateOpShootDamage(shooter, target, distance);
-    
-    // Применяем урон к целевому юниту
-    applyDamageToOpUnit(target, result.damage);
-    
-    // Логируем результат
-    const logMsg = `🎯 ОБСТРЕЛ: ${shooter.name} → ${target.name} (${distance} гексов) | ОД: ${spentAP} | Урон: ${result.damage} | Попаданий: ${result.hits}/${result.shots}`;
-    log(logMsg);
-    document.getElementById('mapInfo').innerHTML = logMsg;
-    
-    // Проверяем, уничтожен ли враг
-    if (target.isDestroyed) {
-        log(`💀 ${target.name} УНИЧТОЖЕН!`);
-        document.getElementById('mapInfo').innerHTML += ` 💀 УНИЧТОЖЕН!`;
-    }
-    
-    // Сбрасываем состояние
-    cancelOpShooting();
-    
-    // Обновляем карту
+
+    // Применяем урон
+    const applied = applyDamageToOpUnit(target, result.damage);
+
+    // Сохраняем
     saveData();
     redrawOperationalMap();
+
+    // === ПОКАЗЫВАЕМ МОДАЛЬНОЕ ОКНО С РЕЗУЛЬТАТОМ ===
+    const modalHtml = `
+        <div style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); 
+                    background:#2c2c2c; border:2px solid #c0392b; border-radius:12px; 
+                    padding:25px; z-index:9999; min-width:400px; max-width:600px; color:#ddd;">
+            <h2 style="color:#e74c3c;">🎯 Результат обстрела</h2>
+            <hr style="border-color:#555;">
+            <p><strong>Стрелок:</strong> ${shooter.name}</p>
+            <p><strong>Цель:</strong> ${target.name}</p>
+            <p><strong>Дистанция:</strong> ${distance} гексов (мод. ${result.distanceMod})</p>
+            <p><strong>Местность цели:</strong> ${result.terrainMod === 1 ? 'Открытая' : result.terrainMod === 0.7 ? 'Умеренное укрытие' : result.terrainMod === 0.6 ? 'Лес' : 'Окопы/здание'} (мод. ${result.terrainMod})</p>
+            <hr style="border-color:#555;">
+            <p><strong>Базовый урон:</strong> ${result.totalBaseDamage} ед.</p>
+            <p><strong>Итоговый урон:</strong> <span style="color:#f1c40f; font-size:1.2rem; font-weight:bold;">${result.damage}</span></p>
+            <p><strong>Попаданий:</strong> ${result.hits}</p>
+            <p><strong>Бойцов в цели:</strong> ${result.targetAlive}</p>
+            <p><strong>ОД потрачено:</strong> ${spentAP}</p>
+            ${result.details ? `<p style="font-size:0.8rem; color:#aaa;">Состав: ${result.details}</p>` : ''}
+            <div style="margin-top:15px; text-align:center;">
+                <button onclick="this.parentElement.parentElement.remove()" style="background:#c0392b; color:#fff; padding:8px 20px; border:none; border-radius:6px; cursor:pointer;">Закрыть</button>
+            </div>
+        </div>
+    `;
+
+    // Добавляем модалку на страницу
+    const modalDiv = document.createElement('div');
+    modalDiv.innerHTML = modalHtml;
+    document.body.appendChild(modalDiv.firstElementChild);
+
+    // Логируем
+    const logMsg = `🎯 ОБСТРЕЛ: ${shooter.name} → ${target.name} (${distance} гексов) | Урон: ${result.damage} | Попаданий: ${result.hits}`;
+    log(logMsg);
+    document.getElementById('mapInfo').innerHTML = logMsg;
+
+    // Проверяем уничтожение
+    if (applied.killed > 0) {
+        log(`💀 ${target.name} потерял ${applied.killed} бойцов!`);
+        if (target.isDestroyed) {
+            log(`☠️ ${target.name} УНИЧТОЖЕН!`);
+        }
+    }
+
+    // Сбрасываем состояние
+    cancelOpShooting();
     updateOpPlaceSelect();
 }
 
@@ -11016,111 +11045,202 @@ function cancelOpShooting() {
 }
  // Рассчитать урон от обстрела
 function calculateOpShootDamage(shooter, target, distance) {
-    // Базовое количество выстрелов (зависит от размера юнита)
-    let baseShots = 0;
-    let weaponType = 'small';
-    
-    // Собираем все отряды стрелка
-    if (shooter.squads && shooter.squads.length > 0) {
+    // 1. Собираем весь урон от стрелка
+    let totalDamage = 0;
+    let weaponDetails = [];
+
+    if (shooter.squads) {
         shooter.squads.forEach(squad => {
-            if (squad.fighters) {
-                const alive = squad.fighters.filter(f => f.hp > 0 && f.weapon && f.weapon !== '' && !f.weapon.includes('Пистолет'));
-                baseShots += alive.length * 2; // каждый боец делает ~2 выстрела
-            }
+            if (!squad.fighters) return;
+            squad.fighters.forEach(f => {
+                if (f.hp <= 0) return;
+                const weapon = f.weapon || '';
+                let damage = 0;
+                let label = '';
+
+                // Определяем урон по типу оружия
+                const wLower = weapon.toLowerCase();
+                if (wLower.includes('станковый пулемет') || wLower.includes('schwarzlose') || wLower.includes('hotchkiss')) {
+                    damage = 10;
+                    label = 'Станковый пулемёт';
+                } else if (wLower.includes('ручной пулемет') || wLower.includes('fn model d') || wLower.includes('zb.26') || wLower.includes('дп-27')) {
+                    damage = 3;
+                    label = 'Ручной пулемёт';
+                } else if (wLower.includes('автоматическая винтовка') || wLower.includes('johnson') || wLower.includes('авс-36')) {
+                    damage = 2;
+                    label = 'Автоматическая винтовка';
+                } else if (wLower.includes('винтовка') || wLower.includes('geweer') || wLower.includes('vz.24') || wLower.includes('fn model')) {
+                    damage = 1;
+                    label = 'Винтовка';
+                } else if (wLower.includes('пп') || wLower.includes('пистолет-пулемет') || wLower.includes('star si-35') || wLower.includes('ппд')) {
+                    damage = 1.5;
+                    label = 'Пистолет-пулемёт';
+                } else {
+                    damage = 0;
+                    label = 'Без оружия/пистолет';
+                }
+
+                if (damage > 0) {
+                    totalDamage += damage;
+                    weaponDetails.push(`${label} (${damage} ед.)`);
+                }
+            });
         });
     }
-    
-    // Базовое количество попаданий (очень низкое на дистанции)
-    let baseHits = Math.floor(baseShots * 0.1); // 10% базовое попадание
-    
-    // Штраф за дальность (чем дальше, тем хуже)
-    let rangePenalty = distance * 2; // каждый гекс даёт -2 к точности
-    
-    // Модификатор точности (случайный)
-    const accuracyRoll = rollD10();
-    let effectiveHits = baseHits + Math.floor((accuracyRoll - 5) / 2) - rangePenalty;
-    effectiveHits = Math.max(0, effectiveHits);
-    
-    // Каждое попадание наносит 1-2 урона
-    let damage = 0;
-    let hitCount = 0;
-    for (let i = 0; i < effectiveHits; i++) {
-        if (Math.random() < 0.3) { // 30% шанс на попадание
-            hitCount++;
-            damage += Math.floor(Math.random() * 2) + 1; // 1-2 урона
+
+    if (totalDamage === 0) {
+        return { shots: 0, hits: 0, damage: 0, roll: 0, details: 'Нет боеспособного оружия' };
+    }
+
+    // 2. Модификатор дистанции
+    let distanceMod = 0;
+    if (distance === 1) distanceMod = 0.5;
+    else if (distance === 2) distanceMod = 0.25;
+    else if (distance >= 3) distanceMod = 0.1;
+    else distanceMod = 0.5; // fallback
+
+    // 3. Модификатор местности цели
+    let terrainMod = 1; // по умолчанию поле/дорога
+    if (target.col !== null && target.row !== null) {
+        const types = getOpHexTypes(target.col, target.row);
+        if (types && types.length > 0) {
+            const terrain = types[0];
+            switch (terrain) {
+                case 'grass':
+                case 'road':
+                case 'swamp_passable':
+                    terrainMod = 1;
+                    break;
+                case 'bushes':
+                case 'rocks':
+                case 'hill':
+                    terrainMod = 0.7;
+                    break;
+                case 'forest':
+                    terrainMod = 0.6;
+                    break;
+                case 'trenches':
+                    terrainMod = 0.3;
+                    break;
+                default:
+                    terrainMod = 1;
+            }
         }
     }
+
+    // 4. Итоговый урон (с округлением вверх)
+    let finalDamage = Math.ceil(totalDamage * distanceMod * terrainMod);
     
-    // Урон не может превышать количество живых бойцов в цели
-    let targetFighters = 0;
+    // 5. Бросок на случайность (±20% от урона)
+    const randomFactor = 0.8 + (Math.random() * 0.4); // 0.8 .. 1.2
+    finalDamage = Math.max(1, Math.round(finalDamage * randomFactor));
+
+    // 6. Ограничиваем урон количеством живых бойцов в цели
+    let targetAlive = 0;
     if (target.squads) {
-        target.squads.forEach(squad => {
-            if (squad.fighters) {
-                targetFighters += squad.fighters.filter(f => f.hp > 0).length;
+        target.squads.forEach(s => {
+            if (s.fighters) {
+                targetAlive += s.fighters.filter(f => f.hp > 0).length;
             }
         });
     }
-    damage = Math.min(damage, targetFighters);
-    
+    finalDamage = Math.min(finalDamage, targetAlive);
+
     return {
-        shots: baseShots,
-        hits: hitCount,
-        damage: damage,
-        roll: accuracyRoll
+        shots: weaponDetails.length,
+        hits: finalDamage,
+        damage: finalDamage,
+        roll: Math.floor(Math.random() * 100) + 1,
+        details: weaponDetails.slice(0, 10).join(', ') + (weaponDetails.length > 10 ? '...' : ''),
+        distanceMod: distanceMod,
+        terrainMod: terrainMod,
+        totalBaseDamage: totalDamage,
+        targetAlive: targetAlive
     };
 }
       // Применить урон к операционному юниту
 // Применить урон к операционному юниту (возвращает { damage: number, killed: number })
 function applyDamageToOpUnit(unit, damage) {
-  if (!unit || damage <= 0) return { damage: 0, killed: 0 };
-  
-  let totalDamage = damage;
-  let killed = 0;
-  
-  // Распределяем урон по отрядам
-  if (unit.squads && unit.squads.length > 0) {
-    for (let squad of unit.squads) {
-      if (totalDamage <= 0) break;
-      
-      const alive = squad.fighters.filter(f => f.hp > 0);
-      if (alive.length === 0) continue;
-      
-      // Случайно распределяем урон по живым бойцам
-      while (totalDamage > 0 && alive.some(f => f.hp > 0)) {
-        const available = alive.filter(f => f.hp > 0);
-        if (available.length === 0) break;
-        
-        const target = available[Math.floor(Math.random() * available.length)];
-        target.hp = Math.max(0, target.hp - 1);
-        totalDamage--;
-        
-        if (target.hp === 0) {
-          killed++;
-          log(`💀 Боец ${target.name} из ${squad.name} (${unit.name}) погиб в результате обстрела!`);
+    if (!unit || damage <= 0) return { damage: 0, killed: 0 };
+
+    let remainingDamage = damage;
+    let killed = 0;
+
+    // Собираем все отряды с живыми бойцами
+    let aliveSquads = [];
+    if (unit.squads) {
+        unit.squads.forEach((squad, idx) => {
+            const alive = squad.fighters.filter(f => f.hp > 0);
+            if (alive.length > 0) {
+                aliveSquads.push({ squad, idx, alive });
+            }
+        });
+    }
+
+    if (aliveSquads.length === 0) {
+        unit.isDestroyed = true;
+        return { damage: 0, killed: 0 };
+    }
+
+    // ПЕРЕМЕШИВАЕМ ОТРЯДЫ ДЛЯ СЛУЧАЙНОГО РАСПРЕДЕЛЕНИЯ
+    for (let i = aliveSquads.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [aliveSquads[i], aliveSquads[j]] = [aliveSquads[j], aliveSquads[i]];
+    }
+
+    // Распределяем урон по отрядам
+    while (remainingDamage > 0 && aliveSquads.length > 0) {
+        // Фильтруем отряды, в которых ещё есть живые
+        aliveSquads = aliveSquads.filter(item => {
+            return item.squad.fighters.some(f => f.hp > 0);
+        });
+
+        if (aliveSquads.length === 0) break;
+
+        // Случайно выбираем отряд
+        const targetIndex = Math.floor(Math.random() * aliveSquads.length);
+        const target = aliveSquads[targetIndex];
+        const aliveFighters = target.squad.fighters.filter(f => f.hp > 0);
+
+        if (aliveFighters.length === 0) {
+            aliveSquads.splice(targetIndex, 1);
+            continue;
         }
-      }
+
+        // Случайно выбираем бойца в отряде
+        const fighterIndex = Math.floor(Math.random() * aliveFighters.length);
+        const fighter = aliveFighters[fighterIndex];
+        const globalIndex = target.squad.fighters.indexOf(fighter);
+
+        // Наносим урон (1 единица за раз)
+        target.squad.fighters[globalIndex].hp--;
+        remainingDamage--;
+
+        if (target.squad.fighters[globalIndex].hp === 0) {
+            killed++;
+            log(`💀 ${fighter.name} из ${target.squad.name} (${unit.name}) погиб!`);
+        }
     }
-  }
-  
-  // Отмечаем юнит как уничтоженный, если все бойцы мертвы
-  let allDead = true;
-  if (unit.squads) {
-    for (let squad of unit.squads) {
-      if (squad.fighters.some(f => f.hp > 0)) {
-        allDead = false;
-        break;
-      }
+
+    // Проверяем, уничтожен ли юнит
+    let allDead = true;
+    if (unit.squads) {
+        for (let squad of unit.squads) {
+            if (squad.fighters.some(f => f.hp > 0)) {
+                allDead = false;
+                break;
+            }
+        }
     }
-  }
-  
-  if (allDead && killed > 0) {
-    unit.isDestroyed = true;
-    unit.hidden = true;
-    log(`☠️ Юнит ${unit.name} полностью уничтожен!`);
-  }
-  
-  saveData();
-  return { damage: damage, killed: killed };
+
+    if (allDead && killed > 0) {
+        unit.isDestroyed = true;
+        unit.hidden = true;
+        log(`☠️ ${unit.name} полностью уничтожен!`);
+    }
+
+    saveData();
+    return { damage: damage - remainingDamage, killed: killed };
 }
 
 // Назначить урон отряду из батальона (от вражеского обстрела)
