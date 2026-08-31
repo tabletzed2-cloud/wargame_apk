@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.162 — карта  </title>
+  <title>Боевой модуль v12.163 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.162</h1>
+    <h1>⚔️ Боевой модуль v12.163</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.162 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.163 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -2131,7 +2131,13 @@ function hasAtGunWeapons(unit) {
             if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') continue;
             const cw = getFactionCrewWeapons(squad.faction).find(w => w.name === ci.weaponName);
             if (cw && (cw.type === 'at_gun' || cw.type === 'tank_gun')) {
-                return true;
+                // Проверяем, что расчет жив
+                const alive = ci.fighterIndices.filter(idx => 
+                    squad.fighters[idx] && squad.fighters[idx].hp > 0
+                ).length;
+                if (alive > 0) {
+                    return true;
+                }
             }
         }
     }
@@ -2143,22 +2149,30 @@ function hasMgWeapons(unit) {
     if (!unit || !unit.squads) return false;
     
     for (let squad of unit.squads) {
-        // Проверяем crewInstances (станковые пулемёты)
+        // Проверяем crewInstances (станковые пулеметы)
         if (squad.crewInstances) {
             for (let ci of squad.crewInstances) {
                 if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') continue;
                 const cw = getFactionCrewWeapons(squad.faction).find(w => w.name === ci.weaponName);
                 if (cw && cw.type === 'mg') {
-                    return true;
+                    const alive = ci.fighterIndices.filter(idx => 
+                        squad.fighters[idx] && squad.fighters[idx].hp > 0
+                    ).length;
+                    if (alive > 0) {
+                        return true;
+                    }
                 }
             }
         }
-        // Проверяем личное оружие бойцов (ручные пулемёты, автоматические винтовки)
+        // Проверяем личное оружие бойцов (ручные пулеметы)
         if (squad.fighters) {
             for (let f of squad.fighters) {
                 if (f.hp <= 0) continue;
                 const w = getFactionWeapons(squad.faction).find(w => w.name === f.weapon);
-                if (w && (w.isAutomatic || w.type === 'mg' || f.weapon.includes('пулемет') || f.weapon.includes('Пулемет'))) {
+                if (w && (w.isAutomatic || w.type === 'mg' || 
+                    (f.weapon && (f.weapon.includes('пулемет') || f.weapon.includes('Пулемет') || 
+                     f.weapon.includes('FN model D') || f.weapon.includes('Zb.26') || 
+                     f.weapon.includes('ДП-27'))))) {
                     return true;
                 }
             }
@@ -10383,14 +10397,22 @@ function getUnitBtrRequirement(unit) {
 function getAvailableBtrs() {
     if (!appData.campaign.opUnits) return [];
     const result = [];
+    
     appData.campaign.opUnits.forEach(u => {
         const isBtr = u.type === 'btr_platoon' || (u.name && u.name.includes('БТР'));
         if (!isBtr) return;
         if (u.embarkedUnit) return; // БТР уже занят
-        if (u.isGroup) return; // Группы не считаем как отдельные БТР
         
-        // Если это одиночный БТР
-        result.push(u);
+        // Если это группа БТР
+        if (u.isGroup && u.groupSize) {
+            // Добавляем группу как несколько отдельных БТР
+            // Но для простоты - добавляем всю группу целиком
+            // и в диалоге показываем количество машин в группе
+            result.push(u);
+        } else {
+            // Одиночный БТР
+            result.push(u);
+        }
     });
     return result;
 }
@@ -10458,7 +10480,7 @@ function showBtrEmbarkDialog() {
         return;
     }
     
-    // Проверяем, хватает ли БТР
+    // Считаем общее количество доступных БТР (с учетом групп)
     let totalBtrCount = 0;
     availableBtrs.forEach(btr => {
         if (btr.isGroup && btr.groupSize) {
@@ -10480,12 +10502,18 @@ function showBtrEmbarkDialog() {
         const pos = (btr.col !== null && btr.row !== null) ? `(${btr.col},${btr.row})` : '(не размещен)';
         message += `${idx+1}. ${btr.name} (${count} шт) - ${pos}\n`;
     });
-    message += `\nВведите номера БТР через запятую (например: 1,2,3,4,5):`;
+    message += `\nВведите номера БТР через запятую (например: 1,2):\n`;
+    message += `Если выбираете группу БТР, она будет использована целиком.\n`;
     
     const choice = prompt(message);
     if (!choice) return;
     
     const indices = choice.split(',').map(s => parseInt(s.trim()) - 1).filter(i => !isNaN(i) && i >= 0 && i < availableBtrs.length);
+    
+    if (indices.length === 0) {
+        document.getElementById('mapInfo').innerHTML = '❌ Не выбрано ни одного БТР.';
+        return;
+    }
     
     // Проверяем, что выбрано достаточно БТР
     let selectedCount = 0;
@@ -10519,16 +10547,28 @@ function showBtrEmbarkDialog() {
     
     // Производим посадку
     unit.embarkedInBtr = true;
-    unit.btrIds = selectedBtrs.map(b => appData.campaign.opUnits.indexOf(b));
+    
+    // Собираем список всех БТР (с учетом групп)
+    const allBtrIds = [];
+    selectedBtrs.forEach(btr => {
+        if (btr.isGroup && btr.groupSize) {
+            // Если это группа - используем всю группу
+            allBtrIds.push(appData.campaign.opUnits.indexOf(btr));
+        } else {
+            allBtrIds.push(appData.campaign.opUnits.indexOf(btr));
+        }
+    });
+    
+    unit.btrIds = allBtrIds;
     unit.mobility = 'vehicle';
     unit.hidden = true;
     unit.ap = 4;
     unit.maxAp = 4;
     
     // Помечаем БТРы как занятые
-    selectedBtrs.forEach(b => {
-        b.embarkedUnit = unit.name;
-        b.embarkedUnitId = appData.campaign.opUnits.indexOf(unit);
+    selectedBtrs.forEach(btr => {
+        btr.embarkedUnit = unit.name;
+        btr.embarkedUnitId = appData.campaign.opUnits.indexOf(unit);
     });
     
     saveData();
@@ -11075,7 +11115,8 @@ function startOpShooting() {
     opShootingState.shooter = selectedUnit;
     opShootingState.step = 'selectTarget';
     opShootingState.target = null;
-    opShootingState.weaponType = null; // 'at', 'mg', или null
+    opShootingState.targets = null;
+    opShootingState.weaponType = null;
 
     appData.campaign.opMapMode = 'selectTarget';
     
@@ -11096,10 +11137,31 @@ function canUnitShoot(unit) {
     if (unit.squads && unit.squads.length > 0) {
         let hasWeapon = false;
         for (let squad of unit.squads) {
-            if (squad.fighters && squad.fighters.length > 0) {
-                // Проверяем, есть ли живые бойцы с оружием
+            // Проверяем crewInstances (пулеметы, орудия)
+            if (squad.crewInstances && squad.crewInstances.length > 0) {
+                for (let ci of squad.crewInstances) {
+                    if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') continue;
+                    const cw = getFactionCrewWeapons(squad.faction).find(w => w.name === ci.weaponName);
+                    if (cw && (cw.type === 'mg' || cw.type === 'at_gun' || cw.type === 'tank_gun' || cw.type === 'mortar')) {
+                        // Проверяем, есть ли живые бойцы в расчете
+                        const alive = ci.fighterIndices.filter(idx => 
+                            squad.fighters[idx] && squad.fighters[idx].hp > 0
+                        ).length;
+                        if (alive > 0) {
+                            hasWeapon = true;
+                            break;
+                        }
+                    }
+                }
+                if (hasWeapon) break;
+            }
+            
+            // Проверяем личное оружие бойцов
+            if (squad.fighters) {
                 const aliveWithWeapon = squad.fighters.some(f => 
-                    f.hp > 0 && f.weapon && f.weapon !== '' && f.weapon !== 'Пистолет Browning Hi-Power' && f.weapon !== 'Пистолет Star M1914'
+                    f.hp > 0 && f.weapon && f.weapon !== '' && 
+                    f.weapon !== 'Пистолет Browning Hi-Power' && 
+                    f.weapon !== 'Пистолет Star M1914'
                 );
                 if (aliveWithWeapon) {
                     hasWeapon = true;
@@ -11178,31 +11240,47 @@ function executeOpShoot(targets, distance) {
         }
     }
     
-    // Если цель — бронетехника, а мы стреляем пулемётами — предупреждаем
-    const hasArmor = targets.some(u => isArmoredUnit(u));
-    if (hasArmor && opShootingState.weaponType !== 'at') {
-        // Если есть ПТО — предложим переключиться, иначе стреляем по пехоте
-        const hasAt = hasAtGunWeapons(shooter);
-        if (hasAt) {
-            // Уже должен быть выбран режим, просто стреляем по пехоте
-        }
-    }
-    
     // Собираем урон от пулемётов/стрелкового оружия
     let totalDamage = 0;
     let weaponDetails = [];
-    let targetsAffected = [];
     
     // Проходим по всем отрядам стрелка
     if (shooter.squads) {
         for (let squad of shooter.squads) {
             if (!squad.fighters) continue;
-            for (let f of squad.fighters) {
-                if (f.hp <= 0) continue;
+            
+            // Сначала проверяем crewInstances (пулеметы)
+            if (squad.crewInstances && squad.crewInstances.length > 0) {
+                for (let ci of squad.crewInstances) {
+                    if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') continue;
+                    const cw = getFactionCrewWeapons(squad.faction).find(w => w.name === ci.weaponName);
+                    if (!cw) continue;
+                    
+                    // Только пулеметы для обстрела пехоты
+                    if (cw.type === 'mg') {
+                        const alive = ci.fighterIndices.filter(idx => 
+                            squad.fighters[idx] && squad.fighters[idx].hp > 0
+                        ).length;
+                        
+                        if (alive > 0) {
+                            let damage = 10; // Станковый пулемет
+                            totalDamage += damage;
+                            weaponDetails.push(`${cw.name} (${damage} ед.)`);
+                        }
+                    }
+                }
+                
+                // Если есть crewInstances - не считаем личное оружие
+                continue;
+            }
+            
+            // Для обычной пехоты считаем личное оружие
+            squad.fighters.forEach(f => {
+                if (f.hp <= 0) return;
                 const weapon = f.weapon || '';
                 let damage = 0;
                 let label = '';
-                
+
                 const wLower = weapon.toLowerCase();
                 if (wLower.includes('станковый пулемет') || wLower.includes('schwarzlose') || wLower.includes('hotchkiss')) {
                     damage = 10;
@@ -11216,19 +11294,16 @@ function executeOpShoot(targets, distance) {
                 } else if (wLower.includes('винтовка') || wLower.includes('geweer') || wLower.includes('vz.24') || wLower.includes('fn model')) {
                     damage = 1;
                     label = 'Винтовка';
-                } else if (wLower.includes('пп') || wLower.includes('пистолет-пулемет') || wLower.includes('star si-35') || wLower.includes('ппд')) {
-                    damage = 1.5;
-                    label = 'Пистолет-пулемёт';
                 } else {
                     damage = 0;
-                    label = 'Без оружия/пистолет';
+                    label = 'Без оружия';
                 }
-                
+
                 if (damage > 0) {
                     totalDamage += damage;
                     weaponDetails.push(`${label} (${damage} ед.)`);
                 }
-            }
+            });
         }
     }
     
@@ -11274,7 +11349,6 @@ function executeOpShoot(targets, distance) {
     let totalApplied = 0;
     
     for (let target of infantryTargets) {
-        // Распределяем урон поровну между целями
         let targetDamage = Math.ceil(finalDamage / infantryTargets.length);
         const result = applyDamageToOpUnit(target, targetDamage);
         totalApplied += result.damage;
@@ -11305,7 +11379,6 @@ function executeOpShoot(targets, distance) {
     
     showShootResultModal(resultModal);
     
-    // Логируем
     const logMsg = `🔫 ОБСТРЕЛ ПЕХОТЫ: ${shooter.name} → ${infantryTargets.length} целей (${distance} гексов) | Урон: ${totalApplied} | Убито: ${totalKilled}`;
     log(logMsg);
     document.getElementById('mapInfo').innerHTML = logMsg;
