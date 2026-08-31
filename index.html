@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.163 — карта  </title>
+  <title>Боевой модуль v12.164 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.163</h1>
+    <h1>⚔️ Боевой модуль v12.164</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.163 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.164 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -10404,11 +10404,17 @@ function getAvailableBtrs() {
         if (u.embarkedUnit) return; // БТР уже занят
         
         // Если это группа БТР
-        if (u.isGroup && u.groupSize) {
+        if (u.isGroup && u.groupSize && u.groupSize > 1) {
             // Добавляем группу как несколько отдельных БТР
-            // Но для простоты - добавляем всю группу целиком
-            // и в диалоге показываем количество машин в группе
-            result.push(u);
+            // Создаем виртуальные записи для каждой машины в группе
+            for (let i = 0; i < u.groupSize; i++) {
+                result.push({
+                    ...u, // копируем все свойства группы
+                    _isVirtualBtr: true, // помечаем как виртуальный БТР
+                    _groupIndex: i, // индекс машины в группе
+                    _groupUnit: u // ссылка на группу
+                });
+            }
         } else {
             // Одиночный БТР
             result.push(u);
@@ -10480,56 +10486,34 @@ function showBtrEmbarkDialog() {
         return;
     }
     
-    // Считаем общее количество доступных БТР (с учетом групп)
-    let totalBtrCount = 0;
-    availableBtrs.forEach(btr => {
-        if (btr.isGroup && btr.groupSize) {
-            totalBtrCount += btr.groupSize;
-        } else {
-            totalBtrCount += 1;
-        }
-    });
-    
-    if (totalBtrCount < required) {
-        document.getElementById('mapInfo').innerHTML = `❌ Недостаточно БТР. Нужно: ${required}, доступно: ${totalBtrCount}`;
+    if (availableBtrs.length < required) {
+        document.getElementById('mapInfo').innerHTML = `❌ Недостаточно БТР. Нужно: ${required}, доступно: ${availableBtrs.length}`;
         return;
     }
     
     // Показываем диалог выбора БТР
-    let message = `Для посадки отряда "${unit.name}" нужно ${required} БТР.\n\nДоступные БТР:\n`;
+    let message = `Для посадки отряда "${unit.name}" нужно ${required} БТР.\n\nДоступные БТР (${availableBtrs.length} шт):\n`;
     availableBtrs.forEach((btr, idx) => {
-        const count = (btr.isGroup && btr.groupSize) ? btr.groupSize : 1;
         const pos = (btr.col !== null && btr.row !== null) ? `(${btr.col},${btr.row})` : '(не размещен)';
-        message += `${idx+1}. ${btr.name} (${count} шт) - ${pos}\n`;
+        let name = btr.name;
+        if (btr._isVirtualBtr) {
+            name = `${btr.name} (машина ${btr._groupIndex + 1})`;
+        }
+        message += `${idx+1}. ${name} - ${pos}\n`;
     });
-    message += `\nВведите номера БТР через запятую (например: 1,2):\n`;
-    message += `Если выбираете группу БТР, она будет использована целиком.\n`;
+    message += `\nВведите номера БТР через запятую (например: 1,2,3,4,5):`;
     
     const choice = prompt(message);
     if (!choice) return;
     
     const indices = choice.split(',').map(s => parseInt(s.trim()) - 1).filter(i => !isNaN(i) && i >= 0 && i < availableBtrs.length);
     
-    if (indices.length === 0) {
-        document.getElementById('mapInfo').innerHTML = '❌ Не выбрано ни одного БТР.';
+    if (indices.length !== required) {
+        document.getElementById('mapInfo').innerHTML = `❌ Нужно выбрать ровно ${required} БТР (выбрано ${indices.length}).`;
         return;
     }
     
-    // Проверяем, что выбрано достаточно БТР
-    let selectedCount = 0;
     const selectedBtrs = indices.map(i => availableBtrs[i]);
-    selectedBtrs.forEach(btr => {
-        if (btr.isGroup && btr.groupSize) {
-            selectedCount += btr.groupSize;
-        } else {
-            selectedCount += 1;
-        }
-    });
-    
-    if (selectedCount !== required) {
-        document.getElementById('mapInfo').innerHTML = `❌ Нужно выбрать ровно ${required} БТР (выбрано ${selectedCount}).`;
-        return;
-    }
     
     // Проверяем, что все БТР на одном гексе
     const firstBtr = selectedBtrs[0];
@@ -10545,30 +10529,28 @@ function showBtrEmbarkDialog() {
         return;
     }
     
-    // Производим посадку
-    unit.embarkedInBtr = true;
-    
-    // Собираем список всех БТР (с учетом групп)
-    const allBtrIds = [];
+    // Собираем уникальные группы/БТР
+    const uniqueBtrUnits = new Set();
     selectedBtrs.forEach(btr => {
-        if (btr.isGroup && btr.groupSize) {
-            // Если это группа - используем всю группу
-            allBtrIds.push(appData.campaign.opUnits.indexOf(btr));
+        if (btr._isVirtualBtr && btr._groupUnit) {
+            uniqueBtrUnits.add(btr._groupUnit);
         } else {
-            allBtrIds.push(appData.campaign.opUnits.indexOf(btr));
+            uniqueBtrUnits.add(btr);
         }
     });
     
-    unit.btrIds = allBtrIds;
+    // Производим посадку
+    unit.embarkedInBtr = true;
+    unit.btrIds = Array.from(uniqueBtrUnits).map(b => appData.campaign.opUnits.indexOf(b));
     unit.mobility = 'vehicle';
     unit.hidden = true;
     unit.ap = 4;
     unit.maxAp = 4;
     
     // Помечаем БТРы как занятые
-    selectedBtrs.forEach(btr => {
-        btr.embarkedUnit = unit.name;
-        btr.embarkedUnitId = appData.campaign.opUnits.indexOf(unit);
+    Array.from(uniqueBtrUnits).forEach(b => {
+        b.embarkedUnit = unit.name;
+        b.embarkedUnitId = appData.campaign.opUnits.indexOf(unit);
     });
     
     saveData();
@@ -11850,7 +11832,7 @@ function executeOpShootAt(targets, distance) {
     const spentAP = shooter.ap;
     shooter.ap = 0;
     
-    const totalShots = gunCount * 20;
+    const totalShots = gunCount * 12;
     let hitChance = 0;
     let penetrationKey = 0;
     
