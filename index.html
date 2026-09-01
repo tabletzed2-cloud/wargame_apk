@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.165 — карта  </title>
+  <title>Боевой модуль v12.166 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.165</h1>
+    <h1>⚔️ Боевой модуль v12.166</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.165 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.166 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -3625,66 +3625,103 @@ function finishBattle() {
   
        
 function syncBattleLossesToCampaign(battleId) {
-  console.log('syncBattleLossesToCampaign called, battleId=', battleId);
-  const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
-  if (!battle) {
-    console.warn('Бой не найден');
-    return;
-  }
-
-  console.log('battle.playerSquads:', battle.playerSquads);
-  console.log('appData.campaign.opUnits:', appData.campaign.opUnits);
-
-  // Обновляем свои отряды
-  if (appData.campaign.opUnits) {
-    battle.playerSquads.forEach(battleSquad => {
-      for (let unit of appData.campaign.opUnits) {
-        const targetSquad = unit.squads.find(s => s.name === battleSquad.name);
-        if (targetSquad) {
-          console.log(`Обновляем ${targetSquad.name} в ${unit.name}`);
-          targetSquad.fighters = battleSquad.fighters.map(f => ({ ...f }));
-          targetSquad.ammoSmall = battleSquad.ammoSmall;
-          targetSquad.ammoOrdnance = battleSquad.ammoOrdnance;
-          targetSquad.grenades = battleSquad.grenades;
-          targetSquad.currentMorale = battleSquad.currentMorale;
-          // Заменяем в массиве, чтобы ссылка обновилась
-          unit.squads = unit.squads.map(s => s.name === battleSquad.name ? targetSquad : s);
-          break;
-        } else {
-          console.warn(`Не найден targetSquad для ${battleSquad.name}`);
-        }
-      }
-    });
-  } else {
-    console.warn('opUnits is null');
-  }
-
-  // Удаляем уничтоженные свои подразделения (все бойцы hp == 0)
-  appData.campaign.opUnits = appData.campaign.opUnits.filter(unit => {
-    return unit.squads.some(squad => squad.fighters.some(f => f.hp > 0));
-  });
-
-  // Аналогично для врагов
-  if (appData.campaign.enemyOpUnits) {
-    battle.enemySquads.forEach(enemySquad => {
-      for (let unit of appData.campaign.enemyOpUnits) {
-        const targetSquad = unit.squads.find(s => s.name === enemySquad.name);
-        if (targetSquad) {
-          targetSquad.fighters = enemySquad.fighters.map(f => ({ ...f }));
-          unit.squads = unit.squads.map(s => s.name === enemySquad.name ? targetSquad : s);
-          break;
-        }
-      }
-    });
-    appData.campaign.enemyOpUnits = appData.campaign.enemyOpUnits.filter(unit => {
-      return unit.squads.some(squad => squad.fighters.some(f => f.hp > 0));
-    });
-  } else {
-    console.warn('enemyOpUnits is null');
-  }
-
-  saveData();
-  console.log('После синхронизации opUnits:', appData.campaign.opUnits);
+    const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
+    if (!battle) return;
+    
+    // ====== ОБРАБОТКА СВОИХ ОТРЯДОВ ======
+    if (appData.campaign.opUnits) {
+        battle.playerSquads.forEach(battleSquad => {
+            for (let unit of appData.campaign.opUnits) {
+                const targetSquad = unit.squads.find(s => s.name === battleSquad.name);
+                if (targetSquad) {
+                    // Обновляем состояние отряда
+                    targetSquad.fighters = battleSquad.fighters.map(f => ({ ...f }));
+                    targetSquad.ammoSmall = battleSquad.ammoSmall;
+                    targetSquad.ammoOrdnance = battleSquad.ammoOrdnance;
+                    targetSquad.grenades = battleSquad.grenades;
+                    targetSquad.currentMorale = battleSquad.currentMorale;
+                    
+                    // Проверяем, уничтожен ли отряд (все бойцы hp = 0)
+                    const allDead = targetSquad.fighters.every(f => f.hp <= 0);
+                    if (allDead) {
+                        // Отряд уничтожен - помечаем юнит как уничтоженный
+                        unit.isDestroyed = true;
+                        log(`💀 Отряд "${unit.name}" полностью уничтожен в тактическом бою!`);
+                    }
+                    break;
+                }
+            }
+        });
+        
+        // Удаляем уничтоженные юниты с карты
+        appData.campaign.opUnits = appData.campaign.opUnits.filter(unit => {
+            if (unit.isDestroyed) {
+                // Устанавливаем метку уничтоженного отряда на гексе
+                if (unit.col !== null && unit.col !== undefined && 
+                    unit.row !== null && unit.row !== undefined) {
+                    const hexKey = `${unit.col},${unit.row}`;
+                    if (appData.campaign.opMapGrid) {
+                        if (!appData.campaign.opMapGrid[hexKey]) {
+                            appData.campaign.opMapGrid[hexKey] = {};
+                        }
+                        if (!appData.campaign.opMapGrid[hexKey].markers) {
+                            appData.campaign.opMapGrid[hexKey].markers = [];
+                        }
+                        if (!appData.campaign.opMapGrid[hexKey].markers.includes('destroyedSquadFriendly')) {
+                            appData.campaign.opMapGrid[hexKey].markers.push('destroyedSquadFriendly');
+                        }
+                    }
+                }
+                return false; // Удаляем юнит
+            }
+            return true; // Оставляем юнит
+        });
+    }
+    
+    // ====== ОБРАБОТКА ВРАЖЕСКИХ ОТРЯДОВ ======
+    if (appData.campaign.enemyOpUnits) {
+        battle.enemySquads.forEach(enemySquad => {
+            for (let unit of appData.campaign.enemyOpUnits) {
+                const targetSquad = unit.squads.find(s => s.name === enemySquad.name);
+                if (targetSquad) {
+                    targetSquad.fighters = enemySquad.fighters.map(f => ({ ...f }));
+                    targetSquad.currentMorale = enemySquad.currentMorale;
+                    
+                    const allDead = targetSquad.fighters.every(f => f.hp <= 0);
+                    if (allDead) {
+                        unit.isDestroyed = true;
+                        log(`💀 Вражеский отряд "${unit.name}" полностью уничтожен!`);
+                    }
+                    break;
+                }
+            }
+        });
+        
+        // Удаляем уничтоженные вражеские юниты
+        appData.campaign.enemyOpUnits = appData.campaign.enemyOpUnits.filter(unit => {
+            if (unit.isDestroyed) {
+                if (unit.col !== null && unit.col !== undefined && 
+                    unit.row !== null && unit.row !== undefined) {
+                    const hexKey = `${unit.col},${unit.row}`;
+                    if (appData.campaign.opMapGrid) {
+                        if (!appData.campaign.opMapGrid[hexKey]) {
+                            appData.campaign.opMapGrid[hexKey] = {};
+                        }
+                        if (!appData.campaign.opMapGrid[hexKey].markers) {
+                            appData.campaign.opMapGrid[hexKey].markers = [];
+                        }
+                        if (!appData.campaign.opMapGrid[hexKey].markers.includes('destroyedSquadEnemy')) {
+                            appData.campaign.opMapGrid[hexKey].markers.push('destroyedSquadEnemy');
+                        }
+                    }
+                }
+                return false;
+            }
+            return true;
+        });
+    }
+    
+    saveData();
 }
       
     function getAP(squadIndex) {
@@ -10184,14 +10221,41 @@ function retreatFromBattle() {
     const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
     if (!battle) return;
 
+    // Сохраняем состояние боя
     battle.playerSquads = appData.squads.map(s => JSON.parse(JSON.stringify(s)));
     battle.enemySquads = appData.map.enemySquads.map(e => JSON.parse(JSON.stringify(e)));
     battle.currentTurn = currentTurn;
+    
+    // Синхронизируем потери (уничтоженные удалятся)
     syncBattleLossesToCampaign(battleId);
-
+    
+    // ====== ОТСТУПЛЕНИЕ ВЫЖИВШИХ ОТРЯДОВ ======
+    if (appData.campaign.opUnits) {
+        // Находим гекс боя
+        const [battleCol, battleRow] = battle.hexKey.split(',').map(Number);
+        
+        // Для каждого выжившего юнита игрока на гексе боя - отступаем
+        appData.campaign.opUnits.forEach(unit => {
+            if (unit.isDestroyed) return;
+            if (unit.col === battleCol && unit.row === battleRow) {
+                // Находим ближайший свой отряд (не на гексе боя)
+                const retreatHex = findRetreatHex(unit, battleCol, battleRow);
+                if (retreatHex) {
+                    unit.col = retreatHex.col;
+                    unit.row = retreatHex.row;
+                    log(`🏃 Отряд "${unit.name}" отступил на гекс (${retreatHex.col},${retreatHex.row})`);
+                }
+            }
+        });
+    }
+    
+    // Удаляем бой из списка активных
     const battleIndex = appData.campaign.activeBattles.findIndex(b => b.id === battleId);
-    if (battleIndex !== -1) appData.campaign.activeBattles.splice(battleIndex, 1);
+    if (battleIndex !== -1) {
+        appData.campaign.activeBattles.splice(battleIndex, 1);
+    }
 
+    // Очищаем тактические данные
     appData.squads = [];
     appData.map = { grid: {}, baseHexSize: 45, zoomLevel: 1, mode: 'view', enemySquads: [], selectedMoveSquadIdx: null, selectedEnemyMoveIdx: null, reachableHexes: [], isCrouchMode: false };
     appData.currentBattleId = null;
@@ -10206,7 +10270,58 @@ function retreatFromBattle() {
     initOperationalMap();
     renderActiveBattlesList();
     saveData();
-    alert('Вы отступили с поля боя.');
+    alert('Вы отступили с поля боя. Выжившие отряды отошли назад.');
+}
+
+// Функция поиска гекса для отступления
+function findRetreatHex(unit, battleCol, battleRow) {
+    // Направления для отступления (по диагонали от боя)
+    const directions = [
+        { dc: -1, dr: -1 }, { dc: 0, dr: -1 }, { dc: 1, dr: -1 },
+        { dc: -1, dr: 0 }, { dc: 1, dr: 0 },
+        { dc: -1, dr: 1 }, { dc: 0, dr: 1 }, { dc: 1, dr: 1 }
+    ];
+    
+    // Ищем ближайший свой отряд
+    const ownUnits = appData.campaign.opUnits.filter(u => 
+        !u.isDestroyed && 
+        u.col !== null && u.col !== undefined && 
+        u.row !== null && u.row !== undefined &&
+        !(u.col === battleCol && u.row === battleRow) // не на гексе боя
+    );
+    
+    if (ownUnits.length > 0) {
+        // Находим ближайший свой отряд
+        let closestUnit = null;
+        let minDist = Infinity;
+        ownUnits.forEach(u => {
+            const dist = getOpHexDistance(battleCol, battleRow, u.col, u.row);
+            if (dist < minDist) {
+                minDist = dist;
+                closestUnit = u;
+            }
+        });
+        
+        if (closestUnit) {
+            // Отступаем в сторону ближайшего своего отряда
+            const dx = closestUnit.col - battleCol;
+            const dy = closestUnit.row - battleRow;
+            const stepX = dx !== 0 ? (dx > 0 ? 1 : -1) : 0;
+            const stepY = dy !== 0 ? (dy > 0 ? 1 : -1) : 0;
+            
+            return {
+                col: battleCol + stepX,
+                row: battleRow + stepY
+            };
+        }
+    }
+    
+    // Если своих отрядов нет - отступаем в случайном направлении
+    const dir = directions[Math.floor(Math.random() * directions.length)];
+    return {
+        col: battleCol + dir.dc,
+        row: battleRow + dir.dr
+    };
 }
  // Экспорт текущей карты местности (opMapGrid) в JSON-файл
 function exportTerrainMap() {
@@ -10405,22 +10520,101 @@ function getAvailableBtrs() {
         
         // Если это группа БТР
         if (u.isGroup && u.groupSize && u.groupSize > 1) {
-            // Добавляем группу как несколько отдельных БТР
-            // Создаем виртуальные записи для каждой машины в группе
-            for (let i = 0; i < u.groupSize; i++) {
-                result.push({
-                    ...u, // копируем все свойства группы
-                    _isVirtualBtr: true, // помечаем как виртуальный БТР
-                    _groupIndex: i, // индекс машины в группе
-                    _groupUnit: u // ссылка на группу
-                });
-            }
-        } else {
-            // Одиночный БТР
-            result.push(u);
+            // Добавляем группу целиком
+            result.push({
+                ...u,
+                _isBtrGroup: true,
+                _groupSize: u.groupSize
+            });
         }
+        // Одиночные БТР не добавляем (нужны только группы)
     });
     return result;
+}
+
+function showBtrEmbarkDialog() {
+    const unit = appData.campaign.selectedOpUnit;
+    if (!unit) {
+        document.getElementById('mapInfo').innerHTML = '❌ Сначала выберите отряд для посадки.';
+        return;
+    }
+    
+    if (unit.type === 'btr_platoon' || (unit.name && unit.name.includes('БТР'))) {
+        document.getElementById('mapInfo').innerHTML = '❌ БТР не может сесть сам в себя.';
+        return;
+    }
+    
+    if (unit.embarkedInBtr) {
+        document.getElementById('mapInfo').innerHTML = '❌ Этот отряд уже в БТР.';
+        return;
+    }
+    
+    const required = getUnitBtrRequirement(unit);
+    const availableBtrGroups = getAvailableBtrs();
+    
+    if (availableBtrGroups.length === 0) {
+        document.getElementById('mapInfo').innerHTML = `❌ Нет свободных групп БТР. Нужна группа из ${required} БТР.`;
+        return;
+    }
+    
+    // Находим подходящие группы БТР (размер группы >= required)
+    const suitableGroups = availableBtrGroups.filter(btr => btr._groupSize >= required);
+    
+    if (suitableGroups.length === 0) {
+        document.getElementById('mapInfo').innerHTML = `❌ Нет подходящих групп БТР. Нужна группа из ${required}+ БТР, доступно групп: ${availableBtrGroups.map(b => `${b.name} (${b._groupSize} шт)`).join(', ')}`;
+        return;
+    }
+    
+    // Показываем диалог выбора группы БТР
+    let message = `Для посадки отряда "${unit.name}" нужна группа из ${required}+ БТР.\n\nПодходящие группы:\n`;
+    suitableGroups.forEach((btr, idx) => {
+        const pos = (btr.col !== null && btr.row !== null) ? `(${btr.col},${btr.row})` : '(не размещена)';
+        message += `${idx+1}. ${btr.name} (${btr._groupSize} шт) - ${pos}\n`;
+    });
+    message += `\nВведите номер группы БТР (1-${suitableGroups.length}):`;
+    
+    const choice = prompt(message);
+    if (!choice) return;
+    
+    const idx = parseInt(choice) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= suitableGroups.length) {
+        document.getElementById('mapInfo').innerHTML = '❌ Неверный номер группы.';
+        return;
+    }
+    
+    const selectedBtrGroup = suitableGroups[idx];
+    
+    // Проверяем, что пехота на том же гексе
+    if (unit.col !== selectedBtrGroup.col || unit.row !== selectedBtrGroup.row) {
+        document.getElementById('mapInfo').innerHTML = '❌ Отряд и группа БТР должны быть на одном гексе.';
+        return;
+    }
+    
+    // Производим посадку
+    unit.embarkedInBtr = true;
+    unit.btrIds = [appData.campaign.opUnits.indexOf(selectedBtrGroup)];
+    unit.mobility = 'vehicle';
+    unit.hidden = true;
+    unit.ap = 4;
+    unit.maxAp = 4;
+    
+    // Сохраняем координаты для высадки
+    unit.embarkedCol = unit.col;
+    unit.embarkedRow = unit.row;
+    
+    // Убираем координаты, чтобы отряд не отображался на карте
+    unit.col = null;
+    unit.row = null;
+    
+    // Помечаем группу БТР как занятую
+    selectedBtrGroup.embarkedUnit = unit.name;
+    selectedBtrGroup.embarkedUnitId = appData.campaign.opUnits.indexOf(unit);
+    
+    saveData();
+    redrawOperationalMap();
+    updateBtrPanel();
+    
+    document.getElementById('mapInfo').innerHTML = `✅ Отряд "${unit.name}" посажен в группу БТР "${selectedBtrGroup.name}" (${selectedBtrGroup._groupSize} шт).`;
 }
       function showBtrDisembarkDialog() {
     const unit = appData.campaign.selectedOpUnit;
