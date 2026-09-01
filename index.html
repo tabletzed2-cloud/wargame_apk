@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.166 — карта  </title>
+  <title>Боевой модуль v12.167 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.166</h1>
+    <h1>⚔️ Боевой модуль v12.167</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.166 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.167 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -10520,14 +10520,22 @@ function getAvailableBtrs() {
         
         // Если это группа БТР
         if (u.isGroup && u.groupSize && u.groupSize > 1) {
-            // Добавляем группу целиком
+            // Добавляем группу с правильным количеством
             result.push({
                 ...u,
                 _isBtrGroup: true,
-                _groupSize: u.groupSize
+                _groupSize: u.groupSize,
+                _displayName: `${u.name} (${u.groupSize} шт)`
+            });
+        } else {
+            // Одиночный БТР
+            result.push({
+                ...u,
+                _isBtrGroup: false,
+                _groupSize: 1,
+                _displayName: u.name
             });
         }
-        // Одиночные БТР не добавляем (нужны только группы)
     });
     return result;
 }
@@ -10550,49 +10558,47 @@ function showBtrEmbarkDialog() {
     }
     
     const required = getUnitBtrRequirement(unit);
-    const availableBtrGroups = getAvailableBtrs();
+    const availableBtrs = getAvailableBtrs();
     
-    if (availableBtrGroups.length === 0) {
-        document.getElementById('mapInfo').innerHTML = `❌ Нет свободных групп БТР. Нужна группа из ${required} БТР.`;
+    if (availableBtrs.length === 0) {
+        document.getElementById('mapInfo').innerHTML = '❌ Нет свободных БТР.';
         return;
     }
     
-    // Находим подходящие группы БТР (размер группы >= required)
-    const suitableGroups = availableBtrGroups.filter(btr => btr._groupSize >= required);
-    
-    if (suitableGroups.length === 0) {
-        document.getElementById('mapInfo').innerHTML = `❌ Нет подходящих групп БТР. Нужна группа из ${required}+ БТР, доступно групп: ${availableBtrGroups.map(b => `${b.name} (${b._groupSize} шт)`).join(', ')}`;
-        return;
-    }
-    
-    // Показываем диалог выбора группы БТР
-    let message = `Для посадки отряда "${unit.name}" нужна группа из ${required}+ БТР.\n\nПодходящие группы:\n`;
-    suitableGroups.forEach((btr, idx) => {
-        const pos = (btr.col !== null && btr.row !== null) ? `(${btr.col},${btr.row})` : '(не размещена)';
-        message += `${idx+1}. ${btr.name} (${btr._groupSize} шт) - ${pos}\n`;
+    // Показываем диалог выбора
+    let message = `Для посадки отряда "${unit.name}" нужно ${required} БТР.\n\nДоступные БТР:\n`;
+    availableBtrs.forEach((btr, idx) => {
+        const pos = (btr.col !== null && btr.row !== null) ? `(${btr.col},${btr.row})` : '(не размещен)';
+        message += `${idx+1}. ${btr._displayName} - ${pos}\n`;
     });
-    message += `\nВведите номер группы БТР (1-${suitableGroups.length}):`;
+    message += `\nВведите номер БТР или группы БТР (1-${availableBtrs.length}):`;
     
     const choice = prompt(message);
     if (!choice) return;
     
     const idx = parseInt(choice) - 1;
-    if (isNaN(idx) || idx < 0 || idx >= suitableGroups.length) {
-        document.getElementById('mapInfo').innerHTML = '❌ Неверный номер группы.';
+    if (isNaN(idx) || idx < 0 || idx >= availableBtrs.length) {
+        document.getElementById('mapInfo').innerHTML = '❌ Неверный номер.';
         return;
     }
     
-    const selectedBtrGroup = suitableGroups[idx];
+    const selectedBtr = availableBtrs[idx];
+    
+    // Проверяем, достаточно ли БТР в выбранной группе
+    if (selectedBtr._groupSize < required) {
+        document.getElementById('mapInfo').innerHTML = `❌ В выбранной группе только ${selectedBtr._groupSize} БТР, а нужно ${required}.`;
+        return;
+    }
     
     // Проверяем, что пехота на том же гексе
-    if (unit.col !== selectedBtrGroup.col || unit.row !== selectedBtrGroup.row) {
-        document.getElementById('mapInfo').innerHTML = '❌ Отряд и группа БТР должны быть на одном гексе.';
+    if (unit.col !== selectedBtr.col || unit.row !== selectedBtr.row) {
+        document.getElementById('mapInfo').innerHTML = '❌ Отряд и БТР должны быть на одном гексе.';
         return;
     }
     
     // Производим посадку
     unit.embarkedInBtr = true;
-    unit.btrIds = [appData.campaign.opUnits.indexOf(selectedBtrGroup)];
+    unit.btrIds = [appData.campaign.opUnits.indexOf(selectedBtr)];
     unit.mobility = 'vehicle';
     unit.hidden = true;
     unit.ap = 4;
@@ -10606,15 +10612,15 @@ function showBtrEmbarkDialog() {
     unit.col = null;
     unit.row = null;
     
-    // Помечаем группу БТР как занятую
-    selectedBtrGroup.embarkedUnit = unit.name;
-    selectedBtrGroup.embarkedUnitId = appData.campaign.opUnits.indexOf(unit);
+    // Помечаем БТР как занятый
+    selectedBtr.embarkedUnit = unit.name;
+    selectedBtr.embarkedUnitId = appData.campaign.opUnits.indexOf(unit);
     
     saveData();
     redrawOperationalMap();
     updateBtrPanel();
     
-    document.getElementById('mapInfo').innerHTML = `✅ Отряд "${unit.name}" посажен в группу БТР "${selectedBtrGroup.name}" (${selectedBtrGroup._groupSize} шт).`;
+    document.getElementById('mapInfo').innerHTML = `✅ Отряд "${unit.name}" посажен в ${selectedBtr._displayName}.`;
 }
       function showBtrDisembarkDialog() {
     const unit = appData.campaign.selectedOpUnit;
@@ -12589,8 +12595,85 @@ function splitEnemyVehicleGroup(group) {
   document.getElementById('mapInfo').innerHTML = `✅ Вражеский отряд разбит на ${groupSize} отдельных машин.`;
 }    
 
+function removeSelectedEnemyOpUnit() {
+    const selectedEnemy = appData.campaign.selectedEnemyOpUnit;
+    if (!selectedEnemy) {
+        document.getElementById('mapInfo').innerHTML = '❌ Сначала выберите вражеский юнит на карте.';
+        return;
+    }
+    
+    if (!confirm(`Удалить вражеский юнит "${selectedEnemy.name}" с карты?`)) return;
+    
+    const idx = (appData.campaign.enemyOpUnits || []).indexOf(selectedEnemy);
+    if (idx !== -1) {
+        // Устанавливаем метку уничтоженного врага (опционально)
+        if (selectedEnemy.col !== null && selectedEnemy.col !== undefined && 
+            selectedEnemy.row !== null && selectedEnemy.row !== undefined) {
+            const hexKey = `${selectedEnemy.col},${selectedEnemy.row}`;
+            if (appData.campaign.opMapGrid) {
+                if (!appData.campaign.opMapGrid[hexKey]) {
+                    appData.campaign.opMapGrid[hexKey] = {};
+                }
+                if (!appData.campaign.opMapGrid[hexKey].markers) {
+                    appData.campaign.opMapGrid[hexKey].markers = [];
+                }
+                if (!appData.campaign.opMapGrid[hexKey].markers.includes('destroyedSquadEnemy')) {
+                    appData.campaign.opMapGrid[hexKey].markers.push('destroyedSquadEnemy');
+                }
+            }
+        }
+        
+        // Удаляем юнит
+        appData.campaign.enemyOpUnits.splice(idx, 1);
+        appData.campaign.selectedEnemyOpUnit = null;
+        
+        saveData();
+        redrawOperationalMap();
+        updateOpPlaceSelect();
+        
+        document.getElementById('mapInfo').innerHTML = `✅ Вражеский юнит "${selectedEnemy.name}" удалён с карты.`;
+    }
+}
 
-              
+function removeSelectedOpUnit() {
+    const selectedUnit = appData.campaign.selectedOpUnit;
+    if (!selectedUnit) {
+        document.getElementById('mapInfo').innerHTML = '❌ Сначала выберите свой юнит на карте.';
+        return;
+    }
+    
+    if (!confirm(`Удалить юнит "${selectedUnit.name}" с карты?`)) return;
+    
+    const idx = (appData.campaign.opUnits || []).indexOf(selectedUnit);
+    if (idx !== -1) {
+        // Устанавливаем метку уничтоженного отряда
+        if (selectedUnit.col !== null && selectedUnit.col !== undefined && 
+            selectedUnit.row !== null && selectedUnit.row !== undefined) {
+            const hexKey = `${selectedUnit.col},${selectedUnit.row}`;
+            if (appData.campaign.opMapGrid) {
+                if (!appData.campaign.opMapGrid[hexKey]) {
+                    appData.campaign.opMapGrid[hexKey] = {};
+                }
+                if (!appData.campaign.opMapGrid[hexKey].markers) {
+                    appData.campaign.opMapGrid[hexKey].markers = [];
+                }
+                if (!appData.campaign.opMapGrid[hexKey].markers.includes('destroyedSquadFriendly')) {
+                    appData.campaign.opMapGrid[hexKey].markers.push('destroyedSquadFriendly');
+                }
+            }
+        }
+        
+        appData.campaign.opUnits.splice(idx, 1);
+        appData.campaign.selectedOpUnit = null;
+        
+        saveData();
+        redrawOperationalMap();
+        updateOpPlaceSelect();
+        
+        document.getElementById('mapInfo').innerHTML = `✅ Юнит "${selectedUnit.name}" удалён с карты.`;
+    }
+}
+      
   </script> 
   
  <div id="awardsTab" class="tabcontent">
@@ -12651,6 +12734,7 @@ function splitEnemyVehicleGroup(group) {
   <strong>👤 Игрок</strong>
   <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Размещение</button>
   <button onclick="setOpMapMode('move')" style="background:#2980b9;">🚶 Перемещение</button>
+  <button onclick="removeSelectedOpUnit()" style="background:#555;">🗑️ Удалить выбранного</button>
   <button onclick="startOpShooting()" style="background:#c0392b;">🎯 Обстрел</button>
   <div id="dismountPanel" style="display:none; margin-top:4px;">
     <button onclick="toggleDismount()" id="dismountBtn" style="background:#f39c12;">🚲 Спешиться</button>
@@ -12673,6 +12757,7 @@ function splitEnemyVehicleGroup(group) {
   <strong>☠️ Противник</strong>
   <button onclick="setOpMapMode('placeEnemy')" style="background:#c0392b;">📌 Разместить</button>
   <button onclick="setOpMapMode('moveEnemy')" style="background:#e67e22;">🚶 Переместить</button>
+  <button onclick="removeSelectedEnemyOpUnit()" style="background:#555;">🗑️ Удалить выбранного</button>
   <button onclick="showEnemyGroupDialog()" style="background:#8e44ad;">📦 Группировать технику</button>
   <button onclick="showEnemySplitDialog()" style="background:#e67e22;">✂️ Разбить отряд</button>
   <label>Фракция врага: 
