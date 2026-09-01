@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.172 — карта  </title>
+  <title>Боевой модуль v12.173 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.172</h1>
+    <h1>⚔️ Боевой модуль v12.173</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.172 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.173 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -10536,94 +10536,88 @@ function getAvailableBtrs() {
 }
 
 function showBtrEmbarkDialog() {
+    console.log('=== showBtrEmbarkDialog вызвана ===');
+    
     const unit = appData.campaign.selectedOpUnit;
+    console.log('Выбранный юнит:', unit ? unit.name : 'НЕТ');
+    
     if (!unit) {
-        document.getElementById('mapInfo').innerHTML = '❌ Сначала выберите отряд для посадки.';
+        document.getElementById('mapInfo').innerHTML = '❌ Сначала выберите отряд.';
         return;
     }
     
+    // Проверяем, не БТР ли это
     if (unit.type === 'btr_platoon' || (unit.name && unit.name.includes('БТР'))) {
-        document.getElementById('mapInfo').innerHTML = '❌ БТР не может сесть сам в себя.';
+        document.getElementById('mapInfo').innerHTML = '❌ Это БТР.';
         return;
     }
     
     if (unit.embarkedInBtr) {
-        document.getElementById('mapInfo').innerHTML = '❌ Этот отряд уже в БТР.';
+        document.getElementById('mapInfo').innerHTML = '❌ Уже в БТР.';
         return;
     }
     
     const required = getUnitBtrRequirement(unit);
-    const availableBtrs = getAvailableBtrs();
+    console.log('Нужно БТР:', required);
     
-    if (availableBtrs.length === 0) {
-        document.getElementById('mapInfo').innerHTML = '❌ Нет свободных БТР.';
-        return;
-    }
-    
-    // Показываем диалог
-    let message = `Для посадки отряда "${unit.name}" нужно ${required} БТР.\n\nДоступные БТР:\n`;
-    availableBtrs.forEach((btr, idx) => {
-        const pos = (btr.col !== null && btr.row !== null) ? `(${btr.col},${btr.row})` : '(не размещен)';
-        message += `${idx+1}. ${btr._displayName} - ${pos}\n`;
+    // Ищем БТР на том же гексе
+    const btrsOnSameHex = (appData.campaign.opUnits || []).filter(u => {
+        const isBtr = u.type === 'btr_platoon' || (u.name && u.name.includes('БТР'));
+        const sameHex = u.col === unit.col && u.row === unit.row;
+        const notOccupied = !u.embarkedUnit;
+        return isBtr && sameHex && notOccupied;
     });
-    message += `\nВведите номер (1-${availableBtrs.length}):`;
     
-    const choice = prompt(message);
-    if (!choice) return;
+    console.log('БТР на том же гексе:', btrsOnSameHex.length);
+    btrsOnSameHex.forEach(b => console.log(' -', b.name, 'группа:', b.isGroup, 'размер:', b.groupSize));
     
-    const idx = parseInt(choice) - 1;
-    if (isNaN(idx) || idx < 0 || idx >= availableBtrs.length) {
-        document.getElementById('mapInfo').innerHTML = '❌ Неверный номер.';
+    if (btrsOnSameHex.length === 0) {
+        document.getElementById('mapInfo').innerHTML = '❌ Нет БТР на этом гексе.';
         return;
     }
     
-    const selectedBtr = availableBtrs[idx];
+    // Проверяем, есть ли группа с достаточным количеством
+    let suitableBtr = null;
+    for (let btr of btrsOnSameHex) {
+        const count = btr.isGroup && btr.groupSize ? btr.groupSize : 1;
+        console.log(`БТР "${btr.name}": count=${count}, нужно=${required}`);
+        if (count >= required) {
+            suitableBtr = btr;
+            break;
+        }
+    }
     
-    // Проверяем, достаточно ли БТР
-    if (selectedBtr._availableCount < required) {
-        document.getElementById('mapInfo').innerHTML = `❌ В выбранной группе только ${selectedBtr._availableCount} БТР, а нужно ${required}.`;
+    if (!suitableBtr) {
+        document.getElementById('mapInfo').innerHTML = `❌ Нет группы БТР с ${required} машинами на этом гексе.`;
         return;
     }
     
-    // Проверяем, что пехота на том же гексе
-    if (unit.col !== selectedBtr.col || unit.row !== selectedBtr.row) {
-        document.getElementById('mapInfo').innerHTML = '❌ Отряд и БТР должны быть на одном гексе.';
-        return;
-    }
+    console.log('Подходящий БТР:', suitableBtr.name);
     
-    // Находим реальный БТР в opUnits
-    const realBtrIndex = appData.campaign.opUnits.indexOf(selectedBtr);
-    if (realBtrIndex === -1) {
-        document.getElementById('mapInfo').innerHTML = '❌ Ошибка: БТР не найден.';
-        return;
-    }
-    
-    // Производим посадку
+    // ВЫПОЛНЯЕМ ПОСАДКУ
     unit.embarkedInBtr = true;
-    unit.btrIds = [realBtrIndex];
+    unit.btrIds = [appData.campaign.opUnits.indexOf(suitableBtr)];
     unit.mobility = 'vehicle';
     unit.hidden = true;
-    unit.ap = 4;
-    unit.maxAp = 4;
     
-    // Сохраняем координаты для высадки
+    // Сохраняем координаты
     unit.embarkedCol = unit.col;
     unit.embarkedRow = unit.row;
     
-    // Убираем координаты
+    // Убираем с карты
     unit.col = null;
     unit.row = null;
     
-    // Помечаем БТР как занятый
-    const realBtr = appData.campaign.opUnits[realBtrIndex];
-    realBtr.embarkedUnit = unit.name;
-    realBtr.embarkedUnitId = appData.campaign.opUnits.indexOf(unit);
+    // Помечаем БТР занятым
+    suitableBtr.embarkedUnit = unit.name;
+    suitableBtr.embarkedUnitId = appData.campaign.opUnits.indexOf(unit);
     
     saveData();
     redrawOperationalMap();
     updateBtrPanel();
     
-    document.getElementById('mapInfo').innerHTML = `✅ Отряд "${unit.name}" посажен в ${selectedBtr._displayName}.`;
+    document.getElementById('mapInfo').innerHTML = `✅ Посажен в ${suitableBtr.name}`;
+    console.log('=== Посадка выполнена ===');
 }
 function showBtrDisembarkDialog() {
     const unit = appData.campaign.selectedOpUnit;
@@ -12742,6 +12736,11 @@ function removeSelectedOpUnit() {
         document.getElementById('mapInfo').innerHTML = `✅ Юнит "${selectedUnit.name}" удалён с карты.`;
     }
 }
+
+// Проверка
+console.log('Проверка: функция showBtrEmbarkDialog существует:', typeof showBtrEmbarkDialog);
+console.log('Проверка: кнопка btrEmbarkBtn существует:', !!document.getElementById('btrEmbarkBtn'));
+
       
   </script> 
   
