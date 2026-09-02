@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.180 — карта  </title>
+  <title>Боевой модуль v12.181 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,9 +258,12 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.180</h1>
+    <h1>⚔️ Боевой модуль v12.181</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
+     <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
+        🎯 Hard Mode: ВЫКЛ
+    </button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
     <button class="menu-btn" onclick="openInfo('history')">📜 История</button>
@@ -283,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.180 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.181 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -3173,6 +3176,21 @@ document.getElementById('battleApp').style.display = 'none';
         
         "modifiers": [],
         "activeCards": [],
+                "hardMode": {
+            "enabled": false,
+            "hqUnitId": null,
+            "messengers": {
+                "battalion": { "total": 5, "available": 5, "active": [] },
+                "companies": {}
+            },
+            "signalPlatoon": {
+                "radios": { "total": 3, "available": 3, "assigned": [] },
+                "phones": { "total": 3, "available": 3, "assigned": [] }
+            },
+            "phoneLines": [],
+            "orders": [],
+            "pendingOrders": []
+        },
         "campaign": {
   "active": false,
   "scenario": null,
@@ -3205,6 +3223,20 @@ document.getElementById('battleApp').style.display = 'none';
   const saved = safeLocalStorage('getItem', STORAGE_KEY);
   if (saved) {
     appData = JSON.parse(saved);
+        // Загружаем Hard Mode
+    if (appData.hardMode) {
+        hardMode = appData.hardMode;
+    } else {
+        hardMode = {
+            enabled: false,
+            hqUnitId: null,
+            messengers: { battalion: { total: 5, available: 5, active: [] }, companies: {} },
+            signalPlatoon: { radios: { total: 3, available: 3, assigned: [] }, phones: { total: 3, available: 3, assigned: [] } },
+            phoneLines: [],
+            orders: [],
+            pendingOrders: []
+        };
+    }
     // Автоматически удаляем устаревший глобальный модификатор «Плохой порох»
     if (appData.modifiers) appData.modifiers = appData.modifiers.filter(m => m.name !== 'Плохой порох');
     if (!appData.factions || !appData.templates || !appData.squads) throw new Error('Структура повреждена');
@@ -3412,10 +3444,115 @@ appData.squads.forEach(s => assignUniqueCrewKeys(s));
     let actionPoints = {}; // объект { squadIndex: { ap, maxAp } }
     let mapScale = 1; // Текущий масштаб карты (1 = 100%)
     let loadedOpMapImage = null;
-      
-    function saveData() { 
-      safeLocalStorage('setItem', STORAGE_KEY, JSON.stringify(appData));
+    // ==================== HARD MODE ====================
+let hardMode = {
+    enabled: false,
+    hqUnitId: null,
+    messengers: {
+        battalion: { total: 5, available: 5, active: [] },
+        companies: {} // { companyId: { total: 4, available: 4, active: [] } }
+    },
+    signalPlatoon: {
+        radios: { total: 3, available: 3, assigned: [] },
+        phones: { total: 3, available: 3, assigned: [] }
+    },
+    phoneLines: [], // {fromUnitId, toUnitId, path: [hexKeys], intact: true}
+    orders: [], // активные приказы
+    pendingOrders: [] // приказы в пути
+};
+
+function toggleHardMode() {
+    hardMode.enabled = !hardMode.enabled;
+    
+    const btn = document.getElementById('hardModeBtn');
+    if (btn) {
+        btn.textContent = hardMode.enabled ? '🎯 Hard Mode: ВКЛ' : '🎯 Hard Mode: ВЫКЛ';
+        btn.style.background = hardMode.enabled ? '#c0392b' : '#555';
     }
+    
+    if (hardMode.enabled) {
+        alert('Hard Mode включен!\n\nВ этом режиме вы управляете юнитами через приказы.\nВсе приказы идут от штаба батальона через посыльных, рации или телефонные линии.');
+        initHardMode();
+    } else {
+        alert('Hard Mode выключен.');
+        // Очищаем приказы
+        hardMode.orders = [];
+        hardMode.pendingOrders = [];
+    }
+    
+    saveData();
+}
+
+function initHardMode() {
+    // Находим штаб батальона
+    const hq = (appData.campaign.opUnits || []).find(u => u.type === 'battalion_hq');
+    if (hq) {
+        hardMode.hqUnitId = appData.campaign.opUnits.indexOf(hq);
+    }
+    
+    // Находим штабы рот
+    const companies = (appData.campaign.opUnits || []).filter(u => u.type === 'company_hq');
+    companies.forEach(company => {
+        const companyId = appData.campaign.opUnits.indexOf(company);
+        hardMode.messengers.companies[companyId] = {
+            total: 4,
+            available: 4,
+            active: []
+        };
+    });
+    
+    // Отмечаем посыльных в штабах
+    if (hq && hq.squads) {
+        hq.squads.forEach(squad => {
+            squad.fighters.forEach(f => {
+                if (f.name.includes('Посыльный')) {
+                    f.isMessenger = true;
+                }
+            });
+        });
+    }
+    
+    companies.forEach(company => {
+        if (company.squads) {
+            company.squads.forEach(squad => {
+                squad.fighters.forEach(f => {
+                    if (f.name.includes('Посыльный')) {
+                        f.isMessenger = true;
+                    }
+                });
+            });
+        }
+    });
+    
+    saveData();
+}
+
+function findParentCompany(platoonUnit) {
+    // Ищем штаб роты, которому подчиняется взвод
+    // Временно: ищем ближайший штаб роты
+    const companies = (appData.campaign.opUnits || []).filter(u => u.type === 'company_hq');
+    
+    let closestCompany = null;
+    let minDist = Infinity;
+    
+    companies.forEach(company => {
+        if (company.col === null || company.row === null) return;
+        const dist = getOpHexDistance(
+            platoonUnit.col || 0, platoonUnit.row || 0,
+            company.col, company.row
+        );
+        if (dist < minDist) {
+            minDist = dist;
+            closestCompany = company;
+        }
+    });
+    
+    return closestCompany;
+}  
+    function saveData() { 
+    appData.hardMode = hardMode;
+    safeLocalStorage('setItem', STORAGE_KEY, JSON.stringify(appData));
+}
 
     function resetAllData() {
       if (confirm('Сбросить все сохранённые данные и выбор фракции?')) {
