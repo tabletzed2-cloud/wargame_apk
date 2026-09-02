@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.183 — карта  </title>
+  <title>Боевой модуль v12.184 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.183</h1>
+    <h1>⚔️ Боевой модуль v12.184</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.183 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.184 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1631,6 +1631,127 @@ function redrawOperationalMap() {
           ctx.setLineDash([]);
       }
   }
+    // Отрисовка активных маршрутов приказов (для всех отрядов)
+  if (hardMode.enabled) {
+      hardMode.orders.forEach(order => {
+          if (order.status === 'active' && order.waypoints && order.waypoints.length > 0) {
+              const unit = appData.campaign.opUnits[order.toUnitId];
+              if (!unit || unit.col === null || unit.row === null) return;
+              
+              // Рисуем линию от текущей позиции к следующей точке
+              const nextWp = order.waypoints[0];
+              const fromX = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+              const fromY = unit.row * 1.5 * size + size;
+              const toX = nextWp.col * Math.sqrt(3) * size + (nextWp.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+              const toY = nextWp.row * 1.5 * size + size;
+              
+              // Рисуем стрелку
+              ctx.strokeStyle = '#00ff00';
+              ctx.lineWidth = 3;
+              ctx.setLineDash([5, 5]);
+              ctx.beginPath();
+              ctx.moveTo(fromX, fromY);
+              ctx.lineTo(toX, toY);
+              ctx.stroke();
+              ctx.setLineDash([]);
+              
+              // Рисуем наконечник стрелки
+              const angle = Math.atan2(toY - fromY, toX - fromX);
+              const arrowSize = size * 0.3;
+              ctx.fillStyle = '#00ff00';
+              ctx.beginPath();
+              ctx.moveTo(toX, toY);
+              ctx.lineTo(toX - arrowSize * Math.cos(angle - 0.5), toY - arrowSize * Math.sin(angle - 0.5));
+              ctx.lineTo(toX - arrowSize * Math.cos(angle + 0.5), toY - arrowSize * Math.sin(angle + 0.5));
+              ctx.closePath();
+              ctx.fill();
+              
+              // Рисуем все точки маршрута
+              order.waypoints.forEach((wp, idx) => {
+                  const x = wp.col * Math.sqrt(3) * size + (wp.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+                  const y = wp.row * 1.5 * size + size;
+                  
+                  ctx.fillStyle = '#00ff00';
+                  ctx.beginPath();
+                  ctx.arc(x, y, size * 0.2, 0, 2 * Math.PI);
+                  ctx.fill();
+                  
+                  ctx.fillStyle = '#fff';
+                  ctx.font = `${size * 0.25}px Arial`;
+                  ctx.textAlign = 'center';
+                  ctx.textBaseline = 'middle';
+                  ctx.fillText(idx + 1, x, y);
+              });
+          }
+      });
+  }
+  
+  // Отрисовка телефонных линий
+  if (hardMode.enabled && hardMode.phoneLines.length > 0) {
+      hardMode.phoneLines.forEach(line => {
+          if (!line.intact) return;
+          
+          const fromUnit = appData.campaign.opUnits[line.fromUnitId];
+          const toUnit = appData.campaign.opUnits[line.toUnitId];
+          
+          if (!fromUnit || !toUnit) return;
+          if (fromUnit.col === null || fromUnit.row === null || toUnit.col === null || toUnit.row === null) return;
+          
+          const fromX = fromUnit.col * Math.sqrt(3) * size + (fromUnit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+          const fromY = fromUnit.row * 1.5 * size + size;
+          const toX = toUnit.col * Math.sqrt(3) * size + (toUnit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+          const toY = toUnit.row * 1.5 * size + size;
+          
+          // Рисуем телефонную линию (красная пунктирная)
+          ctx.strokeStyle = '#ff0000';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(fromX, fromY);
+          ctx.lineTo(toX, toY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          
+          // Рисуем значок телефона посередине
+          const midX = (fromX + toX) / 2;
+          const midY = (fromY + toY) / 2;
+          ctx.fillStyle = '#ff0000';
+          ctx.font = `${size * 0.4}px Arial`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('📞', midX, midY);
+      });
+  }
+    // Отрисовка посыльных (если есть доставляемые приказы)
+  if (hardMode.enabled && hardMode.pendingOrders.length > 0) {
+      hardMode.pendingOrders.forEach(order => {
+          const fromUnit = appData.campaign.opUnits[order.fromUnitId];
+          const toUnit = appData.campaign.opUnits[order.toUnitId];
+          
+          if (!fromUnit || !toUnit) return;
+          if (fromUnit.col === null || fromUnit.row === null || toUnit.col === null || toUnit.row === null) return;
+          
+          // Вычисляем текущую позицию посыльного
+          const progress = order.deliveryTurnsPassed / order.deliveryTurnsNeeded;
+          const currentX = fromUnit.col + (toUnit.col - fromUnit.col) * progress;
+          const currentY = fromUnit.row + (toUnit.row - fromUnit.row) * progress;
+          
+          const x = currentX * Math.sqrt(3) * size + (Math.round(currentY) % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+          const y = currentY * 1.5 * size + size;
+          
+          // Рисуем посыльного
+          ctx.fillStyle = '#f39c12';
+          ctx.beginPath();
+          ctx.arc(x, y - size * 0.5, size * 0.2, 0, 2 * Math.PI);
+          ctx.fill();
+          
+          ctx.fillStyle = '#fff';
+          ctx.font = `${size * 0.3}px Arial`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('📨', x, y - size * 0.5);
+      });
+  }
   // Рисуем юниты (свои и вражеские)
     drawOperationalUnits(ctx);
   // Подсветка гексов с активными боями
@@ -2139,19 +2260,28 @@ function handleOpMapClick(e) {
   }
 
   // ====== РЕЖИМ ПРОСМОТРА ======
-   // ПРОВЕРКА: Если панель приказов открыта и выбран тип "Движение" - добавляем точку маршрута
-  const orderPanel = document.getElementById('hardModePanel');
-  if (orderPanel && orderPanel.style.display === 'block') {
-      const orderType = document.getElementById('orderType');
-      if (orderType && (orderType.value === 'move' || orderType.value === 'retreat')) {
-          if (closestKey) {
-              const [col, row] = closestKey.split(',').map(Number);
-              addOrderWaypoint(col, row);
-              return;
-          }
+  // ПРОВЕРКА: Выбор второго юнита для телефонной линии
+  if (phoneLineStart !== null) {
+      const clickedUnit = findUnitAtClick(
+          appData.campaign.opUnits || [], 
+          clickX, clickY
+      );
+      
+      if (clickedUnit) {
+          completePhoneLine(appData.campaign.opUnits.indexOf(clickedUnit));
+          return;
       }
   }
-
+  // ПРОВЕРКА: Если панель приказов открыта и включен режим планирования маршрута
+  const orderPanel = document.getElementById('hardModePanel');
+  if (orderPanel && orderPanel.style.display === 'block' && isPlanningRoute) {
+      if (closestKey) {
+          const [col, row] = closestKey.split(',').map(Number);
+          addOrderWaypoint(col, row);
+          return;
+      }
+  }
+  
   const clickedUnitView = findUnitAtClick(
     appData.campaign.opUnits || [], 
     clickX, clickY
@@ -3531,7 +3661,16 @@ function toggleHardMode() {
         hardMode.orders = [];
         hardMode.pendingOrders = [];
     }
+     // Показываем/скрываем кнопки панелей
+    const orderPanelBtn = document.getElementById('showOrderPanelBtn');
+    if (orderPanelBtn) {
+        orderPanelBtn.style.display = hardMode.enabled ? 'inline-block' : 'none';
+    }
     
+    const commPanelBtn = document.getElementById('showCommPanelBtn');
+    if (commPanelBtn) {
+        commPanelBtn.style.display = hardMode.enabled ? 'inline-block' : 'none';
+    }
     saveData();
 }
 
@@ -10223,6 +10362,8 @@ function processOrders() {
             executeOrder(order);
         }
     });
+   // Обновляем список приказов
+    renderActiveOrders();
 }
 
 function executeOrder(order) {
@@ -10341,10 +10482,230 @@ function executeReconOrder(unit, order) {
     
     unit.ap = 0; // Тратим все ОД
     order.status = 'completed';
-}    
+}   
+// ==================== СИСТЕМА СВЯЗИ ====================
+let phoneLineStart = null; // начальная точка телефонной линии
+
+function showCommunicationPanel() {
+    const panel = document.getElementById('communicationPanel');
+    if (!hardMode.enabled) {
+        alert('Hard Mode не включен!');
+        return;
+    }
+    
+    if (panel) {
+        panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+        renderCommunicationPanel();
+    }
+}
+
+function renderCommunicationPanel() {
+    // Рации
+    const radiosAvailable = document.getElementById('radiosAvailable');
+    if (radiosAvailable) {
+        radiosAvailable.textContent = `Доступно: ${hardMode.signalPlatoon.radios.available} из ${hardMode.signalPlatoon.radios.total}`;
+    }
+    
+    const radiosList = document.getElementById('radiosList');
+    if (radiosList) {
+        if (hardMode.signalPlatoon.radios.assigned.length === 0) {
+            radiosList.innerHTML = '<span style="color:#aaa;">Не выданы</span>';
+        } else {
+            radiosList.innerHTML = hardMode.signalPlatoon.radios.assigned.map((r, idx) => {
+                const unit = appData.campaign.opUnits[r.unitId];
+                const unitName = unit ? unit.name : 'Неизвестно';
+                return `<div style="color:#f1c40f;">📻 ${unitName} <button onclick="returnRadio(${idx})" style="background:#555; font-size:0.7rem;">Вернуть</button></div>`;
+            }).join('');
+        }
+    }
+    
+    // Телефоны
+    const phonesAvailable = document.getElementById('phonesAvailable');
+    if (phonesAvailable) {
+        phonesAvailable.textContent = `Доступно: ${hardMode.signalPlatoon.phones.available} из ${hardMode.signalPlatoon.phones.total}`;
+    }
+    
+    const phonesList = document.getElementById('phonesList');
+    if (phonesList) {
+        if (hardMode.signalPlatoon.phones.assigned.length === 0) {
+            phonesList.innerHTML = '<span style="color:#aaa;">Не выданы</span>';
+        } else {
+            phonesList.innerHTML = hardMode.signalPlatoon.phones.assigned.map((p, idx) => {
+                const unit = appData.campaign.opUnits[p.unitId];
+                const unitName = unit ? unit.name : 'Неизвестно';
+                return `<div style="color:#f1c40f;">📞 ${unitName} <button onclick="returnPhone(${idx})" style="background:#555; font-size:0.7rem;">Вернуть</button></div>`;
+            }).join('');
+        }
+    }
+    
+    // Телефонные линии
+    const phoneLinesList = document.getElementById('phoneLinesList');
+    if (phoneLinesList) {
+        if (hardMode.phoneLines.length === 0) {
+            phoneLinesList.innerHTML = '<span style="color:#aaa;">Нет линий</span>';
+        } else {
+            phoneLinesList.innerHTML = hardMode.phoneLines.map((line, idx) => {
+                const fromUnit = appData.campaign.opUnits[line.fromUnitId];
+                const toUnit = appData.campaign.opUnits[line.toUnitId];
+                const fromName = fromUnit ? fromUnit.name : '?';
+                const toName = toUnit ? toUnit.name : '?';
+                const status = line.intact ? '✅' : '❌';
+                return `<div style="color:#f1c40f;">${status} ${fromName} ↔ ${toName} <button onclick="removePhoneLine(${idx})" style="background:#555; font-size:0.7rem;">Убрать</button></div>`;
+            }).join('');
+        }
+    }
+}
+
+function assignRadioToSelected() {
+    const selectedUnit = appData.campaign.selectedOpUnit;
+    if (!selectedUnit) {
+        alert('Сначала выберите юнит на карте!');
+        return;
+    }
+    
+    if (hardMode.signalPlatoon.radios.available <= 0) {
+        alert('Нет свободных раций!');
+        return;
+    }
+    
+    const unitId = appData.campaign.opUnits.indexOf(selectedUnit);
+    
+    // Проверяем, не выдана ли уже рация этому юниту
+    const alreadyAssigned = hardMode.signalPlatoon.radios.assigned.some(r => r.unitId === unitId);
+    if (alreadyAssigned) {
+        alert('У этого юнита уже есть рация!');
+        return;
+    }
+    
+    hardMode.signalPlatoon.radios.available--;
+    hardMode.signalPlatoon.radios.assigned.push({ unitId });
+    
+    saveData();
+    renderCommunicationPanel();
+    alert(`Рация выдана юниту "${selectedUnit.name}"`);
+}
+
+function returnRadio(idx) {
+    if (idx < 0 || idx >= hardMode.signalPlatoon.radios.assigned.length) return;
+    
+    hardMode.signalPlatoon.radios.assigned.splice(idx, 1);
+    hardMode.signalPlatoon.radios.available++;
+    
+    saveData();
+    renderCommunicationPanel();
+}
+
+function assignPhoneToSelected() {
+    const selectedUnit = appData.campaign.selectedOpUnit;
+    if (!selectedUnit) {
+        alert('Сначала выберите юнит на карте!');
+        return;
+    }
+    
+    if (hardMode.signalPlatoon.phones.available <= 0) {
+        alert('Нет свободных телефонов!');
+        return;
+    }
+    
+    const unitId = appData.campaign.opUnits.indexOf(selectedUnit);
+    
+    const alreadyAssigned = hardMode.signalPlatoon.phones.assigned.some(p => p.unitId === unitId);
+    if (alreadyAssigned) {
+        alert('У этого юнита уже есть телефон!');
+        return;
+    }
+    
+    hardMode.signalPlatoon.phones.available--;
+    hardMode.signalPlatoon.phones.assigned.push({ unitId });
+    
+    saveData();
+    renderCommunicationPanel();
+    alert(`Телефон выдан юниту "${selectedUnit.name}"`);
+}
+
+function returnPhone(idx) {
+    if (idx < 0 || idx >= hardMode.signalPlatoon.phones.assigned.length) return;
+    
+    hardMode.signalPlatoon.phones.assigned.splice(idx, 1);
+    hardMode.signalPlatoon.phones.available++;
+    
+    saveData();
+    renderCommunicationPanel();
+}
+
+function startPhoneLine() {
+    const selectedUnit = appData.campaign.selectedOpUnit;
+    if (!selectedUnit) {
+        alert('Сначала выберите юнит для протяжки линии!');
+        return;
+    }
+    
+    phoneLineStart = appData.campaign.opUnits.indexOf(selectedUnit);
+    alert(`Выберите второй юнит для телефонной линии.\nНачало: ${selectedUnit.name}`);
+    
+    // Переключаем режим на выбор второго юнита
+    appData.campaign.opMapMode = 'view';
+    document.getElementById('mapInfo').innerHTML = '📞 Выберите второй юнит для телефонной линии';
+    document.getElementById('mapInfo').style.color = '#3498db';
+}
+
+function completePhoneLine(toUnitId) {
+    if (phoneLineStart === null) return;
+    
+    const fromUnit = appData.campaign.opUnits[phoneLineStart];
+    const toUnit = appData.campaign.opUnits[toUnitId];
+    
+    if (!fromUnit || !toUnit) {
+        alert('Ошибка: юниты не найдены');
+        phoneLineStart = null;
+        return;
+    }
+    
+    // Проверяем дистанцию (максимум 3 гекса)
+    const distance = getOpHexDistance(fromUnit.col, fromUnit.row, toUnit.col, toUnit.row);
+    if (distance > 3) {
+        alert(`Слишком далеко! Максимальная длина линии - 3 гекса (сейчас ${distance}).`);
+        phoneLineStart = null;
+        return;
+    }
+    
+    // Проверяем, что у обоих юнитов есть телефоны
+    const fromHasPhone = hardMode.signalPlatoon.phones.assigned.some(p => p.unitId === phoneLineStart);
+    const toHasPhone = hardMode.signalPlatoon.phones.assigned.some(p => p.unitId === toUnitId);
+    
+    if (!fromHasPhone || !toHasPhone) {
+        alert('Оба юнита должны иметь телефоны!');
+        phoneLineStart = null;
+        return;
+    }
+    
+    // Создаем линию
+    hardMode.phoneLines.push({
+        fromUnitId: phoneLineStart,
+        toUnitId: toUnitId,
+        path: [], // можно добавить промежуточные гексы
+        intact: true
+    });
+    
+    phoneLineStart = null;
+    saveData();
+    renderCommunicationPanel();
+    alert(`Телефонная линия протянута: ${fromUnit.name} ↔ ${toUnit.name}`);
+    
+    document.getElementById('mapInfo').innerHTML = '';
+    document.getElementById('mapInfo').style.color = '#aaa';
+}
+
+function removePhoneLine(idx) {
+    if (idx < 0 || idx >= hardMode.phoneLines.length) return;
+    hardMode.phoneLines.splice(idx, 1);
+    saveData();
+    renderCommunicationPanel();
+}      
 // ==================== ИНТЕРФЕЙС ПРИКАЗОВ ====================
 let orderWaypoints = []; // временный маршрут
-
+let isPlanningRoute = false; // режим планирования маршрута
+      
 function showOrderPanel() {
     const panel = document.getElementById('hardModePanel');
     const ordersList = document.getElementById('activeOrdersList');
@@ -10388,11 +10749,28 @@ function onOrderTypeChange() {
     if (fireDistanceContainer) {
         fireDistanceContainer.style.display = (type === 'fire_at_will') ? 'block' : 'none';
     }
+    
+    // Включаем режим планирования маршрута для движения и отступления
+    isPlanningRoute = (type === 'move' || type === 'retreat');
+    
+    if (isPlanningRoute) {
+        document.getElementById('mapInfo').innerHTML = '📍 Кликайте по гексам для указания маршрута';
+        document.getElementById('mapInfo').style.color = '#f1c40f';
+    } else {
+        orderWaypoints = [];
+        updateOrderWaypointsDisplay();
+        document.getElementById('mapInfo').innerHTML = '';
+        document.getElementById('mapInfo').style.color = '#aaa';
+    }
+    
+    redrawOperationalMap();
 }
 
 function clearOrderWaypoints() {
     orderWaypoints = [];
     updateOrderWaypointsDisplay();
+    document.getElementById('mapInfo').innerHTML = '📍 Маршрут очищен. Кликайте по гексам для нового маршрута';
+    document.getElementById('mapInfo').style.color = '#f1c40f';
     redrawOperationalMap();
 }
 
@@ -10412,6 +10790,11 @@ function updateOrderWaypointsDisplay() {
 function addOrderWaypoint(col, row) {
     orderWaypoints.push({ col, row });
     updateOrderWaypointsDisplay();
+    
+    // Показываем информацию о добавленной точке
+    document.getElementById('mapInfo').innerHTML = `📍 Добавлена точка маршрута: (${col},${row}). Всего: ${orderWaypoints.length}`;
+    document.getElementById('mapInfo').style.color = '#f1c40f';
+    
     redrawOperationalMap();
 }
 
@@ -10454,8 +10837,8 @@ function submitOrder() {
         options.targetDistance = fireDistance ? parseInt(fireDistance.value) : 3;
     }
     
-    if (orderType === 'move' && orderWaypoints.length === 0) {
-        alert('Для приказа "Движение" нужно указать маршрут!');
+    if ((orderType === 'move' || orderType === 'retreat') && orderWaypoints.length === 0) {
+        alert('Для приказа "Движение" нужно указать маршрут! Кликайте по гексам.');
         return;
     }
     
@@ -10463,6 +10846,10 @@ function submitOrder() {
     
     if (order) {
         alert(`Приказ "${orderType}" отправлен!`);
+        // Сбрасываем маршрут
+        orderWaypoints = [];
+        isPlanningRoute = false;
+        updateOrderWaypointsDisplay();
         hideOrderPanel();
         renderActiveOrders();
         redrawOperationalMap();
@@ -10480,24 +10867,37 @@ function renderActiveOrders() {
         return;
     }
     
+    const typeNames = {
+        'move': '🚶 Движение',
+        'attack': '⚔️ Атака',
+        'defend': '🛡️ Оборона',
+        'recon': '🔍 Разведка',
+        'hold': '✋ Удержание',
+        'retreat': '🏃 Отступление',
+        'fire_at_will': '🎯 Огонь по готовности',
+        'embark': '🚌 Посадка в БТР',
+        'disembark': '🚶 Высадка',
+        'dismount': '🚲 Спешивание',
+        'remount': '🚲 Посадка на велосипед'
+    };
+    
+    const statusNames = {
+        'pending': '⏳ Ожидает',
+        'delivering': '🚶 Доставляется',
+        'active': '✅ Выполняется',
+        'completed': '✅ Завершен',
+        'cancelled': '❌ Отменен'
+    };
+    
     let html = '';
     allOrders.forEach(order => {
         const toUnit = appData.campaign.opUnits[order.toUnitId];
         const unitName = toUnit ? toUnit.name : 'Неизвестно';
-        const statusText = order.status === 'pending' ? '⏳ Ожидает' :
-                           order.status === 'delivering' ? `🚶 Доставляется (${order.deliveryTurnsPassed}/${order.deliveryTurnsNeeded})` :
-                           order.status === 'active' ? '✅ Выполняется' :
-                           order.status === 'completed' ? '✅ Завершен' : '❌ Отменен';
         
-        const typeNames = {
-            'move': '🚶 Движение',
-            'attack': '⚔️ Атака',
-            'defend': '🛡️ Оборона',
-            'recon': '🔍 Разведка',
-            'hold': '✋ Удержание',
-            'retreat': '🏃 Отступление',
-            'fire_at_will': '🎯 Огонь по готовности'
-        };
+        let statusText = statusNames[order.status] || order.status;
+        if (order.status === 'delivering') {
+            statusText += ` (${order.deliveryTurnsPassed}/${order.deliveryTurnsNeeded})`;
+        }
         
         html += `
             <div style="background:#2a2a2a; padding:4px; margin:2px 0; border-radius:4px; display:flex; justify-content:space-between; align-items:center;">
@@ -13405,6 +13805,46 @@ function removeSelectedOpUnit() {
   </div>
 <div style="margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
   <strong>👤 Игрок</strong>
+  <!-- ПАНЕЛЬ СВЯЗИ HARD MODE -->
+<div id="communicationPanel" style="display:none; margin-bottom:8px; padding:6px; background:#1a1a2e; border-radius:6px; border:1px solid #444;">
+  <strong style="color:#3498db;">📡 Связь</strong><br>
+  
+  <div style="margin-top:4px; display:flex; gap:8px; flex-wrap:wrap;">
+    <!-- Рации -->
+    <div style="flex:1; min-width:200px;">
+      <strong style="color:#3498db;">Рации:</strong>
+      <span id="radiosAvailable" style="color:#aaa;"></span>
+      <div id="radiosList" style="margin-top:2px;"></div>
+    </div>
+    
+    <!-- Телефоны -->
+    <div style="flex:1; min-width:200px;">
+      <strong style="color:#3498db;">Телефоны:</strong>
+      <span id="phonesAvailable" style="color:#aaa;"></span>
+      <div id="phonesList" style="margin-top:2px;"></div>
+    </div>
+  </div>
+  
+  <!-- Телефонные линии -->
+  <div style="margin-top:8px;">
+    <strong style="color:#3498db;">Телефонные линии:</strong>
+    <div id="phoneLinesList" style="margin-top:2px;"></div>
+  </div>
+  
+  <!-- Кнопки -->
+  <div style="margin-top:8px;">
+    <button onclick="assignRadioToSelected()" style="background:#2980b9;">📻 Выдать рацию выбранному</button>
+    <button onclick="assignPhoneToSelected()" style="background:#2980b9;">📞 Выдать телефон выбранному</button>
+    <button onclick="startPhoneLine()" style="background:#2980b9;">🔌 Протянуть телефонную линию</button>
+  </div>
+</div>
+
+<!-- Кнопка открытия панели связи -->
+<div style="margin-bottom:8px;">
+  <button onclick="showCommunicationPanel()" id="showCommPanelBtn" style="background:#3498db; display:none;">
+    📡 Связь
+  </button>
+</div>
   <!-- ПАНЕЛЬ ПРИКАЗОВ HARD MODE -->
 <div id="hardModePanel" style="display:none; margin-bottom:8px; padding:6px; background:#1a1a2e; border-radius:6px; border:1px solid #444;">
   <strong style="color:#f1c40f;">🎯 Hard Mode: Панель приказов</strong><br>
