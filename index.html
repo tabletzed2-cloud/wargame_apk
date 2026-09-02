@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.181 — карта  </title>
+  <title>Боевой модуль v12.182 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.181</h1>
+    <h1>⚔️ Боевой модуль v12.182</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.181 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.182 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -3526,7 +3526,181 @@ function initHardMode() {
     
     saveData();
 }
+// ==================== СИСТЕМА ПРИКАЗОВ ====================
+const ORDER_TYPES = {
+    MOVE: 'move',
+    ATTACK: 'attack',
+    DEFEND: 'defend',
+    RECON: 'recon',
+    HOLD: 'hold',
+    RETREAT: 'retreat',
+    EMBARK: 'embark',
+    DISEMBARK: 'disembark',
+    DISMOUNT: 'dismount',
+    REMOUNT: 'remount',
+    FIRE_AT_WILL: 'fire_at_will'
+};
 
+const ORDER_BEHAVIORS = {
+    ENGAGE: 'engage',     // атаковать врага
+    HOLD: 'hold',         // закрепиться и ждать
+    RETREAT: 'retreat'    // отступить
+};
+
+function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
+    const order = {
+        id: Date.now() + Math.random(),
+        fromUnitId: fromUnitId,
+        toUnitId: toUnitId,
+        type: orderType,
+        waypoints: options.waypoints || [],      // маршрут движения
+        targetHex: options.targetHex || null,     // целевой гекс
+        targetDistance: options.targetDistance || null, // для FIRE_AT_WILL
+        behavior: options.behavior || 'hold',     // поведение при встрече с врагом
+        status: 'pending',                        // pending | delivering | active | completed | cancelled
+        deliveryMethod: null,                     // radio | phone | messenger
+        deliveryProgress: 0,                      // для посыльного
+        messengerId: null,
+        turnIssued: currentTurn || 1,
+        turnReceived: null
+    };
+    
+    // Определяем способ доставки
+    const fromUnit = appData.campaign.opUnits[fromUnitId];
+    const toUnit = appData.campaign.opUnits[toUnitId];
+    
+    if (!fromUnit || !toUnit) return null;
+    
+    // Проверяем связь
+    const deliveryMethod = checkCommunication(fromUnit, toUnit);
+    order.deliveryMethod = deliveryMethod;
+    
+    if (deliveryMethod === 'messenger') {
+        // Нужен посыльный
+        const messenger = assignMessenger(fromUnit);
+        if (!messenger) {
+            alert('Нет свободных посыльных!');
+            return null;
+        }
+        order.messengerId = messenger;
+        order.status = 'delivering';
+        
+        // Рассчитываем время доставки
+        const distance = getOpHexDistance(fromUnit.col, fromUnit.row, toUnit.col, toUnit.row);
+        const speed = 3; // гекса/ход
+        order.deliveryTurnsNeeded = Math.ceil(distance / speed);
+        order.deliveryTurnsPassed = 0;
+        
+        hardMode.pendingOrders.push(order);
+    } else {
+        // Рация или телефон - мгновенно
+        order.status = 'active';
+        order.turnReceived = currentTurn;
+        hardMode.orders.push(order);
+    }
+    
+    saveData();
+    return order;
+}
+
+function checkCommunication(fromUnit, toUnit) {
+    // 1. Проверяем рацию
+    if (hasRadio(toUnit) && isInRadioRange(fromUnit, toUnit)) {
+        return 'radio';
+    }
+    
+    // 2. Проверяем телефон
+    if (hasPhoneLine(fromUnit, toUnit)) {
+        return 'phone';
+    }
+    
+    // 3. Посыльный
+    return 'messenger';
+}
+
+function hasRadio(unit) {
+    // Проверяем, есть ли у юнита рация
+    const unitId = appData.campaign.opUnits.indexOf(unit);
+    return hardMode.signalPlatoon.radios.assigned.some(a => a.unitId === unitId);
+}
+
+function isInRadioRange(fromUnit, toUnit) {
+    if (fromUnit.col === null || fromUnit.row === null || toUnit.col === null || toUnit.row === null) {
+        return false;
+    }
+    const distance = getOpHexDistance(fromUnit.col, fromUnit.row, toUnit.col, toUnit.row);
+    const range = fromUnit.type === 'battalion_hq' ? 10 : 5;
+    return distance <= range;
+}
+
+function hasPhoneLine(fromUnit, toUnit) {
+    return hardMode.phoneLines.some(line => 
+        line.intact && 
+        ((line.fromUnitId === appData.campaign.opUnits.indexOf(fromUnit) && 
+          line.toUnitId === appData.campaign.opUnits.indexOf(toUnit)) ||
+         (line.fromUnitId === appData.campaign.opUnits.indexOf(toUnit) && 
+          line.toUnitId === appData.campaign.opUnits.indexOf(fromUnit)))
+    );
+}
+
+function assignMessenger(unit) {
+    const unitId = appData.campaign.opUnits.indexOf(unit);
+    
+    if (unit.type === 'battalion_hq') {
+        if (hardMode.messengers.battalion.available > 0) {
+            hardMode.messengers.battalion.available--;
+            hardMode.messengers.battalion.active.push({ unitId, turnSent: currentTurn });
+            return 'battalion_messenger_' + hardMode.messengers.battalion.active.length;
+        }
+    } else if (unit.type === 'company_hq') {
+        const companyMessengers = hardMode.messengers.companies[unitId];
+        if (companyMessengers && companyMessengers.available > 0) {
+            companyMessengers.available--;
+            companyMessengers.active.push({ unitId, turnSent: currentTurn });
+            return 'company_messenger_' + companyMessengers.active.length;
+        }
+    }
+    
+    return null;
+}
+
+function cancelOrder(orderId) {
+    const order = hardMode.orders.find(o => o.id === orderId) || 
+                   hardMode.pendingOrders.find(o => o.id === orderId);
+    
+    if (!order) return;
+    
+    order.status = 'cancelled';
+    
+    // Возвращаем посыльного если он был
+    if (order.messengerId) {
+        const fromUnit = appData.campaign.opUnits[order.fromUnitId];
+        if (fromUnit) {
+            returnMessenger(fromUnit);
+        }
+    }
+    
+    // Удаляем из списков
+    hardMode.orders = hardMode.orders.filter(o => o.id !== orderId);
+    hardMode.pendingOrders = hardMode.pendingOrders.filter(o => o.id !== orderId);
+    
+    saveData();
+}
+
+function returnMessenger(unit) {
+    const unitId = appData.campaign.opUnits.indexOf(unit);
+    
+    if (unit.type === 'battalion_hq') {
+        hardMode.messengers.battalion.available++;
+        hardMode.messengers.battalion.active = hardMode.messengers.battalion.active.filter(a => a.unitId !== unitId);
+    } else if (unit.type === 'company_hq') {
+        const companyMessengers = hardMode.messengers.companies[unitId];
+        if (companyMessengers) {
+            companyMessengers.available++;
+            companyMessengers.active = companyMessengers.active.filter(a => a.unitId !== unitId);
+        }
+    }
+}
 function findParentCompany(platoonUnit) {
     // Ищем штаб роты, которому подчиняется взвод
     // Временно: ищем ближайший штаб роты
@@ -9951,11 +10125,10 @@ function endOperationalTurn() {
     appData.currentTime = appData.campaign.currentTime;
     appData.campaign.currentTurn++;
 
-    // Восстанавливаем ОД ВСЕМ юнитам (включая спешенных)
+    // Восстанавливаем ОД ВСЕМ юнитам
     if (appData.campaign.opUnits) {
         appData.campaign.opUnits.forEach(u => {
             u.ap = u.maxAp;
-            // mobility НЕ меняем - если спешен, так и остается пехотой
         });
     }
     if (appData.campaign.enemyOpUnits) {
@@ -9963,12 +10136,160 @@ function endOperationalTurn() {
             u.ap = u.maxAp;
         });
     }
-
+    if (hardMode.enabled) {
+        processOrders();
+    }
     saveData();
     redrawOperationalMap();
     updateOperationalTimeDisplay();
 }
-      
+function processOrders() {
+    // 1. Обрабатываем доставку приказов (посыльные)
+    hardMode.pendingOrders.forEach(order => {
+        order.deliveryTurnsPassed++;
+        if (order.deliveryTurnsPassed >= order.deliveryTurnsNeeded) {
+            // Приказ доставлен
+            order.status = 'active';
+            order.turnReceived = currentTurn;
+            hardMode.orders.push(order);
+            
+            // Возвращаем посыльного
+            const fromUnit = appData.campaign.opUnits[order.fromUnitId];
+            if (fromUnit) {
+                returnMessenger(fromUnit);
+            }
+            order.messengerId = null;
+        }
+    });
+    
+    // Удаляем доставленные приказы из pending
+    hardMode.pendingOrders = hardMode.pendingOrders.filter(o => o.status !== 'active');
+    
+    // 2. Выполняем активные приказы
+    hardMode.orders.forEach(order => {
+        if (order.status === 'active') {
+            executeOrder(order);
+        }
+    });
+}
+
+function executeOrder(order) {
+    const unit = appData.campaign.opUnits[order.toUnitId];
+    if (!unit) return;
+    
+    switch (order.type) {
+        case 'move':
+            executeMoveOrder(unit, order);
+            break;
+        case 'hold':
+            // Ничего не делаем
+            break;
+        case 'fire_at_will':
+            executeFireAtWillOrder(unit, order);
+            break;
+        case 'recon':
+            executeReconOrder(unit, order);
+            break;
+        // Другие типы добавим позже
+    }
+}
+
+function executeMoveOrder(unit, order) {
+    if (!order.waypoints || order.waypoints.length === 0) return;
+    
+    // Берем следующую точку маршрута
+    const nextWaypoint = order.waypoints[0];
+    
+    if (unit.col === nextWaypoint.col && unit.row === nextWaypoint.row) {
+        // Достигли точки - удаляем из маршрута
+        order.waypoints.shift();
+        if (order.waypoints.length === 0) {
+            order.status = 'completed';
+            log(`✅ ${unit.name} выполнил приказ на движение.`);
+        }
+        return;
+    }
+    
+    // Двигаемся к следующей точке
+    const moveCost = getOpMoveCost(unit, unit.col, unit.row, nextWaypoint.col, nextWaypoint.row);
+    if (moveCost === Infinity) {
+        log(`❌ ${unit.name} не может достичь точки (${nextWaypoint.col},${nextWaypoint.row}).`);
+        order.status = 'cancelled';
+        return;
+    }
+    
+    if (unit.ap >= moveCost) {
+        unit.ap -= moveCost;
+        unit.col = nextWaypoint.col;
+        unit.row = nextWaypoint.row;
+        order.waypoints.shift();
+        
+        if (order.waypoints.length === 0) {
+            order.status = 'completed';
+            log(`✅ ${unit.name} достиг цели.`);
+        }
+    }
+}
+
+function executeFireAtWillOrder(unit, order) {
+    const targetDistance = order.targetDistance || 3;
+    
+    // Ищем врагов в радиусе
+    const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
+        e.col !== null && e.row !== null &&
+        getOpHexDistance(unit.col, unit.row, e.col, e.row) <= targetDistance
+    );
+    
+    if (enemies.length === 0) return;
+    
+    // Находим ближайшего врага
+    let closestEnemy = null;
+    let minDist = Infinity;
+    enemies.forEach(e => {
+        const dist = getOpHexDistance(unit.col, unit.row, e.col, e.row);
+        if (dist < minDist) {
+            minDist = dist;
+            closestEnemy = e;
+        }
+    });
+    
+    if (closestEnemy) {
+        // Атакуем ближайшего врага
+        log(`🎯 ${unit.name} открывает огонь по ${closestEnemy.name} (дистанция ${minDist}).`);
+        
+        // Здесь вызываем обстрел
+        const targets = [closestEnemy];
+        const distance = minDist;
+        
+        if (unit.ap > 0) {
+            executeOpShoot(targets, distance);
+        }
+    }
+}
+
+function executeReconOrder(unit, order) {
+    if (unit.ap <= 0) return;
+    
+    // Разведка в радиусе 2 гексов
+    const reconRadius = 2;
+    const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
+        e.col !== null && e.row !== null &&
+        getOpHexDistance(unit.col, unit.row, e.col, e.row) <= reconRadius
+    );
+    
+    if (enemies.length > 0) {
+        log(`🔍 ${unit.name} обнаружил ${enemies.length} вражеских подразделений в радиусе 2 гексов.`);
+        enemies.forEach(e => {
+            e.detected = true;
+            log(`   - ${e.name} на гексе (${e.col},${e.row})`);
+        });
+    } else {
+        log(`🔍 ${unit.name} не обнаружил врагов в радиусе 2 гексов.`);
+    }
+    
+    unit.ap = 0; // Тратим все ОД
+    order.status = 'completed';
+}      
 function updateOperationalTimeDisplay() {
   const el = document.getElementById('opTimeDisplay');
   if (el) {
