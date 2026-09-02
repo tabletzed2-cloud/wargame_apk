@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.184 — карта  </title>
+  <title>Боевой модуль v12.185 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.184</h1>
+    <h1>⚔️ Боевой модуль v12.185</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.184 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.185 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1722,6 +1722,28 @@ function redrawOperationalMap() {
           ctx.fillText('📞', midX, midY);
       });
   }
+    // Отрисовка телефонных линий (между юнитами с телефонами)
+  if (hardMode.enabled && hardMode.phoneLines.length > 0) {
+      // ... существующий код ...
+  }
+  
+  // ====== ВОТ ЗДЕСЬ ДОБАВЬТЕ НОВЫЙ КОД ======
+  // Отрисовка линий связи от телефонов к штабу батальона
+  if (hardMode.enabled) {
+      const hqUnit = appData.campaign.opUnits[hardMode.hqUnitId];
+      
+      hardMode.signalPlatoon.phones.assigned.forEach(phone => {
+          // ... новый код ...
+      });
+  }
+  
+  // Отрисовка посыльных (если есть)
+  if (hardMode.enabled && hardMode.pendingOrders.length > 0) {
+      // ... существующий код ...
+  }
+  
+  // Рисуем юниты (свои и вражеские)
+    drawOperationalUnits(ctx);
     // Отрисовка посыльных (если есть доставляемые приказы)
   if (hardMode.enabled && hardMode.pendingOrders.length > 0) {
       hardMode.pendingOrders.forEach(order => {
@@ -3677,6 +3699,16 @@ function initHardMode() {
     const hq = (appData.campaign.opUnits || []).find(u => u.type === 'battalion_hq');
     if (hq) {
         hardMode.hqUnitId = appData.campaign.opUnits.indexOf(hq);
+        
+        // Штаб батальона УЖЕ имеет рацию и телефон
+        hardMode.signalPlatoon.radios.assigned.push({ 
+            unitId: hardMode.hqUnitId, 
+            isHQ: true // пометка что это штабная рация
+        });
+        hardMode.signalPlatoon.phones.assigned.push({ 
+            unitId: hardMode.hqUnitId, 
+            isHQ: true // пометка что это штабной телефон
+        });
     }
     
     // Находим штабы рот
@@ -10506,13 +10538,17 @@ function renderCommunicationPanel() {
     
     const radiosList = document.getElementById('radiosList');
     if (radiosList) {
-        if (hardMode.signalPlatoon.radios.assigned.length === 0) {
+        const assignedRadios = hardMode.signalPlatoon.radios.assigned;
+        if (assignedRadios.length === 0) {
             radiosList.innerHTML = '<span style="color:#aaa;">Не выданы</span>';
         } else {
-            radiosList.innerHTML = hardMode.signalPlatoon.radios.assigned.map((r, idx) => {
+            radiosList.innerHTML = assignedRadios.map((r, idx) => {
                 const unit = appData.campaign.opUnits[r.unitId];
                 const unitName = unit ? unit.name : 'Неизвестно';
-                return `<div style="color:#f1c40f;">📻 ${unitName} <button onclick="returnRadio(${idx})" style="background:#555; font-size:0.7rem;">Вернуть</button></div>`;
+                const isHQ = r.isHQ ? ' (штаб)' : '';
+                // Штабную рацию нельзя вернуть
+                const returnBtn = r.isHQ ? '' : ` <button onclick="returnRadio(${idx})" style="background:#555; font-size:0.7rem;">Вернуть</button>`;
+                return `<div style="color:#f1c40f;">📻 ${unitName}${isHQ}${returnBtn}</div>`;
             }).join('');
         }
     }
@@ -10525,13 +10561,16 @@ function renderCommunicationPanel() {
     
     const phonesList = document.getElementById('phonesList');
     if (phonesList) {
-        if (hardMode.signalPlatoon.phones.assigned.length === 0) {
+        const assignedPhones = hardMode.signalPlatoon.phones.assigned;
+        if (assignedPhones.length === 0) {
             phonesList.innerHTML = '<span style="color:#aaa;">Не выданы</span>';
         } else {
-            phonesList.innerHTML = hardMode.signalPlatoon.phones.assigned.map((p, idx) => {
+            phonesList.innerHTML = assignedPhones.map((p, idx) => {
                 const unit = appData.campaign.opUnits[p.unitId];
                 const unitName = unit ? unit.name : 'Неизвестно';
-                return `<div style="color:#f1c40f;">📞 ${unitName} <button onclick="returnPhone(${idx})" style="background:#555; font-size:0.7rem;">Вернуть</button></div>`;
+                const isHQ = p.isHQ ? ' (штаб)' : '';
+                const returnBtn = p.isHQ ? '' : ` <button onclick="returnPhone(${idx})" style="background:#555; font-size:0.7rem;">Вернуть</button>`;
+                return `<div style="color:#f1c40f;">📞 ${unitName}${isHQ}${returnBtn}</div>`;
             }).join('');
         }
     }
@@ -10659,10 +10698,10 @@ function completePhoneLine(toUnitId) {
         return;
     }
     
-    // Проверяем дистанцию (максимум 3 гекса)
+    // Проверяем дистанцию (максимум 5 гексов)
     const distance = getOpHexDistance(fromUnit.col, fromUnit.row, toUnit.col, toUnit.row);
-    if (distance > 3) {
-        alert(`Слишком далеко! Максимальная длина линии - 3 гекса (сейчас ${distance}).`);
+    if (distance > 5) {
+        alert(`Слишком далеко! Максимальная длина линии - 5 гексов (сейчас ${distance}).`);
         phoneLineStart = null;
         return;
     }
@@ -10681,7 +10720,7 @@ function completePhoneLine(toUnitId) {
     hardMode.phoneLines.push({
         fromUnitId: phoneLineStart,
         toUnitId: toUnitId,
-        path: [], // можно добавить промежуточные гексы
+        path: [], // промежуточные гексы (пока пусто)
         intact: true
     });
     
