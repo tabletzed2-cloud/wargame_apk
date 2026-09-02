@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.177 — карта  </title>
+  <title>Боевой модуль v12.178 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.177</h1>
+    <h1>⚔️ Боевой модуль v12.178</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.177 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.178 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -10596,47 +10596,71 @@ function showBtrEmbarkDialog() {
 function showBtrDisembarkDialog() {
     const unit = appData.campaign.selectedOpUnit;
     if (!unit) {
-        document.getElementById('mapInfo').innerHTML = '❌ Сначала выберите отряд для высадки.';
+        document.getElementById('mapInfo').innerHTML = '❌ Сначала выберите отряд или БТР.';
         return;
     }
     
-    if (!unit.embarkedInBtr || !unit.btrIds || unit.btrIds.length === 0) {
-        document.getElementById('mapInfo').innerHTML = '❌ Этот отряд не в БТР.';
+    // СЛУЧАЙ 1: Выбран БТР с десантом
+    const isBtr = unit.type === 'btr_platoon' || (unit.name && unit.name.includes('БТР'));
+    if (isBtr && unit.embarkedUnit) {
+        // Находим посаженный отряд по имени
+        const embarkedUnit = (appData.campaign.opUnits || []).find(u => u.name === unit.embarkedUnit);
+        if (embarkedUnit) {
+            embarkedUnit.embarkedInBtr = false;
+            embarkedUnit.btrIds = [];
+            embarkedUnit.hidden = false;
+            embarkedUnit.mobility = 'foot';
+            embarkedUnit.col = unit.col;
+            embarkedUnit.row = unit.row;
+            
+            unit.embarkedUnit = null;
+            unit.embarkedUnitId = null;
+            
+            saveData();
+            redrawOperationalMap();
+            updateBtrPanel();
+            
+            document.getElementById('mapInfo').innerHTML = `✅ Отряд "${embarkedUnit.name}" высажен.`;
+            return;
+        }
+    }
+    
+    // СЛУЧАЙ 2: Выбран отряд, который в БТР
+    if (unit.embarkedInBtr && unit.btrIds && unit.btrIds.length > 0) {
+        // Находим БТР
+        const btrs = unit.btrIds.map(id => (appData.campaign.opUnits || [])[id]).filter(b => b);
+        
+        // Освобождаем БТР
+        btrs.forEach(b => {
+            b.embarkedUnit = null;
+            b.embarkedUnitId = null;
+        });
+        
+        unit.embarkedInBtr = false;
+        unit.btrIds = [];
+        unit.hidden = false;
+        unit.mobility = 'foot';
+        
+        // Возвращаем координаты
+        if (unit.embarkedCol !== undefined && unit.embarkedRow !== undefined) {
+            unit.col = unit.embarkedCol;
+            unit.row = unit.embarkedRow;
+            delete unit.embarkedCol;
+            delete unit.embarkedRow;
+        } else if (btrs.length > 0) {
+            unit.col = btrs[0].col;
+            unit.row = btrs[0].row;
+        }
+        
+        saveData();
+        redrawOperationalMap();
+        updateBtrPanel();
+        
+        document.getElementById('mapInfo').innerHTML = `✅ Отряд "${unit.name}" высажен.`;
         return;
     }
     
-    if (!confirm(`Высадить отряд "${unit.name}" из БТР?`)) return;
-    
-    const btrs = unit.btrIds.map(id => appData.campaign.opUnits[id]).filter(b => b);
-    
-    // Освобождаем БТР
-    btrs.forEach(b => {
-        b.embarkedUnit = null;
-        b.embarkedUnitId = null;
-    });
-    
-    // Высаживаем пехоту
-    unit.embarkedInBtr = false;
-    unit.btrIds = [];
-    unit.hidden = false;
-    unit.mobility = 'foot';
-    
-    // Возвращаем координаты (отряд высаживается там, где БТР)
-    if (unit.embarkedCol !== undefined && unit.embarkedRow !== undefined) {
-        unit.col = unit.embarkedCol;
-        unit.row = unit.embarkedRow;
-        delete unit.embarkedCol;
-        delete unit.embarkedRow;
-    } else if (btrs.length > 0) {
-        unit.col = btrs[0].col;
-        unit.row = btrs[0].row;
-    }
-    
-    saveData();
-    redrawOperationalMap();
-    updateBtrPanel();
-    
-    document.getElementById('mapInfo').innerHTML = `✅ Отряд "${unit.name}" высажен из БТР.`;
+    document.getElementById('mapInfo').innerHTML = '❌ Нет десанта для высадки.';
 }
 function updateBtrPanel() {
     const panel = document.getElementById('btrPanel');
@@ -10657,6 +10681,7 @@ function updateBtrPanel() {
         panel.style.display = 'block';
         embarkBtn.style.display = 'none';
         disembarkBtn.style.display = 'inline-block';
+        disembarkBtn.textContent = '🚶 Высадить из БТР';
         return;
     }
     
@@ -10666,6 +10691,7 @@ function updateBtrPanel() {
         panel.style.display = 'block';
         embarkBtn.style.display = 'none';
         disembarkBtn.style.display = 'inline-block';
+        disembarkBtn.textContent = `🚶 Высадить ${unit.embarkedUnit}`;
         return;
     }
     
@@ -10684,6 +10710,7 @@ function updateBtrPanel() {
     panel.style.display = 'block';
     embarkBtn.style.display = 'inline-block';
     disembarkBtn.style.display = 'none';
+    embarkBtn.textContent = '🚌 Посадить в БТР';
 }
 
 // ==================== СИСТЕМА ГРУППИРОВКИ ТЕХНИКИ ====================
