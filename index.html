@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.178 — карта  </title>
+  <title>Боевой модуль v12.179 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.178</h1>
+    <h1>⚔️ Боевой модуль v12.179</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
@@ -283,7 +283,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.178 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.179 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1428,7 +1428,19 @@ function getOpHexTypes(col, row) {
     const key = `${col},${row}`;
     const grid = appData.campaign.opMapGrid;
     if (!grid || !grid[key]) return ['grass'];
-    return Array.isArray(grid[key]) ? grid[key] : [grid[key]];
+    
+    const types = Array.isArray(grid[key]) ? grid[key] : [grid[key]];
+    
+    // Добавляем метки как дополнительные типы (для защиты)
+    if (grid[key].markers && grid[key].markers.length > 0) {
+        grid[key].markers.forEach(marker => {
+            if (!types.includes(marker)) {
+                types.push(marker);
+            }
+        });
+    }
+    
+    return types;
 }
 
 function hasOpTerrain(col, row, terrainType) {
@@ -1779,7 +1791,38 @@ function handleOpMapClick(e) {
     openTerrainEditor(closestKey);
     return;
   }
-
+  // ====== РЕЖИМ УСТАНОВКИ МЕТОК ======
+  if (appData.campaign.opMapMode === 'marker') {
+    if (!closestKey) return;
+    
+    const markerSelect = document.getElementById('opMarkerTypeSelect');
+    const markerType = markerSelect ? markerSelect.value : 'trenches';
+    
+    // Получаем текущие маркеры гекса
+    if (!appData.campaign.opMapGrid[closestKey]) {
+        appData.campaign.opMapGrid[closestKey] = {};
+    }
+    if (!appData.campaign.opMapGrid[closestKey].markers) {
+        appData.campaign.opMapGrid[closestKey].markers = [];
+    }
+    
+    const markers = appData.campaign.opMapGrid[closestKey].markers;
+    const idx = markers.indexOf(markerType);
+    
+    if (idx !== -1) {
+        // Убираем метку
+        markers.splice(idx, 1);
+        document.getElementById('mapInfo').innerHTML = `✅ Метка "${markerType}" убрана с гекса ${closestKey}`;
+    } else {
+        // Добавляем метку
+        markers.push(markerType);
+        document.getElementById('mapInfo').innerHTML = `✅ Метка "${markerType}" установлена на гекс ${closestKey}`;
+    }
+    
+    saveData();
+    redrawOperationalMap();
+    return;
+  }
   // ====== РЕЖИМ РАЗМЕЩЕНИЯ ИГРОКА ======
   if (appData.campaign.opMapMode === 'placePlayer') {
     const sel = document.getElementById('opPlaceSelect');
@@ -9781,11 +9824,11 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
     if (mobility === 'vehicle' && (unit.type === 'tank_platoon' || unit.type === 'sau_battery' || unit.name.includes('САУ') || unit.name.includes('CL/39') || unit.name.includes('Танк'))) {
         if (terrain === 'hill' || terrain === 'swamp_passable' || terrain === 'rocks') return Infinity;
         switch (terrain) {
-            case 'road': return 1;
-            case 'grass': return 1;
-            case 'bushes': return 1;
-            case 'forest': return 3;
-            case 'trenches': return 2;
+            case 'road': return 1;    // 3 гекса за 1 ОД (было 1)
+            case 'grass': return 1.3;      // 3 гекса за 1 ОД (было 1)
+            case 'bushes': return 1.3;     // 3 гекса за 1 ОД (было 1)
+            case 'forest': return 2;     // 1.5 гекса за 1 ОД (было 3)
+            case 'trenches': return 1.5; // 2 гекса за 1 ОД (было 2)
             default: return Infinity;
         }
     }
@@ -9795,8 +9838,8 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
         if (terrain === 'hill' || terrain === 'swamp_passable' || terrain === 'rocks') return Infinity;
         switch (terrain) {
             case 'road': return 1;
-            case 'grass': return 2;
-            case 'bushes': return 2;
+            case 'grass': return 1.3;
+            case 'bushes': return 1.3;
             case 'forest': return 2;
             case 'trenches': return 2;
             default: return Infinity;
@@ -9830,50 +9873,53 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
     }
 }
 function setOpMapMode(mode) {
-  // Нормализуем режимы
-  if (mode === 'move') mode = 'movePlayer';
-  if (mode === 'moveEnemy') mode = 'moveEnemy';
-  
-  appData.campaign.opMapMode = mode;
-  
-  // Сбрасываем выделения
-  appData.campaign.selectedOpUnit = null;
-  appData.campaign.selectedEnemyOpUnit = null;
-  
-  if (appData.campaign.opUnits) {
-    appData.campaign.opUnits.forEach(u => { 
-      if (u.availableHexes) delete u.availableHexes; 
-    });
-  }
-  if (appData.campaign.enemyOpUnits) {
-    appData.campaign.enemyOpUnits.forEach(e => { 
-      if (e.availableHexes) delete e.availableHexes; 
-    });
-  }
-  
-  // Показываем/скрываем панель размещения
-  const placePanel = document.getElementById('opPlacePanel');
-  if (placePanel) {
-    placePanel.style.display = (mode === 'placePlayer' || mode === 'placeEnemy') ? 'block' : 'none';
-  }
-  
-  updateOpPlaceSelect();
-  redrawOperationalMap();
-  
-  const modeNames = {
-    'view': 'Просмотр',
-    'placePlayer': 'Размещение своих юнитов',
-    'placeEnemy': 'Размещение врагов',
-    'movePlayer': 'Перемещение своих юнитов',
-    'moveEnemy': 'Перемещение врагов',
-    'editTerrain': 'Редактирование местности',
-    'selectTarget': 'Выбор цели для обстрела'
-  };
-  
-  const mapInfo = document.getElementById('mapInfo');
-  if (mapInfo) {
-    mapInfo.innerHTML = `Режим: ${modeNames[mode] || mode}`;
-  }
+    if (mode === 'move') mode = 'movePlayer';
+    
+    appData.campaign.opMapMode = mode;
+    
+    appData.campaign.selectedOpUnit = null;
+    appData.campaign.selectedEnemyOpUnit = null;
+    
+    if (appData.campaign.opUnits) {
+        appData.campaign.opUnits.forEach(u => { 
+            if (u.availableHexes) delete u.availableHexes; 
+        });
+    }
+    if (appData.campaign.enemyOpUnits) {
+        appData.campaign.enemyOpUnits.forEach(e => { 
+            if (e.availableHexes) delete e.availableHexes; 
+        });
+    }
+    
+    const placePanel = document.getElementById('opPlacePanel');
+    if (placePanel) {
+        placePanel.style.display = (mode === 'placePlayer' || mode === 'placeEnemy') ? 'block' : 'none';
+    }
+    
+    // Показываем/скрываем селектор меток
+    const markerSelect = document.getElementById('opMarkerTypeSelect');
+    if (markerSelect) {
+        markerSelect.style.display = (mode === 'marker') ? 'inline-block' : 'none';
+    }
+    
+    updateOpPlaceSelect();
+    redrawOperationalMap();
+    
+    const modeNames = {
+        'view': 'Просмотр',
+        'placePlayer': 'Размещение своих юнитов',
+        'placeEnemy': 'Размещение врагов',
+        'movePlayer': 'Перемещение своих юнитов',
+        'moveEnemy': 'Перемещение врагов',
+        'editTerrain': 'Редактирование местности',
+        'marker': 'Установка меток',
+        'selectTarget': 'Выбор цели для обстрела'
+    };
+    
+    const mapInfo = document.getElementById('mapInfo');
+    if (mapInfo) {
+        mapInfo.innerHTML = `Режим: ${modeNames[mode] || mode}`;
+    }
 }
 
 function finishPlacement() {
@@ -11585,18 +11631,30 @@ function calculateOpShootDamage(shooter, target, distance) {
     else if (distance >= 3) distanceMod = 0.1;
     else distanceMod = 0.5;
 
-    // Модификатор местности цели
+        // Модификатор местности цели
     let terrainMod = 1;
     if (target.col !== null && target.row !== null) {
         const types = getOpHexTypes(target.col, target.row);
         if (types && types.length > 0) {
-            const terrain = types[0];
-            switch (terrain) {
-                case 'grass': case 'road': case 'swamp_passable': terrainMod = 1; break;
-                case 'bushes': case 'rocks': case 'hill': terrainMod = 0.7; break;
-                case 'forest': terrainMod = 0.6; break;
-                case 'trenches': terrainMod = 0.3; break;
-                default: terrainMod = 1;
+            // Проверяем метки (дают лучшую защиту)
+            if (types.includes('trenches')) {
+                terrainMod = 0.3; // Окопы - отличная защита
+            } else if (types.includes('building')) {
+                terrainMod = 0.4; // Здание - хорошая защита
+            } else if (types.includes('forest')) {
+                terrainMod = 0.6; // Лес - средняя защита
+            } else if (types.includes('bushes')) {
+                terrainMod = 0.7; // Кусты - небольшая защита
+            } else if (types.includes('rocks')) {
+                terrainMod = 0.7; // Камни - небольшая защита
+            } else {
+                // Без меток - обычная местность
+                const terrain = types[0];
+                switch (terrain) {
+                    case 'grass': case 'road': case 'swamp_passable': terrainMod = 1; break;
+                    case 'hill': terrainMod = 0.7; break;
+                    default: terrainMod = 1;
+                }
             }
         }
     }
@@ -12689,6 +12747,14 @@ function removeSelectedOpUnit() {
   <strong>🗺️ Вид</strong>
   <button onclick="setOpMapMode('view')" style="background:#555;">🖱️ Просмотр</button>
   <button onclick="setOpMapMode('editTerrain')" style="background:#f39c12;">✏️ Местность</button>
+  <button onclick="setOpMapMode('marker')" style="background:#8e44ad;">📌 Метки</button>
+  <select id="opMarkerTypeSelect" style="display:none; background:#444; color:#fff;">
+    <option value="trenches">🕳️ Окопы</option>
+    <option value="building">🏠 Здание</option>
+    <option value="forest">🌲 Лес</option>
+    <option value="bushes">🌳 Кусты</option>
+    <option value="rocks">🪨 Камни</option>
+  </select>
   <button onclick="zoomOpMap(1.2)">➕</button>
   <button onclick="zoomOpMap(0.8)">➖</button>
   <button onclick="exportTerrainMap()" style="background:#8e44ad;">🗺️ Экспорт местности</button>
