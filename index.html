@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.182 — карта  </title>
+  <title>Боевой модуль v12.183 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.182</h1>
+    <h1>⚔️ Боевой модуль v12.183</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.182 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.183 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1596,6 +1596,41 @@ function redrawOperationalMap() {
       });
     }
   }
+   // Отрисовка маршрута приказа (стрелки)
+  if (orderWaypoints && orderWaypoints.length > 0) {
+      // Рисуем точки маршрута
+      orderWaypoints.forEach((wp, idx) => {
+          const x = wp.col * Math.sqrt(3) * size + (wp.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+          const y = wp.row * 1.5 * size + size;
+          
+          ctx.fillStyle = '#f1c40f';
+          ctx.beginPath();
+          ctx.arc(x, y, size * 0.3, 0, 2 * Math.PI);
+          ctx.fill();
+          
+          ctx.fillStyle = '#fff';
+          ctx.font = `${size * 0.3}px Arial`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(idx + 1, x, y);
+      });
+      
+      // Рисуем линии между точками
+      if (orderWaypoints.length > 1) {
+          ctx.strokeStyle = '#f1c40f';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([5, 5]);
+          ctx.beginPath();
+          for (let i = 0; i < orderWaypoints.length; i++) {
+              const x = orderWaypoints[i].col * Math.sqrt(3) * size + (orderWaypoints[i].row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+              const y = orderWaypoints[i].row * 1.5 * size + size;
+              if (i === 0) ctx.moveTo(x, y);
+              else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+          ctx.setLineDash([]);
+      }
+  }
   // Рисуем юниты (свои и вражеские)
     drawOperationalUnits(ctx);
   // Подсветка гексов с активными боями
@@ -2104,6 +2139,19 @@ function handleOpMapClick(e) {
   }
 
   // ====== РЕЖИМ ПРОСМОТРА ======
+   // ПРОВЕРКА: Если панель приказов открыта и выбран тип "Движение" - добавляем точку маршрута
+  const orderPanel = document.getElementById('hardModePanel');
+  if (orderPanel && orderPanel.style.display === 'block') {
+      const orderType = document.getElementById('orderType');
+      if (orderType && (orderType.value === 'move' || orderType.value === 'retreat')) {
+          if (closestKey) {
+              const [col, row] = closestKey.split(',').map(Number);
+              addOrderWaypoint(col, row);
+              return;
+          }
+      }
+  }
+
   const clickedUnitView = findUnitAtClick(
     appData.campaign.opUnits || [], 
     clickX, clickY
@@ -2132,7 +2180,7 @@ function handleOpMapClick(e) {
     redrawOperationalMap();
     return;
   }
-  
+   
   appData.campaign.selectedOpUnit = null;
   appData.campaign.selectedEnemyOpUnit = null;
   (appData.campaign.opUnits || []).forEach(u => { if (u.availableHexes) delete u.availableHexes; });
@@ -3469,7 +3517,11 @@ function toggleHardMode() {
         btn.textContent = hardMode.enabled ? '🎯 Hard Mode: ВКЛ' : '🎯 Hard Mode: ВЫКЛ';
         btn.style.background = hardMode.enabled ? '#c0392b' : '#555';
     }
-    
+     // Показываем/скрываем кнопку панели приказов
+    const orderPanelBtn = document.getElementById('showOrderPanelBtn');
+    if (orderPanelBtn) {
+        orderPanelBtn.style.display = hardMode.enabled ? 'inline-block' : 'none';
+    }
     if (hardMode.enabled) {
         alert('Hard Mode включен!\n\nВ этом режиме вы управляете юнитами через приказы.\nВсе приказы идут от штаба батальона через посыльных, рации или телефонные линии.');
         initHardMode();
@@ -10289,7 +10341,176 @@ function executeReconOrder(unit, order) {
     
     unit.ap = 0; // Тратим все ОД
     order.status = 'completed';
-}      
+}    
+// ==================== ИНТЕРФЕЙС ПРИКАЗОВ ====================
+let orderWaypoints = []; // временный маршрут
+
+function showOrderPanel() {
+    const panel = document.getElementById('hardModePanel');
+    const ordersList = document.getElementById('activeOrdersList');
+    
+    if (!hardMode.enabled) {
+        alert('Hard Mode не включен!');
+        return;
+    }
+    
+    if (panel) panel.style.display = 'block';
+    if (ordersList) ordersList.style.display = 'block';
+    
+    // Заполняем список отрядов
+    const select = document.getElementById('orderTargetUnit');
+    if (select) {
+        const units = appData.campaign.opUnits || [];
+        let html = '<option value="-1">-- Выберите отряд --</option>';
+        units.forEach((unit, idx) => {
+            if (unit.col !== null && unit.row !== null && !unit.hidden) {
+                html += `<option value="${idx}">${unit.name} (${unit.col},${unit.row})</option>`;
+            }
+        });
+        select.innerHTML = html;
+    }
+    
+    orderWaypoints = [];
+    updateOrderWaypointsDisplay();
+    renderActiveOrders();
+}
+
+function hideOrderPanel() {
+    const panel = document.getElementById('hardModePanel');
+    if (panel) panel.style.display = 'none';
+    orderWaypoints = [];
+}
+
+function onOrderTypeChange() {
+    const type = document.getElementById('orderType').value;
+    const fireDistanceContainer = document.getElementById('fireDistanceContainer');
+    
+    if (fireDistanceContainer) {
+        fireDistanceContainer.style.display = (type === 'fire_at_will') ? 'block' : 'none';
+    }
+}
+
+function clearOrderWaypoints() {
+    orderWaypoints = [];
+    updateOrderWaypointsDisplay();
+    redrawOperationalMap();
+}
+
+function updateOrderWaypointsDisplay() {
+    const display = document.getElementById('orderWaypointsDisplay');
+    if (!display) return;
+    
+    if (orderWaypoints.length === 0) {
+        display.innerHTML = 'Нет точек маршрута';
+    } else {
+        display.innerHTML = orderWaypoints.map((wp, i) => 
+            `${i+1}. (${wp.col},${wp.row})`
+        ).join(' → ');
+    }
+}
+
+function addOrderWaypoint(col, row) {
+    orderWaypoints.push({ col, row });
+    updateOrderWaypointsDisplay();
+    redrawOperationalMap();
+}
+
+function submitOrder() {
+    const unitSelect = document.getElementById('orderTargetUnit');
+    const typeSelect = document.getElementById('orderType');
+    const behaviorSelect = document.getElementById('orderBehavior');
+    
+    if (!unitSelect || unitSelect.value === '-1') {
+        alert('Выберите отряд!');
+        return;
+    }
+    
+    if (!typeSelect || typeSelect.value === '-1') {
+        alert('Выберите тип приказа!');
+        return;
+    }
+    
+    const toUnitId = parseInt(unitSelect.value);
+    const orderType = typeSelect.value;
+    const behavior = behaviorSelect ? behaviorSelect.value : 'hold';
+    
+    // Находим штаб батальона
+    const hqIndex = hardMode.hqUnitId !== null ? hardMode.hqUnitId : 
+                    (appData.campaign.opUnits || []).findIndex(u => u.type === 'battalion_hq');
+    
+    if (hqIndex === -1) {
+        alert('Штаб батальона не найден!');
+        return;
+    }
+    
+    const options = {
+        behavior: behavior,
+        waypoints: orderWaypoints,
+        targetDistance: null
+    };
+    
+    if (orderType === 'fire_at_will') {
+        const fireDistance = document.getElementById('orderFireDistance');
+        options.targetDistance = fireDistance ? parseInt(fireDistance.value) : 3;
+    }
+    
+    if (orderType === 'move' && orderWaypoints.length === 0) {
+        alert('Для приказа "Движение" нужно указать маршрут!');
+        return;
+    }
+    
+    const order = createOrder(hqIndex, toUnitId, orderType, options);
+    
+    if (order) {
+        alert(`Приказ "${orderType}" отправлен!`);
+        hideOrderPanel();
+        renderActiveOrders();
+        redrawOperationalMap();
+    }
+}
+
+function renderActiveOrders() {
+    const container = document.getElementById('ordersContainer');
+    if (!container) return;
+    
+    const allOrders = [...hardMode.pendingOrders, ...hardMode.orders];
+    
+    if (allOrders.length === 0) {
+        container.innerHTML = '<span style="color:#aaa;">Нет активных приказов</span>';
+        return;
+    }
+    
+    let html = '';
+    allOrders.forEach(order => {
+        const toUnit = appData.campaign.opUnits[order.toUnitId];
+        const unitName = toUnit ? toUnit.name : 'Неизвестно';
+        const statusText = order.status === 'pending' ? '⏳ Ожидает' :
+                           order.status === 'delivering' ? `🚶 Доставляется (${order.deliveryTurnsPassed}/${order.deliveryTurnsNeeded})` :
+                           order.status === 'active' ? '✅ Выполняется' :
+                           order.status === 'completed' ? '✅ Завершен' : '❌ Отменен';
+        
+        const typeNames = {
+            'move': '🚶 Движение',
+            'attack': '⚔️ Атака',
+            'defend': '🛡️ Оборона',
+            'recon': '🔍 Разведка',
+            'hold': '✋ Удержание',
+            'retreat': '🏃 Отступление',
+            'fire_at_will': '🎯 Огонь по готовности'
+        };
+        
+        html += `
+            <div style="background:#2a2a2a; padding:4px; margin:2px 0; border-radius:4px; display:flex; justify-content:space-between; align-items:center;">
+                <span>${typeNames[order.type] || order.type} → ${unitName}</span>
+                <span style="color:#aaa; font-size:0.8rem;">${statusText}</span>
+                <button onclick="cancelOrder(${order.id})" style="background:#555; font-size:0.7rem; padding:2px 5px;">❌</button>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+      
 function updateOperationalTimeDisplay() {
   const el = document.getElementById('opTimeDisplay');
   if (el) {
@@ -13184,7 +13405,79 @@ function removeSelectedOpUnit() {
   </div>
 <div style="margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
   <strong>👤 Игрок</strong>
-  <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Размещение</button>
+  <!-- ПАНЕЛЬ ПРИКАЗОВ HARD MODE -->
+<div id="hardModePanel" style="display:none; margin-bottom:8px; padding:6px; background:#1a1a2e; border-radius:6px; border:1px solid #444;">
+  <strong style="color:#f1c40f;">🎯 Hard Mode: Панель приказов</strong><br>
+  
+  <!-- Выбор отряда для приказа -->
+  <div style="margin-top:4px;">
+    <label style="color:#aaa;">Отряд: </label>
+    <select id="orderTargetUnit" style="background:#444; color:#fff; max-width:200px;">
+      <option value="-1">-- Выберите отряд --</option>
+    </select>
+  </div>
+  
+  <!-- Тип приказа -->
+  <div style="margin-top:4px;">
+    <label style="color:#aaa;">Приказ: </label>
+    <select id="orderType" style="background:#444; color:#fff;" onchange="onOrderTypeChange()">
+      <option value="-1">-- Выберите приказ --</option>
+      <option value="move">🚶 Движение</option>
+      <option value="attack">⚔️ Атака</option>
+      <option value="defend">🛡️ Оборона</option>
+      <option value="recon">🔍 Разведка</option>
+      <option value="hold">✋ Удерживать позицию</option>
+      <option value="retreat">🏃 Отступление</option>
+      <option value="fire_at_will">🎯 Огонь по готовности</option>
+    </select>
+  </div>
+  
+  <!-- Поведение при встрече с врагом -->
+  <div style="margin-top:4px;">
+    <label style="color:#aaa;">При встрече с врагом: </label>
+    <select id="orderBehavior" style="background:#444; color:#fff;">
+      <option value="hold">🛡️ Закрепиться и ждать</option>
+      <option value="engage">⚔️ Атаковать</option>
+      <option value="retreat">🏃 Отступить</option>
+    </select>
+  </div>
+  
+  <!-- Дистанция для огня по готовности -->
+  <div id="fireDistanceContainer" style="display:none; margin-top:4px;">
+    <label style="color:#aaa;">Дистанция открытия огня: </label>
+    <input type="number" id="orderFireDistance" value="3" min="1" max="5" style="width:50px; background:#444; color:#fff;">
+    <span style="color:#aaa;">гексов</span>
+  </div>
+  
+  <!-- Маршрут -->
+  <div style="margin-top:4px;">
+    <label style="color:#aaa;">Маршрут (кликайте по гексам): </label>
+    <button onclick="clearOrderWaypoints()" style="background:#555; font-size:0.8rem;">🧹 Очистить маршрут</button>
+    <div id="orderWaypointsDisplay" style="color:#f1c40f; font-size:0.8rem; margin-top:2px;">
+      Нет точек маршрута
+    </div>
+  </div>
+  
+  <!-- Кнопки -->
+  <div style="margin-top:8px;">
+    <button onclick="submitOrder()" style="background:#27ae60;">✅ Отдать приказ</button>
+    <button onclick="hideOrderPanel()" style="background:#555;">❌ Отмена</button>
+  </div>
+</div>
+
+<!-- Кнопка открытия панели -->
+<div style="margin-bottom:8px;">
+  <button onclick="showOrderPanel()" id="showOrderPanelBtn" style="background:#f39c12; display:none;">
+    🎯 Отдать приказ
+  </button>
+</div>
+
+<!-- Список активных приказов -->
+<div id="activeOrdersList" style="display:none; margin-bottom:8px; padding:6px; background:#1a1a2e; border-radius:6px; border:1px solid #444;">
+  <strong style="color:#f1c40f;">📋 Активные приказы:</strong>
+  <div id="ordersContainer" style="margin-top:4px;"></div>
+</div>
+    <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Размещение</button>
   <button onclick="setOpMapMode('move')" style="background:#2980b9;">🚶 Перемещение</button>
   <button onclick="removeSelectedOpUnit()" style="background:#555;">🗑️ Удалить выбранного</button>
   <button onclick="startOpShooting()" style="background:#c0392b;">🎯 Обстрел</button>
