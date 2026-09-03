@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.188 — карта  </title>
+  <title>Боевой модуль v12.190 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.188</h1>
+    <h1>⚔️ Боевой модуль v12.190</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.188 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.190 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1559,6 +1559,37 @@ function redrawOperationalMap() {
       ctx.fill();
     });
   }
+  // Подсветка зоны разведки (голубым)
+if (appData.campaign.opUnits) {
+    appData.campaign.opUnits.forEach(unit => {
+        if (unit.reconPending && unit.reconHex) {
+            const [rCol, rRow] = unit.reconHex.split(',').map(Number);
+            ctx.fillStyle = 'rgba(52, 152, 219, 0.3)';
+            for (let dr = -2; dr <= 2; dr++) {
+                for (let dc = -2; dc <= 2; dc++) {
+                    const hCol = rCol + dc;
+                    const hRow = rRow + dr;
+                    if (hCol >= 0 && hCol < OP_MAP_COLS && hRow >= 0 && hRow < OP_MAP_ROWS) {
+                        const x = hCol * Math.sqrt(3) * size + (hRow % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+                        const y = hRow * 1.5 * size + size;
+                        ctx.beginPath();
+                        for (let i = 0; i < 6; i++) {
+                            const angle = Math.PI / 180 * (60 * i - 30);
+                            const xi = x + size * Math.cos(angle);
+                            const yi = y + size * Math.sin(angle);
+                            if (i === 0) ctx.moveTo(xi, yi);
+                            else ctx.lineTo(xi, yi);
+                        }
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                }
+            }
+            // Сбрасываем после одного хода
+            unit.reconPending = false;
+        }
+    });
+}
     // Подсветка для врага
   const selectedEnemy = appData.campaign.selectedEnemyOpUnit;
   if (selectedEnemy && selectedEnemy.availableHexes) {
@@ -2794,6 +2825,13 @@ if (unit.isGroup && unit.groupSize > 1) {
       img.onload = () => redrawOperationalMap();
     }
   }
+  if (unit.isAmbush) {
+    ctx.fillStyle = '#9b59b6';
+    ctx.font = `${size * 0.3}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('🥷', drawX, drawY + radius + 10);
+}
   // Подсветка выбранного своего юнита
 if (!isEnemy && unit === appData.campaign.selectedOpUnit) {
     ctx.strokeStyle = '#00ff00';
@@ -3435,21 +3473,22 @@ document.getElementById('battleApp').style.display = 'none';
         
         "modifiers": [],
         "activeCards": [],
-                "hardMode": {
-            "enabled": false,
-            "hqUnitId": null,
-            "messengers": {
-                "battalion": { "total": 5, "available": 5, "active": [] },
-                "companies": {}
-            },
-            "signalPlatoon": {
-                "radios": { "total": 3, "available": 3, "assigned": [] },
-                "phones": { "total": 3, "available": 3, "assigned": [] }
-            },
-            "phoneLines": [],
-            "orders": [],
-            "pendingOrders": []
-        },
+"hardMode": {
+    "enabled": false,
+    "hqUnitId": null,
+    "messengers": {
+        "battalion": { "total": 5, "available": 5, "active": [] },
+        "companies": {}
+    },
+    "signalPlatoon": {
+        "radios": { "total": 3, "available": 3, "assigned": [] },
+        "phones": { "total": 3, "available": 3, "assigned": [] }
+    },
+    "phoneLines": [],
+    "orders": [],
+    "pendingOrders": [],
+    "orderQueue": []
+},
         "campaign": {
   "active": false,
   "scenario": null,
@@ -3482,19 +3521,21 @@ document.getElementById('battleApp').style.display = 'none';
   if (saved) {
     appData = JSON.parse(saved);
         // Загружаем Hard Mode
-    if (appData.hardMode) {
-        hardMode = appData.hardMode;
-    } else {
-        hardMode = {
-            enabled: false,
-            hqUnitId: null,
-            messengers: { battalion: { total: 5, available: 5, active: [] }, companies: {} },
-            signalPlatoon: { radios: { total: 3, available: 3, assigned: [] }, phones: { total: 3, available: 3, assigned: [] } },
-            phoneLines: [],
-            orders: [],
-            pendingOrders: []
-        };
-    }
+if (appData.hardMode) {
+    hardMode = appData.hardMode;
+    if (!hardMode.orderQueue) hardMode.orderQueue = [];  // ← ДОБАВИТЬ ЭТУ СТРОКУ
+} else {
+    hardMode = {
+        enabled: false,
+        hqUnitId: null,
+        messengers: { battalion: { total: 5, available: 5, active: [] }, companies: {} },
+        signalPlatoon: { radios: { total: 3, available: 3, assigned: [] }, phones: { total: 3, available: 3, assigned: [] } },
+        phoneLines: [],
+        orders: [],
+        pendingOrders: [],
+        orderQueue: []  // ← ДОБАВИТЬ ЭТУ СТРОКУ
+    };
+}
     // Автоматически удаляем устаревший глобальный модификатор «Плохой порох»
     if (appData.modifiers) appData.modifiers = appData.modifiers.filter(m => m.name !== 'Плохой порох');
     if (!appData.factions || !appData.templates || !appData.squads) throw new Error('Структура повреждена');
@@ -3763,22 +3804,22 @@ function initHardMode() {
     if (hq) {
         hardMode.hqUnitId = appData.campaign.opUnits.indexOf(hq);
         
-        // Проверяем, не выданы ли уже рация и телефон штабу
-        const hasRadio = hardMode.signalPlatoon.radios.assigned.some(r => r.unitId === hardMode.hqUnitId);
-        const hasPhone = hardMode.signalPlatoon.phones.assigned.some(p => p.unitId === hardMode.hqUnitId);
-        
-        if (!hasRadio) {
-            hardMode.signalPlatoon.radios.assigned.push({ 
-                unitId: hardMode.hqUnitId, 
-                isHQ: true
-            });
-        }
-        if (!hasPhone) {
-            hardMode.signalPlatoon.phones.assigned.push({ 
-                unitId: hardMode.hqUnitId, 
-                isHQ: true
-            });
-        }
+// Проверяем, не выданы ли уже рация и телефон штабу
+const hasRadio = hardMode.signalPlatoon.radios.assigned.some(r => r.unitId === hardMode.hqUnitId);
+const hasPhone = hardMode.signalPlatoon.phones.assigned.some(p => p.unitId === hardMode.hqUnitId);
+
+if (!hasRadio) {
+    hardMode.signalPlatoon.radios.assigned.push({ 
+        unitId: hardMode.hqUnitId, 
+        isHQ: true
+    });
+}
+if (!hasPhone) {
+    hardMode.signalPlatoon.phones.assigned.push({ 
+        unitId: hardMode.hqUnitId, 
+        isHQ: true
+    });
+}
     }
     
     // Находим штабы рот
@@ -10471,7 +10512,9 @@ function executeOrder(order) {
         'hold': '✋ Удержание',
         'retreat': '🏃 Отступление',
         'fire_at_will': '🎯 Огонь по готовности',
+        'shoot_at': '💥 Стрельба по бронетехнике',
         'shoot': '💥 Обстрел',
+        'ambush': '🥷 Засада',
         'dismount': '🚲 Спешивание',
         'remount': '🚲 Посадка'
     };
@@ -10504,6 +10547,13 @@ function executeOrder(order) {
         case 'attack':
             executeAttackOrder(unit, order);
             break;
+        case 'ambush':
+            executeAmbushOrder(unit, order);
+            break;
+        case 'shoot_at':
+            executeShootAtOrder(unit, order);
+            break;
+            
     }
     
     if (order.status === 'cancelled') {
@@ -10513,8 +10563,7 @@ function executeOrder(order) {
         }
     }
 }
-
-function executeAttackOrder(unit, order) {
+function executeAmbushOrder(unit, order) {
     if (!order.targetHex) {
         order.status = 'cancelled';
         return;
@@ -10522,21 +10571,25 @@ function executeAttackOrder(unit, order) {
     
     const [targetCol, targetRow] = order.targetHex.split(',').map(Number);
     
-    const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
-        e.col === targetCol && e.row === targetRow
-    );
-    
-    if (enemies.length > 0) {
+    // Если юнит уже на целевом гексе — встаём в засаду
+    if (unit.col === targetCol && unit.row === targetRow) {
+        unit.isAmbush = true;
+        unit.ambushHex = `${targetCol},${targetRow}`;
+        unit.canMove = false;
+        unit.detected = false;
+        unit.noiseMarker = false;
         order.status = 'completed';
-        showContactModal([unit], enemies);
-        log(`⚔️ ${unit.name} вступил в бой с противником!`);
+        log(`🥷 ${unit.name} устроил засаду на гексе (${targetCol},${targetRow}).`);
+        redrawOperationalMap();
         return;
     }
     
+    // Иначе двигаемся к целевому гексу
     if (unit.ap > 0) {
         const moveCost = getOpMoveCost(unit, unit.col, unit.row, targetCol, targetRow);
         if (moveCost === Infinity) {
             order.status = 'cancelled';
+            log(`❌ ${unit.name} не может достичь гекса для засады.`);
             return;
         }
         
@@ -10545,15 +10598,71 @@ function executeAttackOrder(unit, order) {
             unit.col = targetCol;
             unit.row = targetRow;
             
-            const newEnemies = (appData.campaign.enemyOpUnits || []).filter(e => 
+            // После входа в гекс — встаём в засаду
+            unit.isAmbush = true;
+            unit.ambushHex = `${targetCol},${targetRow}`;
+            unit.canMove = false;
+            unit.detected = false;
+            unit.noiseMarker = false;
+            order.status = 'completed';
+            log(`🥷 ${unit.name} устроил засаду на гексе (${targetCol},${targetRow}).`);
+        } else {
+            log(`⏳ ${unit.name} не хватило ОД для выдвижения в засаду.`);
+        }
+    }
+    redrawOperationalMap();
+}
+function executeAttackOrder(unit, order) {
+    if (!order.targetHex) {
+        order.status = 'cancelled';
+        return;
+    }
+    
+    const [targetCol, targetRow] = order.targetHex.split(',').map(Number);
+    
+    // Проверяем, есть ли враг в том же гексе, где сейчас находится юнит
+    const enemiesHere = (appData.campaign.enemyOpUnits || []).filter(e => 
+        e.col === unit.col && e.row === unit.row
+    );
+    
+    if (enemiesHere.length > 0) {
+        order.status = 'completed';
+        showContactModal([unit], enemiesHere);
+        log(`⚔️ ${unit.name} вступил в бой с противником!`);
+        return;
+    }
+    
+    // Врага в текущем гексе нет - двигаемся к цели
+    if (unit.ap > 0) {
+        const moveCost = getOpMoveCost(unit, unit.col, unit.row, targetCol, targetRow);
+        if (moveCost === Infinity) {
+            order.status = 'cancelled';
+            log(`❌ ${unit.name} не может достичь цели.`);
+            return;
+        }
+        
+        if (unit.ap >= moveCost) {
+            unit.ap -= moveCost;
+            unit.col = targetCol;
+            unit.row = targetRow;
+            
+            // После входа в целевой гекс проверяем врага
+            const enemiesAtTarget = (appData.campaign.enemyOpUnits || []).filter(e => 
                 e.col === targetCol && e.row === targetRow
             );
             
-            if (newEnemies.length > 0) {
-                showContactModal([unit], newEnemies);
+            if (enemiesAtTarget.length > 0) {
+                showContactModal([unit], enemiesAtTarget);
                 order.status = 'completed';
                 log(`⚔️ ${unit.name} вступил в бой!`);
+            } else {
+                // Враг не найден в целевом гексе
+                order.status = 'completed';
+                log(`ℹ️ ${unit.name} прибыл в целевой гекс, но врага нет.`);
             }
+        } else {
+            // Не хватает ОД на полный переход
+            log(`⏳ ${unit.name} не хватило ОД для достижения цели.`);
         }
     }
 }
@@ -10695,7 +10804,10 @@ function executeFireAtWillOrder(unit, order) {
         getOpHexDistance(unit.col, unit.row, e.col, e.row) <= targetDistance
     );
     
-    if (enemies.length === 0) return;
+    if (enemies.length === 0) {
+        log(`ℹ️ ${unit.name} не видит врагов в радиусе ${targetDistance} гексов.`);
+        return;
+    }
     
     // Находим ближайшего врага
     let closestEnemy = null;
@@ -10709,42 +10821,45 @@ function executeFireAtWillOrder(unit, order) {
     });
     
     if (closestEnemy) {
-        // Атакуем ближайшего врага
         log(`🎯 ${unit.name} открывает огонь по ${closestEnemy.name} (дистанция ${minDist}).`);
-        
-        // Здесь вызываем обстрел
-        const targets = [closestEnemy];
-        const distance = minDist;
-        
-        if (unit.ap > 0) {
-            executeOpShoot(targets, distance);
-        }
+        executeOpShoot([closestEnemy], minDist);
     }
 }
 
 function executeReconOrder(unit, order) {
-    if (unit.ap <= 0) return;
-    
-    // Разведка в радиусе 2 гексов
-    const reconRadius = 2;
-    const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
-        e.col !== null && e.row !== null &&
-        getOpHexDistance(unit.col, unit.row, e.col, e.row) <= reconRadius
-    );
-    
-    if (enemies.length > 0) {
-        log(`🔍 ${unit.name} обнаружил ${enemies.length} вражеских подразделений в радиусе 2 гексов.`);
-        enemies.forEach(e => {
-            e.detected = true;
-            log(`   - ${e.name} на гексе (${e.col},${e.row})`);
-        });
-    } else {
-        log(`🔍 ${unit.name} не обнаружил врагов в радиусе 2 гексов.`);
+    if (!order.targetHex) {
+        order.status = 'cancelled';
+        return;
     }
     
-    unit.ap = 0; // Тратим все ОД
+    const [targetCol, targetRow] = order.targetHex.split(',').map(Number);
+    
+    // Если юнит ещё не на целевом гексе — двигаемся
+    if (unit.col !== targetCol || unit.row !== targetRow) {
+        if (unit.ap > 0) {
+            const moveCost = getOpMoveCost(unit, unit.col, unit.row, targetCol, targetRow);
+            if (moveCost === Infinity) {
+                order.status = 'cancelled';
+                return;
+            }
+            if (unit.ap >= moveCost) {
+                unit.ap -= moveCost;
+                unit.col = targetCol;
+                unit.row = targetRow;
+                log(`🔍 ${unit.name} выдвинулся на гекс (${targetCol},${targetRow}) для разведки.`);
+            } else {
+                log(`⏳ ${unit.name} не хватило ОД для выдвижения.`);
+            }
+        }
+        return;
+    }
+    
+    // Юнит на месте — выполняем разведку (в следующем ходу подсвечиваем зону)
+    unit.reconPending = true;
+    unit.reconHex = `${targetCol},${targetRow}`;
     order.status = 'completed';
-}   
+    log(`🔍 ${unit.name} производит разведку гекса (${targetCol},${targetRow}). Зона будет подсвечена.`);
+}  
 // ==================== СИСТЕМА СВЯЗИ ====================
 let phoneLineStart = null; // начальная точка телефонной линии
 
@@ -10942,7 +11057,8 @@ function completePhoneLine(toUnitId) {
     // Проверяем, что у обоих юнитов есть телефоны
     const fromHasPhone = hardMode.signalPlatoon.phones.assigned.some(p => p.unitId === phoneLineStart);
     const toHasPhone = hardMode.signalPlatoon.phones.assigned.some(p => p.unitId === toUnitId);
-    
+
+  
     if (!fromHasPhone || !toHasPhone) {
         alert('Оба юнита должны иметь телефоны!');
         phoneLineStart = null;
@@ -10954,6 +11070,22 @@ function completePhoneLine(toUnitId) {
         phoneLineStart = null;
         return;
     }
+  // Проверяем, что линия не проходит по границе (упрощенно - проверяем что расстояние > 0)
+if (distance === 0) {
+    alert('Юниты на одном гексе!');
+    phoneLineStart = null;
+    return;
+}
+
+// Проверяем, что линия не проходит по границе гексов
+// Если расстояние по горизонтали и вертикали одинаковое и оба нечётные - линия проходит по границе
+const dCol = Math.abs(fromUnit.col - toUnit.col);
+const dRow = Math.abs(fromUnit.row - toUnit.row);
+if (dCol === dRow && dCol % 2 === 1) {
+    alert('Линия проходит по границе гексов! Выберите другие позиции.');
+    phoneLineStart = null;
+    return;
+}
         // Создаем линию с указанием гексов
     hardMode.phoneLines.push({
         fromUnitId: phoneLineStart,
@@ -11167,7 +11299,78 @@ function submitOrder() {
         redrawOperationalMap();
     }
 }
+function addOrderToQueue() {
+    const unitSelect = document.getElementById('orderTargetUnit');
+    const typeSelect = document.getElementById('orderType');
+    
+    if (!unitSelect || unitSelect.value === '-1') {
+        alert('Выберите отряд!');
+        return;
+    }
+    if (!typeSelect || typeSelect.value === '-1') {
+        alert('Выберите тип приказа!');
+        return;
+    }
+    
+    const orderData = {
+        toUnitId: parseInt(unitSelect.value),
+        type: typeSelect.value,
+        behavior: document.getElementById('orderBehavior')?.value || 'hold',
+        waypoints: [...orderWaypoints],
+        targetHex: document.getElementById('orderTargetHex')?.value || null,
+        targetDistance: document.getElementById('orderFireDistance') ? parseInt(document.getElementById('orderFireDistance').value) : null
+    };
+    
+    hardMode.orderQueue.push(orderData);
+    orderWaypoints = [];
+    updateOrderWaypointsDisplay();
+    renderOrderQueue();
+    log(`📋 Приказ "${orderData.type}" добавлен в серию.`);
+}
 
+function submitOrderQueue() {
+    if (hardMode.orderQueue.length === 0) {
+        alert('Очередь пуста!');
+        return;
+    }
+    
+    const hqIndex = hardMode.hqUnitId !== null ? hardMode.hqUnitId : 
+                    (appData.campaign.opUnits || []).findIndex(u => u.type === 'battalion_hq');
+    
+    if (hqIndex === -1) {
+        alert('Штаб батальона не найден!');
+        return;
+    }
+    
+    // Выполняем приказы по очереди
+    hardMode.orderQueue.forEach((orderData, idx) => {
+        setTimeout(() => {
+            const order = createOrder(hqIndex, orderData.toUnitId, orderData.type, orderData);
+            if (order) {
+                log(`✅ Приказ ${idx + 1} "${orderData.type}" отправлен.`);
+            }
+        }, idx * 100);
+    });
+    
+    hardMode.orderQueue = [];
+    renderOrderQueue();
+}
+
+function renderOrderQueue() {
+    const container = document.getElementById('orderQueueDisplay');
+    if (!container) return;
+    
+    if (hardMode.orderQueue.length === 0) {
+        container.innerHTML = '<span style="color:#aaa;">Очередь пуста</span>';
+        return;
+    }
+    
+    container.innerHTML = hardMode.orderQueue.map((o, i) => {
+        const unit = appData.campaign.opUnits ? appData.campaign.opUnits[o.toUnitId] : null;
+        const unitName = unit ? unit.name : '?';
+        return `${i+1}. ${o.type} → ${unitName}`;
+    }).join('<br>');
+}
 function renderActiveOrders() {
     const container = document.getElementById('ordersContainer');
     if (!container) return;
@@ -11187,6 +11390,7 @@ function renderActiveOrders() {
         'hold': '✋ Удержание',
         'retreat': '🏃 Отступление',
         'fire_at_will': '🎯 Огонь по готовности',
+        'ambush': '🥷 Засада',
         'embark': '🚌 Посадка в БТР',
         'disembark': '🚶 Высадка',
         'dismount': '🚲 Спешивание',
@@ -11220,7 +11424,19 @@ function renderActiveOrders() {
         `;
     });
     
-    container.innerHTML = html;
+        container.innerHTML = html;
+    
+    // Показываем очередь приказов
+    if (hardMode.orderQueue && hardMode.orderQueue.length > 0) {
+        const queueHtml = hardMode.orderQueue.map((o, i) => {
+            const unit = appData.campaign.opUnits ? appData.campaign.opUnits[o.toUnitId] : null;
+            const unitName = unit ? unit.name : '?';
+            return `<div style="background:#1a1a2e; padding:4px; margin:2px 0; border-radius:4px; color:#3498db;">
+                📋 ${i+1}. ${o.type} → ${unitName}
+            </div>`;
+        }).join('');
+        container.innerHTML += `<div style="margin-top:8px;"><strong style="color:#3498db;">📋 Очередь:</strong>${queueHtml}</div>`;
+    }
 }
       
 function updateOperationalTimeDisplay() {
@@ -11510,9 +11726,9 @@ function checkOpDetection() {
 
   const roll = rollD10();
   const result = roll + mod;
-
+  if (unit.isAmbush) return -99; // засаду невозможно обнаружить
   log(`Проверка обнаружения для "${unit.name}": d10=${roll} + мод=${mod} = ${result}`);
-   if (result > 6) {
+     if (result > 6) {
     unit.detected = true;
     unit.noiseMarker = false;
     document.getElementById('mapInfo').innerHTML = '🔴 Отряд обнаружен!';
@@ -11528,6 +11744,7 @@ function checkOpDetection() {
     document.getElementById('mapInfo').innerHTML = '🟢 Отряд остаётся незамеченным.';
     alert('🟢 Отряд остаётся незамеченным.');
   }
+  
   saveData();
   redrawOperationalMap();
 }
@@ -13404,7 +13621,12 @@ function executeOpShootAtFromDialog(distance) {
     
     // Устанавливаем тип оружия
     opShootingState.weaponType = 'at';
-    
+    // Для САУ дальность до 10 гексов
+const maxRange = shooter.name.includes('САУ') ? 10 : 3;
+if (distance > maxRange) {
+    document.getElementById('mapInfo').innerHTML = `❌ Цель слишком далеко! (${distance} гексов, максимум ${maxRange})`;
+    return;
+}
     // Получаем цели
     const targets = opShootingState.targets || [];
     if (targets.length === 0) {
@@ -14151,7 +14373,37 @@ function autoBuildRoute(unit, targetCol, targetRow) {
     }
         return route;
 }
-     
+function executeShootAtOrder(unit, order) {
+    const targetDistance = order.targetDistance || 5;
+    
+    // Ищем бронетехнику в радиусе
+    const armorEnemies = (appData.campaign.enemyOpUnits || []).filter(e => 
+        e.col !== null && e.row !== null &&
+        getOpHexDistance(unit.col, unit.row, e.col, e.row) <= targetDistance &&
+        isArmoredUnit(e)
+    );
+    
+    if (armorEnemies.length === 0) {
+        log(`ℹ️ ${unit.name} не видит бронетехнику в радиусе ${targetDistance} гексов.`);
+        return;
+    }
+    
+    // Находим ближайшую бронетехнику
+    let closestArmor = null;
+    let minDist = Infinity;
+    armorEnemies.forEach(e => {
+        const dist = getOpHexDistance(unit.col, unit.row, e.col, e.row);
+        if (dist < minDist) {
+            minDist = dist;
+            closestArmor = e;
+        }
+    });
+    
+    if (closestArmor) {
+        log(`💥 ${unit.name} открывает огонь по бронетехнике ${closestArmor.name} (дистанция ${minDist}).`);
+        executeOpShootAt([closestArmor], minDist);
+    }
+}     
   </script> 
   
  <div id="awardsTab" class="tabcontent">
@@ -14272,10 +14524,12 @@ function autoBuildRoute(unit, targetCol, targetRow) {
       <option value="recon">🔍 Разведка</option>
       <option value="hold">✋ Удерживать позицию</option>
       <option value="retreat">🏃 Отступление</option>
+      <option value="shoot_at">💥 Стрельба по бронетехнике</option>
       <option value="fire_at_will">🎯 Огонь по готовности</option>
       <option value="shoot">💥 Обстрелять точку</option>
       <option value="dismount">🚲 Спешиться</option>
       <option value="remount">🚲 Сесть на велосипеды</option>
+      <option value="ambush">🥷 Засада</option>
     </select>
   </div>
   
@@ -14312,10 +14566,18 @@ function autoBuildRoute(unit, targetCol, targetRow) {
     </div>
   </div>
   
-  <!-- Кнопки -->
+    <!-- Кнопки -->
   <div style="margin-top:8px;">
     <button onclick="submitOrder()" style="background:#27ae60;">✅ Отдать приказ</button>
+    <button onclick="addOrderToQueue()" style="background:#2980b9;">📋 Добавить в серию</button>
+    <button onclick="submitOrderQueue()" style="background:#8e44ad;">✅ Выполнить серию</button>
     <button onclick="hideOrderPanel()" style="background:#555;">❌ Отмена</button>
+  </div>
+  
+  <!-- Очередь приказов -->
+  <div style="margin-top:6px;">
+    <strong style="color:#3498db;">📋 Очередь приказов:</strong>
+    <div id="orderQueueDisplay" style="color:#3498db; font-size:0.8rem; margin-top:2px;">Очередь пуста</div>
   </div>
 </div>
 
