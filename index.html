@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.187 — карта  </title>
+  <title>Боевой модуль v12.188 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -1532,6 +1532,11 @@ function redrawOperationalMap() {
       const x = col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
       const y = row * 1.5 * size + size;
       drawOperationalHex(ctx, x, y, size, 'grass');
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.font = `${size * 0.2}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(`${col},${row}`, x, y + size * 0.8);
     }
   }
 
@@ -1814,16 +1819,7 @@ function redrawOperationalMap() {
           ctx.fillText('📨', x, y - size * 0.5);
       });
   }
-    // Пометка рации
-  if (hardMode.enabled && hardMode.signalPlatoon.radios.assigned.some(r => 
-      appData.campaign.opUnits[r.unitId] === unit)) {
-      ctx.fillStyle = '#3498db';
-      ctx.font = '12px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillText('📻', drawX + radius, drawY - radius - 10);
-  }
-  // Рисуем юниты (свои и вражеские)
+     // Рисуем юниты (свои и вражеские)
     drawOperationalUnits(ctx);
   // Подсветка гексов с активными боями
 appData.campaign.activeBattles.forEach(battle => {
@@ -3749,6 +3745,7 @@ function toggleHardMode() {
     if (hardMode.enabled) {
         alert('Hard Mode включен!');
         initHardMode();
+        updateHardModeButtons();
     } else {
         alert('Hard Mode выключен.');
         hardMode.orders = [];
@@ -3759,21 +3756,31 @@ function toggleHardMode() {
 }
 
 function initHardMode() {
-    // Находим штаб батальона
+    // Проверяем, что opUnits существуют
+    if (!appData.campaign.opUnits || appData.campaign.opUnits.length === 0) {
+        buildOperationalUnits();
+    }
+    
     const hq = (appData.campaign.opUnits || []).find(u => u.type === 'battalion_hq');
     if (hq) {
         hardMode.hqUnitId = appData.campaign.opUnits.indexOf(hq);
         
-        // Штаб батальона УЖЕ имеет рацию и телефон
-        hardMode.signalPlatoon.radios.assigned.push({ 
-            unitId: hardMode.hqUnitId, 
-            isHQ: true
-        });
-        // ТЕЛЕФОН УЖЕ ДОБАВЛЕН НИЖЕ - ПРОВЕРЬТЕ ЧТО ОН ЕСТЬ
-        hardMode.signalPlatoon.phones.assigned.push({ 
-            unitId: hardMode.hqUnitId, 
-            isHQ: true
-        });
+        // Проверяем, не выданы ли уже рация и телефон штабу
+        const hasRadio = hardMode.signalPlatoon.radios.assigned.some(r => r.unitId === hardMode.hqUnitId);
+        const hasPhone = hardMode.signalPlatoon.phones.assigned.some(p => p.unitId === hardMode.hqUnitId);
+        
+        if (!hasRadio) {
+            hardMode.signalPlatoon.radios.assigned.push({ 
+                unitId: hardMode.hqUnitId, 
+                isHQ: true
+            });
+        }
+        if (!hasPhone) {
+            hardMode.signalPlatoon.phones.assigned.push({ 
+                unitId: hardMode.hqUnitId, 
+                isHQ: true
+            });
+        }
     }
     
     // Находим штабы рот
@@ -4073,7 +4080,13 @@ function startTacticalBattle(playerUnit, enemyUnit) {
     console.log('startTacticalBattle вызван');
 
     // Собираем все юниты игрока на гексе playerUnit
-    const playerUnits = appData.campaign.opUnits.filter(u => u.col === playerUnit.col && u.row === playerUnit.row);
+     // Если передан массив - используем только эти юниты
+    let playerUnits;
+    if (Array.isArray(playerUnit)) {
+        playerUnits = playerUnit;
+    } else {
+        playerUnits = appData.campaign.opUnits.filter(u => u.col === playerUnit.col && u.row === playerUnit.row);
+    }
     const enemyUnits = appData.campaign.enemyOpUnits.filter(u => u.col === enemyUnit.col && u.row === enemyUnit.row);
 
     const hexKey = `${enemyUnit.col},${enemyUnit.row}`;
@@ -10495,6 +10508,24 @@ function processOrders() {
 }
 
 function executeOrder(order) {
+  
+    const typeNames = {
+        'move': '🚶 Движение',
+        'attack': '⚔️ Атака',
+        'defend': '🛡️ Оборона',
+        'recon': '🔍 Разведка',
+        'hold': '✋ Удержание',
+        'retreat': '🏃 Отступление',
+        'fire_at_will': '🎯 Огонь по готовности',
+        'shoot': '💥 Обстрел',
+        'dismount': '🚲 Спешивание',
+        'remount': '🚲 Посадка'
+    };
+    
+    switch (order.type) {
+        case 'move':
+            executeMoveOrder(unit, order);
+            break;
     const unit = appData.campaign.opUnits[order.toUnitId];
     if (!unit) return;
     
@@ -10524,6 +10555,12 @@ function executeOrder(order) {
             executeAttackOrder(unit, order);
             break;
         // Другие типы добавим позже
+        
+        // Логируем отмену/ошибки
+    if (order.status === 'cancelled') {
+        const mapInfo = document.getElementById('mapInfo');
+        if (mapInfo) {
+            mapInfo.innerHTML = `❌ Приказ "${typeNames[order.type] || order.type}" для ${unit.name} отменен.`;
     }
 }
       function executeAttackOrder(unit, order) {
@@ -10600,12 +10637,26 @@ function executeShootOrder(unit, order) {
         return;
     }
     
-    if (unit.ap > 0) {
-        executeOpShoot(enemies, distance);
+        if (unit.ap > 0) {
+        // Устанавливаем стрелка
+        opShootingState.shooter = unit;
+        opShootingState.weaponType = 'mg'; // или 'at' если есть ПТО
+        opShootingState.targets = enemies;
+        
+        // Проверяем тип оружия
+        const hasArmor = enemies.some(u => isArmoredUnit(u));
+        const hasAtGuns = hasAtGunWeapons(unit);
+        
+        if (hasAtGuns && hasArmor) {
+            executeOpShootAt(enemies, distance);
+        } else {
+            executeOpShoot(enemies, distance);
+        }
+        
         order.status = 'completed';
         log(`✅ ${unit.name} обстрелял гекс (${targetCol},${targetRow}).`);
     }
-}
+       }
 
 function executeDismountOrder(unit, order) {
     if (unit.mobility === 'bicycle' && !unit.dismounted) {
@@ -11306,8 +11357,32 @@ function finishPlacement() {
     updateHardModeButtons();
   }
   function updateHardModeButtons() {
-    const placeBtn = document.querySelector('button[onclick*="setOpMapMode(\'placePlayer\')"]');
-    const moveBtn = document.querySelector('button[onclick*="setOpMapMode(\'move\')"]');
+     // Более точный селектор для кнопки размещения
+    const placeBtns = document.querySelectorAll('button');
+    let placeBtn = null;
+    let moveBtn = null;
+    
+    placeBtns.forEach(btn => {
+        const onclick = btn.getAttribute('onclick') || '';
+        if (onclick.includes("setOpMapMode('placePlayer')") || onclick.includes('setOpMapMode("placePlayer")')) {
+            placeBtn = btn;
+        }
+        if (onclick.includes("setOpMapMode('move')") || onclick.includes('setOpMapMode("move")')) {
+            moveBtn = btn;
+        }
+    });
+    
+    if (placeBtn) {
+        placeBtn.disabled = placementLocked;
+        placeBtn.style.opacity = placementLocked ? '0.5' : '1';
+        placeBtn.style.cursor = placementLocked ? 'not-allowed' : 'pointer';
+    }
+    if (moveBtn) {
+        moveBtn.disabled = placementLocked;
+        moveBtn.style.opacity = placementLocked ? '0.5' : '1';
+        moveBtn.style.cursor = placementLocked ? 'not-allowed' : 'pointer';
+    }
+}
     
     if (placeBtn) {
         placeBtn.disabled = placementLocked;
@@ -14099,7 +14174,13 @@ function removeSelectedOpUnit() {
 }
 function finishPlacement() {
     placementLocked = true;
-    document.getElementById('mapInfo').innerHTML = '✅ Размещение завершено. Кнопка заблокирована.';
+    placementUnlockCount = 0;
+    document.getElementById('mapInfo').innerHTML = '✅ Размещение завершено! Кнопки размещения и перемещения заблокированы.';
+    document.getElementById('mapInfo').style.color = '#27ae60';
+        // Переключаем в режим просмотра
+    setOpMapMode('view');
+        // Блокируем кнопки
+    updateHardModeButtons(); 
 }
  function applyDamageToUnit(index) {
     const input = document.getElementById(`damage_input_${index}`);
