@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.191 — карта  </title>
+  <title>Боевой модуль v12.192 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.191</h1>
+    <h1>⚔️ Боевой модуль v12.192</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.191 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.192 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -3892,20 +3892,6 @@ if (!hasPhone) {
                 }
             });
         });
-          // Проверяем технику №1
-    const vehicleUnits = (appData.campaign.opUnits || []).filter(u => 
-        u.type === 'tank_platoon' || u.type === 'sau_battery' || u.type === 'armored_vehicle_platoon'
-    );
-    
-    vehicleUnits.forEach(vehicle => {
-        if (vehicle.name.includes('№1')) {
-            hardMode.signalPlatoon.radios.assigned.push({
-                unitId: appData.campaign.opUnits.indexOf(vehicle),
-                isVehicleRadio: true
-            });
-        }
-    });
-    }
     
     companies.forEach(company => {
         if (company.squads) {
@@ -8816,7 +8802,6 @@ const GROUP_ICONS = {
     'default_5': 'images/groups/default_5.png',
 };
 // ========== ФУНКЦИЯ ПОЛУЧЕНИЯ ИКОНКИ ДЛЯ ГРУППЫ ==========
-// ========== ФУНКЦИЯ ПОЛУЧЕНИЯ ИКОНКИ ДЛЯ ГРУППЫ ==========
 function getGroupIcon(unit) {
     if (!unit || !unit.isGroup || !unit.groupSize) return null;
     
@@ -10088,29 +10073,6 @@ async function loadMapIndex() {
     if (sel) sel.innerHTML = '<option>Ошибка загрузки</option>';
   }
 }
-// Загрузка списка карт из maps/index.json
-async function loadMapIndex() {
-  console.log('Загрузка списка карт...');
-  try {
-    const response = await fetch('maps/index.json');
-    if (!response.ok) {
-      throw new Error(`HTTP ошибка: ${response.status}`);
-    }
-    const list = await response.json();
-    console.log('Список карт получен:', list);
-    const sel = document.getElementById('repoMapSelect');
-    if (!sel) return;
-    sel.innerHTML = list.map(item => 
-      `<option value="${item.file}">${item.name}</option>`
-    ).join('');
-  } catch (e) {
-    console.error('Ошибка загрузки списка карт:', e);
-    const sel = document.getElementById('repoMapSelect');
-    if (sel) sel.innerHTML = '<option>Ошибка загрузки</option>';
-  }
-}
-
-
 // Загрузка выбранной карты и замена текущей
 async function loadMapFromRepo() {
   const sel = document.getElementById('repoMapSelect');
@@ -10883,7 +10845,7 @@ function executeAttackOrder(unit, order) {
             log(`ℹ️ ${unit.name} прибыл в целевой гекс, но врага нет.`);
         }
     }
-
+}
 function executeShootOrder(unit, order) {
     // Обстреливаем целевую точку
     if (!order.targetHex) {
@@ -13438,9 +13400,9 @@ function executeOpShoot(targets, distance) {
         terrainMod: terrainMod,
         totalBaseDamage: totalDamage,
         targets: infantryTargets.map(t => t.name).join(', '),
-        spentAP: spentAP
+        spentAP: spentAP,
+        shooterName: shooter.name  // ← ДОБАВИТЬ ЭТУ СТРОКУ В ОБЪЕКТ
     };
-        resultModal.shooterName = shooter.name;
     showShootResultModal(resultModal);
     
     const logMsg = `🔫 ОБСТРЕЛ ПЕХОТЫ: ${shooter.name} → ${infantryTargets.length} целей (${distance} гексов) | Урон: ${totalApplied} | Убито: ${totalKilled}`;
@@ -14093,196 +14055,7 @@ function closeShootChoiceModals() {
 function getOpShootingTargets() {
     return opShootingState.targets || [];
 }
-// Обстрел ПТО по бронетехнике
-function executeOpShootAt(targets, distance) {
-    const shooter = opShootingState.shooter;
-    if (!shooter) {
-        cancelOpShooting();
-        return;
-    }
-     // Для САУ: ПТО-огонь только до 3 гексов, дальше - только обстрел пехоты
-    if (shooter.name && shooter.name.includes('САУ') && distance > 3) {
-        document.getElementById('mapInfo').innerHTML = '❌ САУ не может вести ПТО-огонь дальше 3 гексов. Используйте обычный обстрел.';
-        cancelOpShooting();
-        return;
-    }
-    const armorTargets = getArmorUnits(targets);
-    if (armorTargets.length === 0) {
-        document.getElementById('mapInfo').innerHTML = '❌ На этом гексе нет бронетехники!';
-        cancelOpShooting();
-        return;
-    }
-    
-    const gunCount = countAtGuns(shooter);
-    if (gunCount === 0) {
-        document.getElementById('mapInfo').innerHTML = '❌ У юнита нет ПТО/орудий!';
-        cancelOpShooting();
-        return;
-    }
-    
-    const spentAP = shooter.ap;
-    shooter.ap = 0;
-    
-    const totalShots = gunCount * 12;
-    let hitChance = 0;
-    let penetrationKey = 0;
-    
-        // Для САУ дальность до 10 гексов с меньшим шансом на больших дистанциях
-    switch (distance) {
-        case 1: hitChance = 0.20; penetrationKey = 10; break;
-        case 2: hitChance = 0.10; penetrationKey = 20; break;
-        case 3: hitChance = 0.05; penetrationKey = 30; break;
-        case 4: case 5: hitChance = 0.02; penetrationKey = 35; break;
-        case 6: case 7: hitChance = 0.03; penetrationKey = 38; break;
-        case 8: case 9: case 10: hitChance = 0.02; penetrationKey = 40; break;
-        default: hitChance = 0.02; penetrationKey = 40;
-    }
-    
-    // Для САУ используем другую таблицу пробития (меньше на больших дистанциях)
-    if (shooter.name && shooter.name.includes('САУ')) {
-        if (distance > 5) penetrationKey = Math.min(penetrationKey + 10, 40);
-    }
-    
-    let penetration = 0;
-    for (let squad of shooter.squads) {
-        if (!squad.crewInstances) continue;
-        for (let ci of squad.crewInstances) {
-            if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') continue;
-            const cw = getFactionCrewWeapons(squad.faction).find(w => w.name === ci.weaponName);
-            if (cw && (cw.type === 'at_gun' || cw.type === 'tank_gun') && cw.penetration) {
-                penetration = cw.penetration[String(penetrationKey)] || 0;
-                break;
-            }
-        }
-        if (penetration > 0) break;
-    }
-    
-    const maxArmor = getMaxArmor(armorTargets);
-    
-    let hits = 0;
-    let penetrations = 0;
-    let destroyedUnits = [];
-    let hitDetails = [];
-    let totalDamage = 0;
-    
-    for (let target of armorTargets) {
-        let targetHits = 0;
-        let targetPenetrations = 0;
-        let targetDestroyed = false;
-        
-        const shotsForTarget = Math.floor(totalShots / armorTargets.length);
-        
-        for (let i = 0; i < shotsForTarget; i++) {
-            const hitRoll = Math.random();
-            if (hitRoll <= hitChance) {
-                hits++;
-                targetHits++;
-                
-                const locRoll = rollD6();
-                const locNames = ['Рикошет', 'Корпус', 'Гусеницы', 'Башня', 'Двигатель', 'Укладка/бак'];
-                const location = locNames[locRoll - 1];
-                
-                let armorValue = 0;
-                if (target.squads) {
-                    for (let squad of target.squads) {
-                        if (squad.armor) {
-                            switch (locRoll) {
-                                case 1: armorValue = squad.armor.front || 0; break;
-                                case 2: armorValue = squad.armor.front || 0; break;
-                                case 3: armorValue = squad.armor.side || 0; break;
-                                case 4: armorValue = squad.armor.turret || squad.armor.front || 0; break;
-                                case 5: armorValue = squad.armor.rear || 0; break;
-                                case 6: armorValue = squad.armor.rear || 0; break;
-                                default: armorValue = squad.armor.front || 0;
-                            }
-                            break;
-                        }
-                    }
-                }
-                
-                if (armorValue === 0) armorValue = maxArmor;
-                
-                const isPenetrated = penetration > armorValue;
-                if (isPenetrated) {
-                    penetrations++;
-                    targetPenetrations++;
-                    totalDamage += 1;
-                    
-                    if (targetPenetrations >= 3) {
-                        targetDestroyed = true;
-                        destroyedUnits.push(target);
-                    }
-                }
-                
-                hitDetails.push({
-                    target: target.name,
-                    location: location,
-                    armor: armorValue,
-                    penetration: penetration,
-                    penetrated: isPenetrated,
-                    destroyed: targetDestroyed
-                });
-            }
-        }
-        
-        // Если цель уничтожена - помечаем и удаляем
-        if (targetDestroyed) {
-            target.isDestroyed = true;
-            
-            // Устанавливаем метку "подбитая техника" на гексе
-            const hexKey = `${target.col},${target.row}`;
-            if (appData.campaign.opMapGrid) {
-                if (!appData.campaign.opMapGrid[hexKey]) {
-                    appData.campaign.opMapGrid[hexKey] = { markers: [] };
-                }
-                if (!appData.campaign.opMapGrid[hexKey].markers) {
-                    appData.campaign.opMapGrid[hexKey].markers = [];
-                }
-                if (!appData.campaign.opMapGrid[hexKey].markers.includes('destroyedVehicle')) {
-                    appData.campaign.opMapGrid[hexKey].markers.push('destroyedVehicle');
-                }
-            }
-        }
-    }
-    
-    // Удаляем уничтоженную технику из списка врагов
-    if (destroyedUnits.length > 0) {
-        destroyedUnits.forEach(unit => {
-            const idx = (appData.campaign.enemyOpUnits || []).indexOf(unit);
-            if (idx !== -1) {
-                appData.campaign.enemyOpUnits.splice(idx, 1);
-            }
-        });
-    }
-    
-    saveData();
-    redrawOperationalMap();
-    
-    const result = {
-        shots: totalShots,
-        hits: hits,
-        penetrations: penetrations,
-        destroyed: destroyedUnits.length,
-        destroyedNames: destroyedUnits.map(u => u.name),
-        hitChance: Math.round(hitChance * 100),
-        penetration: penetration,
-        maxArmor: maxArmor,
-        distance: distance,
-        details: hitDetails,
-        gunCount: gunCount,
-        spentAP: spentAP,
-        targets: armorTargets.map(t => t.name).join(', ')
-    };
-    
-    showAtShootResultModal(result);
-    
-    const logMsg = `🎯 ПТО ОБСТРЕЛ: ${shooter.name} → ${armorTargets.length} целей (${distance} гексов) | Выстрелов: ${totalShots} | Попаданий: ${hits} | Пробитий: ${penetrations} | Уничтожено: ${destroyedUnits.length}`;
-    log(logMsg);
-    document.getElementById('mapInfo').innerHTML = logMsg;
-    
-    cancelOpShooting();
-    updateOpPlaceSelect();
-}
+
 // Показать результаты ПТО обстрела
 function showAtShootResultModal(result) {
     // Удаляем старые модальные окна
@@ -14359,12 +14132,7 @@ function showAtShootResultModal(result) {
             <div style="text-align:center; font-size:1.2rem; padding:10px;">
                 ${destroyedText}
             </div>
-                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px 20px;">
-                <div><strong style="color:#f1c40f;">Отряд-стрелок:</strong></div>
-                <div>${result.shooterName || opShootingState.shooter?.name || 'Неизвестно'}</div>
-                
-                <div><strong style="color:#f1c40f;">Цели:</strong></div>
-                <div>${result.targets}</div>
+                   
             ${detailsHtml}
             
             <div style="margin-top:18px; text-align:center;">
@@ -14398,8 +14166,11 @@ function showShootResultModal(result) {
                         style="background:#555; color:#fff; border:none; border-radius:50%; width:30px; height:30px; font-size:18px; cursor:pointer;">✕</button>
             </div>
             <hr style="border-color:#555; margin:10px 0;">
-            
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px 20px;">
+                                            
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px 20px;">
+                <div><strong style="color:#f1c40f;">Отряд-стрелок:</strong></div>
+                <div>${result.shooterName || opShootingState.shooter?.name || 'Неизвестно'}</div>
+                
                 <div><strong style="color:#f1c40f;">Цели:</strong></div>
                 <div>${result.targets || 'Пехота'}</div>
                 
