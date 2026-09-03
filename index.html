@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.190 — карта  </title>
+  <title>Боевой модуль v12.191 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.190</h1>
+    <h1>⚔️ Боевой модуль v12.191</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.190 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.191 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -2009,7 +2009,31 @@ function handleOpMapClick(e) {
     }
 
     // Стрелок выбран - выбираем цель
-    const targetUnits = getEnemyUnitsAtHex(closestKey);
+      let targetUnits = getEnemyUnitsAtHex(closestKey);
+    
+    // Если на гексе нет врагов, но есть активный бой - ищем врагов в этом бою
+    if (!targetUnits || targetUnits.length === 0) {
+        const [col, row] = closestKey.split(',').map(Number);
+        const activeBattle = appData.campaign.activeBattles.find(b => b.hexKey === closestKey);
+        
+        if (activeBattle && activeBattle.enemySquads && activeBattle.enemySquads.length > 0) {
+            // Создаём временный вражеский юнит из данных боя
+            targetUnits = [{
+                name: activeBattle.enemyUnitName || 'Враг',
+                col: col,
+                row: row,
+                isInBattle: true,
+                squads: activeBattle.enemySquads.map(s => ({
+                    name: s.name,
+                    faction: s.faction,
+                    fighters: s.fighters || [],
+                    crewInstances: s.crewInstances || [],
+                    armor: s.armor || null
+                }))
+            }];
+        }
+    }
+    
     if (!targetUnits || targetUnits.length === 0) {
       document.getElementById('mapInfo').innerHTML = '❌ На этом гексе нет вражеских юнитов!';
       return;
@@ -2019,9 +2043,22 @@ function handleOpMapClick(e) {
     const firstTarget = targetUnits[0];
     const distance = getOpHexDistance(shooter.col, shooter.row, firstTarget.col, firstTarget.row);
     
-    if (distance > 3) {
-      document.getElementById('mapInfo').innerHTML = `❌ Цель слишком далеко! (${distance} гексов, максимум 3)`;
-      return;
+    // Для САУ: обычный обстрел до 10 гексов, ПТО-огонь только до 3 гексов
+    const isSau = shooter.name && shooter.name.includes('САУ');
+    const hasArmor = targetUnits.some(u => isArmoredUnit(u));
+    
+    if (isSau && hasArmor) {
+        const maxRange = 3; // ПТО-огонь САУ только до 3 гексов
+        if (distance > maxRange) {
+            document.getElementById('mapInfo').innerHTML = `❌ САУ не может вести ПТО-огонь дальше 3 гексов. Дистанция: ${distance}.`;
+            return;
+        }
+    } else {
+        const maxRange = isSau ? 10 : 3;
+        if (distance > maxRange) {
+            document.getElementById('mapInfo').innerHTML = `❌ Цель слишком далеко! (${distance} гексов, максимум ${maxRange})`;
+            return;
+        }
     }
 
     const hasArmor = targetUnits.some(u => isArmoredUnit(u));
@@ -2569,7 +2606,13 @@ function getMaxArmor(targets) {
 
 // Получить бронетехнику на гексе
 function getArmorUnits(targets) {
-    return targets.filter(u => isArmoredUnit(u));
+    return targets.filter(u => {
+        if (u.isInBattle) {
+            // Для юнитов из тактического боя проверяем наличие брони в отрядах
+            return u.squads && u.squads.some(s => s.armor);
+        }
+        return isArmoredUnit(u);
+    });
 }
 
 // Получить пехоту на гексе
@@ -2941,6 +2984,13 @@ if (isEnemy) {
         ctx.textBaseline = 'bottom';
         ctx.fillText('⚔️', drawX, drawY - radius - 8);
     }
+}
+  if (unit.isDefending) {
+    ctx.fillStyle = '#3498db';
+    ctx.font = `${size * 0.3}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('🛡️', drawX, drawY + radius + 10);
 }
 }
  // Функция для группировки юнитов на одном гексе
@@ -3868,21 +3918,35 @@ if (!hasPhone) {
             });
         }
     });
-        // Выдаем рации технике №1
+    // Выдаем рации технике №1 (включая группы, где есть машина №1)
     const vehicleUnits = (appData.campaign.opUnits || []).filter(u => 
-        u.type === 'tank_platoon' || u.type === 'sau_battery' || u.type === 'armored_vehicle_platoon'
+        u.type === 'tank_platoon' || u.type === 'btr_platoon' || 
+        u.type === 'sau_battery' || u.type === 'armored_vehicle_platoon' ||
+        (u.name && (u.name.includes('БТР') || u.name.includes('САУ') || 
+         u.name.includes('Танк') || u.name.includes('Бронеавтомобиль') || 
+         u.name.includes('CL/39') || u.name.includes('Landsverk')))
     );
     
     vehicleUnits.forEach(vehicle => {
-        if (vehicle.name.includes('№1')) {
-            // Проверяем, не выдана ли уже
+        // Проверяем, есть ли в составе машина №1
+        let hasNumber1 = false;
+        
+        if (vehicle.isGroup && vehicle.vehicleList) {
+            // Для группы проверяем vehicleList
+            hasNumber1 = vehicle.vehicleList.some(v => v.name && v.name.includes('№1'));
+        } else if (vehicle.name && vehicle.name.includes('№1')) {
+            hasNumber1 = true;
+        }
+        
+        if (hasNumber1) {
             const alreadyAssigned = hardMode.signalPlatoon.radios.assigned.some(r => 
                 r.unitId === appData.campaign.opUnits.indexOf(vehicle)
             );
             if (!alreadyAssigned) {
                 hardMode.signalPlatoon.radios.assigned.push({
                     unitId: appData.campaign.opUnits.indexOf(vehicle),
-                    isVehicleRadio: true
+                    isVehicleRadio: true,
+                    hasNumber1: true
                 });
             }
         }
@@ -3962,6 +4026,12 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         hardMode.orders.push(order);
     }
     
+    // Если посыльный занят, но есть очередь - добавляем в ожидание
+    if (deliveryMethod === 'messenger' && order.status === 'delivering') {
+        // Если есть другие приказы в pending, ставим этот в конец очереди
+        hardMode.pendingOrders.sort((a, b) => (a.queuePosition || 0) - (b.queuePosition || 0));
+    }
+    
     saveData();
     return order;
 }
@@ -4030,24 +4100,20 @@ function assignMessenger(unit) {
 function cancelOrder(orderId) {
     const order = hardMode.orders.find(o => o.id === orderId) || 
                    hardMode.pendingOrders.find(o => o.id === orderId);
-    
-    if (!order) return;
-    
-    order.status = 'cancelled';
-    
-    // Возвращаем посыльного если он был
+        if (!order) return;
+        order.status = 'cancelled';
+        // Возвращаем посыльного если он был
     if (order.messengerId) {
         const fromUnit = appData.campaign.opUnits[order.fromUnitId];
         if (fromUnit) {
             returnMessenger(fromUnit);
         }
     }
-    
-    // Удаляем из списков
+        // Удаляем из списков
     hardMode.orders = hardMode.orders.filter(o => o.id !== orderId);
     hardMode.pendingOrders = hardMode.pendingOrders.filter(o => o.id !== orderId);
-    
     saveData();
+    renderActiveOrders();
 }
 
 function returnMessenger(unit) {
@@ -10485,9 +10551,8 @@ function processOrders() {
                 returnMessenger(fromUnit);
             }
             order.messengerId = null;
-                      log(`📨 Приказ "${order.type}" доставлен!`);
-            renderActiveOrders();
-         }
+            log(`📨 Приказ "${order.type}" доставлен!`);
+        }
     });
     
     // Удаляем доставленные приказы из pending
@@ -10499,7 +10564,63 @@ function processOrders() {
             executeOrder(order);
         }
     });
-   // Обновляем список приказов
+    
+    // 3. Автоматическая стрельба по готовности (для всех юнитов с таким приказом)
+    hardMode.orders.forEach(order => {
+        if (order.status === 'active' && order.type === 'fire_at_will') {
+            const unit = appData.campaign.opUnits[order.toUnitId];
+            if (unit && unit.ap > 0) {
+                executeFireAtWillOrder(unit, order);
+            }
+        }
+        if (order.status === 'active' && order.type === 'shoot_at') {
+            const unit = appData.campaign.opUnits[order.toUnitId];
+            if (unit && unit.ap > 0) {
+                executeShootAtOrder(unit, order);
+            }
+        }
+    });
+        // 4. Автоматическая стрельба юнитов без приказа (если не двигались)
+    (appData.campaign.opUnits || []).forEach(unit => {
+        if (unit.ap <= 0) return;
+        if (unit.isAmbush) return; // в засаде не стреляют без приказа
+        if (unit.hidden) return;
+        
+        // Проверяем, есть ли у юнита активный приказ
+        const hasActiveOrder = hardMode.orders.some(o => 
+            o.status === 'active' && o.toUnitId === appData.campaign.opUnits.indexOf(unit)
+        );
+        if (hasActiveOrder) return;
+        
+        // Проверяем, двигался ли юнит
+        if (unit.movedThisTurn) return;
+        
+        // Ищем врагов в радиусе 3 гексов
+        const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
+            e.col !== null && e.row !== null &&
+            getOpHexDistance(unit.col, unit.row, e.col, e.row) <= 3
+        );
+        
+        if (enemies.length === 0) return;
+        
+        // Находим ближайшего врага
+        let closestEnemy = null;
+        let minDist = Infinity;
+        enemies.forEach(e => {
+            const dist = getOpHexDistance(unit.col, unit.row, e.col, e.row);
+            if (dist < minDist) {
+                minDist = dist;
+                closestEnemy = e;
+            }
+        });
+        
+        if (closestEnemy && canUnitShoot(unit)) {
+            log(`🎯 ${unit.name} автоматически открывает огонь по ${closestEnemy.name}.`);
+            opShootingState.shooter = unit;
+            executeOpShoot([closestEnemy], minDist);
+        }
+    });
+    // Обновляем список приказов
     renderActiveOrders();
 }
 
@@ -10553,6 +10674,15 @@ function executeOrder(order) {
         case 'shoot_at':
             executeShootAtOrder(unit, order);
             break;
+        case 'series':
+            executeSeriesOrder(unit, order);
+            break;
+        case 'company_order':
+            executeCompanyOrder(unit, order);
+            break;
+         case 'defend':
+            executeDefendOrder(unit, order);
+            break;
             
     }
     
@@ -10561,6 +10691,51 @@ function executeOrder(order) {
         if (mapInfo) {
             mapInfo.innerHTML = `❌ Приказ "${typeNames[order.type] || order.type}" для ${unit.name} отменен.`;
         }
+    }
+}
+      function executeSeriesOrder(unit, order) {
+    if (!order.series || order.series.length === 0) {
+        order.status = 'cancelled';
+        return;
+    }
+    
+    // Выполняем первый приказ из серии
+    const currentAction = order.series[0];
+    
+    switch (currentAction.type) {
+        case 'move':
+            executeMoveOrder(unit, { ...order, ...currentAction });
+            break;
+        case 'attack':
+            executeAttackOrder(unit, { ...order, ...currentAction });
+            break;
+        case 'dismount':
+            executeDismountOrder(unit, { ...order, ...currentAction });
+            break;
+        case 'remount':
+            executeRemountOrder(unit, { ...order, ...currentAction });
+            break;
+        case 'fire_at_will':
+            executeFireAtWillOrder(unit, { ...order, ...currentAction });
+            break;
+        case 'shoot_at':
+            executeShootAtOrder(unit, { ...order, ...currentAction });
+            break;
+        case 'recon':
+            executeReconOrder(unit, { ...order, ...currentAction });
+            break;
+        case 'ambush':
+            executeAmbushOrder(unit, { ...order, ...currentAction });
+            break;
+    }
+    
+    // Если первый приказ выполнен или отменён - переходим к следующему
+    if (order.series.length > 1 && order.series[0].status !== 'cancelled') {
+        order.series.shift();  // убираем выполненный
+        order.status = 'active';  // остаётся активным
+    } else if (order.series.length === 1) {
+        order.series.shift();
+        order.status = 'completed';
     }
 }
 function executeAmbushOrder(unit, order) {
@@ -10633,39 +10808,81 @@ function executeAttackOrder(unit, order) {
     }
     
     // Врага в текущем гексе нет - двигаемся к цели
-    if (unit.ap > 0) {
-        const moveCost = getOpMoveCost(unit, unit.col, unit.row, targetCol, targetRow);
-        if (moveCost === Infinity) {
-            order.status = 'cancelled';
-            log(`❌ ${unit.name} не может достичь цели.`);
-            return;
-        }
+       if (unit.ap > 0) {
+        // Двигаемся пошагово, проверяя врагов на пути
+        let currentCol = unit.col;
+        let currentRow = unit.row;
+        let steps = 0;
+        const maxSteps = 10; // максимум 10 шагов
         
-        if (unit.ap >= moveCost) {
-            unit.ap -= moveCost;
-            unit.col = targetCol;
-            unit.row = targetRow;
+        while (currentCol !== targetCol || currentRow !== targetRow) {
+            const dc = targetCol - currentCol;
+            const dr = targetRow - currentRow;
             
-            // После входа в целевой гекс проверяем врага
-            const enemiesAtTarget = (appData.campaign.enemyOpUnits || []).filter(e => 
-                e.col === targetCol && e.row === targetRow
+            let nextCol = currentCol;
+            let nextRow = currentRow;
+            
+            if (Math.abs(dc) >= Math.abs(dr)) {
+                nextCol += dc > 0 ? 1 : -1;
+            } else {
+                nextRow += dr > 0 ? 1 : -1;
+            }
+            
+            const moveCost = getOpMoveCost(unit, currentCol, currentRow, nextCol, nextRow);
+            if (moveCost === Infinity) {
+                order.status = 'cancelled';
+                log(`❌ ${unit.name} не может пройти через гекс (${nextCol},${nextRow}).`);
+                return;
+            }
+            
+            if (unit.ap < moveCost) {
+                log(`⏳ ${unit.name} не хватило ОД на пути.`);
+                return;
+            }
+            
+            // Проверяем врагов на следующем гексе ПЕРЕД входом
+            const enemiesOnNext = (appData.campaign.enemyOpUnits || []).filter(e => 
+                e.col === nextCol && e.row === nextRow
             );
             
-            if (enemiesAtTarget.length > 0) {
-                showContactModal([unit], enemiesAtTarget);
+            if (enemiesOnNext.length > 0) {
+                // Враг на пути - вступаем в бой с ним
+                showContactModal([unit], enemiesOnNext);
                 order.status = 'completed';
-                log(`⚔️ ${unit.name} вступил в бой!`);
-            } else {
-                // Враг не найден в целевом гексе
-                order.status = 'completed';
-                log(`ℹ️ ${unit.name} прибыл в целевой гекс, но врага нет.`);
+                log(`⚔️ ${unit.name} столкнулся с врагом на пути (${nextCol},${nextRow})!`);
+                return;
             }
+            
+            // Перемещаемся
+            unit.ap -= moveCost;
+            currentCol = nextCol;
+            currentRow = nextRow;
+            steps++;
+            
+            if (steps >= maxSteps) {
+                order.status = 'cancelled';
+                log(`❌ Слишком длинный путь.`);
+                return;
+            }
+        }
+        
+        // Дошли до целевого гекса
+        unit.col = currentCol;
+        unit.row = currentRow;
+        
+        const enemiesAtTarget = (appData.campaign.enemyOpUnits || []).filter(e => 
+            e.col === targetCol && e.row === targetRow
+        );
+        
+        if (enemiesAtTarget.length > 0) {
+            showContactModal([unit], enemiesAtTarget);
+            order.status = 'completed';
+            log(`⚔️ ${unit.name} вступил в бой!`);
         } else {
-            // Не хватает ОД на полный переход
-            log(`⏳ ${unit.name} не хватило ОД для достижения цели.`);
+            order.status = 'completed';
+            log(`ℹ️ ${unit.name} прибыл в целевой гекс, но врага нет.`);
         }
     }
-}
 
 function executeShootOrder(unit, order) {
     // Обстреливаем целевую точку
@@ -10805,7 +11022,6 @@ function executeFireAtWillOrder(unit, order) {
     );
     
     if (enemies.length === 0) {
-        log(`ℹ️ ${unit.name} не видит врагов в радиусе ${targetDistance} гексов.`);
         return;
     }
     
@@ -10820,8 +11036,14 @@ function executeFireAtWillOrder(unit, order) {
         }
     });
     
-    if (closestEnemy) {
+    if (closestEnemy && unit.ap > 0) {
         log(`🎯 ${unit.name} открывает огонь по ${closestEnemy.name} (дистанция ${minDist}).`);
+        
+        // Настраиваем состояние обстрела
+        opShootingState.shooter = unit;
+        opShootingState.targets = [closestEnemy];
+        opShootingState.weaponType = 'mg';
+        
         executeOpShoot([closestEnemy], minDist);
     }
 }
@@ -11046,10 +11268,10 @@ function completePhoneLine(toUnitId) {
         return;
     }
     
-    // Проверяем дистанцию (максимум 5 гексов)
+    // Проверяем дистанцию (максимум 7 гексов)
     const distance = getOpHexDistance(fromUnit.col, fromUnit.row, toUnit.col, toUnit.row);
-    if (distance > 5) {
-        alert(`Слишком далеко! Максимальная длина линии - 5 гексов (сейчас ${distance}).`);
+    if (distance > 7) {
+        alert(`Слишком далеко! Максимальная длина линии - 7 гексов (сейчас ${distance}).`);
         phoneLineStart = null;
         return;
     }
@@ -11064,13 +11286,7 @@ function completePhoneLine(toUnitId) {
         phoneLineStart = null;
         return;
     }
-       // Проверяем, что линия не проходит по границе (упрощенно - проверяем что расстояние > 0)
-    if (distance === 0) {
-        alert('Юниты на одном гексе!');
-        phoneLineStart = null;
-        return;
-    }
-  // Проверяем, что линия не проходит по границе (упрощенно - проверяем что расстояние > 0)
+        // Проверяем, что линия не проходит по границе (упрощенно - проверяем что расстояние > 0)
 if (distance === 0) {
     alert('Юниты на одном гексе!');
     phoneLineStart = null;
@@ -11141,6 +11357,13 @@ function showOrderPanel() {
             }
         });
         select.innerHTML = html;
+    }
+    
+    // Добавляем панель для подчинённых взводов (если выбран штаб роты)
+    const subUnitsPanel = document.getElementById('subUnitsPanel');
+    if (subUnitsPanel) {
+        subUnitsPanel.style.display = 'none';
+        subUnitsPanel.innerHTML = '';
     }
     
     orderWaypoints = [];
@@ -11233,7 +11456,6 @@ function submitOrder() {
     const orderType = typeSelect.value;
     const behavior = behaviorSelect ? behaviorSelect.value : 'hold';
     
-    // Находим штаб батальона
     const hqIndex = hardMode.hqUnitId !== null ? hardMode.hqUnitId : 
                     (appData.campaign.opUnits || []).findIndex(u => u.type === 'battalion_hq');
     
@@ -11242,55 +11464,50 @@ function submitOrder() {
         return;
     }
     
+    // Проверяем, выбран ли штаб роты и есть ли подчинённые
+    const selectedUnit = appData.campaign.opUnits[toUnitId];
+    const subUnitsPanel = document.getElementById('subUnitsPanel');
+    
+    if (selectedUnit && selectedUnit.type === 'company_hq' && subUnitsPanel && subUnitsPanel.style.display === 'block') {
+        // Собираем отмеченные подчинённые взводы
+        const checkedSubUnits = [];
+        document.querySelectorAll('#subUnitsList input[type="checkbox"]:checked').forEach(cb => {
+            checkedSubUnits.push(parseInt(cb.value));
+        });
+        
+        if (checkedSubUnits.length > 0) {
+            // Отдаём приказ всем подчинённым взводам
+            const options = {
+                behavior: behavior,
+                waypoints: [...orderWaypoints],
+                targetHex: document.getElementById('orderTargetHex')?.value || null,
+                targetDistance: document.getElementById('orderFireDistance') ? parseInt(document.getElementById('orderFireDistance').value) : null,
+                subUnitIds: checkedSubUnits
+            };
+            
+            const order = createOrder(hqIndex, toUnitId, 'company_order', options);
+            if (order) {
+                alert(`Приказ "${orderType}" отправлен штабу роты и ${checkedSubUnits.length} взводам.`);
+                orderWaypoints = [];
+                hideOrderPanel();
+                renderActiveOrders();
+                redrawOperationalMap();
+            }
+            return;
+        }
+    }
+    
     const options = {
         behavior: behavior,
-        waypoints: orderWaypoints,
-        targetDistance: null
+        waypoints: [...orderWaypoints],
+        targetHex: document.getElementById('orderTargetHex')?.value || null,
+        targetDistance: document.getElementById('orderFireDistance') ? parseInt(document.getElementById('orderFireDistance').value) : null
     };
-        // Для атаки и обстрела используем целевой гекс
-    if (orderType === 'attack' || orderType === 'shoot') {
-        const targetHexInput = document.getElementById('orderTargetHex');
-        if (targetHexInput && targetHexInput.value) {
-            options.targetHex = targetHexInput.value;
-        } else {
-            alert('Укажите целевой гекс!');
-            return;
-        }
-    }
-    
-    // Автопостроение маршрута если точек нет, но есть целевой гекс
-    if ((orderType === 'move' || orderType === 'attack') && orderWaypoints.length === 0) {
-        const targetHexInput = document.getElementById('orderTargetHex');
-        if (targetHexInput && targetHexInput.value) {
-            const [targetCol, targetRow] = targetHexInput.value.split(',').map(Number);
-            const unit = appData.campaign.opUnits[toUnitId];
-            orderWaypoints = autoBuildRoute(unit, targetCol, targetRow);
-            options.waypoints = orderWaypoints;
-        }
-    }
-    if (orderType === 'fire_at_will') {
-        const fireDistance = document.getElementById('orderFireDistance');
-        options.targetDistance = fireDistance ? parseInt(fireDistance.value) : 3;
-    }
-    
-     if ((orderType === 'move' || orderType === 'attack') && orderWaypoints.length === 0) {
-        // Автоматически строим маршрут до цели
-        const targetSelect = document.getElementById('orderTargetHex');
-        if (targetSelect && targetSelect.value) {
-            const [targetCol, targetRow] = targetSelect.value.split(',').map(Number);
-            const unit = appData.campaign.opUnits[toUnitId];
-            orderWaypoints = autoBuildRoute(unit, targetCol, targetRow);
-        } else {
-            alert('Укажите маршрут или целевую точку!');
-            return;
-        }
-    }
     
     const order = createOrder(hqIndex, toUnitId, orderType, options);
     
     if (order) {
         alert(`Приказ "${orderType}" отправлен!`);
-        // Сбрасываем маршрут
         orderWaypoints = [];
         isPlanningRoute = false;
         updateOrderWaypointsDisplay();
@@ -11325,7 +11542,7 @@ function addOrderToQueue() {
     orderWaypoints = [];
     updateOrderWaypointsDisplay();
     renderOrderQueue();
-    log(`📋 Приказ "${orderData.type}" добавлен в серию.`);
+    log(`📋 Приказ "${orderData.type}" добавлен в очередь.`);
 }
 
 function submitOrderQueue() {
@@ -11342,18 +11559,22 @@ function submitOrderQueue() {
         return;
     }
     
-    // Выполняем приказы по очереди
-    hardMode.orderQueue.forEach((orderData, idx) => {
-        setTimeout(() => {
-            const order = createOrder(hqIndex, orderData.toUnitId, orderData.type, orderData);
-            if (order) {
-                log(`✅ Приказ ${idx + 1} "${orderData.type}" отправлен.`);
-            }
-        }, idx * 100);
-    });
+    // Создаём один приказ с серией действий
+    const firstOrder = hardMode.orderQueue[0];
+    const combinedOrder = {
+        ...firstOrder,
+        type: 'series',
+        series: [...hardMode.orderQueue]  // сохраняем все приказы в серию
+    };
     
-    hardMode.orderQueue = [];
-    renderOrderQueue();
+    const order = createOrder(hqIndex, combinedOrder.toUnitId, 'series', combinedOrder);
+    
+    if (order) {
+        log(`📋 Серия приказов отправлена (${hardMode.orderQueue.length} действий).`);
+        hardMode.orderQueue = [];
+        renderOrderQueue();
+        renderActiveOrders();
+    }
 }
 
 function renderOrderQueue() {
@@ -11405,8 +11626,8 @@ function renderActiveOrders() {
         'cancelled': '❌ Отменен'
     };
     
-    let html = '';
-    allOrders.forEach(order => {
+let html = '';
+    allOrders.forEach((order, orderIdx) => {
         const toUnit = appData.campaign.opUnits[order.toUnitId];
         const unitName = toUnit ? toUnit.name : 'Неизвестно';
         
@@ -11415,11 +11636,17 @@ function renderActiveOrders() {
             statusText += ` (${order.deliveryTurnsPassed}/${order.deliveryTurnsNeeded})`;
         }
         
+        // Кнопки приоритета (только для pending и delivering)
+        const priorityBtns = (order.status === 'pending' || order.status === 'delivering') 
+            ? `<button onclick="moveOrderPriority(${orderIdx}, -1)" style="background:#555; font-size:0.7rem; padding:2px 5px; cursor:pointer;" title="Выше">▲</button>
+               <button onclick="moveOrderPriority(${orderIdx}, 1)" style="background:#555; font-size:0.7rem; padding:2px 5px; cursor:pointer;" title="Ниже">▼</button>`
+            : '';
+        
         html += `
             <div style="background:#2a2a2a; padding:4px; margin:2px 0; border-radius:4px; display:flex; justify-content:space-between; align-items:center;">
-                <span>${typeNames[order.type] || order.type} → ${unitName}</span>
+                <span>${priorityBtns} ${typeNames[order.type] || order.type} → ${unitName}</span>
                 <span style="color:#aaa; font-size:0.8rem;">${statusText}</span>
-                <button onclick="cancelOrder(${order.id})" style="background:#555; font-size:0.7rem; padding:2px 5px;">❌</button>
+                <button onclick="cancelOrder(${order.id})" style="background:#555; font-size:0.7rem; padding:2px 5px; cursor:pointer;" title="Отменить">✕</button>
             </div>
         `;
     });
@@ -11708,7 +11935,7 @@ function getOpDetectionModifier(unit) {
   // Бонусы/штрафы от типа юнита
   if (unit.type === 'recon_platoon' || unit.type === 'infantry_platoon' && unit.name.includes('Развед')) bestMod -= 1;
   if (unit.type === 'vehicle' || unit.type === 'tank_platoon' || unit.type === 'btr_platoon') bestMod += 2;
-
+  if (unit.isDefending) bestMod -= 1; // обороняющийся лучше скрыт
   return bestMod;
 }
 function checkOpDetection() {
@@ -13059,7 +13286,13 @@ function executeOpShoot(targets, distance) {
         cancelOpShooting();
         return;
     }
-    
+    // Для САУ обычный обстрел работает до 10 гексов
+    const maxRange = (shooter.name && shooter.name.includes('САУ')) ? 10 : 3;
+    if (distance > maxRange) {
+        document.getElementById('mapInfo').innerHTML = `❌ Цель слишком далеко! (${distance} гексов, максимум ${maxRange})`;
+        cancelOpShooting();
+        return;
+    }
     // Отфильтровываем только пехоту (не бронетехнику)
     let infantryTargets = targets;
     if (opShootingState.weaponType === 'mg') {
@@ -13207,7 +13440,7 @@ function executeOpShoot(targets, distance) {
         targets: infantryTargets.map(t => t.name).join(', '),
         spentAP: spentAP
     };
-    
+        resultModal.shooterName = shooter.name;
     showShootResultModal(resultModal);
     
     const logMsg = `🔫 ОБСТРЕЛ ПЕХОТЫ: ${shooter.name} → ${infantryTargets.length} целей (${distance} гексов) | Урон: ${totalApplied} | Убито: ${totalKilled}`;
@@ -13615,25 +13848,212 @@ function showWeaponChoiceDialog(targets, distance) {
 }
 
 // Выполнить обстрел ПТО из диалога
-function executeOpShootAtFromDialog(distance) {
-    // Закрываем диалог
-    closeShootChoiceModals();
-    
-    // Устанавливаем тип оружия
-    opShootingState.weaponType = 'at';
-    // Для САУ дальность до 10 гексов
-const maxRange = shooter.name.includes('САУ') ? 10 : 3;
-if (distance > maxRange) {
-    document.getElementById('mapInfo').innerHTML = `❌ Цель слишком далеко! (${distance} гексов, максимум ${maxRange})`;
-    return;
-}
-    // Получаем цели
-    const targets = opShootingState.targets || [];
-    if (targets.length === 0) {
+function executeOpShootAt(targets, distance) {
+    const shooter = opShootingState.shooter;
+    if (!shooter) {
         cancelOpShooting();
         return;
     }
     
+    // Для САУ: ПТО-огонь только до 3 гексов
+    if (shooter.name && shooter.name.includes('САУ') && distance > 3) {
+        document.getElementById('mapInfo').innerHTML = '❌ САУ не может вести ПТО-огонь дальше 3 гексов.';
+        cancelOpShooting();
+        return;
+    }
+    
+    const armorTargets = getArmorUnits(targets);
+    if (armorTargets.length === 0) {
+        document.getElementById('mapInfo').innerHTML = '❌ На этом гексе нет бронетехники!';
+        cancelOpShooting();
+        return;
+    }
+    
+    const gunCount = countAtGuns(shooter);
+    if (gunCount === 0) {
+        document.getElementById('mapInfo').innerHTML = '❌ У юнита нет ПТО/орудий!';
+        cancelOpShooting();
+        return;
+    }
+    
+    const spentAP = shooter.ap;
+    shooter.ap = 0;
+    
+    const totalShots = gunCount * 12;
+    let hitChance = 0;
+    let penetrationKey = 0;
+    
+    switch (distance) {
+        case 1: hitChance = 0.30; penetrationKey = 10; break;
+        case 2: hitChance = 0.20; penetrationKey = 20; break;
+        case 3: hitChance = 0.10; penetrationKey = 30; break;
+        case 4: case 5: hitChance = 0.08; penetrationKey = 35; break;
+        case 6: case 7: hitChance = 0.06; penetrationKey = 38; break;
+        case 8: case 9: case 10: hitChance = 0.04; penetrationKey = 40; break;
+        default: hitChance = 0.03; penetrationKey = 40;
+    }
+    
+    let penetration = 0;
+    for (let squad of shooter.squads) {
+        if (!squad.crewInstances) continue;
+        for (let ci of squad.crewInstances) {
+            if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') continue;
+            const cw = getFactionCrewWeapons(squad.faction).find(w => w.name === ci.weaponName);
+            if (cw && (cw.type === 'at_gun' || cw.type === 'tank_gun') && cw.penetration) {
+                penetration = cw.penetration[String(penetrationKey)] || 0;
+                break;
+            }
+        }
+        if (penetration > 0) break;
+    }
+    
+    const maxArmor = getMaxArmor(armorTargets);
+    
+    let hits = 0;
+    let penetrations = 0;
+    let destroyedUnits = [];
+    let hitDetails = [];
+    let totalDamage = 0;
+    
+    for (let target of armorTargets) {
+        let targetHits = 0;
+        let targetPenetrations = 0;
+        let targetDestroyed = false;
+        
+        const shotsForTarget = Math.floor(totalShots / armorTargets.length);
+        
+        for (let i = 0; i < shotsForTarget; i++) {
+            const hitRoll = Math.random();
+            if (hitRoll <= hitChance) {
+                hits++;
+                targetHits++;
+                
+                const locRoll = rollD6();
+                const locNames = ['Рикошет', 'Корпус', 'Гусеницы', 'Башня', 'Двигатель', 'Укладка/бак'];
+                const location = locNames[locRoll - 1];
+                
+                let armorValue = 0;
+                if (target.squads) {
+                    for (let squad of target.squads) {
+                        if (squad.armor) {
+                            switch (locRoll) {
+                                case 1: armorValue = squad.armor.front || 0; break;
+                                case 2: armorValue = squad.armor.front || 0; break;
+                                case 3: armorValue = squad.armor.side || 0; break;
+                                case 4: armorValue = squad.armor.turret || squad.armor.front || 0; break;
+                                case 5: armorValue = squad.armor.rear || 0; break;
+                                case 6: armorValue = squad.armor.rear || 0; break;
+                                default: armorValue = squad.armor.front || 0;
+                            }
+                            break;
+                        }
+                    }
+                }
+                
+                if (armorValue === 0) armorValue = maxArmor;
+                
+                const isPenetrated = penetration > armorValue;
+                if (isPenetrated) {
+                    penetrations++;
+                    totalDamage += 1;
+                    
+                    // Если цель - группа, уничтожаем конкретную машину
+                    if (target.isGroup && target.groupSize > 0) {
+                        target.groupSize--;
+                        targetPenetrations++;
+                        
+                        if (target.vehicleList && target.vehicleList.length > 0) {
+                            const aliveVehicles = target.vehicleList.filter(v => !v.destroyed);
+                            if (aliveVehicles.length > 0) {
+                                const destroyedVehicle = aliveVehicles[Math.floor(Math.random() * aliveVehicles.length)];
+                                destroyedVehicle.destroyed = true;
+                                log(`💥 Уничтожена машина: ${destroyedVehicle.name}`);
+                            }
+                        }
+                        
+                        if (target.groupSize <= 0) {
+                            targetDestroyed = true;
+                            destroyedUnits.push(target);
+                        }
+                        
+                        checkVehicleRadioAfterLoss(target);
+                    } else {
+                        targetPenetrations++;
+                        if (targetPenetrations >= 3) {
+                            targetDestroyed = true;
+                            destroyedUnits.push(target);
+                        }
+                    }
+                }
+                
+                hitDetails.push({
+                    target: target.name,
+                    location: location,
+                    armor: armorValue,
+                    penetration: penetration,
+                    penetrated: isPenetrated,
+                    destroyed: targetDestroyed
+                });
+            }
+        }
+        
+        if (targetDestroyed) {
+            target.isDestroyed = true;
+            
+            const hexKey = `${target.col},${target.row}`;
+            if (appData.campaign.opMapGrid) {
+                if (!appData.campaign.opMapGrid[hexKey]) {
+                    appData.campaign.opMapGrid[hexKey] = { markers: [] };
+                }
+                if (!appData.campaign.opMapGrid[hexKey].markers) {
+                    appData.campaign.opMapGrid[hexKey].markers = [];
+                }
+                if (!appData.campaign.opMapGrid[hexKey].markers.includes('destroyedVehicle')) {
+                    appData.campaign.opMapGrid[hexKey].markers.push('destroyedVehicle');
+                }
+            }
+        }
+    }
+    
+    // Удаляем уничтоженную технику из списка врагов
+    if (destroyedUnits.length > 0) {
+        destroyedUnits.forEach(unit => {
+            const idx = (appData.campaign.enemyOpUnits || []).indexOf(unit);
+            if (idx !== -1) {
+                appData.campaign.enemyOpUnits.splice(idx, 1);
+            }
+        });
+    }
+    
+    saveData();
+    redrawOperationalMap();
+    
+    const result = {
+        shots: totalShots,
+        hits: hits,
+        penetrations: penetrations,
+        destroyed: destroyedUnits.length,
+        destroyedNames: destroyedUnits.map(u => u.name),
+        hitChance: Math.round(hitChance * 100),
+        penetration: penetration,
+        maxArmor: maxArmor,
+        distance: distance,
+        details: hitDetails,
+        gunCount: gunCount,
+        spentAP: spentAP,
+        targets: armorTargets.map(t => t.name).join(', '),
+        shooterName: shooter.name
+    };
+    
+    showAtShootResultModal(result);
+    
+    const logMsg = `🎯 ПТО ОБСТРЕЛ: ${shooter.name} → ${armorTargets.length} целей (${distance} гексов) | Выстрелов: ${totalShots} | Попаданий: ${hits} | Пробитий: ${penetrations} | Уничтожено: ${destroyedUnits.length}`;
+    log(logMsg);
+    document.getElementById('mapInfo').innerHTML = logMsg;
+    
+    cancelOpShooting();
+    updateOpPlaceSelect();
+}
     // Выполняем обстрел
     executeOpShootAt(targets, distance);
 }
@@ -13680,7 +14100,12 @@ function executeOpShootAt(targets, distance) {
         cancelOpShooting();
         return;
     }
-    
+     // Для САУ: ПТО-огонь только до 3 гексов, дальше - только обстрел пехоты
+    if (shooter.name && shooter.name.includes('САУ') && distance > 3) {
+        document.getElementById('mapInfo').innerHTML = '❌ САУ не может вести ПТО-огонь дальше 3 гексов. Используйте обычный обстрел.';
+        cancelOpShooting();
+        return;
+    }
     const armorTargets = getArmorUnits(targets);
     if (armorTargets.length === 0) {
         document.getElementById('mapInfo').innerHTML = '❌ На этом гексе нет бронетехники!';
@@ -13702,11 +14127,20 @@ function executeOpShootAt(targets, distance) {
     let hitChance = 0;
     let penetrationKey = 0;
     
+        // Для САУ дальность до 10 гексов с меньшим шансом на больших дистанциях
     switch (distance) {
-        case 1: hitChance = 0.30; penetrationKey = 10; break;
-        case 2: hitChance = 0.20; penetrationKey = 20; break;
-        case 3: hitChance = 0.10; penetrationKey = 30; break;
-        default: hitChance = 0.05; penetrationKey = 40;
+        case 1: hitChance = 0.20; penetrationKey = 10; break;
+        case 2: hitChance = 0.10; penetrationKey = 20; break;
+        case 3: hitChance = 0.05; penetrationKey = 30; break;
+        case 4: case 5: hitChance = 0.02; penetrationKey = 35; break;
+        case 6: case 7: hitChance = 0.03; penetrationKey = 38; break;
+        case 8: case 9: case 10: hitChance = 0.02; penetrationKey = 40; break;
+        default: hitChance = 0.02; penetrationKey = 40;
+    }
+    
+    // Для САУ используем другую таблицу пробития (меньше на больших дистанциях)
+    if (shooter.name && shooter.name.includes('САУ')) {
+        if (distance > 5) penetrationKey = Math.min(penetrationKey + 10, 40);
     }
     
     let penetration = 0;
@@ -13888,9 +14322,12 @@ function showAtShootResultModal(result) {
             </div>
             <hr style="border-color:#555; margin:10px 0;">
             
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px 20px;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px 20px;">
+                <div><strong style="color:#f1c40f;">Отряд-стрелок:</strong></div>
+                <div>${result.shooterName || opShootingState.shooter?.name || 'Неизвестно'}</div>
+                
                 <div><strong style="color:#f1c40f;">Цели:</strong></div>
-                <div>${result.targets}</div>
+                <div>${result.targets || 'Пехота'}</div>
                 
                 <div><strong style="color:#f1c40f;">Дистанция:</strong></div>
                 <div>${result.distance} гексов (шанс ${result.hitChance}%)</div>
@@ -13922,7 +14359,12 @@ function showAtShootResultModal(result) {
             <div style="text-align:center; font-size:1.2rem; padding:10px;">
                 ${destroyedText}
             </div>
-            
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px 20px;">
+                <div><strong style="color:#f1c40f;">Отряд-стрелок:</strong></div>
+                <div>${result.shooterName || opShootingState.shooter?.name || 'Неизвестно'}</div>
+                
+                <div><strong style="color:#f1c40f;">Цели:</strong></div>
+                <div>${result.targets}</div>
             ${detailsHtml}
             
             <div style="margin-top:18px; text-align:center;">
@@ -14384,7 +14826,6 @@ function executeShootAtOrder(unit, order) {
     );
     
     if (armorEnemies.length === 0) {
-        log(`ℹ️ ${unit.name} не видит бронетехнику в радиусе ${targetDistance} гексов.`);
         return;
     }
     
@@ -14399,11 +14840,182 @@ function executeShootAtOrder(unit, order) {
         }
     });
     
-    if (closestArmor) {
+    if (closestArmor && unit.ap > 0) {
         log(`💥 ${unit.name} открывает огонь по бронетехнике ${closestArmor.name} (дистанция ${minDist}).`);
+        
+        // Настраиваем состояние обстрела
+        opShootingState.active = true;
+        opShootingState.shooter = unit;
+        opShootingState.targets = [closestArmor];
+        opShootingState.weaponType = 'at';
+        
         executeOpShootAt([closestArmor], minDist);
     }
-}     
+}
+
+function onOrderTargetUnitChange() {
+    const unitSelect = document.getElementById('orderTargetUnit');
+    const subUnitsPanel = document.getElementById('subUnitsPanel');
+    const subUnitsList = document.getElementById('subUnitsList');
+    
+    if (!unitSelect || !subUnitsPanel || !subUnitsList) return;
+    
+    const unitId = parseInt(unitSelect.value);
+    if (isNaN(unitId) || unitId < 0) {
+        subUnitsPanel.style.display = 'none';
+        return;
+    }
+    
+    const unit = appData.campaign.opUnits[unitId];
+    if (!unit || unit.type !== 'company_hq') {
+        subUnitsPanel.style.display = 'none';
+        return;
+    }
+    
+    // Находим все взводы, подчинённые этой роте
+    // Для простоты: ищем все юниты типа infantry_platoon, bicycle_platoon, motorcycle_platoon
+    // которые находятся в радиусе 5 гексов от штаба роты
+    const subUnits = (appData.campaign.opUnits || []).filter(u => {
+        if (u.col === null || u.row === null || u.hidden) return false;
+        if (u.type === 'infantry_platoon' || u.type === 'bicycle_platoon' || 
+            u.type === 'motorcycle_platoon' || u.type === 'engineer_platoon' || 
+            u.type === 'recon_platoon') {
+            const dist = getOpHexDistance(unit.col, unit.row, u.col, u.row);
+            return dist <= 5;
+        }
+        return false;
+    });
+    
+    if (subUnits.length === 0) {
+        subUnitsPanel.style.display = 'none';
+        return;
+    }
+    
+    subUnitsPanel.style.display = 'block';
+    subUnitsList.innerHTML = subUnits.map((u, i) => {
+        const idx = appData.campaign.opUnits.indexOf(u);
+        return `<div style="margin:2px 0;">
+            <input type="checkbox" id="subUnit_${idx}" value="${idx}" checked>
+            <label for="subUnit_${idx}">${u.name} (${u.col},${u.row})</label>
+        </div>`;
+    }).join('');
+}
+  function executeCompanyOrder(unit, order) {
+    // Штаб роты передаёт приказ подчинённым взводам
+    if (!order.subUnitIds || order.subUnitIds.length === 0) {
+        order.status = 'cancelled';
+        return;
+    }
+    
+    let executed = 0;
+    order.subUnitIds.forEach(subUnitId => {
+        const subUnit = appData.campaign.opUnits[subUnitId];
+        if (!subUnit) return;
+        
+        // Создаём копию приказа для каждого взвода
+        const subOrder = {
+            ...order,
+            toUnitId: subUnitId,
+            type: order.type || 'move',
+            status: 'active'
+        };
+        
+        // Выполняем
+        switch (subOrder.type) {
+            case 'move':
+                executeMoveOrder(subUnit, subOrder);
+                break;
+            case 'attack':
+                executeAttackOrder(subUnit, subOrder);
+                break;
+            case 'recon':
+                executeReconOrder(subUnit, subOrder);
+                break;
+            case 'dismount':
+                executeDismountOrder(subUnit, subOrder);
+                break;
+            case 'remount':
+                executeRemountOrder(subUnit, subOrder);
+                break;
+        }
+        executed++;
+    });
+    
+    order.status = 'completed';
+    log(`✅ ${unit.name} передал приказ ${executed} взводам.`);
+}
+function moveOrderPriority(orderIdx, direction) {
+    const allOrders = [...hardMode.pendingOrders, ...hardMode.orders];
+    if (orderIdx < 0 || orderIdx >= allOrders.length) return;
+    
+    const newIdx = orderIdx + direction;
+    if (newIdx < 0 || newIdx >= allOrders.length) return;
+    
+    // Меняем местами
+    [allOrders[orderIdx], allOrders[newIdx]] = [allOrders[newIdx], allOrders[orderIdx]];
+    
+    // Разделяем обратно на pending и orders
+    hardMode.pendingOrders = allOrders.filter(o => hardMode.pendingOrders.includes(o));
+    hardMode.orders = allOrders.filter(o => hardMode.orders.includes(o));
+    
+    saveData();
+    renderActiveOrders();
+}
+function checkVehicleRadioAfterLoss(unit) {
+    if (!unit || !unit.isGroup) return;
+    
+    const radioEntry = hardMode.signalPlatoon.radios.assigned.find(r => 
+        r.unitId === appData.campaign.opUnits.indexOf(unit) && r.hasNumber1
+    );
+    
+    if (!radioEntry) return;
+    
+    // Проверяем, есть ли ещё машина №1 в составе
+    const hasNumber1 = unit.vehicleList && unit.vehicleList.some(v => 
+        v.name && v.name.includes('№1') && !v.destroyed
+    );
+    
+    if (!hasNumber1) {
+        // Машина №1 уничтожена - рация перестаёт действовать
+        radioEntry.isDestroyed = true;
+        log(`📻 Рация в отряде "${unit.name}" перестала действовать (машина №1 уничтожена).`);
+    }
+}
+function executeDefendOrder(unit, order) {
+    // Оборона: юнит занимает оборону, получает бонус к защите, но не может двигаться
+    unit.isDefending = true;
+    unit.canMove = false;
+    
+    // Если есть целевой гекс - выдвигаемся туда
+    if (order.targetHex) {
+        const [targetCol, targetRow] = order.targetHex.split(',').map(Number);
+        
+        if (unit.col !== targetCol || unit.row !== targetRow) {
+            if (unit.ap > 0) {
+                const moveCost = getOpMoveCost(unit, unit.col, unit.row, targetCol, targetRow);
+                if (moveCost !== Infinity && unit.ap >= moveCost) {
+                    unit.ap -= moveCost;
+                    unit.col = targetCol;
+                    unit.row = targetRow;
+                }
+            }
+        }
+    }
+    
+    // Проверяем местность: окопы/здания дают бонус
+    const types = getOpHexTypes(unit.col, unit.row);
+    let defenseBonus = 1;
+    if (types.includes('trenches')) defenseBonus = 2;
+    if (types.includes('building')) defenseBonus = 2;
+    
+    unit.defenseBonus = defenseBonus;
+    
+    order.status = 'completed';
+    log(`🛡️ ${unit.name} занял оборону на гексе (${unit.col},${unit.row}) с бонусом защиты x${defenseBonus}.`);
+    redrawOperationalMap();
+}      
+      
+      
   </script> 
   
  <div id="awardsTab" class="tabcontent">
@@ -14508,11 +15120,15 @@ function executeShootAtOrder(unit, order) {
   <!-- Выбор отряда для приказа -->
   <div style="margin-top:4px;">
     <label style="color:#aaa;">Отряд: </label>
-    <select id="orderTargetUnit" style="background:#444; color:#fff; max-width:200px;">
-      <option value="-1">-- Выберите отряд --</option>
-    </select>
+    <select id="orderTargetUnit" style="background:#444; color:#fff; max-width:200px;" onchange="onOrderTargetUnitChange()">
+    <option value="-1">-- Выберите отряд --</option>
+</select>
   </div>
-  
+   <!-- Панель подчинённых взводов (для штаба роты) -->
+  <div id="subUnitsPanel" style="display:none; margin-top:8px; padding:6px; background:#1a1a2e; border-radius:6px; border:1px solid #3498db;">
+    <strong style="color:#3498db;">Подчинённые взводы:</strong>
+    <div id="subUnitsList" style="margin-top:4px;"></div>
+  </div>
   <!-- Тип приказа -->
   <div style="margin-top:4px;">
     <label style="color:#aaa;">Приказ: </label>
