@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.185 — карта  </title>
+  <title>Боевой модуль v12.186 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.185</h1>
+    <h1>⚔️ Боевой модуль v12.186</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.185 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.186 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1200,8 +1200,8 @@ function renderBattalionRoster() {
   </div>`;
 
   opUnits.forEach((unit, index) => {
-    // Проверяем, что у юнита есть squads
-    if (!unit.squads || unit.squads.length === 0) {
+    // Проверяем, что у юнита есть squads или это группа техники
+    if ((!unit.squads || unit.squads.length === 0) && !unit.isGroup) {
       html += `
         <div style="background:#2c2c2c; padding:10px; margin:6px 0; border-radius:6px; border-left:4px solid #f39c12;">
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
@@ -1214,21 +1214,27 @@ function renderBattalionRoster() {
     }
     
     let unitTotal = 0, unitAlive = 0, unitLost = 0;
-    unit.squads.forEach(squad => {
-      if (squad.fighters) {
-        squad.fighters.forEach(f => {
-          unitTotal++;
-          totalFighters++;
-          if (f.hp > 0) {
-            unitAlive++;
-            totalAlive++;
-          } else {
-            unitLost++;
-            totalLost++;
+    if (unit.isGroup && unit.vehicleList) {
+        // Для группы техники считаем машины
+        unitTotal = unit.vehicleList.length;
+        unitAlive = unitTotal;
+    } else if (unit.squads) {
+        unit.squads.forEach(squad => {
+          if (squad.fighters) {
+            squad.fighters.forEach(f => {
+              unitTotal++;
+              totalFighters++;
+              if (f.hp > 0) {
+                unitAlive++;
+                totalAlive++;
+              } else {
+                unitLost++;
+                totalLost++;
+              }
+            });
           }
         });
-      }
-    });
+    }
 
     if (unitTotal === 0) return;
 
@@ -1243,10 +1249,10 @@ function renderBattalionRoster() {
             ${unit.isDestroyed ? ' <span style="color:#e74c3c;">💀 УНИЧТОЖЕН</span>' : ''}
             ${unit.embarkedInBtr ? ' 🚌 В БТР' : ''}
           </div>
-          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="display:flex; align-items:center; gap:4px;">
             <label style="color:#aaa; font-size:0.85rem;">Урон:</label>
             <input type="number" id="damage_input_${index}" value="0" min="0" max="${unitAlive}" style="width:60px; background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:4px;">
-            <span style="color:#aaa; font-size:0.8rem;">(макс. ${unitAlive})</span>
+            <button onclick="applyDamageToUnit(${index})" style="background:#c0392b; font-size:0.8rem; padding:4px 8px;">Получить</button>
           </div>
         </div>
         <div style="font-size:0.8rem; color:#aaa; margin-top:4px; cursor:pointer; padding:4px; border-radius:4px; hover:background:#3a3a3a;" onclick="showUnitDetails(${index})">
@@ -1791,6 +1797,15 @@ function redrawOperationalMap() {
           ctx.textBaseline = 'middle';
           ctx.fillText('📨', x, y - size * 0.5);
       });
+  }
+    // Пометка рации
+  if (hardMode.enabled && hardMode.signalPlatoon.radios.assigned.some(r => 
+      appData.campaign.opUnits[r.unitId] === unit)) {
+      ctx.fillStyle = '#3498db';
+      ctx.font = '12px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText('📻', drawX + radius, drawY - radius - 10);
   }
   // Рисуем юниты (свои и вражеские)
     drawOperationalUnits(ctx);
@@ -2828,7 +2843,15 @@ if (displayAP > 0 && displayAP < 0.5) {
     displayAP = Math.round(displayAP * 10) / 10; // Округляем до 1 знака
 }
 ctx.fillText(`ОД:${displayAP}`, drawX, drawY - radius - 2);
-  
+    // Пометка рации
+  if (hardMode.enabled && !isEnemy && hardMode.signalPlatoon.radios.assigned.some(r => 
+      appData.campaign.opUnits[r.unitId] === unit)) {
+      ctx.fillStyle = '#3498db';
+      ctx.font = '12px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText('📻', drawX + radius, drawY - radius - 10);
+  }
   // Проверка, в бою ли юнит
 const inBattle = appData.campaign.activeBattles.some(b => {
   if (b.hexKey !== `${unit.col},${unit.row}`) return false;
@@ -3749,6 +3772,19 @@ function initHardMode() {
                 }
             });
         });
+          // Проверяем технику №1
+    const vehicleUnits = (appData.campaign.opUnits || []).filter(u => 
+        u.type === 'tank_platoon' || u.type === 'sau_battery' || u.type === 'armored_vehicle_platoon'
+    );
+    
+    vehicleUnits.forEach(vehicle => {
+        if (vehicle.name.includes('№1')) {
+            hardMode.signalPlatoon.radios.assigned.push({
+                unitId: appData.campaign.opUnits.indexOf(vehicle),
+                isVehicleRadio: true
+            });
+        }
+    });
     }
     
     companies.forEach(company => {
@@ -3762,7 +3798,25 @@ function initHardMode() {
             });
         }
     });
+        // Выдаем рации технике №1
+    const vehicleUnits = (appData.campaign.opUnits || []).filter(u => 
+        u.type === 'tank_platoon' || u.type === 'sau_battery' || u.type === 'armored_vehicle_platoon'
+    );
     
+    vehicleUnits.forEach(vehicle => {
+        if (vehicle.name.includes('№1')) {
+            // Проверяем, не выдана ли уже
+            const alreadyAssigned = hardMode.signalPlatoon.radios.assigned.some(r => 
+                r.unitId === appData.campaign.opUnits.indexOf(vehicle)
+            );
+            if (!alreadyAssigned) {
+                hardMode.signalPlatoon.radios.assigned.push({
+                    unitId: appData.campaign.opUnits.indexOf(vehicle),
+                    isVehicleRadio: true
+                });
+            }
+        }
+    });
     saveData();
 }
 // ==================== СИСТЕМА ПРИКАЗОВ ====================
@@ -10398,7 +10452,9 @@ function processOrders() {
                 returnMessenger(fromUnit);
             }
             order.messengerId = null;
-        }
+                      log(`📨 Приказ "${order.type}" доставлен!`);
+            renderActiveOrders();
+         }
     });
     
     // Удаляем доставленные приказы из pending
@@ -10431,44 +10487,176 @@ function executeOrder(order) {
         case 'recon':
             executeReconOrder(unit, order);
             break;
+        case 'shoot':
+            executeShootOrder(unit, order);
+            break;
+        case 'dismount':
+            executeDismountOrder(unit, order);
+            break;
+        case 'remount':
+            executeRemountOrder(unit, order);
+            break;
+        case 'attack':
+            executeAttackOrder(unit, order);
+            break;
         // Другие типы добавим позже
     }
 }
-
-function executeMoveOrder(unit, order) {
-    if (!order.waypoints || order.waypoints.length === 0) return;
-    
-    // Берем следующую точку маршрута
-    const nextWaypoint = order.waypoints[0];
-    
-    if (unit.col === nextWaypoint.col && unit.row === nextWaypoint.row) {
-        // Достигли точки - удаляем из маршрута
-        order.waypoints.shift();
-        if (order.waypoints.length === 0) {
-            order.status = 'completed';
-            log(`✅ ${unit.name} выполнил приказ на движение.`);
-        }
+      function executeAttackOrder(unit, order) {
+    if (!order.targetHex) {
+        order.status = 'cancelled';
         return;
     }
     
-    // Двигаемся к следующей точке
-    const moveCost = getOpMoveCost(unit, unit.col, unit.row, nextWaypoint.col, nextWaypoint.row);
+    const [targetCol, targetRow] = order.targetHex.split(',').map(Number);
+    
+    // Проверяем, есть ли враг на целевом гексе
+    const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
+        e.col === targetCol && e.row === targetRow
+    );
+    
+    if (enemies.length > 0) {
+        // Враг на месте - вступаем в бой
+        order.status = 'completed';
+        showContactModal([unit], enemies);
+        log(`⚔️ ${unit.name} вступил в бой с противником на гексе (${targetCol},${targetRow}).`);
+        return;
+    }
+    
+    // Врага нет - двигаемся к цели
+    const moveCost = getOpMoveCost(unit, unit.col, unit.row, targetCol, targetRow);
     if (moveCost === Infinity) {
-        log(`❌ ${unit.name} не может достичь точки (${nextWaypoint.col},${nextWaypoint.row}).`);
         order.status = 'cancelled';
         return;
     }
     
     if (unit.ap >= moveCost) {
         unit.ap -= moveCost;
-        unit.col = nextWaypoint.col;
-        unit.row = nextWaypoint.row;
-        order.waypoints.shift();
+        unit.col = targetCol;
+        unit.row = targetRow;
         
-        if (order.waypoints.length === 0) {
+        // Проверяем, есть ли теперь враг
+        const newEnemies = (appData.campaign.enemyOpUnits || []).filter(e => 
+            e.col === targetCol && e.row === targetRow
+        );
+        
+        if (newEnemies.length > 0) {
+            showContactModal([unit], newEnemies);
             order.status = 'completed';
-            log(`✅ ${unit.name} достиг цели.`);
         }
+    }
+}
+function executeShootOrder(unit, order) {
+    // Обстреливаем целевую точку
+    if (!order.targetHex) {
+        order.status = 'cancelled';
+        return;
+    }
+    
+    const [targetCol, targetRow] = order.targetHex.split(',').map(Number);
+    const distance = getOpHexDistance(unit.col, unit.row, targetCol, targetRow);
+    
+    if (distance > 3) {
+        log(`❌ ${unit.name} не может обстрелять (${targetCol},${targetRow}) - слишком далеко (${distance} гексов).`);
+        order.status = 'cancelled';
+        return;
+    }
+    
+    // Ищем врагов на целевом гексе
+    const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
+        e.col === targetCol && e.row === targetRow
+    );
+    
+    if (enemies.length === 0) {
+        log(`❌ ${unit.name}: на гексе (${targetCol},${targetRow}) нет врагов.`);
+        order.status = 'cancelled';
+        return;
+    }
+    
+    if (unit.ap > 0) {
+        executeOpShoot(enemies, distance);
+        order.status = 'completed';
+        log(`✅ ${unit.name} обстрелял гекс (${targetCol},${targetRow}).`);
+    }
+}
+
+function executeDismountOrder(unit, order) {
+    if (unit.mobility === 'bicycle' && !unit.dismounted) {
+        unit.dismounted = true;
+        unit.mobility = 'foot';
+        
+        // Ставим метку велостоянки
+        if (unit.col !== null && unit.row !== null) {
+            const key = `${unit.col},${unit.row}`;
+            if (!appData.campaign.opMapGrid[key].markers) {
+                appData.campaign.opMapGrid[key].markers = [];
+            }
+            if (!appData.campaign.opMapGrid[key].markers.includes('bicyclePark')) {
+                appData.campaign.opMapGrid[key].markers.push('bicyclePark');
+            }
+        }
+        
+        order.status = 'completed';
+        log(`✅ ${unit.name} спешился.`);
+    } else {
+        order.status = 'cancelled';
+    }
+}
+
+function executeRemountOrder(unit, order) {
+    if (unit.dismounted && unit.col !== null && unit.row !== null) {
+        const key = `${unit.col},${unit.row}`;
+        const markers = appData.campaign.opMapGrid[key]?.markers;
+        
+        if (markers && markers.includes('bicyclePark')) {
+            unit.dismounted = false;
+            unit.mobility = 'bicycle';
+            
+            // Убираем метку
+            appData.campaign.opMapGrid[key].markers = markers.filter(m => m !== 'bicyclePark');
+            
+            order.status = 'completed';
+            log(`✅ ${unit.name} сел на велосипеды.`);
+        } else {
+            order.status = 'cancelled';
+        }
+    }
+}
+function executeMoveOrder(unit, order) {
+    if (!order.waypoints || order.waypoints.length === 0) return;
+    
+    // Двигаемся, пока есть ОД и есть точки маршрута
+    while (unit.ap > 0 && order.waypoints.length > 0) {
+        const nextWaypoint = order.waypoints[0];
+        
+        // Если уже на этой точке - удаляем и продолжаем
+        if (unit.col === nextWaypoint.col && unit.row === nextWaypoint.row) {
+            order.waypoints.shift();
+            continue;
+        }
+        
+        const moveCost = getOpMoveCost(unit, unit.col, unit.row, nextWaypoint.col, nextWaypoint.row);
+        if (moveCost === Infinity) {
+            log(`❌ ${unit.name} не может достичь точки (${nextWaypoint.col},${nextWaypoint.row}).`);
+            order.status = 'cancelled';
+            return;
+        }
+        
+        if (unit.ap >= moveCost) {
+            unit.ap -= moveCost;
+            unit.col = nextWaypoint.col;
+            unit.row = nextWaypoint.row;
+            order.waypoints.shift();
+        } else {
+            // Не хватает ОД на полный переход - останавливаемся
+            break;
+        }
+    }
+    
+    if (order.waypoints.length === 0) {
+        order.status = 'completed';
+        log(`✅ ${unit.name} выполнил приказ на движение.`);
+        renderActiveOrders();
     }
 }
 
@@ -10760,6 +10948,8 @@ function removePhoneLine(idx) {
 // ==================== ИНТЕРФЕЙС ПРИКАЗОВ ====================
 let orderWaypoints = []; // временный маршрут
 let isPlanningRoute = false; // режим планирования маршрута
+let placementLocked = false;
+let placementUnlockCount = 0;
       
 function showOrderPanel() {
     const panel = document.getElementById('hardModePanel');
@@ -11035,7 +11225,29 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
         default: return Infinity;
     }
 }
+      function finishPlacement() {
+    placementLocked = true;
+    document.getElementById('mapInfo').innerHTML = '✅ Размещение завершено. Кнопка заблокирована.';
+}
+
+function tryUnlockPlacement() {
+    placementUnlockCount++;
+    if (placementUnlockCount >= 3) {
+        placementLocked = false;
+        placementUnlockCount = 0;
+        document.getElementById('mapInfo').innerHTML = '🔓 Размещение разблокировано!';
+    }
+}
 function setOpMapMode(mode) {
+    // Блокировка размещения
+    if (mode === 'placePlayer' && placementLocked) {
+        tryUnlockPlacement();
+        return;
+    }
+  if (mode === 'placePlayer' && placementLocked) {
+        tryUnlockPlacement();
+        return;
+    }
     if (mode === 'move') mode = 'movePlayer';
     
     appData.campaign.opMapMode = mode;
@@ -13797,10 +14009,56 @@ function removeSelectedOpUnit() {
         document.getElementById('mapInfo').innerHTML = `✅ Юнит "${selectedUnit.name}" удалён с карты.`;
     }
 }
+function finishPlacement() {
+    placementLocked = true;
+    document.getElementById('mapInfo').innerHTML = '✅ Размещение завершено. Кнопка заблокирована.';
+}
 
+function tryUnlockPlacement() {
+    placementUnlockCount++;
+    if (placementUnlockCount >= 3) {
+        placementLocked = false;
+        placementUnlockCount = 0;
+        document.getElementById('mapInfo').innerHTML = '🔓 Размещение разблокировано!';
+    }
+}
 
-
-      
+function applyDamageToUnit(index) {
+    const input = document.getElementById(`damage_input_${index}`);
+    if (!input) return;
+    
+    const damage = parseInt(input.value);
+    if (isNaN(damage) || damage <= 0) return;
+    
+    const unit = appData.campaign.opUnits[index];
+    if (!unit) return;
+    
+    const result = applyDamageToOpUnit(unit, damage);
+    input.value = '0';
+    
+    renderBattalionRoster();
+    saveData();
+    
+    alert(`✅ Нанесено урона: ${damage}, убито: ${result.killed || 0}`);
+}
+ function applyDamageToUnit(index) {
+    const input = document.getElementById(`damage_input_${index}`);
+    if (!input) return;
+    
+    const damage = parseInt(input.value);
+    if (isNaN(damage) || damage <= 0) return;
+    
+    const unit = appData.campaign.opUnits[index];
+    if (!unit) return;
+    
+    const result = applyDamageToOpUnit(unit, damage);
+    input.value = '0';
+    
+    renderBattalionRoster();
+    saveData();
+    
+    alert(`✅ Нанесено урона: ${damage}, убито: ${result.killed || 0}`);
+}     
   </script> 
   
  <div id="awardsTab" class="tabcontent">
@@ -13924,6 +14182,9 @@ function removeSelectedOpUnit() {
       <option value="hold">✋ Удерживать позицию</option>
       <option value="retreat">🏃 Отступление</option>
       <option value="fire_at_will">🎯 Огонь по готовности</option>
+      <option value="shoot">💥 Обстрелять точку</option>
+      <option value="dismount">🚲 Спешиться</option>
+      <option value="remount">🚲 Сесть на велосипеды</option>
     </select>
   </div>
   
@@ -13972,7 +14233,8 @@ function removeSelectedOpUnit() {
   <strong style="color:#f1c40f;">📋 Активные приказы:</strong>
   <div id="ordersContainer" style="margin-top:4px;"></div>
 </div>
-    <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Размещение</button>
+  <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Размещение</button>
+  <button onclick="finishPlacement()" style="background:#27ae60;">✅ Завершить размещение</button>
   <button onclick="setOpMapMode('move')" style="background:#2980b9;">🚶 Перемещение</button>
   <button onclick="removeSelectedOpUnit()" style="background:#555;">🗑️ Удалить выбранного</button>
   <button onclick="startOpShooting()" style="background:#c0392b;">🎯 Обстрел</button>
