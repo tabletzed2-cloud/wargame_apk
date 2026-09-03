@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.192 — карта  </title>
+  <title>Боевой модуль v12.193 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.192</h1>
+    <h1>⚔️ Боевой модуль v12.193</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.192 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.193 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -3571,7 +3571,16 @@ document.getElementById('battleApp').style.display = 'none';
         // Загружаем Hard Mode
 if (appData.hardMode) {
     hardMode = appData.hardMode;
-    if (!hardMode.orderQueue) hardMode.orderQueue = [];  // ← ДОБАВИТЬ ЭТУ СТРОКУ
+    if (appData.hardMode) {
+    hardMode = appData.hardMode;
+    // Убеждаемся, что orderQueue существует
+    if (!hardMode.orderQueue) hardMode.orderQueue = [];
+    if (!hardMode.pendingOrders) hardMode.pendingOrders = [];
+    if (!hardMode.orders) hardMode.orders = [];
+    if (!hardMode.phoneLines) hardMode.phoneLines = [];
+    if (!hardMode.signalPlatoon) {
+        hardMode.signalPlatoon = { radios: { total: 3, available: 3, assigned: [] }, phones: { total: 3, available: 3, assigned: [] } };
+    }
 } else {
     hardMode = {
         enabled: false,
@@ -3581,7 +3590,7 @@ if (appData.hardMode) {
         phoneLines: [],
         orders: [],
         pendingOrders: [],
-        orderQueue: []  // ← ДОБАВИТЬ ЭТУ СТРОКУ
+        orderQueue: []  
     };
 }
     // Автоматически удаляем устаревший глобальный модификатор «Плохой порох»
@@ -3805,7 +3814,8 @@ let hardMode = {
     },
     phoneLines: [], // {fromUnitId, toUnitId, path: [hexKeys], intact: true}
     orders: [], // активные приказы
-    pendingOrders: [] // приказы в пути
+    pendingOrders: [], // приказы в пути
+    orderQueue: []
 };
 
 function toggleHardMode() {
@@ -3967,30 +3977,32 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         fromUnitId: fromUnitId,
         toUnitId: toUnitId,
         type: orderType,
-        waypoints: options.waypoints || [],      // маршрут движения
-        targetHex: options.targetHex || null,     // целевой гекс
-        targetDistance: options.targetDistance || null, // для FIRE_AT_WILL
-        behavior: options.behavior || 'hold',     // поведение при встрече с врагом
-        status: 'pending',                        // pending | delivering | active | completed | cancelled
-        deliveryMethod: null,                     // radio | phone | messenger
-        deliveryProgress: 0,                      // для посыльного
+        waypoints: options.waypoints || [],
+        targetHex: options.targetHex || null,
+        targetDistance: options.targetDistance || null,
+        behavior: options.behavior || 'hold',
+        status: 'pending',
+        deliveryMethod: null,
+        deliveryProgress: 0,
         messengerId: null,
         turnIssued: currentTurn || 1,
-        turnReceived: null
+        turnReceived: null,
+        series: options.series || []  // <--- ДОБАВЛЯЕМ ДЛЯ СЕРИЙ
     };
     
-    // Определяем способ доставки
-    const fromUnit = appData.campaign.opUnits[fromUnitId];
-    const toUnit = appData.campaign.opUnits[toUnitId];
+    const fromUnit = appData.campaign.opUnits ? appData.campaign.opUnits[fromUnitId] : null;
+    const toUnit = appData.campaign.opUnits ? appData.campaign.opUnits[toUnitId] : null;
     
-    if (!fromUnit || !toUnit) return null;
+    if (!fromUnit || !toUnit) {
+        console.warn('createOrder: юнит не найден');
+        return null;
+    }
     
     // Проверяем связь
     const deliveryMethod = checkCommunication(fromUnit, toUnit);
     order.deliveryMethod = deliveryMethod;
     
     if (deliveryMethod === 'messenger') {
-        // Нужен посыльный
         const messenger = assignMessenger(fromUnit);
         if (!messenger) {
             alert('Нет свободных посыльных!');
@@ -3999,24 +4011,18 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         order.messengerId = messenger;
         order.status = 'delivering';
         
-        // Рассчитываем время доставки
         const distance = getOpHexDistance(fromUnit.col, fromUnit.row, toUnit.col, toUnit.row);
-        const speed = 3; // гекса/ход
+        const speed = 3;
         order.deliveryTurnsNeeded = Math.ceil(distance / speed);
         order.deliveryTurnsPassed = 0;
         
+        if (!hardMode.pendingOrders) hardMode.pendingOrders = [];
         hardMode.pendingOrders.push(order);
     } else {
-        // Рация или телефон - мгновенно
         order.status = 'active';
         order.turnReceived = currentTurn;
+        if (!hardMode.orders) hardMode.orders = [];
         hardMode.orders.push(order);
-    }
-    
-    // Если посыльный занят, но есть очередь - добавляем в ожидание
-    if (deliveryMethod === 'messenger' && order.status === 'delivering') {
-        // Если есть другие приказы в pending, ставим этот в конец очереди
-        hardMode.pendingOrders.sort((a, b) => (a.queuePosition || 0) - (b.queuePosition || 0));
     }
     
     saveData();
@@ -4039,12 +4045,14 @@ function checkCommunication(fromUnit, toUnit) {
 }
 
 function hasRadio(unit) {
-    // Проверяем, есть ли у юнита рация
-    const unitId = appData.campaign.opUnits.indexOf(unit);
+    if (!hardMode || !hardMode.signalPlatoon || !hardMode.signalPlatoon.radios) return false;
+    const unitId = appData.campaign.opUnits ? appData.campaign.opUnits.indexOf(unit) : -1;
+    if (unitId === -1) return false;
     return hardMode.signalPlatoon.radios.assigned.some(a => a.unitId === unitId);
 }
 
 function isInRadioRange(fromUnit, toUnit) {
+    if (!fromUnit || !toUnit) return false;
     if (fromUnit.col === null || fromUnit.row === null || toUnit.col === null || toUnit.row === null) {
         return false;
     }
@@ -4054,17 +4062,21 @@ function isInRadioRange(fromUnit, toUnit) {
 }
 
 function hasPhoneLine(fromUnit, toUnit) {
+    if (!hardMode || !hardMode.phoneLines) return false;
+    const fromId = appData.campaign.opUnits ? appData.campaign.opUnits.indexOf(fromUnit) : -1;
+    const toId = appData.campaign.opUnits ? appData.campaign.opUnits.indexOf(toUnit) : -1;
+    if (fromId === -1 || toId === -1) return false;
     return hardMode.phoneLines.some(line => 
         line.intact && 
-        ((line.fromUnitId === appData.campaign.opUnits.indexOf(fromUnit) && 
-          line.toUnitId === appData.campaign.opUnits.indexOf(toUnit)) ||
-         (line.fromUnitId === appData.campaign.opUnits.indexOf(toUnit) && 
-          line.toUnitId === appData.campaign.opUnits.indexOf(fromUnit)))
+        ((line.fromUnitId === fromId && line.toUnitId === toId) ||
+         (line.fromUnitId === toId && line.toUnitId === fromId))
     );
 }
 
 function assignMessenger(unit) {
-    const unitId = appData.campaign.opUnits.indexOf(unit);
+    if (!hardMode || !hardMode.messengers) return null;
+    const unitId = appData.campaign.opUnits ? appData.campaign.opUnits.indexOf(unit) : -1;
+    if (unitId === -1) return null;
     
     if (unit.type === 'battalion_hq') {
         if (hardMode.messengers.battalion.available > 0) {
