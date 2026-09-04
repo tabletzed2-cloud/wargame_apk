@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.195 — карта  </title>
+  <title>Боевой модуль v12.196 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.195</h1>
+    <h1>⚔️ Боевой модуль v12.196</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.195 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.196 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -10556,40 +10556,45 @@ function processOrders() {
         });
     }
     
-    // 4. Автоматическая стрельба юнитов без приказа
-    if (appData.campaign.opUnits) {
-        appData.campaign.opUnits.forEach(unit => {
-            if (unit.ap <= 0) return;
-            if (unit.isAmbush) return;
-            if (unit.hidden) return;
-            
-            const hasActiveOrder = hardMode.orders ? hardMode.orders.some(o => 
-                o.status === 'active' && o.toUnitId === appData.campaign.opUnits.indexOf(unit)
-            ) : false;
-            if (hasActiveOrder) return;
-            if (unit.movedThisTurn) return;
-            
-            const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
-                e.col !== null && e.row !== null &&
-                getOpHexDistance(unit.col, unit.row, e.col, e.row) <= 3
-            );
-            
-            if (enemies.length === 0) return;
-            
-            let closestEnemy = null;
-            let minDist = Infinity;
-            enemies.forEach(e => {
-                const dist = getOpHexDistance(unit.col, unit.row, e.col, e.row);
-                if (dist < minDist) {
-                    minDist = dist;
-                    closestEnemy = e;
+    // 4. ⚡ АВТОМАТИЧЕСКАЯ СТРЕЛЬБА - ТОЛЬКО ПО ПРИКАЗУ "ОГОНЬ ПО ГОТОВНОСТИ"
+    if (hardMode.orders) {
+        hardMode.orders.forEach(order => {
+            // Проверяем, что это приказ "огонь по готовности" и он активен
+            if (order.status === 'active' && order.type === 'fire_at_will') {
+                const unit = appData.campaign.opUnits ? appData.campaign.opUnits[order.toUnitId] : null;
+                if (!unit) return;
+                if (unit.ap <= 0) return;
+                if (unit.isAmbush) return;
+                if (unit.hidden) return;
+                if (unit.isInBattle) return; // Юнит в тактическом бою - не стреляет на операционной карте
+                
+                const targetDistance = order.targetDistance || 3;
+                
+                // Ищем врагов в радиусе
+                const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
+                    e.col !== null && e.row !== null &&
+                    getOpHexDistance(unit.col, unit.row, e.col, e.row) <= targetDistance &&
+                    !e.isDestroyed
+                );
+                
+                if (enemies.length === 0) return;
+                
+                // Находим ближайшего врага
+                let closestEnemy = null;
+                let minDist = Infinity;
+                enemies.forEach(e => {
+                    const dist = getOpHexDistance(unit.col, unit.row, e.col, e.row);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        closestEnemy = e;
+                    }
+                });
+                
+                if (closestEnemy && canUnitShoot(unit)) {
+                    log(`🎯 ${unit.name} открывает огонь по ${closestEnemy.name} (приказ "огонь по готовности").`);
+                    opShootingState.shooter = unit;
+                    executeOpShoot([closestEnemy], minDist);
                 }
-            });
-            
-            if (closestEnemy && canUnitShoot(unit)) {
-                log(`🎯 ${unit.name} автоматически открывает огонь по ${closestEnemy.name}.`);
-                opShootingState.shooter = unit;
-                executeOpShoot([closestEnemy], minDist);
             }
         });
     }
@@ -13171,6 +13176,12 @@ function startOpShooting() {
         return;
     }
 
+    // ⚡ НОВАЯ ПРОВЕРКА: если юнит в тактическом бою - не может стрелять
+    if (selectedUnit.isInBattle) {
+        document.getElementById('mapInfo').innerHTML = '❌ Этот юнит находится в тактическом бою и не может стрелять на операционной карте!';
+        return;
+    }
+
     if (!canUnitShoot(selectedUnit)) {
         document.getElementById('mapInfo').innerHTML = '❌ Этот юнит не может вести огонь!';
         return;
@@ -13201,6 +13212,11 @@ function startOpShooting() {
 
 // Проверка, может ли юнит стрелять
 function canUnitShoot(unit) {
+    // ⚡ НОВАЯ ПРОВЕРКА: если юнит в тактическом бою - не может стрелять
+    if (unit.isInBattle) {
+        return false;
+    }
+    
     // Штабы не стреляют
     if (unit.type === 'hq' || unit.type === 'battalion_hq' || unit.type === 'company_hq') {
         return false;
@@ -13301,6 +13317,7 @@ function executeOpShoot(targets, distance) {
         cancelOpShooting();
         return;
     }
+    
     // Для САУ обычный обстрел работает до 10 гексов
     const maxRange = (shooter.name && shooter.name.includes('САУ')) ? 10 : 3;
     if (distance > maxRange) {
@@ -13308,6 +13325,7 @@ function executeOpShoot(targets, distance) {
         cancelOpShooting();
         return;
     }
+    
     // Отфильтровываем только пехоту (не бронетехнику)
     let infantryTargets = targets;
     if (opShootingState.weaponType === 'mg') {
@@ -13418,12 +13436,7 @@ function executeOpShoot(targets, distance) {
         }
     }
     
-    // Итоговый урон
-    let finalDamage = Math.ceil(totalDamage * distanceMod * terrainMod);
-    const randomFactor = 0.8 + (Math.random() * 0.4);
-    finalDamage = Math.max(1, Math.round(finalDamage * randomFactor));
-    
-    // Применяем урон ко всем целям на гексе
+        // Применяем урон ко всем целям на гексе
     let totalKilled = 0;
     let totalApplied = 0;
     
@@ -13441,7 +13454,22 @@ function executeOpShoot(targets, distance) {
     saveData();
     redrawOperationalMap();
     
-    // Показываем результат
+    // ⚡ СОЗДАЁМ ПОДРОБНОЕ СООБЩЕНИЕ ДЛЯ ЛОГА
+    const shooterName = shooter.name || 'Неизвестный отряд';
+    const targetNames = infantryTargets.map(t => t.name || 'враг').join(', ');
+    const logMessage = `🔫 [${shooterName}] Обстрелял: ${targetNames} | Дистанция: ${distance} гексов | Урон: ${totalApplied} | Убито: ${totalKilled}`;
+    
+    // ⚡ ЛОГИРУЕМ В ОБА МЕСТА (тактический лог и операционный лог)
+    log(logMessage);
+    
+    // ⚡ ПОКАЗЫВАЕМ В ИНФОРМАЦИОННОЙ ПАНЕЛИ
+    document.getElementById('mapInfo').innerHTML = logMessage;
+    document.getElementById('mapInfo').style.color = '#27ae60';
+    
+    // ⚡ ПОКАЗЫВАЕМ ВСПЛЫВАЮЩЕЕ УВЕДОМЛЕНИЕ
+    showShootNotification(shooterName, targetNames, distance, totalApplied, totalKilled);
+    
+    // Показываем результат в модальном окне
     const resultModal = {
         shots: weaponDetails.length,
         hits: totalApplied,
@@ -13452,21 +13480,72 @@ function executeOpShoot(targets, distance) {
         distanceMod: distanceMod,
         terrainMod: terrainMod,
         totalBaseDamage: totalDamage,
-        targets: infantryTargets.map(t => t.name).join(', '),
+        targets: targetNames,
         spentAP: spentAP,
-        shooterName: shooter.name  // ← ДОБАВИТЬ ЭТУ СТРОКУ В ОБЪЕКТ
+        shooterName: shooterName
     };
     showShootResultModal(resultModal);
-    
-    const logMsg = `🔫 ОБСТРЕЛ ПЕХОТЫ: ${shooter.name} → ${infantryTargets.length} целей (${distance} гексов) | Урон: ${totalApplied} | Убито: ${totalKilled}`;
-    log(logMsg);
-    document.getElementById('mapInfo').innerHTML = logMsg;
     
     cancelOpShooting();
     updateOpPlaceSelect();
 }
+// ⚡ ФУНКЦИЯ ДЛЯ ВСПЛЫВАЮЩЕГО УВЕДОМЛЕНИЯ ОБ ОБСТРЕЛЕ
+function showShootNotification(shooterName, targetNames, distance, damage, killed) {
+    // Создаём уведомление
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: #2c2c2c;
+        border: 2px solid #f1c40f;
+        border-radius: 10px;
+        padding: 15px 20px;
+        color: #fff;
+        font-size: 14px;
+        z-index: 9999;
+        max-width: 400px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+        animation: slideIn 0.3s ease;
+        transition: opacity 0.5s ease;
+    `;
+    
+    notification.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+            <strong style="color:#f1c40f;">🎯 ОБСТРЕЛ</strong>
+            <button onclick="this.parentElement.parentElement.remove()" style="background:none; border:none; color:#aaa; cursor:pointer; font-size:16px;">✕</button>
+        </div>
+        <div style="border-top:1px solid #444; padding-top:8px; margin-top:4px;">
+            <div><strong style="color:#27ae60;">${shooterName}</strong> → ${targetNames}</div>
+            <div style="margin-top:4px; color:#aaa; font-size:13px;">
+                📏 Дистанция: ${distance} гексов | 💥 Урон: ${damage} | 💀 Убито: ${killed}
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Автоматически скрываем через 5 секунд
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        setTimeout(() => {
+            if (notification.parentElement) {
+                notification.remove();
+            }
+        }, 500);
+    }, 5000);
+}
 
-// Отмена обстрела
+// Добавляем CSS анимацию для уведомлений
+const styleSheet = document.createElement("style");
+styleSheet.textContent = `
+    @keyframes slideIn {
+        from { transform: translateX(100px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+`;
+document.head.appendChild(styleSheet);
+
 // Отмена обстрела
 function cancelOpShooting() {
     opShootingState.active = false;
@@ -14040,8 +14119,23 @@ function executeOpShootAt(targets, distance) {
         });
     }
     
-    saveData();
+        saveData();
     redrawOperationalMap();
+    
+    // ⚡ СОЗДАЁМ ПОДРОБНОЕ СООБЩЕНИЕ ДЛЯ ЛОГА
+    const shooterName = shooter.name || 'Неизвестный отряд';
+    const targetNames = armorTargets.map(t => t.name || 'враг').join(', ');
+    const logMessage = `💥 [${shooterName}] ПТО обстрелял: ${targetNames} | Дистанция: ${distance} гексов | Попаданий: ${hits} | Пробитий: ${penetrations} | Уничтожено: ${destroyedUnits.length}`;
+    
+    // ⚡ ЛОГИРУЕМ В ОБА МЕСТА (тактический лог и операционный лог)
+    log(logMessage);
+    
+    // ⚡ ПОКАЗЫВАЕМ В ИНФОРМАЦИОННОЙ ПАНЕЛИ
+    document.getElementById('mapInfo').innerHTML = logMessage;
+    document.getElementById('mapInfo').style.color = '#e74c3c';
+    
+    // ⚡ ПОКАЗЫВАЕМ ВСПЛЫВАЮЩЕЕ УВЕДОМЛЕНИЕ
+    showShootNotification(shooterName, targetNames, distance, penetrations, destroyedUnits.length);
     
     const result = {
         shots: totalShots,
@@ -14056,21 +14150,12 @@ function executeOpShootAt(targets, distance) {
         details: hitDetails,
         gunCount: gunCount,
         spentAP: spentAP,
-        targets: armorTargets.map(t => t.name).join(', '),
-        shooterName: shooter.name
+        targets: targetNames,
+        shooterName: shooterName
     };
-    
     showAtShootResultModal(result);
-    
-    const logMsg = `🎯 ПТО ОБСТРЕЛ: ${shooter.name} → ${armorTargets.length} целей (${distance} гексов) | Выстрелов: ${totalShots} | Попаданий: ${hits} | Пробитий: ${penetrations} | Уничтожено: ${destroyedUnits.length}`;
-    log(logMsg);
-    document.getElementById('mapInfo').innerHTML = logMsg;
-    
     cancelOpShooting();
     updateOpPlaceSelect();
-
-    // Выполняем обстрел
-    executeOpShootAt(targets, distance);
 }
 
 // Выполнить обстрел пулемётами из диалога
@@ -14878,6 +14963,52 @@ function getRouteToTarget(fromCol, fromRow, toCol, toRow) {
     
     return route;
 }      
+  // ⚡ ФУНКЦИЯ ДЛЯ ЛОГА НА ОПЕРАЦИОННОЙ КАРТЕ
+function opLog(msg) {
+    const container = document.getElementById('opLogContainer');
+    if (!container) return;
+    
+    // Убираем сообщение "Лог операций будет отображаться здесь..."
+    if (container.querySelector('div') && container.querySelector('div').textContent === 'Лог операций будет отображаться здесь...') {
+        container.innerHTML = '';
+    }
+    
+    const time = formatTime(appData.campaign.currentTime || appData.currentTime || 0);
+    const entry = document.createElement('div');
+    entry.style.cssText = 'padding: 2px 0; border-bottom: 1px solid #1a1a1a; color: #aaa;';
+    entry.innerHTML = `<span style="color:#666;">[${time}]</span> ${msg}`;
+    container.appendChild(entry);
+    container.scrollTop = container.scrollHeight;
+    
+    // Ограничиваем количество записей (100)
+    while (container.children.length > 100) {
+        container.removeChild(container.firstChild);
+    }
+}
+
+// ⚡ ФУНКЦИЯ ОЧИСТКИ ЛОГА
+function clearOpLog() {
+    const container = document.getElementById('opLogContainer');
+    if (container) {
+        container.innerHTML = '<div style="color:#666;">Лог очищен.</div>';
+    }
+}
+
+// ⚡ ПЕРЕОПРЕДЕЛЯЕМ ФУНКЦИЮ log ДЛЯ ОПЕРАЦИОННОЙ КАРТЫ
+// Сохраняем оригинальную функцию
+const originalLog = log;
+
+// Переопределяем log для добавления в операционный лог
+log = function(msg) {
+    // Вызываем оригинальную функцию для боевого лога
+    originalLog(msg);
+    
+    // Добавляем в операционный лог, если мы на карте кампании
+    const campaignScreen = document.getElementById('campaignMapScreen');
+    if (campaignScreen && campaignScreen.style.display !== 'none') {
+        opLog(msg);
+    }
+};
       
   </script> 
   
@@ -14934,6 +15065,17 @@ function getRouteToTarget(fromCol, fromRow, toCol, toRow) {
     <button onclick="exportCampaignProgress()" style="background:#27ae60;">💾 Сохранить прогресс</button>
     <button onclick="importCampaignProgress()" style="background:#2980b9;">📂 Загрузить прогресс</button>
   </div>
+      <!-- ⚡ НОВЫЙ ЛОГ ДЕЙСТВИЙ -->
+  <div style="margin-top:15px; border-top:1px solid #444; padding-top:10px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <strong style="color:#f1c40f;">📋 Лог операций</strong>
+      <button onclick="clearOpLog()" style="background:#555; font-size:0.8rem; padding:3px 8px;">Очистить</button>
+    </div>
+    <div id="opLogContainer" style="background:#111; color:#aaa; font-family:monospace; font-size:0.8rem; padding:8px; border-radius:4px; max-height:150px; overflow-y:auto; border:1px solid #333;">
+      <div style="color:#666;">Лог операций будет отображаться здесь...</div>
+    </div>
+  </div>
+  
 <div style="margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
   <strong>👤 Игрок</strong>
   <!-- ПАНЕЛЬ СВЯЗИ HARD MODE -->
