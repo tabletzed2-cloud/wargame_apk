@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.203 — карта  </title>
+  <title>Боевой модуль v12.204 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.203</h1>
+    <h1>⚔️ Боевой модуль v12.204</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.203 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.204 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -3635,7 +3635,7 @@ function initHardMode() {
         }
     });
     
-    // Выдаем рации технике №1 (включая группы, где есть машина №1)
+    // ⚡ ВЫДАЕМ РАЦИИ ТЕХНИКЕ №1 (включая группы, где есть машина №1)
     const vehicleUnits = (appData.campaign.opUnits || []).filter(u => 
         u.type === 'tank_platoon' || u.type === 'btr_platoon' || 
         u.type === 'sau_battery' || u.type === 'armored_vehicle_platoon' ||
@@ -11321,7 +11321,10 @@ function executeMoveOrder(unit, order) {
             checkPhoneLineCrossing(unit, oldCol, oldRow, nextCol, nextRow);
             
             log(`🚶 [${unit.name}] Переместился с (${oldCol},${oldRow}) на (${nextCol},${nextRow}). ОД: ${unit.ap}`);
-            
+            // ⚡ ПРОВЕРЯЕМ ОГОНЬ НА ХОДУ (для техники)
+    if (unit.isVehicle) {
+        checkMovingFire(unit);
+    }
             // Если достигли цели
             if (unit.col === targetCol && unit.row === targetRow) {
                 order.status = 'completed';
@@ -11399,7 +11402,13 @@ function isHexOnLine(hexCol, hexRow, lineCol1, lineRow1, lineCol2, lineRow2) {
 function executeFireAtWillOrder(unit, order) {
     const targetDistance = order.targetDistance || 3;
     
-    // ⚡ ИЩЕМ ВРАГОВ, ИСКЛЮЧАЯ ПЕХОТУ В ТАКТИЧЕСКОМ БОЮ
+    // Проверяем, есть ли у юнита ОД для стрельбы
+    if (unit.ap <= 0) {
+        log(`⏳ [${unit.name}] Нет ОД для стрельбы по готовности.`);
+        return;
+    }
+    
+    // Ищем врагов в радиусе
     const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
         e.col !== null && e.row !== null &&
         getOpHexDistance(unit.col, unit.row, e.col, e.row) <= targetDistance &&
@@ -11407,26 +11416,24 @@ function executeFireAtWillOrder(unit, order) {
     );
     
     if (enemies.length === 0) {
+        log(`ℹ️ [${unit.name}] Нет врагов в радиусе ${targetDistance} гексов.`);
         return;
     }
     
-    // ⚡ ФИЛЬТРУЕМ ЦЕЛИ: исключаем пехоту в тактическом бою, но бронетехнику можно
+    // Фильтруем цели: пехоту в тактическом бою не трогаем, бронетехнику можно
     const validTargets = enemies.filter(e => {
-        // Если это бронетехника - всегда цель
         if (isArmoredUnit(e)) {
             return true;
         }
-        // Если это пехота - проверяем, не в бою ли она
         return !e.isInBattle;
     });
     
     if (validTargets.length === 0) {
-        // Все цели в тактическом бою - не стреляем
-        log(`ℹ️ [${unit.name}] Все враги в радиусе ${targetDistance} гексов находятся в тактическом бою.`);
+        log(`ℹ️ [${unit.name}] Все враги в радиусе ${targetDistance} гексов в тактическом бою.`);
         return;
     }
     
-    // Находим ближайшего врага среди валидных целей
+    // Находим ближайшего врага
     let closestEnemy = null;
     let minDist = Infinity;
     validTargets.forEach(e => {
@@ -11437,27 +11444,36 @@ function executeFireAtWillOrder(unit, order) {
         }
     });
     
-    if (closestEnemy && unit.ap > 0) {
-        const dist = getOpHexDistance(unit.col, unit.row, closestEnemy.col, closestEnemy.row);
-        
-        // Проверяем, может ли юнит стрелять
-        if (!canUnitShoot(unit)) {
-            log(`❌ [${unit.name}] Не может стрелять (нет оружия или в тактическом бою).`);
-            return;
-        }
-        
-        log(`🎯 [${unit.name}] Огонь по готовности! Цель: ${closestEnemy.name} (дистанция ${dist} гексов)`);
-        
-        // Настраиваем состояние обстрела
+    if (!closestEnemy || !canUnitShoot(unit)) {
+        log(`❌ [${unit.name}] Не может стрелять (нет оружия).`);
+        return;
+    }
+    
+    const dist = getOpHexDistance(unit.col, unit.row, closestEnemy.col, closestEnemy.row);
+    
+    // Проверяем, есть ли у юнита ПТО для стрельбы по бронетехнике
+    const hasAtGuns = hasAtGunWeapons(unit);
+    const isArmor = isArmoredUnit(closestEnemy);
+    
+    log(`🎯 [${unit.name}] Огонь по готовности! Цель: ${closestEnemy.name} (дистанция ${dist} гексов)`);
+    
+    if (hasAtGuns && isArmor) {
+        // Стреляем ПТО по бронетехнике
+        opShootingState.shooter = unit;
+        opShootingState.targets = [closestEnemy];
+        opShootingState.weaponType = 'at';
+        executeOpShootAt([closestEnemy], dist);
+    } else {
+        // Стреляем по пехоте
         opShootingState.shooter = unit;
         opShootingState.targets = [closestEnemy];
         opShootingState.weaponType = 'mg';
-        
-        // Выполняем обстрел
         executeOpShoot([closestEnemy], dist);
     }
+    
+    // Тратим все ОД на стрельбу
+    unit.ap = 0;
 }
-
 
 function executeReconOrder(unit, order) {
     if (!order.targetHex) {
@@ -12124,7 +12140,8 @@ function renderActiveOrders() {
         'embark': '🚌 Посадка в БТР',
         'disembark': '🚶 Высадка',
         'dismount': '🚲 Спешивание',
-        'remount': '🚲 Посадка на велосипед'
+        'remount': '🚲 Посадка на велосипед',
+        'series': '📋 Серия'
     };
     
     const statusNames = {
@@ -12135,7 +12152,7 @@ function renderActiveOrders() {
         'cancelled': '❌ Отменен'
     };
     
-let html = '';
+    let html = '';
     allOrders.forEach((order, orderIdx) => {
         const toUnit = appData.campaign.opUnits[order.toUnitId];
         const unitName = toUnit ? toUnit.name : 'Неизвестно';
@@ -12145,7 +12162,28 @@ let html = '';
             statusText += ` (${order.deliveryTurnsPassed}/${order.deliveryTurnsNeeded})`;
         }
         
-        // Кнопки приоритета (только для pending и delivering)
+        // ⚡ ДЛЯ СЕРИИ ПОКАЗЫВАЕМ ТЕКУЩИЙ ПРИКАЗ
+        let seriesInfo = '';
+        if (order.type === 'series' && order.series && order.series.length > 0) {
+            const total = order.series.length;
+            // Находим первый незавершенный приказ
+            let currentIndex = 0;
+            let currentType = 'выполняется';
+            for (let i = 0; i < order.series.length; i++) {
+                if (order.series[i].status !== 'completed') {
+                    currentIndex = i + 1;
+                    currentType = typeNames[order.series[i].type] || order.series[i].type;
+                    break;
+                }
+            }
+            if (currentIndex === 0) {
+                currentIndex = total;
+                currentType = 'завершена';
+            }
+            seriesInfo = ` <span style="color:#f1c40f; font-size:0.8rem;">[${currentIndex}/${total} → ${currentType}]</span>`;
+        }
+        
+        // Кнопки приоритета
         const priorityBtns = (order.status === 'pending' || order.status === 'delivering') 
             ? `<button onclick="moveOrderPriority(${orderIdx}, -1)" style="background:#555; font-size:0.7rem; padding:2px 5px; cursor:pointer;" title="Выше">▲</button>
                <button onclick="moveOrderPriority(${orderIdx}, 1)" style="background:#555; font-size:0.7rem; padding:2px 5px; cursor:pointer;" title="Ниже">▼</button>`
@@ -12153,26 +12191,14 @@ let html = '';
         
         html += `
             <div style="background:#2a2a2a; padding:4px; margin:2px 0; border-radius:4px; display:flex; justify-content:space-between; align-items:center;">
-                <span>${priorityBtns} ${typeNames[order.type] || order.type} → ${unitName}</span>
+                <span>${priorityBtns} ${typeNames[order.type] || order.type} → ${unitName}${seriesInfo}</span>
                 <span style="color:#aaa; font-size:0.8rem;">${statusText}</span>
                 <button onclick="cancelOrder(${order.id})" style="background:#555; font-size:0.7rem; padding:2px 5px; cursor:pointer;" title="Отменить">✕</button>
             </div>
         `;
     });
     
-        container.innerHTML = html;
-    
-    // Показываем очередь приказов
-    if (hardMode.orderQueue && hardMode.orderQueue.length > 0) {
-        const queueHtml = hardMode.orderQueue.map((o, i) => {
-            const unit = appData.campaign.opUnits ? appData.campaign.opUnits[o.toUnitId] : null;
-            const unitName = unit ? unit.name : '?';
-            return `<div style="background:#1a1a2e; padding:4px; margin:2px 0; border-radius:4px; color:#3498db;">
-                📋 ${i+1}. ${o.type} → ${unitName}
-            </div>`;
-        }).join('');
-        container.innerHTML += `<div style="margin-top:8px;"><strong style="color:#3498db;">📋 Очередь:</strong>${queueHtml}</div>`;
-    }
+    container.innerHTML = html;
 }
       
 function updateOperationalTimeDisplay() {
@@ -13701,7 +13727,7 @@ function startOpShooting() {
 
 // Проверка, может ли юнит стрелять
 function canUnitShoot(unit) {
-    // ⚡ ПРОВЕРКА: если юнит в тактическом бою - не может стрелять
+    // Проверка: если юнит в тактическом бою - не может стрелять
     if (unit.isInBattle) {
         return false;
     }
@@ -13829,7 +13855,7 @@ function executeOpShoot(targets, distance) {
         }
     }
     
-    // Собираем урон от пулемётов/стрелкового оружия
+    // ⚡ Собираем урон от пулемётов/стрелкового оружия
     let totalDamage = 0;
     let weaponDetails = [];
     
@@ -13838,6 +13864,9 @@ function executeOpShoot(targets, distance) {
         for (let squad of shooter.squads) {
             if (!squad.fighters) continue;
             
+            // ⚡ ПРОВЕРКА: если это Landsverk (бронеавтомобиль)
+            const isLandsverk = squad.name && (squad.name.includes('Landsverk') || squad.name.includes('Бронеавтомобиль'));
+            
             // Сначала проверяем crewInstances (пулеметы)
             if (squad.crewInstances && squad.crewInstances.length > 0) {
                 for (let ci of squad.crewInstances) {
@@ -13845,8 +13874,49 @@ function executeOpShoot(targets, distance) {
                     const cw = getFactionCrewWeapons(squad.faction).find(w => w.name === ci.weaponName);
                     if (!cw) continue;
                     
-                    // Только пулеметы для обстрела пехоты
-                    if (cw.type === 'mg') {
+                    // ⚡ ДЛЯ LANDSVERK: пулемёты и орудие
+                    if (isLandsverk) {
+                        if (cw.type === 'mg') {
+                            // Пулемёт даёт 4 выстрела
+                            const alive = ci.fighterIndices.filter(idx => 
+                                squad.fighters[idx] && squad.fighters[idx].hp > 0
+                            ).length;
+                            if (alive > 0) {
+                                const shots = 4;
+                                totalDamage += shots;
+                                weaponDetails.push(`${cw.name} (×4)`);
+                            }
+                        } else if (cw.type === 'at_gun') {
+                            // Орудие - артиллерийский обстрел
+                            const alive = ci.fighterIndices.filter(idx => 
+                                squad.fighters[idx] && squad.fighters[idx].hp > 0
+                            ).length;
+                            if (alive > 0) {
+                                // 12 выстрелов с шансом попадания
+                                let hitChance = 0;
+                                if (distance === 1) hitChance = 0.35;
+                                else if (distance === 2) hitChance = 0.25;
+                                else if (distance >= 3) hitChance = 0.15;
+                                else hitChance = 0.15;
+                                
+                                const totalShots = 12;
+                                let hits = 0;
+                                let damage = 0;
+                                for (let i = 0; i < totalShots; i++) {
+                                    if (Math.random() < hitChance) {
+                                        hits++;
+                                        damage += rollD6();
+                                    }
+                                }
+                                totalDamage += damage;
+                                weaponDetails.push(`${cw.name} (${totalShots} выстр., попаданий ${hits}, урон ${damage})`);
+                            }
+                            continue; // пропускаем остальную логику для орудия
+                        }
+                    }
+                    
+                    // Только пулеметы для обстрела пехоты (для остальной техники)
+                    if (cw.type === 'mg' && !isLandsverk) {
                         const alive = ci.fighterIndices.filter(idx => 
                             squad.fighters[idx] && squad.fighters[idx].hp > 0
                         ).length;
@@ -13859,40 +13929,44 @@ function executeOpShoot(targets, distance) {
                     }
                 }
                 
-                // Если есть crewInstances - не считаем личное оружие
-                continue;
+                // Если есть crewInstances и это Landsverk - не считаем личное оружие
+                if (squad.crewInstances.length > 0 && isLandsverk) {
+                    continue;
+                }
             }
             
-            // Для обычной пехоты считаем личное оружие
-            squad.fighters.forEach(f => {
-                if (f.hp <= 0) return;
-                const weapon = f.weapon || '';
-                let damage = 0;
-                let label = '';
+            // Для обычной пехоты считаем личное оружие (только если не Landsverk)
+            if (!isLandsverk) {
+                squad.fighters.forEach(f => {
+                    if (f.hp <= 0) return;
+                    const weapon = f.weapon || '';
+                    let damage = 0;
+                    let label = '';
 
-                const wLower = weapon.toLowerCase();
-                if (wLower.includes('станковый пулемет') || wLower.includes('schwarzlose') || wLower.includes('hotchkiss')) {
-                    damage = 10;
-                    label = 'Станковый пулемёт';
-                } else if (wLower.includes('ручной пулемет') || wLower.includes('fn model d') || wLower.includes('zb.26') || wLower.includes('дп-27')) {
-                    damage = 3;
-                    label = 'Ручной пулемёт';
-                } else if (wLower.includes('автоматическая винтовка') || wLower.includes('johnson') || wLower.includes('авс-36')) {
-                    damage = 2;
-                    label = 'Автоматическая винтовка';
-                } else if (wLower.includes('винтовка') || wLower.includes('geweer') || wLower.includes('vz.24') || wLower.includes('fn model')) {
-                    damage = 1;
-                    label = 'Винтовка';
-                } else {
-                    damage = 0;
-                    label = 'Без оружия';
-                }
+                    const wLower = weapon.toLowerCase();
+                    if (wLower.includes('станковый пулемет') || wLower.includes('schwarzlose') || wLower.includes('hotchkiss')) {
+                        damage = 10;
+                        label = 'Станковый пулемёт';
+                    } else if (wLower.includes('ручной пулемет') || wLower.includes('fn model d') || wLower.includes('zb.26') || wLower.includes('дп-27')) {
+                        damage = 3;
+                        label = 'Ручной пулемёт';
+                    } else if (wLower.includes('автоматическая винтовка') || wLower.includes('johnson') || wLower.includes('авс-36')) {
+                        damage = 2;
+                        label = 'Автоматическая винтовка';
+                    } else if (wLower.includes('винтовка') || wLower.includes('geweer') || wLower.includes('vz.24') || wLower.includes('fn model')) {
+                        damage = 1;
+                        label = 'Винтовка';
+                    } else {
+                        damage = 0;
+                        label = 'Без оружия';
+                    }
 
-                if (damage > 0) {
-                    totalDamage += damage;
-                    weaponDetails.push(`${label} (${damage} ед.)`);
-                }
-            });
+                    if (damage > 0) {
+                        totalDamage += damage;
+                        weaponDetails.push(`${label} (${damage} ед.)`);
+                    }
+                });
+            }
         }
     }
     
@@ -15917,6 +15991,95 @@ function drawOperationalUnits(ctx) {
     // Рисуем только один раз
     drawGroupedUnits(appData.campaign.opUnits, false);
     drawGroupedUnits(appData.campaign.enemyOpUnits, true);
+}
+// ⚡ ПРОВЕРКА РАЦИИ ПОСЛЕ ПОТЕРИ МАШИНЫ №1
+function checkVehicleRadioAfterLoss(unit) {
+    if (!unit || !unit.isGroup) return;
+    
+    const radioEntry = hardMode.signalPlatoon.radios.assigned.find(r => 
+        r.unitId === appData.campaign.opUnits.indexOf(unit) && r.hasNumber1
+    );
+    
+    if (!radioEntry) return;
+    
+    // Проверяем, есть ли ещё машина №1 в составе
+    const hasNumber1 = unit.vehicleList && unit.vehicleList.some(v => 
+        v.name && v.name.includes('№1') && !v.destroyed
+    );
+    
+    if (!hasNumber1) {
+        // Машина №1 уничтожена - рация перестаёт действовать
+        radioEntry.isDestroyed = true;
+        // Удаляем из assigned
+        const idx = hardMode.signalPlatoon.radios.assigned.indexOf(radioEntry);
+        if (idx !== -1) {
+            hardMode.signalPlatoon.radios.assigned.splice(idx, 1);
+            hardMode.signalPlatoon.radios.available++;
+        }
+        log(`📻 Рация в отряде "${unit.name}" перестала действовать (машина №1 уничтожена).`);
+    }
+}
+// ⚡ РЕЖИМ "ОГОНЬ НА ХОДУ" ДЛЯ ТЕХНИКИ
+function checkMovingFire(unit) {
+    if (!unit || !unit.isVehicle) return;
+    if (unit.isInBattle) return;
+    if (unit.ap <= 0) return;
+    if (!unit.movedThisTurn) return; // должен двигаться в этом ходу
+    
+    // Ищем врагов в радиусе 3 гексов
+    const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
+        e.col !== null && e.row !== null &&
+        getOpHexDistance(unit.col, unit.row, e.col, e.row) <= 3 &&
+        !e.isDestroyed
+    );
+    
+    if (enemies.length === 0) return;
+    
+    // Находим ближайшего врага
+    let closestEnemy = null;
+    let minDist = Infinity;
+    enemies.forEach(e => {
+        const dist = getOpHexDistance(unit.col, unit.row, e.col, e.row);
+        if (dist < minDist) {
+            minDist = dist;
+            closestEnemy = e;
+        }
+    });
+    
+    if (!closestEnemy || !canUnitShoot(unit)) return;
+    
+    const dist = getOpHexDistance(unit.col, unit.row, closestEnemy.col, closestEnemy.row);
+    const hasAtGuns = hasAtGunWeapons(unit);
+    const isArmor = isArmoredUnit(closestEnemy);
+    
+    // Точность падает на 50%
+    const accuracyMod = 0.5;
+    
+    log(`🚗 [${unit.name}] Огонь на ходу! Цель: ${closestEnemy.name} (дистанция ${dist} гексов, точность ×${accuracyMod})`);
+    
+    // Сохраняем оригинальную точность и модифицируем
+    const originalAccuracyMod = 1;
+    
+    if (hasAtGuns && isArmor) {
+        // ПТО по бронетехнике с пониженной точностью
+        opShootingState.shooter = unit;
+        opShootingState.targets = [closestEnemy];
+        opShootingState.weaponType = 'at';
+        opShootingState.movingFire = true;
+        opShootingState.accuracyMod = accuracyMod;
+        executeOpShootAt([closestEnemy], dist);
+    } else {
+        // Стрельба по пехоте
+        opShootingState.shooter = unit;
+        opShootingState.targets = [closestEnemy];
+        opShootingState.weaponType = 'mg';
+        opShootingState.movingFire = true;
+        opShootingState.accuracyMod = accuracyMod;
+        executeOpShoot([closestEnemy], dist);
+    }
+    
+    // Тратим все ОД
+    unit.ap = 0;
 }
       
   </script> 
