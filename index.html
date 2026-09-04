@@ -3985,8 +3985,46 @@ function checkIdleUnits() {
         
         // Проверяем, двигался ли юнит в этом ходу
         if (unit.movedThisTurn) return;
-    }   
-                                     }
+        
+        // ======== АВТОМАТИЧЕСКАЯ СТРЕЛЬБА ДЛЯ БЕЗДЕЙСТВУЮЩИХ ЮНИТОВ ========
+        // Ищем врагов в радиусе 3 гексов
+        const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
+            e.col !== null && e.row !== null &&
+            getOpHexDistance(unit.col, unit.row, e.col, e.row) <= 3 &&
+            !e.isDestroyed
+        );
+        
+        if (enemies.length === 0) return;
+        
+        // Находим ближайшего врага
+        let closestEnemy = null;
+        let minDist = Infinity;
+        enemies.forEach(e => {
+            const dist = getOpHexDistance(unit.col, unit.row, e.col, e.row);
+            if (dist < minDist) {
+                minDist = dist;
+                closestEnemy = e;
+            }
+        });
+        
+        if (closestEnemy && canUnitShoot(unit)) {
+            const dist = getOpHexDistance(unit.col, unit.row, closestEnemy.col, closestEnemy.row);
+            
+            log(`🎯 [${unit.name}] Автоматический огонь! Цель: ${closestEnemy.name} (дистанция ${dist})`);
+            
+            // Настраиваем состояние обстрела
+            opShootingState.shooter = unit;
+            opShootingState.targets = [closestEnemy];
+            opShootingState.weaponType = 'mg';
+            
+            // Выполняем обстрел
+            executeOpShoot([closestEnemy], dist);
+        }
+        
+    }); // <-- Закрытие forEach
+    
+} // <-- Закрытие checkIdleUnits
+      
         // ======== ПРИОРИТЕТ: СНА
 function startTacticalBattle(playerUnits, enemyUnits) {
     console.log('startTacticalBattle вызван', playerUnits, enemyUnits);
