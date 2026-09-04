@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.194 — карта  </title>
+  <title>Боевой модуль v12.195 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.194</h1>
+    <h1>⚔️ Боевой модуль v12.195</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.194 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.195 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -4177,41 +4177,63 @@ function getMaxAP(squad) {
   }
 }
 
-function startTacticalBattle(playerUnit, enemyUnit) {
-    console.log('startTacticalBattle вызван');
-
-    // Собираем все юниты игрока на гексе playerUnit
-     // Если передан массив - используем только эти юниты
-    let playerUnits;
-    if (Array.isArray(playerUnit)) {
-        playerUnits = playerUnit;
-    } else {
-        playerUnits = appData.campaign.opUnits.filter(u => u.col === playerUnit.col && u.row === playerUnit.row);
+function startTacticalBattle(playerUnits, enemyUnits) {
+    console.log('startTacticalBattle вызван', playerUnits, enemyUnits);
+    
+    // Если передан один юнит - превращаем в массив
+    if (!Array.isArray(playerUnits)) {
+        playerUnits = [playerUnits];
     }
-    const enemyUnits = appData.campaign.enemyOpUnits.filter(u => u.col === enemyUnit.col && u.row === enemyUnit.row);
-
-    const hexKey = `${enemyUnit.col},${enemyUnit.row}`;
+    if (!Array.isArray(enemyUnits)) {
+        enemyUnits = [enemyUnits];
+    }
+    
+    // Собираем все отряды игрока
+    let playerSquads = [];
+    playerUnits.forEach(u => {
+        if (u.squads) {
+            u.squads.forEach(s => {
+                const exists = playerSquads.some(ps => ps.name === s.name);
+                if (!exists) playerSquads.push(JSON.parse(JSON.stringify(s)));
+            });
+        }
+    });
+    
+    // Собираем все отряды врага
+    let enemySquads = [];
+    enemyUnits.forEach(u => {
+        if (u.squads) {
+            u.squads.forEach(s => {
+                const exists = enemySquads.some(es => es.name === s.name);
+                if (!exists) enemySquads.push(JSON.parse(JSON.stringify(s)));
+            });
+        }
+    });
+    
+    if (playerSquads.length === 0 || enemySquads.length === 0) {
+        console.error('Нет отрядов для боя');
+        return;
+    }
+    
+    // Определяем гекс боя (берём от первого врага)
+    const firstEnemy = enemyUnits[0];
+    const hexKey = `${firstEnemy.col},${firstEnemy.row}`;
+    
+    // Проверяем, есть ли уже активный бой на этом гексе
     const existingBattle = appData.campaign.activeBattles.find(b => b.hexKey === hexKey);
-
+    
     if (existingBattle) {
-        // Если бой уже есть – добавляем все отряды с этого гекса как подкрепление
-        playerUnits.forEach(u => {
-            if (u.squads) {
-                u.squads.forEach(squad => {
-                    const exists = existingBattle.playerSquads.some(s => s.name === squad.name);
-                    if (!exists) existingBattle.playerSquads.push(JSON.parse(JSON.stringify(squad)));
-                });
-            }
+        // Добавляем отряды в существующий бой
+        playerSquads.forEach(s => {
+            const exists = existingBattle.playerSquads.some(ps => ps.name === s.name);
+            if (!exists) existingBattle.playerSquads.push(s);
         });
-        enemyUnits.forEach(u => {
-            if (u.squads) {
-                u.squads.forEach(squad => {
-                    const exists = existingBattle.enemySquads.some(s => s.name === squad.name);
-                    if (!exists) existingBattle.enemySquads.push(JSON.parse(JSON.stringify(squad)));
-                });
-            }
+        enemySquads.forEach(s => {
+            const exists = existingBattle.enemySquads.some(es => es.name === s.name);
+            if (!exists) existingBattle.enemySquads.push(s);
         });
-
+        
+        // Переключаемся на бой
         appData.squads = existingBattle.playerSquads.map(s => JSON.parse(JSON.stringify(s)));
         appData.map = JSON.parse(JSON.stringify(existingBattle.tacticalMap));
         appData.currentTurn = existingBattle.currentTurn || 1;
@@ -4230,34 +4252,8 @@ function startTacticalBattle(playerUnit, enemyUnit) {
         saveData();
         return;
     }
-
-    // --- Новый бой ---
-    // Собираем все отряды со всех юнитов на обеих сторонах
-    let playerSquads = [];
-    playerUnits.forEach(u => {
-        if (u.squads) {
-            u.squads.forEach(s => {
-                const exists = playerSquads.some(ps => ps.name === s.name);
-                if (!exists) playerSquads.push(JSON.parse(JSON.stringify(s)));
-            });
-        }
-    });
-    let enemySquads = [];
-    enemyUnits.forEach(u => {
-        if (u.squads) {
-            u.squads.forEach(s => {
-                const exists = enemySquads.some(es => es.name === s.name);
-                if (!exists) enemySquads.push(JSON.parse(JSON.stringify(s)));
-            });
-        }
-    });
-
-    if (playerSquads.length === 0 || enemySquads.length === 0) {
-        console.error('Нет отрядов для боя');
-        return;
-    }
-
-    // Генерируем тактическую карту 20x20
+    
+    // Создаём новый бой
     const tacticalMap = {
         grid: {},
         baseHexSize: 45,
@@ -4270,7 +4266,8 @@ function startTacticalBattle(playerUnit, enemyUnit) {
         isCrouchMode: false,
         currentTime: appData.currentTime || 840
     };
-
+    
+    // Создаём сетку тактической карты
     for (let row = 0; row < TACTICAL_MAP_SIZE; row++) {
         for (let col = 0; col < TACTICAL_MAP_SIZE; col++) {
             const key = `${col},${row}`;
@@ -4285,8 +4282,8 @@ function startTacticalBattle(playerUnit, enemyUnit) {
             };
         }
     }
-
-    // Добавляем врагов в тактическую карту (только их отряды)
+    
+    // Добавляем врагов на тактическую карту
     enemySquads.forEach(squad => {
         tacticalMap.enemySquads.push({
             name: squad.name,
@@ -4295,7 +4292,7 @@ function startTacticalBattle(playerUnit, enemyUnit) {
             fighters: squad.fighters || []
         });
     });
-
+    
     // Создаём объект боя
     const newBattle = {
         id: Date.now(),
@@ -4308,7 +4305,7 @@ function startTacticalBattle(playerUnit, enemyUnit) {
         hexKey: hexKey
     };
     appData.campaign.activeBattles.push(newBattle);
-
+    
     // Подменяем глобальные данные
     appData.squads = playerSquads;
     appData.map = tacticalMap;
@@ -4319,7 +4316,7 @@ function startTacticalBattle(playerUnit, enemyUnit) {
     renderSquadSelector();
     updateUI();
     saveData();
-
+    
     // Переключаемся на бой
     document.getElementById('campaignMapScreen').style.display = 'none';
     document.getElementById('campaignApp').style.display = 'none';
@@ -10509,90 +10506,94 @@ function endOperationalTurn() {
 }
 function processOrders() {
     // 1. Обрабатываем доставку приказов (посыльные)
-    hardMode.pendingOrders.forEach(order => {
-        order.deliveryTurnsPassed++;
-        if (order.deliveryTurnsPassed >= order.deliveryTurnsNeeded) {
-            // Приказ доставлен
-            order.status = 'active';
-            order.turnReceived = currentTurn;
-            hardMode.orders.push(order);
-            
-            // Возвращаем посыльного
-            const fromUnit = appData.campaign.opUnits[order.fromUnitId];
-            if (fromUnit) {
-                returnMessenger(fromUnit);
-            }
-            order.messengerId = null;
-            log(`📨 Приказ "${order.type}" доставлен!`);
-        }
-    });
-    
-    // Удаляем доставленные приказы из pending
-    hardMode.pendingOrders = hardMode.pendingOrders.filter(o => o.status !== 'active');
-    
-    // 2. Выполняем активные приказы
-    hardMode.orders.forEach(order => {
-        if (order.status === 'active') {
-            executeOrder(order);
-        }
-    });
-    
-    // 3. Автоматическая стрельба по готовности (для всех юнитов с таким приказом)
-    hardMode.orders.forEach(order => {
-        if (order.status === 'active' && order.type === 'fire_at_will') {
-            const unit = appData.campaign.opUnits[order.toUnitId];
-            if (unit && unit.ap > 0) {
-                executeFireAtWillOrder(unit, order);
-            }
-        }
-        if (order.status === 'active' && order.type === 'shoot_at') {
-            const unit = appData.campaign.opUnits[order.toUnitId];
-            if (unit && unit.ap > 0) {
-                executeShootAtOrder(unit, order);
-            }
-        }
-    });
-        // 4. Автоматическая стрельба юнитов без приказа (если не двигались)
-    (appData.campaign.opUnits || []).forEach(unit => {
-        if (unit.ap <= 0) return;
-        if (unit.isAmbush) return; // в засаде не стреляют без приказа
-        if (unit.hidden) return;
-        
-        // Проверяем, есть ли у юнита активный приказ
-        const hasActiveOrder = hardMode.orders.some(o => 
-            o.status === 'active' && o.toUnitId === appData.campaign.opUnits.indexOf(unit)
-        );
-        if (hasActiveOrder) return;
-        
-        // Проверяем, двигался ли юнит
-        if (unit.movedThisTurn) return;
-        
-        // Ищем врагов в радиусе 3 гексов
-        const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
-            e.col !== null && e.row !== null &&
-            getOpHexDistance(unit.col, unit.row, e.col, e.row) <= 3
-        );
-        
-        if (enemies.length === 0) return;
-        
-        // Находим ближайшего врага
-        let closestEnemy = null;
-        let minDist = Infinity;
-        enemies.forEach(e => {
-            const dist = getOpHexDistance(unit.col, unit.row, e.col, e.row);
-            if (dist < minDist) {
-                minDist = dist;
-                closestEnemy = e;
+    if (hardMode.pendingOrders) {
+        hardMode.pendingOrders.forEach(order => {
+            order.deliveryTurnsPassed++;
+            if (order.deliveryTurnsPassed >= order.deliveryTurnsNeeded) {
+                order.status = 'active';
+                order.turnReceived = currentTurn;
+                if (!hardMode.orders) hardMode.orders = [];
+                hardMode.orders.push(order);
+                
+                const fromUnit = appData.campaign.opUnits ? appData.campaign.opUnits[order.fromUnitId] : null;
+                if (fromUnit) {
+                    returnMessenger(fromUnit);
+                }
+                order.messengerId = null;
+                log(`📨 Приказ "${order.type}" доставлен!`);
             }
         });
         
-        if (closestEnemy && canUnitShoot(unit)) {
-            log(`🎯 ${unit.name} автоматически открывает огонь по ${closestEnemy.name}.`);
-            opShootingState.shooter = unit;
-            executeOpShoot([closestEnemy], minDist);
-        }
-    });
-    // Обновляем список приказов
+        hardMode.pendingOrders = hardMode.pendingOrders.filter(o => o.status !== 'active');
+    }
+    
+    // 2. Выполняем активные приказы
+    if (hardMode.orders) {
+        hardMode.orders.forEach(order => {
+            if (order.status === 'active') {
+                executeOrder(order);
+            }
+        });
+    }
+    
+    // 3. Обработка приказов "атака" - проверяем, не нужно ли начать бой
+    if (hardMode.orders) {
+        hardMode.orders.forEach(order => {
+            if (order.status === 'active' && order.type === 'attack') {
+                const unit = appData.campaign.opUnits ? appData.campaign.opUnits[order.toUnitId] : null;
+                if (unit && unit.col !== null && unit.row !== null) {
+                    // Проверяем, есть ли враг на гексе юнита
+                    const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
+                        e.col === unit.col && e.row === unit.row && !e.isDestroyed
+                    );
+                    if (enemies.length > 0) {
+                        log(`⚔️ ${unit.name} вступил в бой с врагом!`);
+                        order.status = 'completed';
+                        startTacticalBattle([unit], enemies);
+                    }
+                }
+            }
+        });
+    }
+    
+    // 4. Автоматическая стрельба юнитов без приказа
+    if (appData.campaign.opUnits) {
+        appData.campaign.opUnits.forEach(unit => {
+            if (unit.ap <= 0) return;
+            if (unit.isAmbush) return;
+            if (unit.hidden) return;
+            
+            const hasActiveOrder = hardMode.orders ? hardMode.orders.some(o => 
+                o.status === 'active' && o.toUnitId === appData.campaign.opUnits.indexOf(unit)
+            ) : false;
+            if (hasActiveOrder) return;
+            if (unit.movedThisTurn) return;
+            
+            const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
+                e.col !== null && e.row !== null &&
+                getOpHexDistance(unit.col, unit.row, e.col, e.row) <= 3
+            );
+            
+            if (enemies.length === 0) return;
+            
+            let closestEnemy = null;
+            let minDist = Infinity;
+            enemies.forEach(e => {
+                const dist = getOpHexDistance(unit.col, unit.row, e.col, e.row);
+                if (dist < minDist) {
+                    minDist = dist;
+                    closestEnemy = e;
+                }
+            });
+            
+            if (closestEnemy && canUnitShoot(unit)) {
+                log(`🎯 ${unit.name} автоматически открывает огонь по ${closestEnemy.name}.`);
+                opShootingState.shooter = unit;
+                executeOpShoot([closestEnemy], minDist);
+            }
+        });
+    }
+    
     renderActiveOrders();
 }
 
@@ -10762,99 +10763,141 @@ function executeAmbushOrder(unit, order) {
 function executeAttackOrder(unit, order) {
     if (!order.targetHex) {
         order.status = 'cancelled';
+        log(`❌ Приказ атаки для ${unit.name} отменён: не указана цель.`);
         return;
     }
     
     const [targetCol, targetRow] = order.targetHex.split(',').map(Number);
-    
-    // Проверяем, есть ли враг в том же гексе, где сейчас находится юнит
-    const enemiesHere = (appData.campaign.enemyOpUnits || []).filter(e => 
-        e.col === unit.col && e.row === unit.row
-    );
-    
-    if (enemiesHere.length > 0) {
-        order.status = 'completed';
-        showContactModal([unit], enemiesHere);
-        log(`⚔️ ${unit.name} вступил в бой с противником!`);
+    if (isNaN(targetCol) || isNaN(targetRow)) {
+        order.status = 'cancelled';
+        log(`❌ Приказ атаки для ${unit.name} отменён: неверные координаты цели.`);
         return;
     }
     
-    // Врага в текущем гексе нет - двигаемся к цели
-       if (unit.ap > 0) {
-        // Двигаемся пошагово, проверяя врагов на пути
-        let currentCol = unit.col;
-        let currentRow = unit.row;
-        let steps = 0;
-        const maxSteps = 10; // максимум 10 шагов
-        
-        while (currentCol !== targetCol || currentRow !== targetRow) {
-            const dc = targetCol - currentCol;
-            const dr = targetRow - currentRow;
-            
-            let nextCol = currentCol;
-            let nextRow = currentRow;
-            
-            if (Math.abs(dc) >= Math.abs(dr)) {
-                nextCol += dc > 0 ? 1 : -1;
-            } else {
-                nextRow += dr > 0 ? 1 : -1;
-            }
-            
-            const moveCost = getOpMoveCost(unit, currentCol, currentRow, nextCol, nextRow);
-            if (moveCost === Infinity) {
-                order.status = 'cancelled';
-                log(`❌ ${unit.name} не может пройти через гекс (${nextCol},${nextRow}).`);
-                return;
-            }
-            
-            if (unit.ap < moveCost) {
-                log(`⏳ ${unit.name} не хватило ОД на пути.`);
-                return;
-            }
-            
-            // Проверяем врагов на следующем гексе ПЕРЕД входом
-            const enemiesOnNext = (appData.campaign.enemyOpUnits || []).filter(e => 
-                e.col === nextCol && e.row === nextRow
-            );
-            
-            if (enemiesOnNext.length > 0) {
-                // Враг на пути - вступаем в бой с ним
-                showContactModal([unit], enemiesOnNext);
-                order.status = 'completed';
-                log(`⚔️ ${unit.name} столкнулся с врагом на пути (${nextCol},${nextRow})!`);
-                return;
-            }
-            
-            // Перемещаемся
-            unit.ap -= moveCost;
-            currentCol = nextCol;
-            currentRow = nextRow;
-            steps++;
-            
-            if (steps >= maxSteps) {
-                order.status = 'cancelled';
-                log(`❌ Слишком длинный путь.`);
-                return;
-            }
+    // Если у юнита нет ОД - приказ не может быть выполнен
+    if (unit.ap <= 0) {
+        log(`⏳ ${unit.name} не может атаковать: нет ОД.`);
+        return;
+    }
+    
+    // 1. ПРОВЕРЯЕМ: ЕСТЬ ЛИ ВРАГ НА ТЕКУЩЕМ ГЕКСЕ?
+    const enemiesHere = (appData.campaign.enemyOpUnits || []).filter(e => 
+        e.col === unit.col && e.row === unit.row && !e.isDestroyed
+    );
+    
+    if (enemiesHere.length > 0) {
+        // Враг есть на текущем гексе - сразу начинаем бой
+        log(`⚔️ ${unit.name} атакует врага на своём гексе!`);
+        order.status = 'completed';
+        startTacticalBattle([unit], enemiesHere);
+        return;
+    }
+    
+    // 2. ДВИЖЕНИЕ К ЦЕЛИ С ПРОВЕРКОЙ ВРАГОВ НА ПУТИ
+    let currentCol = unit.col;
+    let currentRow = unit.row;
+    let steps = 0;
+    const maxSteps = 20; // максимальное количество шагов
+    
+    // Получаем полный маршрут до цели
+    const route = getRouteToTarget(currentCol, currentRow, targetCol, targetRow);
+    
+    for (let step of route) {
+        steps++;
+        if (steps > maxSteps) {
+            log(`❌ ${unit.name}: слишком длинный путь до цели.`);
+            order.status = 'cancelled';
+            return;
         }
         
-        // Дошли до целевого гекса
-        unit.col = currentCol;
-        unit.row = currentRow;
+        // Проверяем стоимость перемещения на следующий гекс
+        const moveCost = getOpMoveCost(unit, currentCol, currentRow, step.col, step.row);
+        if (moveCost === Infinity) {
+            log(`❌ ${unit.name} не может пройти через гекс (${step.col},${step.row}).`);
+            order.status = 'cancelled';
+            return;
+        }
         
-        const enemiesAtTarget = (appData.campaign.enemyOpUnits || []).filter(e => 
-            e.col === targetCol && e.row === targetRow
+        // Проверяем, хватает ли ОД
+        if (unit.ap < moveCost) {
+            log(`⏳ ${unit.name} не хватило ОД на пути к цели. Осталось ОД: ${unit.ap}, нужно: ${moveCost}`);
+            // Сохраняем прогресс - юнит остаётся на текущем гексе
+            return;
+        }
+        
+        // ПРОВЕРЯЕМ: ЕСТЬ ЛИ ВРАГ НА СЛЕДУЮЩЕМ ГЕКСЕ?
+        const enemiesOnNext = (appData.campaign.enemyOpUnits || []).filter(e => 
+            e.col === step.col && e.row === step.row && !e.isDestroyed
         );
         
-        if (enemiesAtTarget.length > 0) {
-            showContactModal([unit], enemiesAtTarget);
+        if (enemiesOnNext.length > 0) {
+            // Враг на пути - тратим ОД на вход в гекс и начинаем бой
+            unit.ap -= moveCost;
+            unit.col = step.col;
+            unit.row = step.row;
+            
+            log(`⚔️ ${unit.name} столкнулся с врагом на гексе (${step.col},${step.row})!`);
             order.status = 'completed';
-            log(`⚔️ ${unit.name} вступил в бой!`);
-        } else {
-            order.status = 'completed';
-            log(`ℹ️ ${unit.name} прибыл в целевой гекс, но врага нет.`);
+            startTacticalBattle([unit], enemiesOnNext);
+            saveData();
+            redrawOperationalMap();
+            return;
         }
+        
+        // Проверяем, не попали ли мы на целевой гекс (и там нет врага)
+        if (step.col === targetCol && step.row === targetRow) {
+            // Тратим ОД на последний шаг
+            unit.ap -= moveCost;
+            unit.col = step.col;
+            unit.row = step.row;
+            
+            // Проверяем, есть ли враг на целевом гексе (ещё раз, на случай если появился)
+            const enemiesAtTarget = (appData.campaign.enemyOpUnits || []).filter(e => 
+                e.col === targetCol && e.row === targetRow && !e.isDestroyed
+            );
+            
+            if (enemiesAtTarget.length > 0) {
+                log(`⚔️ ${unit.name} достиг цели и атакует врага!`);
+                order.status = 'completed';
+                startTacticalBattle([unit], enemiesAtTarget);
+                saveData();
+                redrawOperationalMap();
+                return;
+            } else {
+                // Целевой гекс пуст - приказ выполнен, но боя не было
+                log(`ℹ️ ${unit.name} прибыл на целевой гекс (${targetCol},${targetRow}), но врага там нет.`);
+                order.status = 'completed';
+                saveData();
+                redrawOperationalMap();
+                return;
+            }
+        }
+        
+        // Если врага нет - перемещаемся
+        unit.ap -= moveCost;
+        currentCol = step.col;
+        currentRow = step.row;
+        unit.col = currentCol;
+        unit.row = currentRow;
     }
+    
+    // Если мы вышли из цикла, значит дошли до цели
+    // Проверяем ещё раз наличие врага на целевом гексе
+    const enemiesAtTarget = (appData.campaign.enemyOpUnits || []).filter(e => 
+        e.col === targetCol && e.row === targetRow && !e.isDestroyed
+    );
+    
+    if (enemiesAtTarget.length > 0) {
+        log(`⚔️ ${unit.name} достиг цели и атакует врага!`);
+        order.status = 'completed';
+        startTacticalBattle([unit], enemiesAtTarget);
+    } else {
+        log(`ℹ️ ${unit.name} прибыл на целевой гекс (${targetCol},${targetRow}), но врага там нет.`);
+        order.status = 'completed';
+    }
+    
+    saveData();
+    redrawOperationalMap();
 }
 function executeShootOrder(unit, order) {
     // Обстреливаем целевую точку
@@ -14795,7 +14838,46 @@ function executeDefendOrder(unit, order) {
     log(`🛡️ ${unit.name} занял оборону на гексе (${unit.col},${unit.row}) с бонусом защиты x${defenseBonus}.`);
     redrawOperationalMap();
 }      
-      
+function getRouteToTarget(fromCol, fromRow, toCol, toRow) {
+    const route = [];
+    let currentCol = fromCol;
+    let currentRow = fromRow;
+    
+    // Используем простой алгоритм: сначала двигаемся по горизонтали, потом по вертикали
+    while (currentCol !== toCol || currentRow !== toRow) {
+        const dc = toCol - currentCol;
+        const dr = toRow - currentRow;
+        
+        let nextCol = currentCol;
+        let nextRow = currentRow;
+        
+        // Двигаемся по диагонали, если нужно
+        if (Math.abs(dc) >= Math.abs(dr)) {
+            nextCol += dc > 0 ? 1 : -1;
+            if (dr !== 0 && Math.abs(dc) > Math.abs(dr)) {
+                // Если разница по горизонтали больше, двигаемся горизонтально
+            } else if (dr !== 0) {
+                nextRow += dr > 0 ? 1 : -1;
+            }
+        } else {
+            nextRow += dr > 0 ? 1 : -1;
+            if (dc !== 0) {
+                nextCol += dc > 0 ? 1 : -1;
+            }
+        }
+        
+        // Проверяем, что не вышли за границы карты
+        if (nextCol < 0 || nextCol >= OP_MAP_COLS || nextRow < 0 || nextRow >= OP_MAP_ROWS) {
+            break;
+        }
+        
+        route.push({ col: nextCol, row: nextRow });
+        currentCol = nextCol;
+        currentRow = nextRow;
+    }
+    
+    return route;
+}      
       
   </script> 
   
