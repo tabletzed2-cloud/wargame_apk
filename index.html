@@ -470,7 +470,7 @@
     function formatTime(minutes) { const h = Math.floor(minutes / 60); const m = minutes % 60; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;}
     function rollD10() { return Math.floor(Math.random()*10)+1; }
     function log(msg) { const d = document.getElementById('log'); if(d){ d.innerHTML += msg+'<br>'; d.scrollTop = d.scrollHeight; } }
-
+    const originalLog = log;
     const STORAGE_KEY = 'wargameV10';
 function safeLocalStorage(method, ...args) {
       try { return window.localStorage[method](...args); }
@@ -3326,7 +3326,23 @@ document.getElementById('battleApp').style.display = 'none';
 }
       };
           }
-
+    // ==================== HARD MODE ====================
+let hardMode = {
+    enabled: false,
+    hqUnitId: null,
+    messengers: {
+        battalion: { total: 5, available: 5, active: [] },
+        companies: {} // { companyId: { total: 4, available: 4, active: [] } }
+    },
+    signalPlatoon: {
+        radios: { total: 3, available: 3, assigned: [] },
+        phones: { total: 3, available: 3, assigned: [] }
+    },
+    phoneLines: [], // {fromUnitId, toUnitId, path: [hexKeys], intact: true}
+    orders: [], // активные приказы
+    pendingOrders: [], // приказы в пути
+    orderQueue: []
+};
     let appData;
 try {
   const saved = safeLocalStorage('getItem', STORAGE_KEY);
@@ -3561,23 +3577,6 @@ appData.squads.forEach(s => assignUniqueCrewKeys(s));
     let actionPoints = {}; // объект { squadIndex: { ap, maxAp } }
     let mapScale = 1; // Текущий масштаб карты (1 = 100%)
     let loadedOpMapImage = null;
-    // ==================== HARD MODE ====================
-let hardMode = {
-    enabled: false,
-    hqUnitId: null,
-    messengers: {
-        battalion: { total: 5, available: 5, active: [] },
-        companies: {} // { companyId: { total: 4, available: 4, active: [] } }
-    },
-    signalPlatoon: {
-        radios: { total: 3, available: 3, assigned: [] },
-        phones: { total: 3, available: 3, assigned: [] }
-    },
-    phoneLines: [], // {fromUnitId, toUnitId, path: [hexKeys], intact: true}
-    orders: [], // активные приказы
-    pendingOrders: [], // приказы в пути
-    orderQueue: []
-};
 
 function toggleHardMode() {
     hardMode.enabled = !hardMode.enabled;
@@ -3986,7 +3985,8 @@ function checkIdleUnits() {
         
         // Проверяем, двигался ли юнит в этом ходу
         if (unit.movedThisTurn) return;
-        
+    }   
+                                     }
         // ======== ПРИОРИТЕТ: СНА
 function startTacticalBattle(playerUnits, enemyUnits) {
     console.log('startTacticalBattle вызван', playerUnits, enemyUnits);
@@ -6687,19 +6687,19 @@ if (currentSquad.actionsThisTurn) {
     // ===================== ТЕРМИТНЫЙ ЗАРЯД =====================
     
 function useThermiteCharge() {
-  if (!currentSquad || currentSquad.useThermiteCharge <= 0) return;
+  if (!currentSquad) return;
+  if (!currentSquad.thermiteCharges || currentSquad.thermiteCharges <= 0) {
+    log('Нет термитных зарядов.');
+    return;
   if (!spendAP(currentSquadIndex, getActionCost(currentSquad, 'special'))) {
     log('Недостаточно ОД.');
     return;
   }
-  if (currentSquad.fighters.every(f => f.isAway || f.hp === 0)) {
-  log('Нет доступных бойцов.');
-  return;
-}
-  if (!currentSquad || !currentSquad.thermiteCharges || currentSquad.thermiteCharges <= 0) {
-    log('Нет термитных зарядов.');
+   if (currentSquad.fighters.every(f => f.isAway || f.hp === 0)) {
+    log('Нет доступных бойцов.');
     return;
   }
+    
   if (getEffectiveMorale() <= 1) { log('❌ Отряд бежит.'); return; }
   
   // Выбор цели (спрашиваем у игрока)
@@ -11140,10 +11140,10 @@ function executeAttackOrder(unit, order) {
         log(`ℹ️ ${unit.name} прибыл на целевой гекс (${targetCol},${targetRow}), но врага там нет.`);
         order.status = 'completed';
     }
-    // При движении проверяем линии связи
-    if (unit.col !== oldCol || unit.row !== oldRow) {
-        checkPhoneLineCrossing(unit, oldCol, oldRow, unit.col, unit.row);
-    }
+   // После перемещения (если юнит реально сдвинулся)
+if (stepsTaken > 0) {
+    checkMovingFire(unit);
+}
     saveData();
     redrawOperationalMap();
 }
@@ -16084,10 +16084,6 @@ function clearOpLog() {
     }
 }
 
-// ⚡ ПЕРЕОПРЕДЕЛЯЕМ ФУНКЦИЮ log ДЛЯ ОПЕРАЦИОННОЙ КАРТЫ
-// Сохраняем оригинальную функцию
-const originalLog = log;
-
 // Переопределяем log для добавления в операционный лог
 log = function(msg) {
     // Вызываем оригинальную функцию для боевого лога
@@ -16915,7 +16911,6 @@ function updateOrderWaypointsDisplay() {
     <canvas id="opMapCanvas" style="display:block; width:2000px; height:1500px;"></canvas>
   </div>
 <div id="mapInfo" style="margin-top:6px; font-size:0.9rem; color:#aaa;"></div>
-<div id="opHexInfo" style="margin:4px 0; font-size:0.9rem; color:#aaa;"></div>
 <div id="opHexInfo" style="margin:4px 0; font-size:0.9rem; color:#aaa;"></div>
       <div style="margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
   <strong>🗺️ Вид</strong>
