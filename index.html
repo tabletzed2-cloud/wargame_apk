@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.197 — карта  </title>
+  <title>Боевой модуль v12.198 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.197</h1>
+    <h1>⚔️ Боевой модуль v12.198</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.197 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.198 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -10588,64 +10588,7 @@ function processOrders() {
         });
     }
     
-    // 4. ⚡ АВТОМАТИЧЕСКАЯ СТРЕЛЬБА - ТОЛЬКО ПО ПРИКАЗУ "ОГОНЬ ПО ГОТОВНОСТИ"
-    if (hardMode.orders) {
-        // Создаём копию массива, чтобы изменения во время итерации не ломали цикл
-        const ordersCopy = [...hardMode.orders];
-        
-        ordersCopy.forEach(order => {
-            // Проверяем, что это приказ "огонь по готовности" и он активен
-            if (order.status === 'active' && order.type === 'fire_at_will') {
-                const unit = appData.campaign.opUnits ? appData.campaign.opUnits[order.toUnitId] : null;
-                if (!unit) return;
-                if (unit.ap <= 0) return;
-                if (unit.isAmbush) return;
-                if (unit.hidden) return;
-                if (unit.isInBattle) return;
-                if (unit.col === null || unit.row === null) return;
-                
-                const targetDistance = order.targetDistance || 3;
-                
-                // Ищем врагов в радиусе (включая гекс с врагом)
-                const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
-                    e.col !== null && e.row !== null &&
-                    getOpHexDistance(unit.col, unit.row, e.col, e.row) <= targetDistance &&
-                    !e.isDestroyed
-                );
-                
-                if (enemies.length === 0) {
-                    log(`ℹ️ [${unit.name}] Нет врагов в радиусе ${targetDistance} гексов.`);
-                    return;
-                }
-                
-                // Находим ближайшего врага
-                let closestEnemy = null;
-                let minDist = Infinity;
-                enemies.forEach(e => {
-                    const dist = getOpHexDistance(unit.col, unit.row, e.col, e.row);
-                    if (dist < minDist) {
-                        minDist = dist;
-                        closestEnemy = e;
-                    }
-                });
-                
-                if (closestEnemy && canUnitShoot(unit)) {
-                    const dist = getOpHexDistance(unit.col, unit.row, closestEnemy.col, closestEnemy.row);
-                    
-                    // Логируем начало стрельбы
-                    log(`🎯 [${unit.name}] Огонь по готовности! Цель: ${closestEnemy.name} (дистанция ${dist} гексов)`);
-                    
-                    // Настраиваем состояние обстрела
-                    opShootingState.shooter = unit;
-                    opShootingState.targets = [closestEnemy];
-                    opShootingState.weaponType = 'mg';
-                    
-                    // Выполняем обстрел
-                    executeOpShoot([closestEnemy], dist);
-                }
-            }
-        });
-    }
+// 4. ⚡ АВТОМАТИЧЕСКАЯ СТРЕЛЬБА - ТОЛЬКО ПО ПРИКАЗУ "ОГОНЬ ПО ГОТОВНОСТИ"
     
     renderActiveOrders();
 }
@@ -11083,7 +11026,7 @@ function executeMoveOrder(unit, order) {
 function executeFireAtWillOrder(unit, order) {
     const targetDistance = order.targetDistance || 3;
     
-    // Ищем врагов в радиусе (включая гекс с врагом)
+    // ⚡ ИЩЕМ ВРАГОВ, ИСКЛЮЧАЯ ПЕХОТУ В ТАКТИЧЕСКОМ БОЮ
     const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
         e.col !== null && e.row !== null &&
         getOpHexDistance(unit.col, unit.row, e.col, e.row) <= targetDistance &&
@@ -11094,10 +11037,26 @@ function executeFireAtWillOrder(unit, order) {
         return;
     }
     
-    // Находим ближайшего врага
+    // ⚡ ФИЛЬТРУЕМ ЦЕЛИ: исключаем пехоту в тактическом бою, но бронетехнику можно
+    const validTargets = enemies.filter(e => {
+        // Если это бронетехника - всегда цель
+        if (isArmoredUnit(e)) {
+            return true;
+        }
+        // Если это пехота - проверяем, не в бою ли она
+        return !e.isInBattle;
+    });
+    
+    if (validTargets.length === 0) {
+        // Все цели в тактическом бою - не стреляем
+        log(`ℹ️ [${unit.name}] Все враги в радиусе ${targetDistance} гексов находятся в тактическом бою.`);
+        return;
+    }
+    
+    // Находим ближайшего врага среди валидных целей
     let closestEnemy = null;
     let minDist = Infinity;
-    enemies.forEach(e => {
+    validTargets.forEach(e => {
         const dist = getOpHexDistance(unit.col, unit.row, e.col, e.row);
         if (dist < minDist) {
             minDist = dist;
@@ -11106,18 +11065,25 @@ function executeFireAtWillOrder(unit, order) {
     });
     
     if (closestEnemy && unit.ap > 0) {
-        // Дистанция в гексах (0 = тот же гекс, 1 = соседний, 2 = через один, 3 = через два)
         const dist = getOpHexDistance(unit.col, unit.row, closestEnemy.col, closestEnemy.row);
-        log(`🎯 ${unit.name} открывает огонь по ${closestEnemy.name} (дистанция ${dist} гексов).`);
+        
+        // Проверяем, может ли юнит стрелять
+        if (!canUnitShoot(unit)) {
+            log(`❌ [${unit.name}] Не может стрелять (нет оружия или в тактическом бою).`);
+            return;
+        }
+        
+        log(`🎯 [${unit.name}] Огонь по готовности! Цель: ${closestEnemy.name} (дистанция ${dist} гексов)`);
         
         // Настраиваем состояние обстрела
         opShootingState.shooter = unit;
         opShootingState.targets = [closestEnemy];
         opShootingState.weaponType = 'mg';
         
-        // ВЫЗЫВАЕМ ОБСТРЕЛ С ПЕРЕДАЧЕЙ ДИСТАНЦИИ
+        // Выполняем обстрел
         executeOpShoot([closestEnemy], dist);
     }
+}
 }
 
 function executeReconOrder(unit, order) {
@@ -13264,7 +13230,7 @@ function startOpShooting() {
 
 // Проверка, может ли юнит стрелять
 function canUnitShoot(unit) {
-    // ⚡ НОВАЯ ПРОВЕРКА: если юнит в тактическом бою - не может стрелять
+    // ⚡ ПРОВЕРКА: если юнит в тактическом бою - не может стрелять
     if (unit.isInBattle) {
         return false;
     }
@@ -13284,7 +13250,6 @@ function canUnitShoot(unit) {
                     if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') continue;
                     const cw = getFactionCrewWeapons(squad.faction).find(w => w.name === ci.weaponName);
                     if (cw && (cw.type === 'mg' || cw.type === 'at_gun' || cw.type === 'tank_gun' || cw.type === 'mortar')) {
-                        // Проверяем, есть ли живые бойцы в расчете
                         const alive = ci.fighterIndices.filter(idx => 
                             squad.fighters[idx] && squad.fighters[idx].hp > 0
                         ).length;
@@ -13492,7 +13457,12 @@ function executeOpShoot(targets, distance) {
         }
     }
     
-        // Применяем урон ко всем целям на гексе
+    // ⚡ ИТОГОВЫЙ УРОН - ОБЯЗАТЕЛЬНО ОБЪЯВЛЯЕМ
+    let finalDamage = Math.ceil(totalDamage * distanceMod * terrainMod);
+    const randomFactor = 0.8 + (Math.random() * 0.4);
+    finalDamage = Math.max(1, Math.round(finalDamage * randomFactor));
+    
+    // Применяем урон ко всем целям на гексе
     let totalKilled = 0;
     let totalApplied = 0;
     
@@ -13510,19 +13480,19 @@ function executeOpShoot(targets, distance) {
     saveData();
     redrawOperationalMap();
     
-    // ⚡ СОЗДАЁМ ПОДРОБНОЕ СООБЩЕНИЕ ДЛЯ ЛОГА
+    // СОЗДАЁМ ПОДРОБНОЕ СООБЩЕНИЕ ДЛЯ ЛОГА
     const shooterName = shooter.name || 'Неизвестный отряд';
     const targetNames = infantryTargets.map(t => t.name || 'враг').join(', ');
     const logMessage = `🔫 [${shooterName}] Обстрелял: ${targetNames} | Дистанция: ${distance} гексов | Урон: ${totalApplied} | Убито: ${totalKilled}`;
     
-    // ⚡ ЛОГИРУЕМ В ОБА МЕСТА (тактический лог и операционный лог)
+    // ЛОГИРУЕМ В ОБА МЕСТА
     log(logMessage);
     
-    // ⚡ ПОКАЗЫВАЕМ В ИНФОРМАЦИОННОЙ ПАНЕЛИ
+    // ПОКАЗЫВАЕМ В ИНФОРМАЦИОННОЙ ПАНЕЛИ
     document.getElementById('mapInfo').innerHTML = logMessage;
     document.getElementById('mapInfo').style.color = '#27ae60';
     
-    // ⚡ ПОКАЗЫВАЕМ ВСПЛЫВАЮЩЕЕ УВЕДОМЛЕНИЕ
+    // ПОКАЗЫВАЕМ ВСПЛЫВАЮЩЕЕ УВЕДОМЛЕНИЕ
     showShootNotification(shooterName, targetNames, distance, totalApplied, totalKilled);
     
     // Показываем результат в модальном окне
