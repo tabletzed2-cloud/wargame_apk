@@ -1472,6 +1472,22 @@ function hasOpTerrain(col, row, terrainType) {
   return getOpHexTypes(col, row).includes(terrainType);
 }
       
+
+function getOpHexNeighbors(col, row) {
+  const parity = row % 2;
+  const offsets = parity === 0
+    ? [[1,0], [0,1], [-1,1], [-1,0], [-1,-1], [0,-1]]
+    : [[1,0], [1,1], [0,1], [-1,0], [0,-1], [1,-1]];
+  const neighbors = [];
+  for (let [dc, dr] of offsets) {
+    const nc = col + dc;
+    const nr = row + dr;
+    if (nc >= 0 && nc < OP_MAP_COLS && nr >= 0 && nr < OP_MAP_ROWS) {
+      neighbors.push({ col: nc, row: nr });
+    }
+  }
+  return neighbors;
+}
 function redrawOperationalMap() {
     if (appData.campaign.opMapMode !== 'selectTarget') {
         clearEnemyHighlight();
@@ -1934,23 +1950,6 @@ function redrawOperationalMap() {
     updateVehiclePanel();
     updateVehicleGroupInfo();
 }
-
-function getOpHexNeighbors(col, row) {
-  const parity = row % 2;
-  const offsets = parity === 0
-    ? [[1,0], [0,1], [-1,1], [-1,0], [-1,-1], [0,-1]]
-    : [[1,0], [1,1], [0,1], [-1,0], [0,-1], [1,-1]];
-  const neighbors = [];
-  for (let [dc, dr] of offsets) {
-    const nc = col + dc;
-    const nr = row + dr;
-    if (nc >= 0 && nc < OP_MAP_COLS && nr >= 0 && nr < OP_MAP_ROWS) {
-      neighbors.push({ col: nc, row: nr });
-    }
-  }
-  return neighbors;
-}
-
 function handleOpMapClick(e) {
   const canvas = document.getElementById('opMapCanvas');
   if (!canvas) return;
@@ -2739,199 +2738,6 @@ function drawOperationalHex(ctx, x, y, size, type) {
   ctx.stroke();
 }
 
-function drawOperationalUnits(ctx) {
-    const size = OP_HEX_SIZE * (appData.campaign.opZoomLevel || 1);
-    const iconRadius = 18 * (appData.campaign.opZoomLevel || 1);
-    
-    function drawUnit(unit, isEnemy = false, offsetX = 0, offsetY = 0) {
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
-        const x = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
-        const y = unit.row * 1.5 * size + size;
-        const drawX = x + offsetX;
-        const drawY = y + offsetY;
-        const radius = 18 * (appData.campaign.opZoomLevel || 1);
-
-        ctx.fillStyle = isEnemy ? '#555' : '#c0392b';
-        ctx.strokeStyle = isEnemy ? '#e74c3c' : '#fff';
-        ctx.lineWidth = 2;
-        ctx.font = '10px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        // Отрисовка группы техники
-        if (unit.isGroup && unit.groupSize > 1) {
-            const count = unit.groupSize;
-            const iconUrl = getGroupIcon(unit);
-            
-            if (iconUrl) {
-                let img = loadedOpUnitIcons[iconUrl];
-                if (!img) {
-                    img = new Image();
-                    img.src = iconUrl;
-                    loadedOpUnitIcons[iconUrl] = img;
-                }
-                
-                if (img.complete && img.naturalWidth > 0) {
-                    const iconSize = radius * 2.2;
-                    ctx.drawImage(img, drawX - iconSize/2, drawY - iconSize/2, iconSize, iconSize);
-                } else {
-                    img.onload = () => redrawOperationalMap();
-                    ctx.fillStyle = '#c0392b';
-                    ctx.beginPath();
-                    ctx.arc(drawX, drawY, radius, 0, 2 * Math.PI);
-                    ctx.fill();
-                    ctx.fillStyle = '#fff';
-                    ctx.font = `bold ${radius * 0.7}px Arial`;
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(`×${count}`, drawX, drawY);
-                }
-            } else {
-                ctx.fillStyle = '#c0392b';
-                ctx.strokeStyle = '#fff';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(drawX, drawY, radius, 0, 2 * Math.PI);
-                ctx.fill();
-                ctx.stroke();
-                ctx.fillStyle = '#fff';
-                ctx.font = `bold ${radius * 0.8}px Arial`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(`×${count}`, drawX, drawY);
-            }
-            
-            ctx.fillStyle = '#fff';
-            ctx.font = `${radius * 0.4}px Arial`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'bottom';
-            let shortName = unit.name;
-            if (shortName.length > 12) shortName = shortName.substring(0, 12) + '...';
-            ctx.fillText(shortName, drawX, drawY + radius + 8);
-            
-            ctx.fillStyle = '#fff';
-            ctx.font = `${radius * 0.35}px Arial`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'bottom';
-            let displayAP = unit.ap;
-            if (displayAP > 0 && displayAP < 0.5) {
-                displayAP = 0;
-            } else {
-                displayAP = Math.round(displayAP * 10) / 10;
-            }
-            ctx.fillText(`ОД:${displayAP}`, drawX, drawY - radius - 10);
-            
-            if (!isEnemy && unit === appData.campaign.selectedOpUnit) {
-                ctx.strokeStyle = '#00ff00';
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.arc(drawX, drawY, radius + 6, 0, 2 * Math.PI);
-                ctx.stroke();
-            }
-            
-            if (unit.embarkedUnit) {
-                ctx.fillStyle = '#00ff00';
-                ctx.font = '12px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'top';
-                ctx.fillText('👥', drawX, drawY - radius - 22);
-            }
-            
-            return;
-        }
-        
-        // Если это БТР и в нем есть пехота — рисуем значок
-        if (unit.embarkedUnit) {
-            ctx.fillStyle = '#00ff00';
-            ctx.font = '12px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'top';
-            ctx.fillText('👥', drawX, drawY - radius - 16);
-        }
-        
-        // Рисуем стандартную фигуру
-        switch (unit.type) {
-            case 'battalion_hq':
-                ctx.beginPath();
-                ctx.moveTo(drawX, drawY - radius);
-                ctx.lineTo(drawX + radius/2, drawY);
-                ctx.lineTo(drawX, drawY + radius);
-                ctx.lineTo(drawX - radius/2, drawY);
-                ctx.closePath();
-                ctx.fill();
-                ctx.stroke();
-                break;
-            case 'company_hq':
-                ctx.beginPath();
-                ctx.rect(drawX - radius/2, drawY - radius/2, radius, radius);
-                ctx.fill();
-                ctx.stroke();
-                break;
-            case 'mortar_battery':
-                ctx.beginPath();
-                ctx.moveTo(drawX, drawY - radius);
-                ctx.lineTo(drawX + radius, drawY + radius);
-                ctx.lineTo(drawX - radius, drawY + radius);
-                ctx.closePath();
-                ctx.fill();
-                ctx.stroke();
-                break;
-            case 'vehicle':
-            case 'tank_platoon':
-            case 'btr_platoon':
-            case 'sau_battery':
-            case 'at_gun':
-            case 'armored_vehicle_platoon':
-                ctx.beginPath();
-                ctx.moveTo(drawX, drawY - radius);
-                ctx.lineTo(drawX + radius, drawY);
-                ctx.lineTo(drawX, drawY + radius);
-                ctx.lineTo(drawX - radius, drawY);
-                ctx.closePath();
-                ctx.fill();
-                ctx.stroke();
-                break;
-            default:
-                ctx.beginPath();
-                ctx.arc(drawX, drawY, radius, 0, 2 * Math.PI);
-                ctx.fill();
-                ctx.stroke();
-                break;
-        }
-
-        // Если есть иконка, рисуем её поверх фигуры
-        if (unit.icon) {
-            let img = loadedOpUnitIcons[unit.icon];
-            if (!img) {
-                img = new Image();
-                img.src = unit.icon;
-                loadedOpUnitIcons[unit.icon] = img;
-            }
-            if (img.complete && img.naturalWidth > 0) {
-                ctx.drawImage(img, drawX - radius, drawY - radius, radius * 2, radius * 2);
-            } else {
-                img.onload = () => redrawOperationalMap();
-            }
-        }
-        
-        if (unit.isAmbush) {
-            ctx.fillStyle = '#9b59b6';
-            ctx.font = `${size * 0.3}px Arial`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'top';
-            ctx.fillText('🥷', drawX, drawY + radius + 10);
-        }
-        
-        // Подсветка выбранного своего юнита
-        if (!isEnemy && unit === appData.campaign.selectedOpUnit) {
-            ctx.strokeStyle = '#00ff00';
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.arc(drawX, drawY, radius + 6, 0, 2 * Math.PI);
-            ctx.stroke();
-            ctx.fillStyle = 'rgba(0,255,0,0.2)';
   
 document.getElementById('mainMenu').style.display = 'block';
 document.getElementById('battleApp').style.display = 'none';
@@ -15636,7 +15442,6 @@ log = function(msg) {
     }
 };
 // ⚡ ФУНКЦИЯ ДЛЯ ОТРИСОВКИ МАРШРУТА ПРИКАЗА
-// ⚡ ФУНКЦИЯ ДЛЯ ОТРИСОВКИ МАРШРУТА ПРИКАЗА
 function drawOrderRoute(ctx, size) {
     if (!orderWaypoints || orderWaypoints.length === 0) return;
     
@@ -15696,7 +15501,356 @@ function drawOrderRoute(ctx, size) {
     });
     
     ctx.restore();
-}     
+}  
+function drawOperationalUnits(ctx) {
+    const size = OP_HEX_SIZE * (appData.campaign.opZoomLevel || 1);
+    const iconRadius = 18 * (appData.campaign.opZoomLevel || 1);
+    
+    function drawUnit(unit, isEnemy = false, offsetX = 0, offsetY = 0) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
+        const x = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+        const y = unit.row * 1.5 * size + size;
+        const drawX = x + offsetX;
+        const drawY = y + offsetY;
+        const radius = 18 * (appData.campaign.opZoomLevel || 1);
+
+        ctx.fillStyle = isEnemy ? '#555' : '#c0392b';
+        ctx.strokeStyle = isEnemy ? '#e74c3c' : '#fff';
+        ctx.lineWidth = 2;
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // Отрисовка группы техники
+        if (unit.isGroup && unit.groupSize > 1) {
+            const count = unit.groupSize;
+            const iconUrl = getGroupIcon(unit);
+            
+            if (iconUrl) {
+                let img = loadedOpUnitIcons[iconUrl];
+                if (!img) {
+                    img = new Image();
+                    img.src = iconUrl;
+                    loadedOpUnitIcons[iconUrl] = img;
+                }
+                
+                if (img.complete && img.naturalWidth > 0) {
+                    const iconSize = radius * 2.2;
+                    ctx.drawImage(img, drawX - iconSize/2, drawY - iconSize/2, iconSize, iconSize);
+                } else {
+                    img.onload = () => redrawOperationalMap();
+                    ctx.fillStyle = '#c0392b';
+                    ctx.beginPath();
+                    ctx.arc(drawX, drawY, radius, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.fillStyle = '#fff';
+                    ctx.font = `bold ${radius * 0.7}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(`×${count}`, drawX, drawY);
+                }
+            } else {
+                ctx.fillStyle = '#c0392b';
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(drawX, drawY, radius, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.stroke();
+                ctx.fillStyle = '#fff';
+                ctx.font = `bold ${radius * 0.8}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(`×${count}`, drawX, drawY);
+            }
+            
+            ctx.fillStyle = '#fff';
+            ctx.font = `${radius * 0.4}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            let shortName = unit.name;
+            if (shortName.length > 12) shortName = shortName.substring(0, 12) + '...';
+            ctx.fillText(shortName, drawX, drawY + radius + 8);
+            
+            ctx.fillStyle = '#fff';
+            ctx.font = `${radius * 0.35}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            let displayAP = unit.ap;
+            if (displayAP > 0 && displayAP < 0.5) {
+                displayAP = 0;
+            } else {
+                displayAP = Math.round(displayAP * 10) / 10;
+            }
+            ctx.fillText(`ОД:${displayAP}`, drawX, drawY - radius - 10);
+            
+            if (!isEnemy && unit === appData.campaign.selectedOpUnit) {
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(drawX, drawY, radius + 6, 0, 2 * Math.PI);
+                ctx.stroke();
+            }
+            
+            if (unit.embarkedUnit) {
+                ctx.fillStyle = '#00ff00';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillText('👥', drawX, drawY - radius - 22);
+            }
+            
+            return;
+        }
+        
+        // Если это БТР и в нем есть пехота — рисуем значок
+        if (unit.embarkedUnit) {
+            ctx.fillStyle = '#00ff00';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText('👥', drawX, drawY - radius - 16);
+        }
+        
+        // Рисуем стандартную фигуру
+        switch (unit.type) {
+            case 'battalion_hq':
+                ctx.beginPath();
+                ctx.moveTo(drawX, drawY - radius);
+                ctx.lineTo(drawX + radius/2, drawY);
+                ctx.lineTo(drawX, drawY + radius);
+                ctx.lineTo(drawX - radius/2, drawY);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                break;
+            case 'company_hq':
+                ctx.beginPath();
+                ctx.rect(drawX - radius/2, drawY - radius/2, radius, radius);
+                ctx.fill();
+                ctx.stroke();
+                break;
+            case 'mortar_battery':
+                ctx.beginPath();
+                ctx.moveTo(drawX, drawY - radius);
+                ctx.lineTo(drawX + radius, drawY + radius);
+                ctx.lineTo(drawX - radius, drawY + radius);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                break;
+            case 'vehicle':
+            case 'tank_platoon':
+            case 'btr_platoon':
+            case 'sau_battery':
+            case 'at_gun':
+            case 'armored_vehicle_platoon':
+                ctx.beginPath();
+                ctx.moveTo(drawX, drawY - radius);
+                ctx.lineTo(drawX + radius, drawY);
+                ctx.lineTo(drawX, drawY + radius);
+                ctx.lineTo(drawX - radius, drawY);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                break;
+            default:
+                ctx.beginPath();
+                ctx.arc(drawX, drawY, radius, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.stroke();
+                break;
+        }
+
+        // Если есть иконка, рисуем её поверх фигуры
+        if (unit.icon) {
+            let img = loadedOpUnitIcons[unit.icon];
+            if (!img) {
+                img = new Image();
+                img.src = unit.icon;
+                loadedOpUnitIcons[unit.icon] = img;
+            }
+            if (img.complete && img.naturalWidth > 0) {
+                ctx.drawImage(img, drawX - radius, drawY - radius, radius * 2, radius * 2);
+            } else {
+                img.onload = () => redrawOperationalMap();
+            }
+        }
+        
+        if (unit.isAmbush) {
+            ctx.fillStyle = '#9b59b6';
+            ctx.font = `${size * 0.3}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText('🥷', drawX, drawY + radius + 10);
+        }
+        
+        // Подсветка выбранного своего юнита
+        if (!isEnemy && unit === appData.campaign.selectedOpUnit) {
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(drawX, drawY, radius + 6, 0, 2 * Math.PI);
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(0,255,0,0.2)';
+            ctx.fill();
+        }
+        
+        if (!isEnemy) {
+            if (unit.detected) {
+                ctx.fillStyle = '#e74c3c';
+                ctx.beginPath();
+                ctx.arc(drawX + radius, drawY - radius, 4, 0, 2 * Math.PI);
+                ctx.fill();
+            } else if (unit.noiseMarker) {
+                ctx.fillStyle = '#f39c12';
+                ctx.beginPath();
+                ctx.arc(drawX + radius, drawY - radius, 4, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+        }
+        
+        // Подсветка выбранного врага
+        if (isEnemy && unit === appData.campaign.selectedEnemyOpUnit) {
+            ctx.strokeStyle = '#ffff00';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(drawX, drawY, radius + 6, 0, 2 * Math.PI);
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(255,255,0,0.2)';
+            ctx.fill();
+        }
+        
+        // Подпись (первые 3 буквы)
+        ctx.fillStyle = '#fff';
+        ctx.fillText(unit.name.substring(0, 3), drawX, drawY);
+
+        // Подсветка красным для выбранной цели обстрела
+        if (isEnemy && unit._highlighted) {
+            ctx.strokeStyle = '#ff0000';
+            ctx.lineWidth = 6;
+            ctx.shadowColor = '#ff0000';
+            ctx.shadowBlur = 20;
+            ctx.beginPath();
+            ctx.arc(drawX, drawY, radius + 10, 0, 2 * Math.PI);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
+            ctx.lineWidth = 10;
+            ctx.beginPath();
+            ctx.arc(drawX, drawY, radius + 16, 0, 2 * Math.PI);
+            ctx.stroke();
+        }
+        
+        // ОД
+        ctx.fillStyle = isEnemy ? '#ffcc00' : '#fff';
+        ctx.font = `${size * 0.2}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        let displayAP = unit.ap;
+        if (displayAP > 0 && displayAP < 0.5) {
+            displayAP = 0;
+        } else {
+            displayAP = Math.round(displayAP * 10) / 10;
+        }
+        ctx.fillText(`ОД:${displayAP}`, drawX, drawY - radius - 2);
+        
+        // Пометка рации
+        if (hardMode.enabled && !isEnemy && hardMode.signalPlatoon && hardMode.signalPlatoon.radios && 
+            hardMode.signalPlatoon.radios.assigned.some(r => appData.campaign.opUnits[r.unitId] === unit)) {
+            ctx.fillStyle = '#3498db';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText('📻', drawX + radius, drawY - radius - 10);
+        }
+        
+        // Проверка, в бою ли юнит
+        const inBattle = appData.campaign.activeBattles.some(b => {
+            if (b.hexKey !== `${unit.col},${unit.row}`) return false;
+            return b.playerSquads.some(s => s.name === unit.name);
+        });
+        if (inBattle) {
+            ctx.strokeStyle = '#ff0000';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(drawX, drawY, radius + 4, 0, 2 * Math.PI);
+            ctx.stroke();
+            ctx.fillStyle = '#ff0000';
+            ctx.font = '14px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText('⚔️', drawX, drawY - radius - 8);
+        }
+        
+        // Проверка, в бою ли юнит (враг)
+        if (isEnemy) {
+            const inBattle = appData.campaign.activeBattles.some(b => b.enemyUnitName === unit.name);
+            if (inBattle) {
+                ctx.strokeStyle = '#ff0000';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(drawX, drawY, radius + 4, 0, 2 * Math.PI);
+                ctx.stroke();
+                ctx.fillStyle = '#ff0000';
+                ctx.font = '14px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText('⚔️', drawX, drawY - radius - 8);
+            }
+        }
+        
+        if (unit.isDefending) {
+            ctx.fillStyle = '#3498db';
+            ctx.font = `${size * 0.3}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText('🛡️', drawX, drawY + radius + 10);
+        }
+    }
+    
+    // Функция для группировки юнитов на одном гексе
+    function drawGroupedUnits(units, isEnemy) {
+        if (!units) return;
+        
+        const groupedByHex = new Map();
+        units.forEach(unit => {
+            if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
+            const key = `${unit.col},${unit.row}`;
+            if (!groupedByHex.has(key)) {
+                groupedByHex.set(key, []);
+            }
+            groupedByHex.get(key).push(unit);
+        });
+        
+        groupedByHex.forEach((group) => {
+            const [col, row] = group[0].col !== undefined ? [group[0].col, group[0].row] : [0, 0];
+            const baseX = col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+            const baseY = row * 1.5 * size + size;
+            
+            if (group.length === 1) {
+                drawUnit(group[0], isEnemy, 0, 0);
+            } else {
+                const angleStep = (2 * Math.PI) / group.length;
+                const offsetDist = 25 * (appData.campaign.opZoomLevel || 1);
+                
+                group.forEach((unit, idx) => {
+                    const offsetX = Math.cos(idx * angleStep) * offsetDist;
+                    const offsetY = Math.sin(idx * angleStep) * offsetDist;
+                    drawUnit(unit, isEnemy, offsetX, offsetY);
+                });
+            }
+        });
+    }
+
+    // Рисуем только один раз
+    drawGroupedUnits(appData.campaign.opUnits, false);
+    drawGroupedUnits(appData.campaign.enemyOpUnits, true);
+}
+      
   </script> 
   
  <div id="awardsTab" class="tabcontent">
