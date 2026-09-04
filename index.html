@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.199 — карта  </title>
+  <title>Боевой модуль v12.200 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.199</h1>
+    <h1>⚔️ Боевой модуль v12.200</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.199 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.200 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -10631,19 +10631,33 @@ function endOperationalTurn() {
     if (appData.campaign.opUnits) {
         appData.campaign.opUnits.forEach(u => {
             u.ap = u.maxAp;
+            u.movedThisTurn = false; // Сбрасываем флаг движения
         });
     }
     if (appData.campaign.enemyOpUnits) {
         appData.campaign.enemyOpUnits.forEach(u => {
             u.ap = u.maxAp;
+            u.movedThisTurn = false;
         });
     }
+    
+    // Обрабатываем приказы (Hard Mode)
     if (hardMode.enabled) {
         processOrders();
     }
+    
+    // ⚡ ОБЯЗАТЕЛЬНО ОБНОВЛЯЕМ КАРТУ
     saveData();
-    redrawOperationalMap();
+    redrawOperationalMap();  // <--- ЭТО ГЛАВНОЕ
     updateOperationalTimeDisplay();
+    renderActiveBattlesList();
+    updateOpPlaceSelect();
+    updateDismountPanel();
+    updateBtrPanel();
+    updateVehiclePanel();
+    
+    // Логируем новый ход
+    log(`⏳ Ход ${appData.campaign.currentTurn} начался. Время: ${formatTime(appData.campaign.currentTime)}`);
 }
 function processOrders() {
     // 1. Обрабатываем доставку приказов (посыльные)
@@ -10895,84 +10909,266 @@ function executeOrder(order) {
         }
     }
 }
-  function executeSeriesOrder(unit, order) {
+function executeSeriesOrder(unit, order) {
     if (!order.series || order.series.length === 0) {
         order.status = 'cancelled';
+        log(`❌ [${unit.name}] Серия приказов пуста.`);
         return;
     }
     
-    // Берем первый приказ из серии
-    const currentAction = order.series[0];
+    // ⚡ ПРОВЕРЯЕМ: если юнит в тактическом бою - отменяем серию
+    if (unit.isInBattle) {
+        order.status = 'cancelled';
+        log(`❌ [${unit.name}] Серия приказов отменена: юнит в тактическом бою.`);
+        return;
+    }
     
-    // Проверяем, не завершен ли уже этот приказ
-    if (currentAction.status === 'completed') {
-        // Переходим к следующему
+    // ⚡ ПРОВЕРЯЕМ: если юнит уничтожен - отменяем
+    if (unit.isDestroyed) {
+        order.status = 'cancelled';
+        log(`❌ [${unit.name}] Серия приказов отменена: юнит уничтожен.`);
+        return;
+    }
+    
+    // ⚡ ПРОВЕРЯЕМ: есть ли у юнита ОД
+    if (unit.ap <= 0) {
+        log(`⏳ [${unit.name}] Нет ОД для выполнения серии приказов. Ожидание следующего хода.`);
+        return; // Не отменяем, просто ждем следующий ход
+    }
+    
+    // Берем первый приказ из серии
+    let currentAction = order.series[0];
+    
+    // Если приказ уже завершен - переходим к следующему
+    while (currentAction && currentAction.status === 'completed') {
         order.series.shift();
         if (order.series.length === 0) {
             order.status = 'completed';
             log(`✅ [${unit.name}] Все приказы серии выполнены.`);
+            saveData();
+            redrawOperationalMap();
             return;
         }
-        // Продолжаем с новым первым приказом
         currentAction = order.series[0];
     }
     
-    // Выполняем текущий приказ
+    if (!currentAction) {
+        order.status = 'completed';
+        log(`✅ [${unit.name}] Все приказы серии выполнены.`);
+        saveData();
+        redrawOperationalMap();
+        return;
+    }
+    
+    // ⚡ ЛОГИРУЕМ ТЕКУЩИЙ ПРИКАЗ
+    const typeNames = {
+        'move': '🚶 Движение',
+        'attack': '⚔️ Атака',
+        'defend': '🛡️ Оборона',
+        'recon': '🔍 Разведка',
+        'hold': '✋ Удержание',
+        'retreat': '🏃 Отступление',
+        'fire_at_will': '🎯 Огонь по готовности',
+        'shoot_at': '💥 Стрельба по бронетехнике',
+        'shoot': '💥 Обстрел',
+        'dismount': '🚲 Спешиться',
+        'remount': '🚲 Сесть на велосипеды',
+        'ambush': '🥷 Засада'
+    };
+    log(`📋 [${unit.name}] Выполняется приказ: ${typeNames[currentAction.type] || currentAction.type}`);
+    
+    // Выполняем текущий приказ в зависимости от типа
     switch (currentAction.type) {
-        case 'move':
+        case 'move': {
             // Для движения проверяем, достиг ли юнит цели
-            if (unit.col === currentAction.targetCol && unit.row === currentAction.targetRow) {
-                currentAction.status = 'completed';
-                log(`✅ [${unit.name}] Достиг цели (${currentAction.targetCol},${currentAction.targetRow})`);
+            let targetCol, targetRow;
+            if (currentAction.targetHex) {
+                const [c, r] = currentAction.targetHex.split(',').map(Number);
+                targetCol = c;
+                targetRow = r;
+            } else if (currentAction.waypoints && currentAction.waypoints.length > 0) {
+                const last = currentAction.waypoints[currentAction.waypoints.length - 1];
+                targetCol = last.col;
+                targetRow = last.row;
             } else {
-                executeMoveOrder(unit, currentAction);
-                // Если юнит уже на месте, помечаем как завершенный
-                if (unit.col === currentAction.targetCol && unit.row === currentAction.targetRow) {
-                    currentAction.status = 'completed';
-                }
+                currentAction.status = 'cancelled';
+                log(`❌ [${unit.name}] Нет цели для движения.`);
+                break;
+            }
+            
+            // Если юнит уже на месте
+            if (unit.col === targetCol && unit.row === targetRow) {
+                currentAction.status = 'completed';
+                log(`✅ [${unit.name}] Достиг цели (${targetCol},${targetRow})`);
+                break;
+            }
+            
+            // Выполняем движение
+            executeMoveOrder(unit, currentAction);
+            
+            // Проверяем, достиг ли юнит цели после движения
+            if (unit.col === targetCol && unit.row === targetRow) {
+                currentAction.status = 'completed';
+                log(`✅ [${unit.name}] Достиг цели (${targetCol},${targetRow})`);
+            } else if (unit.ap <= 0) {
+                log(`⏳ [${unit.name}] ОД закончились. Продолжение в следующем ходу.`);
             }
             break;
-        case 'attack':
-            executeAttackOrder(unit, currentAction);
+        }
+        
+        case 'attack': {
+            // Атака выполняется до тех пор, пока не будет боя
+            if (!currentAction.targetHex) {
+                currentAction.status = 'cancelled';
+                log(`❌ [${unit.name}] Нет цели для атаки.`);
+                break;
+            }
+            
+            // Проверяем, есть ли враг на текущем гексе
+            const enemiesHere = (appData.campaign.enemyOpUnits || []).filter(e => 
+                e.col === unit.col && e.row === unit.row && !e.isDestroyed
+            );
+            
+            if (enemiesHere.length > 0) {
+                // Враг есть - начинаем бой
+                currentAction.status = 'completed';
+                log(`⚔️ [${unit.name}] Вступил в бой с врагом!`);
+                startTacticalBattle([unit], enemiesHere);
+                break;
+            }
+            
+            // Двигаемся к цели
+            if (unit.ap > 0) {
+                const [targetCol, targetRow] = currentAction.targetHex.split(',').map(Number);
+                
+                // Если юнит уже на целевом гексе, но врага нет - завершаем
+                if (unit.col === targetCol && unit.row === targetRow) {
+                    currentAction.status = 'completed';
+                    log(`ℹ️ [${unit.name}] Прибыл на целевой гекс, но врага нет.`);
+                    break;
+                }
+                
+                // Двигаемся к цели
+                const route = getRouteToTarget(unit.col, unit.row, targetCol, targetRow);
+                if (route.length === 0) {
+                    currentAction.status = 'cancelled';
+                    log(`❌ [${unit.name}] Нет маршрута к цели.`);
+                    break;
+                }
+                
+                const nextStep = route[0];
+                const moveCost = getOpMoveCost(unit, unit.col, unit.row, nextStep.col, nextStep.row);
+                
+                if (moveCost === Infinity) {
+                    currentAction.status = 'cancelled';
+                    log(`❌ [${unit.name}] Не может пройти через гекс (${nextStep.col},${nextStep.row}).`);
+                    break;
+                }
+                
+                if (unit.ap >= moveCost) {
+                    // Проверяем врага на следующем гексе
+                    const enemiesOnNext = (appData.campaign.enemyOpUnits || []).filter(e => 
+                        e.col === nextStep.col && e.row === nextStep.row && !e.isDestroyed
+                    );
+                    
+                    if (enemiesOnNext.length > 0) {
+                        unit.ap -= moveCost;
+                        unit.col = nextStep.col;
+                        unit.row = nextStep.row;
+                        currentAction.status = 'completed';
+                        log(`⚔️ [${unit.name}] Встретил врага на пути!`);
+                        startTacticalBattle([unit], enemiesOnNext);
+                        break;
+                    }
+                    
+                    // Перемещаемся
+                    unit.ap -= moveCost;
+                    unit.col = nextStep.col;
+                    unit.row = nextStep.row;
+                    unit.movedThisTurn = true;
+                    log(`🚶 [${unit.name}] Движется к цели. Текущая позиция: (${unit.col},${unit.row})`);
+                    
+                    // Если достигли цели
+                    if (unit.col === targetCol && unit.row === targetRow) {
+                        // Проверяем врага на целевом гексе
+                        const enemiesAtTarget = (appData.campaign.enemyOpUnits || []).filter(e => 
+                            e.col === targetCol && e.row === targetRow && !e.isDestroyed
+                        );
+                        if (enemiesAtTarget.length > 0) {
+                            currentAction.status = 'completed';
+                            log(`⚔️ [${unit.name}] Достиг цели и атакует врага!`);
+                            startTacticalBattle([unit], enemiesAtTarget);
+                            break;
+                        } else {
+                            currentAction.status = 'completed';
+                            log(`ℹ️ [${unit.name}] Прибыл на целевой гекс, но врага нет.`);
+                            break;
+                        }
+                    }
+                } else {
+                    log(`⏳ [${unit.name}] Не хватает ОД. Нужно: ${moveCost}, есть: ${unit.ap}`);
+                }
+            } else {
+                log(`⏳ [${unit.name}] Нет ОД для движения. Ожидание следующего хода.`);
+            }
             break;
+        }
+        
         case 'dismount':
             executeDismountOrder(unit, currentAction);
             currentAction.status = 'completed';
+            log(`✅ [${unit.name}] Спешился.`);
             break;
+            
         case 'remount':
             executeRemountOrder(unit, currentAction);
             currentAction.status = 'completed';
+            log(`✅ [${unit.name}] Сел на транспорт.`);
             break;
+            
         case 'fire_at_will':
+            // Огонь по готовности выполняется каждый ход
             executeFireAtWillOrder(unit, currentAction);
-            // Огонь по готовности выполняется каждый ход, пока активен
+            // Не завершаем приказ - он активен постоянно
             break;
+            
         case 'shoot_at':
             executeShootAtOrder(unit, currentAction);
             currentAction.status = 'completed';
+            log(`✅ [${unit.name}] Обстрел выполнен.`);
             break;
+            
         case 'recon':
             executeReconOrder(unit, currentAction);
             if (currentAction.status === 'completed') {
-                // Разведка завершена
+                log(`✅ [${unit.name}] Разведка выполнена.`);
             }
             break;
+            
         case 'ambush':
             executeAmbushOrder(unit, currentAction);
             if (currentAction.status === 'completed') {
                 log(`✅ [${unit.name}] Засада устроена.`);
             }
             break;
+            
         case 'defend':
             executeDefendOrder(unit, currentAction);
             currentAction.status = 'completed';
+            log(`✅ [${unit.name}] Занял оборону.`);
             break;
+            
         case 'hold':
             // Удержание позиции - ничего не делаем
+            log(`✋ [${unit.name}] Удерживает позицию.`);
             break;
+            
+        default:
+            log(`❌ [${unit.name}] Неизвестный тип приказа: ${currentAction.type}`);
+            currentAction.status = 'cancelled';
     }
     
-    // Проверяем, завершен ли текущий приказ
+    // ⚡ ПРОВЕРЯЕМ: завершен ли текущий приказ
     if (currentAction.status === 'completed') {
         // Удаляем его из серии
         order.series.shift();
@@ -10980,11 +11176,21 @@ function executeOrder(order) {
             order.status = 'completed';
             log(`✅ [${unit.name}] Все приказы серии выполнены.`);
         } else {
-            log(`📋 [${unit.name}] Переход к следующему приказу серии. Осталось: ${order.series.length}`);
+            log(`📋 [${unit.name}] Переход к следующему приказу. Осталось: ${order.series.length}`);
+        }
+    } else if (currentAction.status === 'cancelled') {
+        // Если приказ отменен - удаляем его и переходим к следующему
+        order.series.shift();
+        log(`❌ [${unit.name}] Приказ отменен. Переход к следующему.`);
+        if (order.series.length === 0) {
+            order.status = 'cancelled';
+            log(`❌ [${unit.name}] Серия приказов отменена.`);
         }
     }
     
+    // ⚡ СОХРАНЯЕМ И ОБНОВЛЯЕМ КАРТУ
     saveData();
+    redrawOperationalMap();
 }
 function executeAmbushOrder(unit, order) {
     if (!order.targetHex) {
