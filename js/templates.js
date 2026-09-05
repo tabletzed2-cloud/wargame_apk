@@ -342,4 +342,4 @@
             {"weaponName": "Танковый пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
           ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
-        ],
+        ];
