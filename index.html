@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.211 — карта  </title>
+  <title>Боевой модуль v12.212 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.211</h1>
+    <h1>⚔️ Боевой модуль v12.212</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.211 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.212 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -11214,15 +11214,19 @@ function executeShootOrder(unit, order) {
     const [targetCol, targetRow] = order.targetHex.split(',').map(Number);
     const distance = getOpHexDistance(unit.col, unit.row, targetCol, targetRow);
     
-    if (distance > 3) {
-        log(`❌ ${unit.name} не может обстрелять (${targetCol},${targetRow}) - слишком далеко (${distance} гексов).`);
+    // ⚡ ДЛЯ САУ МАКСИМАЛЬНАЯ ДИСТАНЦИЯ 10 ГЕКСОВ
+    const isSau = unit.name && unit.name.includes('САУ');
+    const maxRange = isSau ? 10 : 3;
+    
+    if (distance > maxRange) {
+        log(`❌ ${unit.name} не может обстрелять (${targetCol},${targetRow}) - слишком далеко (${distance} гексов, максимум ${maxRange}).`);
         order.status = 'cancelled';
         return;
     }
     
     // Ищем врагов на целевом гексе
     const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
-        e.col === targetCol && e.row === targetRow
+        e.col === targetCol && e.row === targetRow && !e.isDestroyed
     );
     
     if (enemies.length === 0) {
@@ -11231,10 +11235,13 @@ function executeShootOrder(unit, order) {
         return;
     }
     
-        if (unit.ap > 0) {
+    if (unit.ap > 0) {
+        // ⚡ СОХРАНЯЕМ ОД
+        const savedAP = unit.ap;
+        
         // Устанавливаем стрелка
         opShootingState.shooter = unit;
-        opShootingState.weaponType = 'mg'; // или 'at' если есть ПТО
+        opShootingState.weaponType = 'mg';
         opShootingState.targets = enemies;
         
         // Проверяем тип оружия
@@ -11247,10 +11254,13 @@ function executeShootOrder(unit, order) {
             executeOpShoot(enemies, distance);
         }
         
+        // ⚡ ВОССТАНАВЛИВАЕМ ОД
+        unit.ap = savedAP;
+        
         order.status = 'completed';
         log(`✅ ${unit.name} обстрелял гекс (${targetCol},${targetRow}).`);
     }
-       }
+}
 
 function executeDismountOrder(unit, order) {
     if (unit.mobility === 'bicycle' && !unit.dismounted) {
@@ -11594,35 +11604,36 @@ function executeFireAtWillOrder(unit, order) {
         return;
     }
     
-    // Ищем врагов в радиусе
+    console.log(`🔥 executeFireAtWillOrder вызвана для ${unit.name}, ОД: ${unit.ap}`);
+    
+    // ⚡ ИЩЕМ ВРАГОВ В РАДИУСЕ (с учётом типа юнита)
     const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
         e.col !== null && e.row !== null &&
         getOpHexDistance(unit.col, unit.row, e.col, e.row) <= targetDistance &&
         !e.isDestroyed
     );
     
+    console.log(`   Найдено врагов: ${enemies.length}`);
+    
     if (enemies.length === 0) {
         log(`ℹ️ [${unit.name}] Нет врагов в радиусе ${targetDistance} гексов.`);
         return;
     }
     
-    // Фильтруем цели: пехоту в тактическом бою не трогаем, бронетехнику можно
-    const validTargets = enemies.filter(e => {
-        if (isArmoredUnit(e)) {
-            return true;
-        }
-        return !e.isInBattle;
-    });
+    // ⚡ ПРИОРИТЕТ: БРОНЕТЕХНИКА СНАЧАЛА
+    const armorTargets = enemies.filter(e => isArmoredUnit(e));
+    const infantryTargets = enemies.filter(e => !isArmoredUnit(e));
+    const targets = armorTargets.length > 0 ? armorTargets : infantryTargets;
     
-    if (validTargets.length === 0) {
-        log(`ℹ️ [${unit.name}] Все враги в радиусе ${targetDistance} гексов в тактическом бою.`);
+    if (targets.length === 0) {
+        log(`ℹ️ [${unit.name}] Нет подходящих целей.`);
         return;
     }
     
     // Находим ближайшего врага
     let closestEnemy = null;
     let minDist = Infinity;
-    validTargets.forEach(e => {
+    targets.forEach(e => {
         const dist = getOpHexDistance(unit.col, unit.row, e.col, e.row);
         if (dist < minDist) {
             minDist = dist;
@@ -11630,35 +11641,44 @@ function executeFireAtWillOrder(unit, order) {
         }
     });
     
-    if (!closestEnemy || !canUnitShoot(unit)) {
+    console.log(`   Ближайшая цель: ${closestEnemy ? closestEnemy.name : 'нет'}, дистанция: ${minDist}`);
+    
+    if (!closestEnemy) return;
+    
+    // ⚡ ПРОВЕРЯЕМ, МОЖЕТ ЛИ ЮНИТ СТРЕЛЯТЬ
+    if (!canUnitShoot(unit)) {
+        console.log(`   canUnitShoot вернул false для ${unit.name}`);
         log(`❌ [${unit.name}] Не может стрелять (нет оружия).`);
         return;
     }
     
-    const dist = getOpHexDistance(unit.col, unit.row, closestEnemy.col, closestEnemy.row);
-    
-    // Проверяем, есть ли у юнита ПТО для стрельбы по бронетехнике
+    // Проверяем тип оружия
     const hasAtGuns = hasAtGunWeapons(unit);
     const isArmor = isArmoredUnit(closestEnemy);
     
-    log(`🎯 [${unit.name}] Огонь по готовности! Цель: ${closestEnemy.name} (дистанция ${dist} гексов)`);
+    console.log(`   Есть ПТО: ${hasAtGuns}, цель бронирована: ${isArmor}`);
     
+    log(`🎯 [${unit.name}] Огонь по готовности! Цель: ${closestEnemy.name} (дистанция ${minDist} гексов)`);
+    
+    // ⚡ СОХРАНЯЕМ ОД ДО ВЫСТРЕЛА
+    const savedAP = unit.ap;
+    
+    // Выполняем обстрел
     if (hasAtGuns && isArmor) {
-        // Стреляем ПТО по бронетехнике
         opShootingState.shooter = unit;
         opShootingState.targets = [closestEnemy];
         opShootingState.weaponType = 'at';
-        executeOpShootAt([closestEnemy], dist);
+        executeOpShootAt([closestEnemy], minDist);
     } else {
-        // Стреляем по пехоте
         opShootingState.shooter = unit;
         opShootingState.targets = [closestEnemy];
         opShootingState.weaponType = 'mg';
-        executeOpShoot([closestEnemy], dist);
+        executeOpShoot([closestEnemy], minDist);
     }
     
-    // Тратим все ОД на стрельбу
-    unit.ap = 0;
+    // ⚡ ВОССТАНАВЛИВАЕМ ОД ПОСЛЕ ВЫСТРЕЛА
+    unit.ap = savedAP;
+    console.log(`   ОД после стрельбы: ${unit.ap}`);
 }
 
 function executeReconOrder(unit, order) {
@@ -14195,6 +14215,30 @@ function splitVehicleGroup(group) {
         updateBtrPanel();
         renderCommunicationPanel();
     }, 100);
+      // ⚡ УДАЛЯЕМ ПРИКАЗЫ, СВЯЗАННЫЕ С ГРУППОЙ
+    hardMode.orders = hardMode.orders.filter(o => 
+        o.toUnitId !== groupIndex && o.fromUnitId !== groupIndex
+    );
+    hardMode.pendingOrders = hardMode.pendingOrders.filter(o => 
+        o.toUnitId !== groupIndex && o.fromUnitId !== groupIndex
+    );
+    hardMode.orderQueue = hardMode.orderQueue.filter(o => 
+        o.toUnitId !== groupIndex
+    );
+    
+    // ⚡ КОРРЕКТИРУЕМ ИНДЕКСЫ В ПРИКАЗАХ
+    hardMode.orders.forEach(o => {
+        if (o.toUnitId > groupIndex) o.toUnitId--;
+        if (o.fromUnitId > groupIndex) o.fromUnitId--;
+    });
+    hardMode.pendingOrders.forEach(o => {
+        if (o.toUnitId > groupIndex) o.toUnitId--;
+        if (o.fromUnitId > groupIndex) o.fromUnitId--;
+    });
+    
+    // ⚡ ОБНОВЛЯЕМ СПИСОК ПРИКАЗОВ В ИНТЕРФЕЙСЕ
+    renderActiveOrders();
+    renderOrderQueue();
 }
 
 function renameGroup() {
