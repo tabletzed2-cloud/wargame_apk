@@ -1,5 +1,5 @@
 // ==================== ШАБЛОНЫ ОТРЯДОВ ====================
-"templates": [
+const SQUAD_TEMPLATES = [
           {"name":"Пехотное отделение №1 Бельгийцы",
            "faction":"BeVe","subfaction":"belgian","baseMorale":9,"currentMorale":9,"icon":"images/BeVe/отделение бе1 бельг.jpg",
            "fighters":[{"name":"Сержант","weapon":"Автоматическая винтовка Johanson M1941","hp":3,"maxHp":3,"isCommander":true},
@@ -342,4 +342,4 @@
             {"weaponName": "Танковый пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
           ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
-        ]
+        ];
