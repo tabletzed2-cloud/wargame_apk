@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.212 — карта  </title>
+  <title>Боевой модуль v12.213 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.212</h1>
+    <h1>⚔️ Боевой модуль v12.213</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.212 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.213 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -2550,6 +2550,7 @@ if (pickingTargetHex && closestKey) {
     updateBtrPanel();
     updateVehiclePanel();
     redrawOperationalMap();
+    renderVehicleStatus(clickedUnitView);
     return;
   }
   
@@ -14328,6 +14329,7 @@ function updateVehiclePanel() {
         groupBtn.textContent = '📦 Объединить в отряд';
         groupBtn.disabled = false;
     }
+  renderVehicleStatus(appData.campaign.selectedOpUnit);
 }    
 function showGroupDetails() {
     const unit = appData.campaign.selectedOpUnit;
@@ -17113,7 +17115,217 @@ function removeImmobilizedVehicleFromGroup(groupUnit, vehicle) {
     
     log(`🚫 ${vehicle.name} обездвижен и выходит из отряда!`);
 }
+// ==================== ИНТЕРФЕЙС СОСТОЯНИЯ ТЕХНИКИ ====================
 
+function renderVehicleStatus(unit) {
+    const panel = document.getElementById('vehicleStatusPanel');
+    const content = document.getElementById('vehicleStatusContent');
+    
+    if (!panel || !content) return;
+    
+    // Проверяем, является ли выбранный юнит техникой
+    const isVehicle = unit && (unit.isVehicle || unit.isGroup || 
+        (unit.name && (unit.name.includes('БТР') || 
+         unit.name.includes('САУ') || 
+         unit.name.includes('Танк') || 
+         unit.name.includes('CL/39') || 
+         unit.name.includes('Бронеавтомобиль') || 
+         unit.name.includes('Landsverk'))));
+    
+    if (!unit || !isVehicle) {
+        panel.style.display = 'none';
+        return;
+    }
+    
+    panel.style.display = 'block';
+    
+    let html = '';
+    
+    // ⚡ ЕСЛИ ЭТО ГРУППА - ПОКАЗЫВАЕМ СПИСОК МАШИН
+    if (unit.isGroup && unit.vehicleList && unit.vehicleList.length > 0) {
+        html += `<div style="margin-bottom:8px; color:#aaa;">Отряд: ${unit.name} (${unit.groupSize} машин)</div>`;
+        
+        unit.vehicleList.forEach((vehicle, idx) => {
+            html += renderSingleVehicleStatus(vehicle, idx);
+        });
+    } else {
+        // Одиночная машина
+        html += renderSingleVehicleStatus(unit, 0);
+    }
+    
+    content.innerHTML = html;
+}
+
+function renderSingleVehicleStatus(vehicle, idx) {
+    let html = `<div style="background:#1e1e2e; border:1px solid #555; border-radius:8px; padding:10px; margin:6px 0;">
+        <strong style="color:#f39c12;">${vehicle.name}</strong>`;
+    
+    // Статус машины
+    if (vehicle.isDestroyed) {
+        html += ` <span style="color:#e74c3c;">💀 УНИЧТОЖЕНА</span>`;
+    } else if (vehicle.isImmobilized) {
+        html += ` <span style="color:#f39c12;">🚫 ОБЕЗДВИЖЕНА</span>`;
+    }
+    
+    html += `</div>`;
+    
+    // ======== МОДУЛИ ========
+    html += `<div style="margin:6px 0; padding-left:10px;">`;
+    html += `<strong style="color:#3498db;">Модули:</strong><br>`;
+    
+    // Башня
+    if (vehicle.modules && vehicle.modules.turret) {
+        const status = vehicle.modules.turret.status || 'ok';
+        const statusColor = status === 'ok' ? '#27ae60' : status === 'damaged' ? '#f39c12' : '#e74c3c';
+        const statusText = status === 'ok' ? '✅ Исправна' : status === 'damaged' ? '⚠️ Повреждена' : '❌ Уничтожена';
+        
+        html += `<div style="display:flex; justify-content:space-between; align-items:center;">
+            <span>Башня: <span style="color:${statusColor};">${statusText}</span></span>
+            <span>
+                <button onclick="setModuleStatus(${idx}, 'turret', 'ok')" ${status === 'ok' ? 'disabled' : ''} style="font-size:0.7rem; padding:2px 5px;">✅</button>
+                <button onclick="setModuleStatus(${idx}, 'turret', 'damaged')" ${status === 'damaged' ? 'disabled' : ''} style="font-size:0.7rem; padding:2px 5px;">⚠️</button>
+                <button onclick="setModuleStatus(${idx}, 'turret', 'destroyed')" ${status === 'destroyed' ? 'disabled' : ''} style="font-size:0.7rem; padding:2px 5px;">❌</button>
+            </span>
+        </div>`;
+    }
+    
+    // Корпус
+    if (vehicle.modules && vehicle.modules.hull) {
+        const status = vehicle.modules.hull.status || 'ok';
+        const statusColor = status === 'ok' ? '#27ae60' : status === 'damaged' ? '#f39c12' : '#e74c3c';
+        const statusText = status === 'ok' ? '✅ Исправен' : status === 'damaged' ? '⚠️ Повреждён' : '❌ Уничтожен';
+        
+        html += `<div style="display:flex; justify-content:space-between; align-items:center;">
+            <span>Корпус: <span style="color:${statusColor};">${statusText}</span></span>
+            <span>
+                <button onclick="setModuleStatus(${idx}, 'hull', 'ok')" ${status === 'ok' ? 'disabled' : ''} style="font-size:0.7rem; padding:2px 5px;">✅</button>
+                <button onclick="setModuleStatus(${idx}, 'hull', 'damaged')" ${status === 'damaged' ? 'disabled' : ''} style="font-size:0.7rem; padding:2px 5px;">⚠️</button>
+                <button onclick="setModuleStatus(${idx}, 'hull', 'destroyed')" ${status === 'destroyed' ? 'disabled' : ''} style="font-size:0.7rem; padding:2px 5px;">❌</button>
+            </span>
+        </div>`;
+    }
+    
+    // Ходовая
+    if (vehicle.modules && vehicle.modules.suspension) {
+        const status = vehicle.modules.suspension.status || 'ok';
+        const statusColor = status === 'ok' ? '#27ae60' : status === 'damaged' ? '#f39c12' : '#e74c3c';
+        const statusText = status === 'ok' ? '✅ Исправна' : status === 'damaged' ? '⚠️ Повреждена' : '❌ Уничтожена';
+        
+        html += `<div style="display:flex; justify-content:space-between; align-items:center;">
+            <span>Ходовая: <span style="color:${statusColor};">${statusText}</span></span>
+            <span>
+                <button onclick="setModuleStatus(${idx}, 'suspension', 'ok')" ${status === 'ok' ? 'disabled' : ''} style="font-size:0.7rem; padding:2px 5px;">✅</button>
+                <button onclick="setModuleStatus(${idx}, 'suspension', 'damaged')" ${status === 'damaged' ? 'disabled' : ''} style="font-size:0.7rem; padding:2px 5px;">⚠️</button>
+                <button onclick="setModuleStatus(${idx}, 'suspension', 'destroyed')" ${status === 'destroyed' ? 'disabled' : ''} style="font-size:0.7rem; padding:2px 5px;">❌</button>
+            </span>
+        </div>`;
+        
+        // Если ходовая уничтожена - машина обездвижена
+        if (status === 'destroyed') {
+            html += `<div style="color:#e74c3c; font-size:0.8rem; margin-left:10px;">🚫 МАШИНА ОБЕЗДВИЖЕНА</div>`;
+        }
+    }
+    
+    html += `</div>`;
+    
+    // ======== ЭКИПАЖ ========
+    if (vehicle.fighters && vehicle.fighters.length > 0) {
+        html += `<div style="margin:6px 0; padding-left:10px;">`;
+        html += `<strong style="color:#27ae60;">Экипаж:</strong><br>`;
+        
+        vehicle.fighters.forEach((fighter, fIdx) => {
+            const alive = fighter.hp > 0;
+            const color = alive ? '#27ae60' : '#e74c3c';
+            const statusText = alive ? '✅ Жив' : '💀 Погиб';
+            
+            html += `<div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="color:${color};">${statusText} ${fighter.name}</span>
+                <span>
+                    <button onclick="toggleCrewStatus(${idx}, ${fIdx}, 'alive')" ${alive ? 'disabled' : ''} style="font-size:0.7rem; padding:2px 5px;">✅</button>
+                    <button onclick="toggleCrewStatus(${idx}, ${fIdx}, 'dead')" ${!alive ? 'disabled' : ''} style="font-size:0.7rem; padding:2px 5px;">💀</button>
+                </span>
+            </div>`;
+        });
+        
+        html += `</div>`;
+    }
+    
+    return html;
+}
+
+// Установка статуса модуля
+function setModuleStatus(vehicleIdx, moduleName, status) {
+    const unit = appData.campaign.selectedOpUnit;
+    if (!unit) return;
+    
+    let vehicle;
+    if (unit.isGroup && unit.vehicleList && unit.vehicleList[vehicleIdx]) {
+        vehicle = unit.vehicleList[vehicleIdx];
+    } else {
+        vehicle = unit;
+    }
+    
+    if (!vehicle.modules) {
+        vehicle.modules = {
+            turret: { name: 'Башня', status: 'ok' },
+            hull: { name: 'Корпус', status: 'ok' },
+            suspension: { name: 'Ходовая', status: 'ok' }
+        };
+    }
+    
+    if (!vehicle.modules[moduleName]) {
+        vehicle.modules[moduleName] = { status: 'ok' };
+    }
+    
+    vehicle.modules[moduleName].status = status;
+    
+    // Если ходовая уничтожена - машина обездвижена
+    if (moduleName === 'suspension' && status === 'destroyed') {
+        vehicle.isImmobilized = true;
+    }
+    if (moduleName === 'suspension' && status === 'ok') {
+        vehicle.isImmobilized = false;
+    }
+    
+    saveData();
+    renderVehicleStatus(unit);
+    redrawOperationalMap();
+    
+    log(`🔧 ${vehicle.name}: модуль "${moduleName}" → ${status}`);
+}
+
+// Переключение статуса члена экипажа
+function toggleCrewStatus(vehicleIdx, fighterIdx, status) {
+    const unit = appData.campaign.selectedOpUnit;
+    if (!unit) return;
+    
+    let vehicle;
+    if (unit.isGroup && unit.vehicleList && unit.vehicleList[vehicleIdx]) {
+        vehicle = unit.vehicleList[vehicleIdx];
+    } else {
+        vehicle = unit;
+    }
+    
+    if (!vehicle.fighters || !vehicle.fighters[fighterIdx]) return;
+    
+    const fighter = vehicle.fighters[fighterIdx];
+    fighter.hp = status === 'alive' ? fighter.maxHp : 0;
+    
+    // Если погиб водитель - машина обездвижена
+    if (status === 'dead' && getCrewRole(fighter.name) === 'driver') {
+        vehicle.isImmobilized = true;
+        if (!vehicle.modules) vehicle.modules = {};
+        if (!vehicle.modules.suspension) vehicle.modules.suspension = { status: 'ok' };
+        vehicle.modules.suspension.status = 'damaged';
+    }
+    
+    saveData();
+    renderVehicleStatus(unit);
+    redrawOperationalMap();
+    
+    log(`💀 ${vehicle.name}: ${fighter.name} → ${status === 'alive' ? 'жив' : 'погиб'}`);
+}
+      
       
   </script> 
   
@@ -17340,6 +17552,10 @@ function removeImmobilizedVehicleFromGroup(groupUnit, vehicle) {
     <button onclick="showSplitDialog()" id="splitBtn" style="display:none; background:#e67e22;">✂️ Разбить отряд</button>
     <button onclick="renameGroup()" id="renameBtn" style="display:none; background:#2980b9;">✏️ Переименовать</button>
     <button onclick="showGroupDetails()" id="detailsBtn" style="display:none; background:#27ae60;">📋 Состав</button>
+</div>
+      <div id="vehicleStatusPanel" style="display:none; margin-bottom:8px; padding:6px; background:#1a1a2e; border-radius:6px; border:1px solid #444;">
+    <strong style="color:#f39c12;">🔧 Состояние техники</strong>
+    <div id="vehicleStatusContent"></div>
 </div>
       <div style="margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
   <strong>☠️ Противник</strong>
