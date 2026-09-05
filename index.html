@@ -2618,7 +2618,37 @@ function isArmoredUnit(unit) {
 
 // Проверка наличия ПТО/танковых орудий у юнита
 function hasAtGunWeapons(unit) {
-    if (!unit || !unit.squads) return false;
+    if (!unit) return false;
+    
+    // ⚡ ЕСЛИ ЭТО ГРУППА - ПРОВЕРЯЕМ vehicleList
+    if (unit.isGroup && unit.vehicleList && unit.vehicleList.length > 0) {
+        for (let v of unit.vehicleList) {
+            if (v.crewInstances && v.crewInstances.length > 0) {
+                for (let ci of v.crewInstances) {
+                    const cw = getFactionCrewWeapons(v.faction || unit.faction).find(w => w.name === ci.weaponName);
+                    if (cw && (cw.type === 'at_gun' || cw.type === 'tank_gun')) {
+                        return true;
+                    }
+                }
+            }
+            if (v.squads) {
+                for (let squad of v.squads) {
+                    if (squad.crewInstances) {
+                        for (let ci of squad.crewInstances) {
+                            const cw = getFactionCrewWeapons(squad.faction).find(w => w.name === ci.weaponName);
+                            if (cw && (cw.type === 'at_gun' || cw.type === 'tank_gun')) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    
+    // ⚡ ОБЫЧНАЯ ПРОВЕРКА
+    if (!unit.squads) return false;
     
     for (let squad of unit.squads) {
         if (!squad.crewInstances) continue;
@@ -2626,7 +2656,6 @@ function hasAtGunWeapons(unit) {
             if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') continue;
             const cw = getFactionCrewWeapons(squad.faction).find(w => w.name === ci.weaponName);
             if (cw && (cw.type === 'at_gun' || cw.type === 'tank_gun')) {
-                // Проверяем, что расчет жив
                 const alive = ci.fighterIndices.filter(idx => 
                     squad.fighters[idx] && squad.fighters[idx].hp > 0
                 ).length;
@@ -14333,6 +14362,8 @@ function startOpShooting() {
 
 // Проверка, может ли юнит стрелять
 function canUnitShoot(unit) {
+    if (!unit) return false;
+    
     // Проверка: если юнит в тактическом бою - не может стрелять
     if (unit.isInBattle) {
         return false;
@@ -14343,7 +14374,80 @@ function canUnitShoot(unit) {
         return false;
     }
     
-    // Проверяем, есть ли у юнита отряды с оружием
+    // ⚡ ЕСЛИ ЭТО ГРУППА ТЕХНИКИ - ПРОВЕРЯЕМ vehicleList
+    if (unit.isGroup && unit.vehicleList && unit.vehicleList.length > 0) {
+        // Проверяем, есть ли у какой-либо машины оружие
+        for (let v of unit.vehicleList) {
+            // Если у машины есть crewInstances или fighters - считаем что может стрелять
+            if (v.crewInstances && v.crewInstances.length > 0) {
+                return true;
+            }
+            if (v.squads && v.squads.length > 0) {
+                for (let squad of v.squads) {
+                    if (squad.crewInstances && squad.crewInstances.length > 0) {
+                        return true;
+                    }
+                    if (squad.fighters && squad.fighters.some(f => 
+                        f.hp > 0 && f.weapon && 
+                        f.weapon !== 'Пистолет Browning Hi-Power' && 
+                        f.weapon !== 'Пистолет Star M1914'
+                    )) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    
+    // ⚡ ЕСЛИ ЭТО БРОНЕТЕХНИКА (танк, БТР, САУ, бронеавтомобиль)
+    const isVehicle = unit.type === 'tank_platoon' || 
+                     unit.type === 'btr_platoon' || 
+                     unit.type === 'sau_battery' || 
+                     unit.type === 'armored_vehicle_platoon' ||
+                     unit.type === 'vehicle' ||
+                     (unit.name && (unit.name.includes('БТР') ||
+                     unit.name.includes('CL/39') ||
+                     unit.name.includes('САУ') ||
+                     unit.name.includes('Бронеавтомобиль') ||
+                     unit.name.includes('Landsverk')));
+    
+    if (isVehicle) {
+        // ⚡ БРОНЕТЕХНИКА МОЖЕТ СТРЕЛЯТЬ, ЕСЛИ:
+        // 1. Есть crewInstances (пулемёты, орудия)
+        if (unit.crewInstances && unit.crewInstances.length > 0) {
+            return true;
+        }
+        
+        // 2. Есть squads с crewInstances
+        if (unit.squads && unit.squads.length > 0) {
+            for (let squad of unit.squads) {
+                if (squad.crewInstances && squad.crewInstances.length > 0) {
+                    return true;
+                }
+            }
+        }
+        
+        // 3. Есть fighters с оружием
+        if (unit.squads && unit.squads.length > 0) {
+            for (let squad of unit.squads) {
+                if (squad.fighters && squad.fighters.some(f => 
+                    f.hp > 0 && f.weapon && f.weapon !== ''
+                )) {
+                    return true;
+                }
+            }
+        }
+        
+        // 4. Бронеавтомобиль Landsverk имеет пулемёты и орудие
+        if (unit.name && (unit.name.includes('Landsverk') || unit.name.includes('Бронеавтомобиль'))) {
+            return true;
+        }
+        
+        return false;
+    }
+    
+    // ⚡ ПЕХОТА: проверяем отряды с оружием
     if (unit.squads && unit.squads.length > 0) {
         let hasWeapon = false;
         for (let squad of unit.squads) {
@@ -14667,8 +14771,7 @@ function executeOpShoot(targets, distance) {
     updateOpPlaceSelect();
 }
 // ⚡ ФУНКЦИЯ ДЛЯ ВСПЛЫВАЮЩЕГО УВЕДОМЛЕНИЯ ОБ ОБСТРЕЛЕ
-function showShootNotification(shooterName, targetNames, distance, damage, killed) {
-    // Создаём уведомление
+function showShootNotification(shooterName, targetNames, distance, damage, killed, detailsText = '') {
     const notification = document.createElement('div');
     notification.style.cssText = `
         position: fixed;
@@ -14681,11 +14784,16 @@ function showShootNotification(shooterName, targetNames, distance, damage, kille
         color: #fff;
         font-size: 14px;
         z-index: 9999;
-        max-width: 400px;
+        max-width: 500px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.8);
         animation: slideIn 0.3s ease;
         transition: opacity 0.5s ease;
     `;
+    
+    let detailsHtml = '';
+    if (detailsText) {
+        detailsHtml = `<div style="margin-top:8px; padding:6px; background:#1a1a1a; border-radius:4px; font-size:12px; color:#ccc; white-space:pre-line;">${detailsText}</div>`;
+    }
     
     notification.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
@@ -14695,14 +14803,14 @@ function showShootNotification(shooterName, targetNames, distance, damage, kille
         <div style="border-top:1px solid #444; padding-top:8px; margin-top:4px;">
             <div><strong style="color:#27ae60;">${shooterName}</strong> → ${targetNames}</div>
             <div style="margin-top:4px; color:#aaa; font-size:13px;">
-                📏 Дистанция: ${distance} гексов | 💥 Урон: ${damage} | 💀 Убито: ${killed}
+                📏 Дистанция: ${distance} гексов | 💥 Урон: ${damage} | 💀 Уничтожено: ${killed}
             </div>
+            ${detailsHtml}
         </div>
     `;
     
     document.body.appendChild(notification);
     
-    // Автоматически скрываем через 5 секунд
     setTimeout(() => {
         notification.style.opacity = '0';
         setTimeout(() => {
@@ -14710,7 +14818,7 @@ function showShootNotification(shooterName, targetNames, distance, damage, kille
                 notification.remove();
             }
         }, 500);
-    }, 5000);
+    }, 8000);
 }
 
 // Добавляем CSS анимацию для уведомлений
@@ -15147,8 +15255,9 @@ function executeOpShootAt(targets, distance) {
         return;
     }
     
-    const spentAP = shooter.ap;
-    shooter.ap = 0;
+    // ⚡ НЕ ТРАТИМ ОД (стрельба по готовности)
+    // const spentAP = shooter.ap;
+    // shooter.ap = 0;
     
     const totalShots = gunCount * 12;
     let hitChance = 0;
@@ -15178,18 +15287,14 @@ function executeOpShootAt(targets, distance) {
         if (penetration > 0) break;
     }
     
-    const maxArmor = getMaxArmor(armorTargets);
-    
     let hits = 0;
     let penetrations = 0;
     let destroyedUnits = [];
     let hitDetails = [];
-    let totalDamage = 0;
     
     for (let target of armorTargets) {
-        let targetHits = 0;
-        let targetPenetrations = 0;
-        let targetDestroyed = false;
+        // ⚡ ВЫБИРАЕМ КОНКРЕТНУЮ МАШИНУ
+        let targetVehicle = selectTargetVehicle(target);
         
         const shotsForTarget = Math.floor(totalShots / armorTargets.length);
         
@@ -15197,96 +15302,95 @@ function executeOpShootAt(targets, distance) {
             const hitRoll = Math.random();
             if (hitRoll <= hitChance) {
                 hits++;
-                targetHits++;
                 
+                // ⚡ БРОСОК НА ЛОКАЦИЮ
                 const locRoll = rollD6();
-                const locNames = ['Рикошет', 'Корпус', 'Гусеницы', 'Башня', 'Двигатель', 'Укладка/бак'];
-                const location = locNames[locRoll - 1];
+                let location;
+                switch (locRoll) {
+                    case 1: location = 'ricochet'; break;
+                    case 2: location = 'hull'; break;
+                    case 3: location = 'suspension'; break;
+                    case 4: location = 'turret'; break;
+                    case 5: location = 'engine'; break;
+                    case 6: location = 'ammo'; break;
+                }
                 
+                // Определяем броню
                 let armorValue = 0;
-                if (target.squads) {
-                    for (let squad of target.squads) {
-                        if (squad.armor) {
-                            switch (locRoll) {
-                                case 1: armorValue = squad.armor.front || 0; break;
-                                case 2: armorValue = squad.armor.front || 0; break;
-                                case 3: armorValue = squad.armor.side || 0; break;
-                                case 4: armorValue = squad.armor.turret || squad.armor.front || 0; break;
-                                case 5: armorValue = squad.armor.rear || 0; break;
-                                case 6: armorValue = squad.armor.rear || 0; break;
-                                default: armorValue = squad.armor.front || 0;
-                            }
-                            break;
-                        }
+                if (targetVehicle.armor) {
+                    switch (location) {
+                        case 'hull': armorValue = targetVehicle.armor.front || 0; break;
+                        case 'suspension': armorValue = targetVehicle.armor.side || 0; break;
+                        case 'turret': armorValue = targetVehicle.armor.turret || targetVehicle.armor.front || 0; break;
+                        case 'engine': armorValue = targetVehicle.armor.rear || 0; break;
+                        case 'ammo': armorValue = targetVehicle.armor.rear || 0; break;
+                        default: armorValue = targetVehicle.armor.front || 0;
                     }
                 }
                 
-                if (armorValue === 0) armorValue = maxArmor;
-                
-                const isPenetrated = penetration > armorValue;
-                if (isPenetrated) {
-                    penetrations++;
-                    totalDamage += 1;
-                    
-                    // Если цель - группа, уничтожаем конкретную машину
-                    if (target.isGroup && target.groupSize > 0) {
-                        target.groupSize--;
-                        targetPenetrations++;
-                        
-                        if (target.vehicleList && target.vehicleList.length > 0) {
-                            const aliveVehicles = target.vehicleList.filter(v => !v.destroyed);
-                            if (aliveVehicles.length > 0) {
-                                const destroyedVehicle = aliveVehicles[Math.floor(Math.random() * aliveVehicles.length)];
-                                destroyedVehicle.destroyed = true;
-                                log(`💥 Уничтожена машина: ${destroyedVehicle.name}`);
-                            }
-                        }
-                        
-                        if (target.groupSize <= 0) {
-                            targetDestroyed = true;
-                            destroyedUnits.push(target);
-                        }
-                        
-                        checkVehicleRadioAfterLoss(target);
-                    } else {
-                        targetPenetrations++;
-                        if (targetPenetrations >= 3) {
-                            targetDestroyed = true;
-                            destroyedUnits.push(target);
-                        }
-                    }
-                }
+                // ⚡ ОБРАБАТЫВАЕМ ПОПАДАНИЕ
+                const result = processVehicleHit(targetVehicle, location, penetration, armorValue, shooter.name);
                 
                 hitDetails.push({
-                    target: target.name,
-                    location: location,
+                    vehicle: targetVehicle.name,
+                    location: getLocationName(location),
                     armor: armorValue,
                     penetration: penetration,
-                    penetrated: isPenetrated,
-                    destroyed: targetDestroyed
+                    penetrated: result.result !== 'ricochet' && result.result !== 'no_penetration',
+                    result: result.message
                 });
-            }
-        }
-        
-        if (targetDestroyed) {
-            target.isDestroyed = true;
-            
-            const hexKey = `${target.col},${target.row}`;
-            if (appData.campaign.opMapGrid) {
-                if (!appData.campaign.opMapGrid[hexKey]) {
-                    appData.campaign.opMapGrid[hexKey] = { markers: [] };
-                }
-                if (!appData.campaign.opMapGrid[hexKey].markers) {
-                    appData.campaign.opMapGrid[hexKey].markers = [];
-                }
-                if (!appData.campaign.opMapGrid[hexKey].markers.includes('destroyedVehicle')) {
-                    appData.campaign.opMapGrid[hexKey].markers.push('destroyedVehicle');
+                
+                log(`🎯 ${targetVehicle.name}: ${result.message}`);
+                
+                if (result.result === 'destroyed' || result.result === 'exploded') {
+                    penetrations++;
+                    targetVehicle.isDestroyed = true;
+                    
+                    if (target.isGroup) {
+                        // Убираем из отряда
+                        const vIdx = target.vehicleList.indexOf(targetVehicle);
+                        if (vIdx !== -1) {
+                            target.vehicleList.splice(vIdx, 1);
+                            target.groupSize--;
+                        }
+                        
+                        // Отмечаем маркер уничтоженной техники
+                        const hexKey = `${target.col},${target.row}`;
+                        if (appData.campaign.opMapGrid) {
+                            if (!appData.campaign.opMapGrid[hexKey]) {
+                                appData.campaign.opMapGrid[hexKey] = {};
+                            }
+                            if (!appData.campaign.opMapGrid[hexKey].markers) {
+                                appData.campaign.opMapGrid[hexKey].markers = [];
+                            }
+                            if (!appData.campaign.opMapGrid[hexKey].markers.includes('destroyedVehicle')) {
+                                appData.campaign.opMapGrid[hexKey].markers.push('destroyedVehicle');
+                            }
+                        }
+                        
+                        // Если все машины уничтожены
+                        if (target.groupSize <= 0) {
+                            target.isDestroyed = true;
+                            destroyedUnits.push(target);
+                        }
+                    } else {
+                        target.isDestroyed = true;
+                        destroyedUnits.push(target);
+                    }
+                    
+                    checkVehicleRadioAfterLoss(targetVehicle);
+                } else if (result.result === 'immobilized') {
+                    if (target.isGroup) {
+                        removeImmobilizedVehicleFromGroup(target, targetVehicle);
+                    } else {
+                        target.isImmobilized = true;
+                    }
                 }
             }
         }
     }
     
-    // Удаляем уничтоженную технику из списка врагов
+    // Удаляем полностью уничтоженные юниты
     if (destroyedUnits.length > 0) {
         destroyedUnits.forEach(unit => {
             const idx = (appData.campaign.enemyOpUnits || []).indexOf(unit);
@@ -15296,23 +15400,32 @@ function executeOpShootAt(targets, distance) {
         });
     }
     
-        saveData();
+    saveData();
     redrawOperationalMap();
     
-    // ⚡ СОЗДАЁМ ПОДРОБНОЕ СООБЩЕНИЕ ДЛЯ ЛОГА
+    // ⚡ ФОРМИРУЕМ УВЕДОМЛЕНИЕ
     const shooterName = shooter.name || 'Неизвестный отряд';
-    const targetNames = armorTargets.map(t => t.name || 'враг').join(', ');
-    const logMessage = `💥 [${shooterName}] ПТО обстрелял: ${targetNames} | Дистанция: ${distance} гексов | Попаданий: ${hits} | Пробитий: ${penetrations} | Уничтожено: ${destroyedUnits.length}`;
+    const targetNames = armorTargets.map(t => t.name).join(', ');
     
-    // ⚡ ЛОГИРУЕМ В ОБА МЕСТА (тактический лог и операционный лог)
+    // Собираем детали для уведомления
+    let detailsText = '';
+    if (hitDetails.length > 0) {
+        detailsText = hitDetails.slice(0, 5).map(d => 
+            `${d.vehicle}: ${d.location} (${d.result})`
+        ).join('\n');
+        if (hitDetails.length > 5) {
+            detailsText += `\n... и ещё ${hitDetails.length - 5} попаданий`;
+        }
+    }
+    
+    const logMessage = `💥 [${shooterName}] ПТО обстрелял: ${targetNames} | Дистанция: ${distance} гексов | Попаданий: ${hits} | Уничтожено машин: ${destroyedUnits.length}`;
+    
     log(logMessage);
     
-    // ⚡ ПОКАЗЫВАЕМ В ИНФОРМАЦИОННОЙ ПАНЕЛИ
     document.getElementById('mapInfo').innerHTML = logMessage;
     document.getElementById('mapInfo').style.color = '#e74c3c';
     
-    // ⚡ ПОКАЗЫВАЕМ ВСПЛЫВАЮЩЕЕ УВЕДОМЛЕНИЕ
-    showShootNotification(shooterName, targetNames, distance, penetrations, destroyedUnits.length);
+    showShootNotification(shooterName, targetNames, distance, penetrations, destroyedUnits.length, detailsText);
     
     const result = {
         shots: totalShots,
@@ -15322,11 +15435,9 @@ function executeOpShootAt(targets, distance) {
         destroyedNames: destroyedUnits.map(u => u.name),
         hitChance: Math.round(hitChance * 100),
         penetration: penetration,
-        maxArmor: maxArmor,
         distance: distance,
         details: hitDetails,
         gunCount: gunCount,
-        spentAP: spentAP,
         targets: targetNames,
         shooterName: shooterName
     };
@@ -16752,6 +16863,213 @@ function updateOrderWaypointsDisplay() {
     
     display.innerHTML = html;
 }
+ // ==================== СИСТЕМА МОДУЛЬНОСТИ БРОНЕТЕХНИКИ ====================
+
+// Определение ролей экипажа по имени
+function getCrewRole(fighterName) {
+    const name = fighterName.toLowerCase();
+    if (name.includes('водитель') || name.includes('механик')) return 'driver';
+    if (name.includes('радист') || name.includes('стрелок-радист')) return 'radio_gunner';
+    if (name.includes('заряжающий')) return 'loader';
+    if (name.includes('наводчик')) return 'gunner';
+    if (name.includes('лейтенант') || name.includes('командир') || name.includes('капитан') || name.includes('майор')) return 'commander';
+    if (name.includes('пулемет') || name.includes('пулемёт')) return 'mg_gunner';
+    return 'crewman';
+}
+
+// Получение количества выстрелов в зависимости от живого экипажа
+function getVehicleShotsPerTurn(vehicle, weaponType) {
+    // weaponType: 'at_gun', 'mg', 'hull_mg', 'turret_mg'
+    
+    if (!vehicle.fighters) return 0;
+    
+    const alive = vehicle.fighters.filter(f => f.hp > 0);
+    
+    if (weaponType === 'at_gun') {
+        // Для орудия нужны заряжающий и командир/наводчик
+        const hasLoader = alive.some(f => getCrewRole(f.name) === 'loader');
+        const hasGunner = alive.some(f => getCrewRole(f.name) === 'gunner' || getCrewRole(f.name) === 'commander');
+        
+        if (!hasLoader || !hasGunner) return 0;
+        
+        // Если есть и заряжающий и наводчик - полная скорострельность (12 выстрелов)
+        return 12;
+    }
+    
+    if (weaponType === 'mg') {
+        // Для пулемёта нужен хотя бы 1 стрелок
+        const hasGunner = alive.some(f => 
+            getCrewRole(f.name) === 'radio_gunner' || 
+            getCrewRole(f.name) === 'mg_gunner' || 
+            getCrewRole(f.name) === 'gunner'
+        );
+        
+        if (!hasGunner) return 0;
+        return 4; // 4 выстрела за ход
+    }
+    
+    return 0;
+}
+
+// Функция обработки попадания по машине
+function processVehicleHit(targetVehicle, location, penetration, armorValue, shooterName) {
+    // location: 'ricochet', 'hull', 'suspension', 'turret', 'engine', 'ammo'
+    
+    if (location === 'ricochet') {
+        return { 
+            result: 'ricochet', 
+            message: `🔄 РИКОШЕТ! Снаряд отскочил от брони.` 
+        };
+    }
+    
+    const isPenetrated = penetration > armorValue;
+    
+    if (!isPenetrated) {
+        return { 
+            result: 'no_penetration', 
+            message: `🛡️ Попадание в ${getLocationName(location)}, но броня ${armorValue}мм выдержала (пробитие ${penetration}мм).` 
+        };
+    }
+    
+    switch (location) {
+        case 'turret':
+            targetVehicle.modules.turret.status = 'destroyed';
+            log(`💥 ${targetVehicle.name}: БАШНЯ УНИЧТОЖЕНА!`);
+            return { 
+                result: 'turret_destroyed', 
+                message: `💥 БАШНЯ УНИЧТОЖЕНА! ${targetVehicle.name} может стрелять только из корпусных пулемётов.` 
+            };
+            
+        case 'suspension':
+            targetVehicle.modules.suspension.status = 'destroyed';
+            targetVehicle.isImmobilized = true;
+            log(`🚫 ${targetVehicle.name}: ХОДОВАЯ ПОВРЕЖДЕНА!`);
+            return { 
+                result: 'immobilized', 
+                message: `🚫 ХОДОВАЯ ПОВРЕЖДЕНА! ${targetVehicle.name} обездвижен.` 
+            };
+            
+        case 'engine':
+            targetVehicle.isDestroyed = true;
+            log(`💀 ${targetVehicle.name}: ДВИГАТЕЛЬ УНИЧТОЖЕН!`);
+            return { 
+                result: 'destroyed', 
+                message: `💀 ДВИГАТЕЛЬ УНИЧТОЖЕН! ${targetVehicle.name} выходит из строя.` 
+            };
+            
+        case 'ammo':
+            targetVehicle.isDestroyed = true;
+            log(`💥 ${targetVehicle.name}: БОЕУКЛАДКА ВЗОРВАНА!`);
+            return { 
+                result: 'exploded', 
+                message: `💥 БОЕУКЛАДКА ВЗОРВАНА! ${targetVehicle.name} уничтожен!` 
+            };
+            
+        case 'hull':
+            // 50% шанс гибели члена экипажа
+            if (Math.random() < 0.5) {
+                const aliveCrew = targetVehicle.fighters.filter(f => f.hp > 0);
+                if (aliveCrew.length > 0) {
+                    // Выбираем случайного члена экипажа
+                    const victim = aliveCrew[Math.floor(Math.random() * aliveCrew.length)];
+                    victim.hp = 0;
+                    
+                    const role = getCrewRole(victim.name);
+                    let effect = '';
+                    
+                    if (role === 'driver') {
+                        targetVehicle.isImmobilized = true;
+                        targetVehicle.modules.suspension.status = 'damaged';
+                        effect = 'МАШИНА ОБЕЗДВИЖЕНА!';
+                    } else if (role === 'loader' || role === 'gunner' || role === 'commander') {
+                        effect = 'СКОРОСТРЕЛЬНОСТЬ ОРУДИЯ СНИЖЕНА!';
+                    } else {
+                        effect = 'ПУЛЕМЁТ БОЛЬШЕ НЕ СТРЕЛЯЕТ!';
+                    }
+                    
+                    log(`💀 ${victim.name} (${role}) погиб! ${effect}`);
+                    
+                    return { 
+                        result: 'crew_killed', 
+                        message: `💀 ${victim.name} погиб! ${effect}` 
+                    };
+                }
+            }
+            return { 
+                result: 'hull_hit', 
+                message: `Корпус пробит, но экипаж не пострадал.` 
+            };
+            
+        default:
+            return { result: 'hit', message: 'Попадание.' };
+    }
+}
+
+// Получение названия локации
+function getLocationName(location) {
+    switch (location) {
+        case 'hull': return 'корпус';
+        case 'suspension': return 'ходовую';
+        case 'turret': return 'башню';
+        case 'engine': return 'двигатель';
+        case 'ammo': return 'боеукладку';
+        case 'ricochet': return 'рикошет';
+        default: return location;
+    }
+}
+
+// Выбор конкретной машины из отряда
+function selectTargetVehicle(unit) {
+    if (unit.isGroup && unit.vehicleList && unit.vehicleList.length > 0) {
+        // Фильтруем неуничтоженные машины
+        const aliveVehicles = unit.vehicleList.filter(v => !v.isDestroyed);
+        if (aliveVehicles.length > 0) {
+            return aliveVehicles[Math.floor(Math.random() * aliveVehicles.length)];
+        }
+    }
+    return unit;
+}
+
+// Удаление обездвиженной машины из отряда
+function removeImmobilizedVehicleFromGroup(groupUnit, vehicle) {
+    const idx = groupUnit.vehicleList.indexOf(vehicle);
+    if (idx === -1) return;
+    
+    // Убираем из vehicleList
+    groupUnit.vehicleList.splice(idx, 1);
+    groupUnit.groupSize--;
+    
+    // Создаём отдельный юнит
+    const immobilizedUnit = {
+        name: vehicle.name,
+        type: groupUnit.type,
+        faction: groupUnit.faction,
+        squads: [],
+        col: groupUnit.col,
+        row: groupUnit.row,
+        side: 'player',
+        ap: 0,
+        maxAp: 0,
+        mobility: 'immobilized',
+        dismounted: false,
+        icon: vehicle.icon,
+        detected: groupUnit.detected,
+        noiseMarker: groupUnit.noiseMarker,
+        isGroup: false,
+        isVehicle: true,
+        isImmobilized: true,
+        modules: vehicle.modules,
+        fighters: vehicle.fighters || [],
+        crewInstances: vehicle.crewInstances || [],
+        armor: vehicle.armor,
+        vehicleList: null
+    };
+    
+    appData.campaign.opUnits.push(immobilizedUnit);
+    
+    log(`🚫 ${vehicle.name} обездвижен и выходит из отряда!`);
+}
+
       
   </script> 
   
