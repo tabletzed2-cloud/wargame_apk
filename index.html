@@ -972,7 +972,16 @@ function buildOperationalUnits() {
             dismounted: false,
             icon: icon,
             detected: false,
-            noiseMarker: false
+            noiseMarker: false,
+            modules: {
+                turret: { name: 'Башня', status: 'ok', weapons: [] },
+                hull: { name: 'Корпус', status: 'ok', weapons: [] },
+                suspension: { name: 'Ходовая', status: 'ok' }
+            },
+            fighters: squads && squads.length > 0 && squads[0].fighters ? 
+                JSON.parse(JSON.stringify(squads[0].fighters)) : [],
+            isImmobilized: false,
+            isDestroyed: false
         });
     }
 
@@ -3684,7 +3693,6 @@ function initHardMode() {
                 unitId: hardMode.hqUnitId, 
                 isHQ: true
             });
-            hardMode.signalPlatoon.radios.available--;
             console.log(`📻 Рация выдана штабу батальона: ${hq.name}`);
         }
         if (!hasPhone) {
@@ -3692,7 +3700,6 @@ function initHardMode() {
                 unitId: hardMode.hqUnitId, 
                 isHQ: true
             });
-            hardMode.signalPlatoon.phones.available--;
             console.log(`📞 Телефон выдан штабу батальона: ${hq.name}`);
         }
     }
@@ -3707,6 +3714,8 @@ function initHardMode() {
             u.name.includes('CL/39') || u.name.includes('Landsverk')
         ))
     );
+    
+    console.log(`Найдено техники: ${vehicleUnits.length}`);
     
     vehicleUnits.forEach(vehicle => {
         let hasNumber1 = false;
@@ -3728,21 +3737,24 @@ function initHardMode() {
                     isVehicleRadio: true,
                     hasNumber1: true
                 });
-                hardMode.signalPlatoon.radios.available--;
                 console.log(`📻 Рация выдана: ${vehicle.name}`);
             }
         }
     });
     
-    // ⚡ ВАЖНО: Не даём available уйти в минус
-    if (hardMode.signalPlatoon.radios.available < 0) {
-        hardMode.signalPlatoon.radios.available = 0;
-    }
-    if (hardMode.signalPlatoon.phones.available < 0) {
-        hardMode.signalPlatoon.phones.available = 0;
-    }
-    
+    // ⚡ СОХРАНЯЕМ
     saveData();
+    
+    // ⚡ ОБНОВЛЯЕМ ПАНЕЛЬ СВЯЗИ (если она открыта)
+    renderCommunicationPanel();
+  // В конце файла:
+buildOperationalUnits(); // Создаём юниты (если их нет)
+initOperationalMap();    // Инициализируем карту
+
+// ⚡ ПОСЛЕ ЭТОГО:
+if (hardMode.enabled) {
+    initHardMode();
+}
 }
 // ==================== СИСТЕМА ПРИКАЗОВ ====================
 const ORDER_TYPES = {
@@ -3946,7 +3958,7 @@ function findParentCompany(platoonUnit) {
     return closestCompany;
 }  
 function saveData() { 
-    appData.hardMode = JSON.parse(JSON.stringify(hardMode));  // ГЛУБОКОЕ КОПИРОВАНИЕ!
+    appData.hardMode = JSON.parse(JSON.stringify(hardMode));
     safeLocalStorage('setItem', STORAGE_KEY, JSON.stringify(appData));
 }
 
@@ -8690,7 +8702,11 @@ function useFighterIPP(fighterIndex) {
     renderTemplateSelection();
     renderFactionInfo();
     resetAP();
-
+    // ⚡ ЕСЛИ HARD MODE ВКЛЮЧЕН - ВЫДАЁМ РАЦИИ И ТЕЛЕФОНЫ
+    if (hardMode.enabled) {
+        console.log('Hard Mode включен при загрузке, выдаём рации...');
+        initHardMode();
+    }
     
        // ================= КАРТА ГЕКСОВ (С ДВИЖЕНИЕМ, РЕДАКТОРОМ И МЕТКАМИ) =================
     
@@ -13985,8 +14001,17 @@ function createVehicleGroup(vehicles) {
         vehicleClass: vehicleType,
         embarkedUnit: embarkedUnitName,
         embarkedUnitId: embarkedUnitId,
-        vehicleList: vehicleListData
+        vehicleList: vehicleListData,
+      modules: JSON.parse(JSON.stringify(v.modules || {
+            turret: { name: 'Башня', status: 'ok', weapons: [] },
+            hull: { name: 'Корпус', status: 'ok', weapons: [] },
+            suspension: { name: 'Ходовая', status: 'ok' }
+        })),
+        fighters: v.fighters || (v.squads && v.squads[0] ? JSON.parse(JSON.stringify(v.squads[0].fighters || [])) : []),
+        isImmobilized: v.isImmobilized || false,
+        isDestroyed: v.isDestroyed || false
     };
+   
     
     appData.campaign.opUnits.push(groupUnit);
     
@@ -15361,18 +15386,79 @@ function executeOpShootAt(targets, distance) {
                     case 6: location = 'ammo'; break;
                 }
                 
-                // Определяем броню
+                                // ⚡ ОПРЕДЕЛЯЕМ БРОНЮ МОДУЛЯ
                 let armorValue = 0;
-                if (targetVehicle.armor) {
-                    switch (location) {
-                        case 'hull': armorValue = targetVehicle.armor.front || 0; break;
-                        case 'suspension': armorValue = targetVehicle.armor.side || 0; break;
-                        case 'turret': armorValue = targetVehicle.armor.turret || targetVehicle.armor.front || 0; break;
-                        case 'engine': armorValue = targetVehicle.armor.rear || 0; break;
-                        case 'ammo': armorValue = targetVehicle.armor.rear || 0; break;
-                        default: armorValue = targetVehicle.armor.front || 0;
+                
+                // Если это машина из группы - ищем броню в vehicleList или в самой машине
+                let armorData = targetVehicle.armor;
+                
+                // Если брони нет, но есть squads с броней
+                if (!armorData && targetVehicle.squads && targetVehicle.squads.length > 0) {
+                    for (let squad of targetVehicle.squads) {
+                        if (squad.armor) {
+                            armorData = squad.armor;
+                            break;
+                        }
                     }
                 }
+                
+                // Если брони нет, ищем в target (если target - группа)
+                if (!armorData && target && target.armor) {
+                    armorData = target.armor;
+                }
+                
+                // Если брони нет, но target - группа с vehicleList
+                if (!armorData && target && target.isGroup && target.vehicleList) {
+                    for (let v of target.vehicleList) {
+                        if (v.armor) {
+                            armorData = v.armor;
+                            break;
+                        }
+                        if (v.squads && v.squads.length > 0) {
+                            for (let squad of v.squads) {
+                                if (squad.armor) {
+                                    armorData = squad.armor;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Теперь определяем броню по локации
+                if (armorData) {
+                    switch (location) {
+                        case 'hull':
+                            armorValue = armorData.front || 20;
+                            break;
+                        case 'suspension':
+                            armorValue = 5; // ⚡ ГУСЕНИЦЫ ВСЕГДА 5мм
+                            break;
+                        case 'turret':
+                            armorValue = armorData.turret || armorData.front || 20;
+                            break;
+                        case 'engine':
+                            armorValue = armorData.side || armorData.rear || 15;
+                            break;
+                        case 'ammo':
+                            armorValue = armorData.side || armorData.rear || 15;
+                            break;
+                        default:
+                            armorValue = armorData.front || 20;
+                    }
+                } else {
+                    // Если броня вообще не найдена - используем стандартные значения
+                    switch (location) {
+                        case 'hull': armorValue = 20; break;
+                        case 'suspension': armorValue = 5; break;
+                        case 'turret': armorValue = 20; break;
+                        case 'engine': armorValue = 15; break;
+                        case 'ammo': armorValue = 15; break;
+                        default: armorValue = 20;
+                    }
+                }
+                
+                console.log(`🎯 Броня для ${location}: ${armorValue}мм (пробитие: ${penetration}мм)`);
                 
                 // ⚡ ОБРАБАТЫВАЕМ ПОПАДАНИЕ
                 const result = processVehicleHit(targetVehicle, location, penetration, armorValue, shooter.name);
@@ -16913,6 +16999,7 @@ function updateOrderWaypointsDisplay() {
 
 // Определение ролей экипажа по имени
 function getCrewRole(fighterName) {
+    if (!fighterName) return 'crewman';
     const name = fighterName.toLowerCase();
     if (name.includes('водитель') || name.includes('механик')) return 'driver';
     if (name.includes('радист') || name.includes('стрелок-радист')) return 'radio_gunner';
@@ -16959,7 +17046,32 @@ function getVehicleShotsPerTurn(vehicle, weaponType) {
 
 // Функция обработки попадания по машине
 function processVehicleHit(targetVehicle, location, penetration, armorValue, shooterName) {
-    // location: 'ricochet', 'hull', 'suspension', 'turret', 'engine', 'ammo'
+    // ⚡ ИНИЦИАЛИЗИРУЕМ modules, ЕСЛИ ИХ НЕТ
+    if (!targetVehicle.modules) {
+        targetVehicle.modules = {
+            turret: { name: 'Башня', status: 'ok', weapons: [] },
+            hull: { name: 'Корпус', status: 'ok', weapons: [] },
+            suspension: { name: 'Ходовая', status: 'ok' }
+        };
+    }
+    if (!targetVehicle.modules.turret) {
+        targetVehicle.modules.turret = { name: 'Башня', status: 'ok', weapons: [] };
+    }
+    if (!targetVehicle.modules.hull) {
+        targetVehicle.modules.hull = { name: 'Корпус', status: 'ok', weapons: [] };
+    }
+    if (!targetVehicle.modules.suspension) {
+        targetVehicle.modules.suspension = { name: 'Ходовая', status: 'ok' };
+    }
+    
+    // ⚡ ИНИЦИАЛИЗИРУЕМ fighters, ЕСЛИ ИХ НЕТ
+    if (!targetVehicle.fighters) {
+        targetVehicle.fighters = [];
+    }
+    
+    // ⚡ ИНИЦИАЛИЗИРУЕМ СТАТУСЫ
+    targetVehicle.isImmobilized = targetVehicle.isImmobilized || false;
+    targetVehicle.isDestroyed = targetVehicle.isDestroyed || false;
     
     if (location === 'ricochet') {
         return { 
@@ -17104,10 +17216,14 @@ function removeImmobilizedVehicleFromGroup(groupUnit, vehicle) {
         isGroup: false,
         isVehicle: true,
         isImmobilized: true,
-        modules: vehicle.modules,
-        fighters: vehicle.fighters || [],
-        crewInstances: vehicle.crewInstances || [],
-        armor: vehicle.armor,
+        modules: JSON.parse(JSON.stringify(vehicle.modules || {
+            turret: { name: 'Башня', status: 'ok', weapons: [] },
+            hull: { name: 'Корпус', status: 'ok', weapons: [] },
+            suspension: { name: 'Ходовая', status: 'destroyed' }
+        })),
+        fighters: JSON.parse(JSON.stringify(vehicle.fighters || [])),
+        crewInstances: JSON.parse(JSON.stringify(vehicle.crewInstances || [])),
+        armor: vehicle.armor || null,
         vehicleList: null
     };
     
