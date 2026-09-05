@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.209 — карта  </title>
+  <title>Боевой модуль v12.210 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.209</h1>
+    <h1>⚔️ Боевой модуль v12.210</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.209 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.210 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -3948,7 +3948,6 @@ function checkIdleUnits() {
     if (!appData.campaign.opUnits) return;
     
     appData.campaign.opUnits.forEach(unit => {
-        // Пропускаем, если юнит не может стрелять
         if (unit.isInBattle) return;
         if (unit.isAmbush) return;
         if (unit.hidden) return;
@@ -3956,15 +3955,11 @@ function checkIdleUnits() {
         if (unit.col === null || unit.row === null) return;
         if (!canUnitShoot(unit)) return;
         
-        // Проверяем, есть ли у юнита активный приказ
         const hasActiveOrder = hardMode.orders ? hardMode.orders.some(o => 
             o.status === 'active' && o.toUnitId === appData.campaign.opUnits.indexOf(unit)
         ) : false;
         
-        // Если есть активный приказ - пропускаем (он выполняет приказ)
         if (hasActiveOrder) return;
-        
-        // Проверяем, двигался ли юнит в этом ходу
         if (unit.movedThisTurn) return;
         
         // ======== АВТОМАТИЧЕСКАЯ СТРЕЛЬБА ========
@@ -3976,7 +3971,6 @@ function checkIdleUnits() {
         
         if (enemies.length === 0) return;
         
-        // ⚡ ПРИОРИТЕТ: СНАЧАЛА БРОНЕТЕХНИКА, ПОТОМ ПЕХОТА
         const armorTargets = enemies.filter(e => isArmoredUnit(e));
         const infantryTargets = enemies.filter(e => !isArmoredUnit(e));
         const targets = armorTargets.length > 0 ? armorTargets : infantryTargets;
@@ -3995,26 +3989,30 @@ function checkIdleUnits() {
             const dist = getOpHexDistance(unit.col, unit.row, closestEnemy.col, closestEnemy.row);
             log(`🎯 [${unit.name}] Автоматический огонь! Цель: ${closestEnemy.name} (дистанция ${dist})`);
             
-            // ⚡ ПРОВЕРЯЕМ ТИП ОРУЖИЯ
+            // ⚡ НЕ ТРАТИМ ОД ПРИ АВТОМАТИЧЕСКОЙ СТРЕЛЬБЕ!
+            const savedAP = unit.ap;
+            
             const hasAtGuns = hasAtGunWeapons(unit);
             const isArmor = isArmoredUnit(closestEnemy);
             
             if (hasAtGuns && isArmor) {
-                // Стреляем ПТО по бронетехнике
                 opShootingState.shooter = unit;
                 opShootingState.targets = [closestEnemy];
                 opShootingState.weaponType = 'at';
                 executeOpShootAt([closestEnemy], dist);
             } else {
-                // Стреляем по пехоте
                 opShootingState.shooter = unit;
                 opShootingState.targets = [closestEnemy];
                 opShootingState.weaponType = 'mg';
                 executeOpShoot([closestEnemy], dist);
             }
+            
+            // ⚡ ВОССТАНАВЛИВАЕМ ОД!
+            unit.ap = savedAP;
         }
-        }); 
-    } 
+        
+    });
+}
       // ======== ПРИОРИТЕТ: СНА
 function startTacticalBattle(playerUnits, enemyUnits) {
     console.log('startTacticalBattle вызван', playerUnits, enemyUnits);
@@ -16631,6 +16629,8 @@ function checkMovingFire(unit) {
     if (!unit.movedThisTurn) return;
     if (!canUnitShoot(unit)) return;
     
+    console.log(`🔫 checkMovingFire вызвана для ${unit.name}, ОД: ${unit.ap}`);
+    
     // Ищем врагов в радиусе 3 гексов
     const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
         e.col !== null && e.row !== null &&
@@ -16638,14 +16638,17 @@ function checkMovingFire(unit) {
         !e.isDestroyed
     );
     
-    if (enemies.length === 0) return;
+    if (enemies.length === 0) {
+        console.log(`   Врагов в радиусе 3 гексов нет`);
+        return;
+    }
     
     // ======== ПРИОРИТЕТ: СНАЧАЛА БРОНЕТЕХНИКА ========
-    let priorityTargets = enemies.filter(e => isArmoredUnit(e));
-    let infantryTargets = enemies.filter(e => !isArmoredUnit(e));
+    const priorityTargets = enemies.filter(e => isArmoredUnit(e));
+    const infantryTargets = enemies.filter(e => !isArmoredUnit(e));
+    const targets = priorityTargets.length > 0 ? priorityTargets : infantryTargets;
     
-    // Если есть бронетехника - стреляем по ней
-    let targets = priorityTargets.length > 0 ? priorityTargets : infantryTargets;
+    console.log(`   Приоритетных целей: ${targets.length}, из них бронетехника: ${priorityTargets.length}`);
     
     // Находим ближайшего врага
     let closestEnemy = null;
@@ -16660,13 +16663,15 @@ function checkMovingFire(unit) {
     
     if (!closestEnemy) return;
     
-    // Проверяем, есть ли у юнита ПТО для стрельбы по бронетехнике
     const hasAtGuns = hasAtGunWeapons(unit);
     const isArmor = isArmoredUnit(closestEnemy);
     
-    log(`🚗 [${unit.name}] Огонь на ходу! Цель: ${closestEnemy.name} (дистанция ${minDist} гексов)`);
+    console.log(`   Стреляем по: ${closestEnemy.name}, дистанция: ${minDist}, есть ПТО: ${hasAtGuns}, цель бронирована: ${isArmor}`);
     
-    // Сохраняем оригинальную точность и модифицируем
+    // ⚡ НЕ ТРАТИМ ОД НА СТРЕЛЬБУ НА ХОДУ!
+    // Сохраняем ОД до выстрела
+    const savedAP = unit.ap;
+    
     if (hasAtGuns && isArmor) {
         opShootingState.shooter = unit;
         opShootingState.targets = [closestEnemy];
@@ -16678,8 +16683,11 @@ function checkMovingFire(unit) {
         opShootingState.weaponType = 'mg';
         executeOpShoot([closestEnemy], minDist);
     }
-        // ⚠️ НЕ ОБНУЛЯЕМ ОД! Стрельба на ходу бесплатная!
-  }
+    
+    // ⚡ ВОССТАНАВЛИВАЕМ ОД ПОСЛЕ СТРЕЛЬБЫ!
+    unit.ap = savedAP;
+    console.log(`   ОД после стрельбы: ${unit.ap} (восстановлено)`);
+}
 function validateRoute(unit, waypoints) {
     if (!unit || !waypoints || waypoints.length === 0) return { valid: true };
     
