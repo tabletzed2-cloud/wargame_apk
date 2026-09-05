@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.213 — карта  </title>
+  <title>Боевой модуль v12.214 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.213</h1>
+    <h1>⚔️ Боевой модуль v12.214</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.213 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.214 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -3625,35 +3625,34 @@ appData.squads.forEach(s => assignUniqueCrewKeys(s));
 
 function toggleHardMode() {
     console.log('=== toggleHardMode ВЫЗВАНА ===');
-    console.log('Текущее состояние hardMode.enabled:', hardMode.enabled);
+    console.log('До переключения hardMode.enabled:', hardMode.enabled);
     
-    // ⚡ ПЕРЕКЛЮЧАЕМ
+    // Переключаем
     hardMode.enabled = !hardMode.enabled;
     
-    console.log('Новое состояние hardMode.enabled:', hardMode.enabled);
+    console.log('После переключения hardMode.enabled:', hardMode.enabled);
     
-    // ⚡ ОБНОВЛЯЕМ КНОПКУ
+    // Обновляем кнопку
     const btn = document.getElementById('hardModeBtn');
     if (btn) {
         btn.textContent = hardMode.enabled ? '🎯 Hard Mode: ВКЛ' : '🎯 Hard Mode: ВЫКЛ';
         btn.style.background = hardMode.enabled ? '#c0392b' : '#555';
     }
     
-    // ⚡ ПОКАЗЫВАЕМ/СКРЫВАЕМ КНОПКИ
+    // Показываем/скрываем кнопки
     const orderPanelBtn = document.getElementById('showOrderPanelBtn');
-    if (orderPanelBtn) {
-        orderPanelBtn.style.display = hardMode.enabled ? 'inline-block' : 'none';
-    }
+    if (orderPanelBtn) orderPanelBtn.style.display = hardMode.enabled ? 'inline-block' : 'none';
     
     const commPanelBtn = document.getElementById('showCommPanelBtn');
-    if (commPanelBtn) {
-        commPanelBtn.style.display = hardMode.enabled ? 'inline-block' : 'none';
-    }
+    if (commPanelBtn) commPanelBtn.style.display = hardMode.enabled ? 'inline-block' : 'none';
     
-    // ⚡ ДЕЙСТВИЯ ПРИ ВКЛЮЧЕНИИ
+    // Действия
     if (hardMode.enabled) {
         console.log('Hard Mode ВКЛЮЧЕН');
         try {
+            if (!appData.campaign.opUnits || appData.campaign.opUnits.length === 0) {
+                buildOperationalUnits();
+            }
             initHardMode();
             updateHardModeButtons();
         } catch (e) {
@@ -3665,7 +3664,7 @@ function toggleHardMode() {
         hardMode.pendingOrders = [];
     }
     
-    // ⚡ СОХРАНЯЕМ
+    // Сохраняем
     saveData();
     
     console.log('После saveData hardMode.enabled:', hardMode.enabled);
@@ -3950,9 +3949,14 @@ function findParentCompany(platoonUnit) {
     
     return closestCompany;
 }  
-function saveData() { 
-    appData.hardMode = JSON.parse(JSON.stringify(hardMode));
-    safeLocalStorage('setItem', STORAGE_KEY, JSON.stringify(appData));
+function saveData() {
+    try {
+        appData.hardMode = JSON.parse(JSON.stringify(hardMode));
+        safeLocalStorage('setItem', STORAGE_KEY, JSON.stringify(appData));
+        console.log('💾 Данные сохранены. hardMode.enabled:', hardMode.enabled);
+    } catch (e) {
+        console.error('Ошибка сохранения:', e);
+    }
 }
 
     function resetAllData() {
@@ -13823,20 +13827,28 @@ function updateBtrPanel() {
 
 function getAvailableVehicles() {
     if (!appData.campaign.opUnits) return [];
+    
     return appData.campaign.opUnits.filter(u => {
+        // Проверяем, является ли юнит техникой
         const isVehicle = u.type === 'tank_platoon' || 
                          u.type === 'btr_platoon' || 
                          u.type === 'sau_battery' || 
                          u.type === 'armored_vehicle_platoon' ||
+                         u.type === 'vehicle' ||
                          (u.name && (u.name.includes('БТР') ||
                          u.name.includes('CL/39') ||
                          u.name.includes('САУ') ||
+                         u.name.includes('Танк') ||
                          u.name.includes('Бронеавтомобиль') ||
                          u.name.includes('Landsverk')));
+        
         if (!isVehicle) return false;
-        if (u.isGroup) return false;
-        if (u.embarkedUnit) return false;
+        if (u.isGroup) return false;      // Уже группа
+        if (u.isDestroyed) return false;  // Уничтожена
+        if (u.isImmobilized) return false; // Обездвижена
         if (u.hidden) return false;
+        if (u.col === null || u.row === null) return false; // Не размещена
+        
         return true;
     });
 }
@@ -14872,17 +14884,7 @@ function showShootNotification(shooterName, targetNames, distance, damage, kille
             ${detailsHtml}
         </div>
     `;
-    
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-        notification.style.opacity = '0';
-        setTimeout(() => {
-            if (notification.parentElement) {
-                notification.remove();
-            }
-        }, 500);
-    }, 8000);
+    document.body.appendChild(notification); 
 }
 
 // Добавляем CSS анимацию для уведомлений
@@ -15319,9 +15321,8 @@ function executeOpShootAt(targets, distance) {
         return;
     }
     
-    // ⚡ НЕ ТРАТИМ ОД (стрельба по готовности)
-    // const spentAP = shooter.ap;
-    // shooter.ap = 0;
+    // ⚡ НЕ ТРАТИМ ОД (стрельба по готовности или на ходу)
+    const savedAP = shooter.ap;
     
     const totalShots = gunCount * 12;
     let hitChance = 0;
@@ -15337,6 +15338,7 @@ function executeOpShootAt(targets, distance) {
         default: hitChance = 0.03; penetrationKey = 40;
     }
     
+    // Определяем пробиваемость
     let penetration = 0;
     for (let squad of shooter.squads) {
         if (!squad.crewInstances) continue;
@@ -15351,6 +15353,19 @@ function executeOpShootAt(targets, distance) {
         if (penetration > 0) break;
     }
     
+    // Определяем максимальную броню среди целей
+    let maxArmor = 0;
+    armorTargets.forEach(t => {
+        if (t.armor) {
+            maxArmor = Math.max(maxArmor, 
+                t.armor.front || 0, 
+                t.armor.side || 0, 
+                t.armor.rear || 0, 
+                t.armor.turret || 0
+            );
+        }
+    });
+    
     let hits = 0;
     let penetrations = 0;
     let destroyedUnits = [];
@@ -15359,6 +15374,13 @@ function executeOpShootAt(targets, distance) {
     for (let target of armorTargets) {
         // ⚡ ВЫБИРАЕМ КОНКРЕТНУЮ МАШИНУ
         let targetVehicle = selectTargetVehicle(target);
+        
+        if (!targetVehicle) {
+            console.warn('❌ selectTargetVehicle вернул null для', target);
+            continue;
+        }
+        
+        console.log(`🎯 Обстрел цели: ${targetVehicle.name}, броня:`, targetVehicle.armor || 'нет');
         
         const shotsForTarget = Math.floor(totalShots / armorTargets.length);
         
@@ -15379,13 +15401,15 @@ function executeOpShootAt(targets, distance) {
                     case 6: location = 'ammo'; break;
                 }
                 
-                                // ⚡ ОПРЕДЕЛЯЕМ БРОНЮ МОДУЛЯ
+                console.log(`   Выстрел #${i+1}: d6=${locRoll} → ${location}`);
+                
+                // ⚡ ОПРЕДЕЛЯЕМ БРОНЮ МОДУЛЯ
                 let armorValue = 0;
                 
-                // Если это машина из группы - ищем броню в vehicleList или в самой машине
+                // Ищем броню
                 let armorData = targetVehicle.armor;
                 
-                // Если брони нет, но есть squads с броней
+                // Если нет armour в машине, ищем в squads
                 if (!armorData && targetVehicle.squads && targetVehicle.squads.length > 0) {
                     for (let squad of targetVehicle.squads) {
                         if (squad.armor) {
@@ -15395,37 +15419,28 @@ function executeOpShootAt(targets, distance) {
                     }
                 }
                 
-                // Если брони нет, ищем в target (если target - группа)
-                if (!armorData && target && target.armor) {
+                // Если нет, ищем в target (группе)
+                if (!armorData && target.armor) {
                     armorData = target.armor;
                 }
                 
-                // Если брони нет, но target - группа с vehicleList
-                if (!armorData && target && target.isGroup && target.vehicleList) {
+                // Если нет, ищем в vehicleList группы
+                if (!armorData && target.isGroup && target.vehicleList) {
                     for (let v of target.vehicleList) {
                         if (v.armor) {
                             armorData = v.armor;
                             break;
                         }
-                        if (v.squads && v.squads.length > 0) {
-                            for (let squad of v.squads) {
-                                if (squad.armor) {
-                                    armorData = squad.armor;
-                                    break;
-                                }
-                            }
-                        }
                     }
                 }
                 
-                // Теперь определяем броню по локации
                 if (armorData) {
                     switch (location) {
                         case 'hull':
                             armorValue = armorData.front || 20;
                             break;
                         case 'suspension':
-                            armorValue = 5; // ⚡ ГУСЕНИЦЫ ВСЕГДА 5мм
+                            armorValue = 5;
                             break;
                         case 'turret':
                             armorValue = armorData.turret || armorData.front || 20;
@@ -15440,7 +15455,6 @@ function executeOpShootAt(targets, distance) {
                             armorValue = armorData.front || 20;
                     }
                 } else {
-                    // Если броня вообще не найдена - используем стандартные значения
                     switch (location) {
                         case 'hull': armorValue = 20; break;
                         case 'suspension': armorValue = 5; break;
@@ -15451,14 +15465,16 @@ function executeOpShootAt(targets, distance) {
                     }
                 }
                 
-                console.log(`🎯 Броня для ${location}: ${armorValue}мм (пробитие: ${penetration}мм)`);
+                console.log(`   Броня "${location}": ${armorValue}мм, пробитие: ${penetration}мм`);
                 
                 // ⚡ ОБРАБАТЫВАЕМ ПОПАДАНИЕ
                 const result = processVehicleHit(targetVehicle, location, penetration, armorValue, shooter.name);
                 
+                // ⚡ СОХРАНЯЕМ ДЕТАЛИ
                 hitDetails.push({
-                    vehicle: targetVehicle.name,
+                    vehicle: targetVehicle.name || 'Неизвестная машина',
                     location: getLocationName(location),
+                    locationCode: location,
                     armor: armorValue,
                     penetration: penetration,
                     penetrated: result.result !== 'ricochet' && result.result !== 'no_penetration',
@@ -15467,6 +15483,7 @@ function executeOpShootAt(targets, distance) {
                 
                 log(`🎯 ${targetVehicle.name}: ${result.message}`);
                 
+                // ⚡ ОБРАБОТКА РЕЗУЛЬТАТА
                 if (result.result === 'destroyed' || result.result === 'exploded') {
                     penetrations++;
                     targetVehicle.isDestroyed = true;
@@ -15525,25 +15542,28 @@ function executeOpShootAt(targets, distance) {
         });
     }
     
+    // ⚡ ВОССТАНАВЛИВАЕМ ОД
+    shooter.ap = savedAP;
+    
     saveData();
     redrawOperationalMap();
     
     // ⚡ ФОРМИРУЕМ УВЕДОМЛЕНИЕ
     const shooterName = shooter.name || 'Неизвестный отряд';
-    const targetNames = armorTargets.map(t => t.name).join(', ');
+    const targetNames = armorTargets.map(t => t.name || 'Неизвестная цель').join(', ');
     
     // Собираем детали для уведомления
     let detailsText = '';
     if (hitDetails.length > 0) {
         detailsText = hitDetails.slice(0, 5).map(d => 
-            `${d.vehicle}: ${d.location} (${d.result})`
+            `${d.vehicle}: ${d.location} (броня ${d.armor}мм, пробитие ${d.penetration}мм)`
         ).join('\n');
         if (hitDetails.length > 5) {
             detailsText += `\n... и ещё ${hitDetails.length - 5} попаданий`;
         }
     }
     
-    const logMessage = `💥 [${shooterName}] ПТО обстрелял: ${targetNames} | Дистанция: ${distance} гексов | Попаданий: ${hits} | Уничтожено машин: ${destroyedUnits.length}`;
+    const logMessage = `💥 [${shooterName}] ПТО обстрелял: ${targetNames} | Дистанция: ${distance} гексов | Попаданий: ${hits} | Пробитий: ${penetrations} | Уничтожено машин: ${destroyedUnits.length}`;
     
     log(logMessage);
     
@@ -15557,15 +15577,18 @@ function executeOpShootAt(targets, distance) {
         hits: hits,
         penetrations: penetrations,
         destroyed: destroyedUnits.length,
-        destroyedNames: destroyedUnits.map(u => u.name),
+        destroyedNames: destroyedUnits.map(u => u.name || 'Неизвестная машина'),
         hitChance: Math.round(hitChance * 100),
-        penetration: penetration,
+        penetration: penetration || 0,
+        maxArmor: maxArmor || 0,
         distance: distance,
         details: hitDetails,
         gunCount: gunCount,
         targets: targetNames,
-        shooterName: shooterName
+        shooterName: shooterName,
+        spentAP: 0
     };
+    
     showAtShootResultModal(result);
     cancelOpShooting();
     updateOpPlaceSelect();
@@ -15622,7 +15645,14 @@ function showAtShootResultModal(result) {
         showDetails.forEach(d => {
             const color = d.penetrated ? '#27ae60' : '#e74c3c';
             const status = d.penetrated ? '✅ ПРОБИТ' : '❌ НЕ ПРОБИТ';
-            detailsHtml += `<div style="color:${color};">${d.target} → ${d.location}: броня ${d.armor}, пробитие ${d.penetration} — ${status}</div>`;
+            // ⚡ ИСПОЛЬЗУЕМ d.vehicle ВМЕСТО d.target!
+            // ⚡ ДОБАВЛЯЕМ ЗНАЧЕНИЯ ПО УМОЛЧАНИЮ ДЛЯ armor И penetration
+            const vehicleName = d.vehicle || 'Неизвестная машина';
+            const locationName = d.location || 'локация';
+            const armorValue = d.armor || 0;
+            const penetrationValue = d.penetration || 0;
+            
+            detailsHtml += `<div style="color:${color};">${vehicleName} → ${locationName}: броня ${armorValue}мм, пробитие ${penetrationValue}мм — ${status}</div>`;
         });
         if (result.details.length > maxShow) {
             detailsHtml += `<div style="color:#aaa;">... и ещё ${result.details.length - maxShow} попаданий</div>`;
@@ -15630,8 +15660,9 @@ function showAtShootResultModal(result) {
         detailsHtml += '</div>';
     }
     
+    // ⚡ ИСПРАВЛЯЕМ undefined В ОТОБРАЖЕНИИ
     const destroyedText = result.destroyed > 0 
-        ? `<span style="color:#e74c3c; font-weight:bold;">💀 Уничтожено: ${result.destroyed} (${result.destroyedNames.join(', ')})</span>`
+        ? `<span style="color:#e74c3c; font-weight:bold;">💀 Уничтожено: ${result.destroyed} (${(result.destroyedNames || []).join(', ') || 'Неизвестные машины'})</span>`
         : '<span style="color:#aaa;">Техника не уничтожена</span>';
     
     const modalHtml = `
@@ -15646,36 +15677,36 @@ function showAtShootResultModal(result) {
             </div>
             <hr style="border-color:#555; margin:10px 0;">
             
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px 20px;">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px 20px;">
                 <div><strong style="color:#f1c40f;">Отряд-стрелок:</strong></div>
-                <div>${result.shooterName || opShootingState.shooter?.name || 'Неизвестно'}</div>
+                <div>${result.shooterName || 'Неизвестно'}</div>
                 
                 <div><strong style="color:#f1c40f;">Цели:</strong></div>
                 <div>${result.targets || 'Пехота'}</div>
                 
                 <div><strong style="color:#f1c40f;">Дистанция:</strong></div>
-                <div>${result.distance} гексов (шанс ${result.hitChance}%)</div>
+                <div>${result.distance} гексов (шанс ${result.hitChance || 0}%)</div>
                 
                 <div><strong style="color:#f1c40f;">Орудий:</strong></div>
-                <div>${result.gunCount}</div>
+                <div>${result.gunCount || 0}</div>
                 
                 <div><strong style="color:#f1c40f;">Выстрелов:</strong></div>
-                <div>${result.shots}</div>
+                <div>${result.shots || 0}</div>
                 
                 <div><strong style="color:#f1c40f;">Попаданий:</strong></div>
-                <div style="color:#f1c40f;">${result.hits}</div>
+                <div style="color:#f1c40f;">${result.hits || 0}</div>
                 
                 <div><strong style="color:#f1c40f;">Пробитий:</strong></div>
-                <div style="color:#27ae60;">${result.penetrations}</div>
+                <div style="color:#27ae60;">${result.penetrations || 0}</div>
                 
                 <div><strong style="color:#f1c40f;">Пробиваемость:</strong></div>
-                <div>${result.penetration} мм</div>
+                <div>${result.penetration || 0} мм</div>
                 
                 <div><strong style="color:#f1c40f;">Макс. броня цели:</strong></div>
-                <div>${result.maxArmor} мм</div>
+                <div>${result.maxArmor || 0} мм</div>
                 
                 <div><strong style="color:#f1c40f;">ОД потрачено:</strong></div>
-                <div>${result.spentAP}</div>
+                <div>${result.spentAP !== undefined ? result.spentAP : '0 (бесплатно)'}</div>
             </div>
             
             <hr style="border-color:#555; margin:15px 0;">
@@ -17434,7 +17465,20 @@ function toggleCrewStatus(vehicleIdx, fighterIdx, status) {
     
     log(`💀 ${vehicle.name}: ${fighter.name} → ${status === 'alive' ? 'жив' : 'погиб'}`);
 }
-      
+// ==================== ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ ====================
+
+// Проверяем, включен ли Hard Mode
+if (hardMode.enabled) {
+    console.log('Hard Mode включен, выдаём рации...');
+    
+    // Создаём юниты, если их нет
+    if (!appData.campaign.opUnits || appData.campaign.opUnits.length === 0) {
+        buildOperationalUnits();
+    }
+    
+    // Выдаём рации и телефоны
+    initHardMode();
+}      
       
   </script> 
   
