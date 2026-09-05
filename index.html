@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v12.207 — карта  </title>
+  <title>Боевой модуль v12.208 — карта  </title>
   <link rel="manifest" href="manifest.json">
   <style>
     @media (max-width: 768px) {
@@ -258,7 +258,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v12.207</h1>
+    <h1>⚔️ Боевой модуль v12.208</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -286,7 +286,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v12.207 — карта </h2>
+  <h2>⚔️ Боевой модуль v12.208 — карта </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1579,17 +1579,16 @@ function redrawOperationalMap() {
 // Подсветка зоны разведки (голубым)
 if (appData.campaign.opUnits) {
     appData.campaign.opUnits.forEach(unit => {
-        // Проверяем и reconPending, и reconHighlightHexes
         if (unit.reconPending && unit.reconHex) {
             const [rCol, rRow] = unit.reconHex.split(',').map(Number);
             const radius = unit.reconRadius || 2;
             
             ctx.save();
             ctx.fillStyle = 'rgba(52, 152, 219, 0.25)';
-            ctx.strokeStyle = 'rgba(52, 152, 219, 0.6)';
-            ctx.lineWidth = 2;
+            ctx.strokeStyle = 'rgba(52, 152, 219, 0.8)';
+            ctx.lineWidth = 3;
             
-            // Используем сохранённые гексы для подсветки
+            // Подсвечиваем гексы в радиусе
             const hexesToHighlight = unit.reconHighlightHexes || [];
             
             if (hexesToHighlight.length > 0) {
@@ -1610,7 +1609,7 @@ if (appData.campaign.opUnits) {
                     ctx.stroke();
                 });
             } else {
-                // fallback: подсвечиваем по радиусу
+                // Запасной вариант: подсвечиваем по радиусу
                 for (let dr = -radius; dr <= radius; dr++) {
                     for (let dc = -radius; dc <= radius; dc++) {
                         if (Math.max(Math.abs(dc), Math.abs(dr)) <= radius) {
@@ -1638,9 +1637,8 @@ if (appData.campaign.opUnits) {
             }
             ctx.restore();
             
-            // Сбрасываем после отрисовки
-            unit.reconPending = false;
-            // Сохраняем подсветку на один ход
+            // ⚠️ НЕ СБРАСЫВАЕМ reconPending ЗДЕСЬ!
+            // Оставляем подсветку на один ход
         }
     });
 }
@@ -3622,7 +3620,7 @@ function initHardMode() {
     if (hq) {
         hardMode.hqUnitId = appData.campaign.opUnits.indexOf(hq);
         
-        // Проверяем, не выданы ли уже рация и телефон штабу
+        // ⚡ ШТАБ БАТАЛЬОНА ВСЕГДА ПОЛУЧАЕТ РАЦИЮ И ТЕЛЕФОН
         const hasRadio = hardMode.signalPlatoon.radios.assigned.some(r => r.unitId === hardMode.hqUnitId);
         const hasPhone = hardMode.signalPlatoon.phones.assigned.some(p => p.unitId === hardMode.hqUnitId);
 
@@ -3631,66 +3629,20 @@ function initHardMode() {
                 unitId: hardMode.hqUnitId, 
                 isHQ: true
             });
+            hardMode.signalPlatoon.radios.available--;
+            console.log(`📻 Рация выдана штабу батальона: ${hq.name}`);
         }
         if (!hasPhone) {
             hardMode.signalPlatoon.phones.assigned.push({ 
                 unitId: hardMode.hqUnitId, 
                 isHQ: true
             });
+            hardMode.signalPlatoon.phones.available--;
+            console.log(`📞 Телефон выдан штабу батальона: ${hq.name}`);
         }
     }
     
-    // Находим штабы рот
-    const companies = (appData.campaign.opUnits || []).filter(u => u.type === 'company_hq');
-    companies.forEach(company => {
-        const companyId = appData.campaign.opUnits.indexOf(company);
-        hardMode.messengers.companies[companyId] = {
-            total: 4,
-            available: 4,
-            active: []
-        };
-    });
-    
-    // Отмечаем посыльных в штабах
-    if (hq && hq.squads) {
-        hq.squads.forEach(squad => {
-            squad.fighters.forEach(f => {
-                if (f.name.includes('Посыльный')) {
-                    f.isMessenger = true;
-                }
-            });
-        });
-    }
-    
-    companies.forEach(company => {
-        if (company.squads) {
-            company.squads.forEach(squad => {
-                squad.fighters.forEach(f => {
-                    if (f.name.includes('Посыльный')) {
-                        f.isMessenger = true;
-                    }
-                });
-            });
-        }
-    });
-    // ======== ВЫДАЧА ТЕЛЕФОНА ШТАБУ БАТАЛЬОНА (ИСПРАВЛЕНО) ========
-// Принудительно выдаём телефон штабу батальона, если его ещё нет
-if (hq) {
-    const hqUnitId = appData.campaign.opUnits.indexOf(hq);
-    const hasPhone = hardMode.signalPlatoon.phones.assigned.some(p => p.unitId === hqUnitId);
-    
-    if (!hasPhone) {
-        hardMode.signalPlatoon.phones.assigned.push({
-            unitId: hqUnitId,
-            isHQ: true
-        });
-        // Уменьшаем доступные телефоны
-        hardMode.signalPlatoon.phones.available--;
-        console.log(`📞 Телефон выдан штабу батальона: ${hq.name}`);
-    }
-}
-    // ======== ВЫДАЧА РАЦИЙ ТЕХНИКЕ №1 (ИСПРАВЛЕНО) ========
-    // Проверяем ВСЮ технику: танки, САУ, БТР, бронеавтомобили
+    // ⚡ ВЫДАЁМ РАЦИИ ВСЕМ МАШИНАМ №1
     const vehicleUnits = (appData.campaign.opUnits || []).filter(u => 
         u.type === 'tank_platoon' || u.type === 'btr_platoon' || 
         u.type === 'sau_battery' || u.type === 'armored_vehicle_platoon' ||
@@ -3701,13 +3653,10 @@ if (hq) {
         ))
     );
     
-    // Выдаём рацию каждой машине с номером 1
     vehicleUnits.forEach(vehicle => {
-        // Проверяем, есть ли в составе машина №1
         let hasNumber1 = false;
         
         if (vehicle.isGroup && vehicle.vehicleList) {
-            // Для группы проверяем vehicleList
             hasNumber1 = vehicle.vehicleList.some(v => v.name && v.name.includes('№1'));
         } else if (vehicle.name && vehicle.name.includes('№1')) {
             hasNumber1 = true;
@@ -3724,12 +3673,19 @@ if (hq) {
                     isVehicleRadio: true,
                     hasNumber1: true
                 });
-                // Уменьшаем доступные рации
                 hardMode.signalPlatoon.radios.available--;
                 console.log(`📻 Рация выдана: ${vehicle.name}`);
             }
         }
     });
+    
+    // ⚡ ВАЖНО: Не даём available уйти в минус
+    if (hardMode.signalPlatoon.radios.available < 0) {
+        hardMode.signalPlatoon.radios.available = 0;
+    }
+    if (hardMode.signalPlatoon.phones.available < 0) {
+        hardMode.signalPlatoon.phones.available = 0;
+    }
     
     saveData();
 }
@@ -13884,13 +13840,11 @@ function createVehicleGroup(vehicles) {
     const firstVehicle = vehicles[0];
     const displayName = getVehicleDisplayName(firstVehicle);
     
-    // Определяем фракцию первого юнита
     let faction = firstVehicle.faction || '';
     if (!faction && firstVehicle.squads && firstVehicle.squads.length > 0) {
         faction = firstVehicle.squads[0].faction || '';
     }
     
-    // Определяем тип техники
     let groupType = firstVehicle.type;
     let vehicleType = 'default';
     
@@ -13908,7 +13862,6 @@ function createVehicleGroup(vehicles) {
         vehicleType = 'landsverk';
     }
     
-    // Проверяем, есть ли десант в каком-либо из БТР
     let embarkedUnitName = null;
     let embarkedUnitId = null;
     
@@ -13920,29 +13873,22 @@ function createVehicleGroup(vehicles) {
         }
     }
     
-    // ⚡ СОХРАНЯЕМ ПОЛНУЮ ИНФОРМАЦИЮ О КАЖДОЙ МАШИНЕ
     const vehicleListData = vehicles.map(v => ({
-        name: v.name,                    // ОРИГИНАЛЬНОЕ ИМЯ
+        name: v.name,
         type: v.type,
         icon: v.icon,
         faction: v.faction || faction,
         embarkedUnit: v.embarkedUnit || null,
         embarkedUnitId: v.embarkedUnitId || null,
-        // ⚡ СОХРАНЯЕМ ВСЕ ВАЖНЫЕ СВОЙСТВА
         armor: v.armor || null,
         squads: v.squads || [],
         crewInstances: v.crewInstances || [],
         ammoSmall: v.ammoSmall || 0,
         ammoOrdnance: v.ammoOrdnance || 0,
         maxAp: v.maxAp || 4,
-        // ⚡ СОХРАНЯЕМ ИНФОРМАЦИЮ О РАЦИИ
-        hasRadio: hasRadio(v),
-        radioInfo: hardMode.signalPlatoon.radios.assigned.find(r => 
-            r.unitId === appData.campaign.opUnits.indexOf(v)
-        ) || null
+        hasRadio: hasRadio(v)
     }));
     
-    // Создаем новый юнит-группу
     const groupUnit = {
         name: `Отряд ${displayName} (${vehicles.length}шт)`,
         type: groupType,
@@ -13966,44 +13912,18 @@ function createVehicleGroup(vehicles) {
         vehicleClass: vehicleType,
         embarkedUnit: embarkedUnitName,
         embarkedUnitId: embarkedUnitId,
-        vehicleList: vehicleListData  // ⚡ СОХРАНЯЕМ ПОЛНЫЕ ДАННЫЕ
+        vehicleList: vehicleListData
     };
     
-    // Добавляем группу в opUnits
     appData.campaign.opUnits.push(groupUnit);
-    const groupIndex = appData.campaign.opUnits.indexOf(groupUnit);
     
-    // ⚡ ПЕРЕНОСИМ РАЦИЮ ПЕРВОЙ МАШИНЫ НА ГРУППУ
+    // ⚡ НАХОДИМ РАЦИЮ ДО УДАЛЕНИЯ
     const firstVehicleIndex = appData.campaign.opUnits.indexOf(firstVehicle);
     const radioEntry = hardMode.signalPlatoon.radios.assigned.find(r => 
-        r.unitId === firstVehicleIndex && r.hasNumber1
+        r.unitId === firstVehicleIndex
     );
-    if (radioEntry) {
-        radioEntry.unitId = groupIndex;
-        radioEntry.isVehicleRadio = true;
-        radioEntry.hasNumber1 = true;
-    }
     
-    // Если был десант - обновляем его информацию
-    if (embarkedUnitName && embarkedUnitId !== null && embarkedUnitId !== undefined) {
-        const embarkedUnit = appData.campaign.opUnits[embarkedUnitId];
-        if (embarkedUnit) {
-            embarkedUnit.embarkedInBtr = true;
-            embarkedUnit.btrIds = [groupIndex];
-            embarkedUnit.mobility = 'vehicle';
-            embarkedUnit.hidden = true;
-            
-            if (embarkedUnit.embarkedCol === undefined) {
-                embarkedUnit.embarkedCol = embarkedUnit.col;
-                embarkedUnit.embarkedRow = embarkedUnit.row;
-            }
-            
-            embarkedUnit.col = null;
-            embarkedUnit.row = null;
-        }
-    }
-    
-    // Удаляем старые машины из opUnits
+    // ⚡ УДАЛЯЕМ СТАРЫЕ МАШИНЫ
     const indicesToRemove = [];
     vehicles.forEach(v => {
         const idx = appData.campaign.opUnits.indexOf(v);
@@ -14017,9 +13937,19 @@ function createVehicleGroup(vehicles) {
         appData.campaign.opUnits.splice(idx, 1);
     });
     
-    // Обновляем индексы в рациях после удаления
+    // ⚡ НАХОДИМ НОВЫЙ ИНДЕКС ГРУППЫ
+    const newGroupIndex = appData.campaign.opUnits.indexOf(groupUnit);
+    
+    // ⚡ ПЕРЕНОСИМ РАЦИЮ НА ГРУППУ
+    if (radioEntry) {
+        radioEntry.unitId = newGroupIndex;
+        radioEntry.isVehicleRadio = true;
+        radioEntry.hasNumber1 = true;
+    }
+    
+    // ⚡ КОРРЕКТИРУЕМ ОСТАЛЬНЫЕ РАЦИИ
     hardMode.signalPlatoon.radios.assigned.forEach(r => {
-        if (r.unitId !== groupIndex) {
+        if (r !== radioEntry) {
             indicesToRemove.forEach(removedIdx => {
                 if (r.unitId > removedIdx) {
                     r.unitId--;
@@ -14028,9 +13958,28 @@ function createVehicleGroup(vehicles) {
         }
     });
     
+    // ⚡ ОБНОВЛЯЕМ ДЕСАНТ
+    if (embarkedUnitName && embarkedUnitId !== null && embarkedUnitId !== undefined) {
+        const embarkedUnit = appData.campaign.opUnits.find(u => u.name === embarkedUnitName);
+        if (embarkedUnit) {
+            embarkedUnit.embarkedInBtr = true;
+            embarkedUnit.btrIds = [newGroupIndex];
+            embarkedUnit.mobility = 'vehicle';
+            embarkedUnit.hidden = true;
+            if (embarkedUnit.embarkedCol === undefined) {
+                embarkedUnit.embarkedCol = embarkedUnit.col;
+                embarkedUnit.embarkedRow = embarkedUnit.row;
+            }
+            embarkedUnit.col = null;
+            embarkedUnit.row = null;
+        }
+    }
+    
     saveData();
     redrawOperationalMap();
     updateBtrPanel();
+    updateVehiclePanel();
+    renderCommunicationPanel();
     
     document.getElementById('mapInfo').innerHTML = `✅ Создан отряд из ${vehicles.length} машин${embarkedUnitName ? ` с десантом "${embarkedUnitName}"` : ''}.`;
 }
@@ -14164,7 +14113,7 @@ function splitVehicleGroup(group) {
         r.unitId !== groupIndex
     );
     
-    // Удаляем группу
+       // Удаляем группу
     appData.campaign.opUnits.splice(groupIndex, 1);
     
     // ⚡ КОРРЕКТИРУЕМ ИНДЕКСЫ В РАЦИЯХ
@@ -14175,8 +14124,25 @@ function splitVehicleGroup(group) {
     });
     
     saveData();
+    
+    // ⚡ ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ ВСЕ ПАНЕЛИ
     redrawOperationalMap();
+    updateOpPlaceSelect();
+    updateDismountPanel();
+    updateBtrPanel();
+    updateVehiclePanel();
+    updateVehicleGroupInfo();
+    renderCommunicationPanel(); // Обновляем панель связи
+    
     document.getElementById('mapInfo').innerHTML = `✅ Отряд разбит на ${groupSize} отдельных машин.`;
+    
+    // ⚡ ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ ИНТЕРФЕЙС ЧЕРЕЗ setTimeout
+    setTimeout(() => {
+        redrawOperationalMap();
+        updateVehiclePanel();
+        updateBtrPanel();
+        renderCommunicationPanel();
+    }, 100);
 }
 
 function renameGroup() {
