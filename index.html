@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.009 — операция  </title>
+  <title>Боевой модуль v13.010 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.008</h1>
+    <h1>⚔️ Боевой модуль v13.010</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -38,7 +38,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.008 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.010 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -2185,6 +2185,7 @@ function handleOpMapClick(e) {
           
           selectedUnit.col = h.col;
           selectedUnit.row = h.row;
+          selectedUnit.isHolding = false; // ручное перемещение снимает «удержание позиции»
           
           if (enemiesOnTarget.length > 0) {
             saveData();
@@ -3196,6 +3197,7 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         targetHex: options.targetHex || null,
         targetDistance: options.targetDistance || null,
         behavior: options.behavior || 'hold',
+        startHex: options.startHex || null,
         status: 'pending',
         deliveryMethod: null,
         deliveryProgress: 0,
@@ -3235,7 +3237,7 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         hardMode.pendingOrders.push(order);
     } else {
         order.status = 'active';
-        order.turnReceived = currentTurn;
+        order.turnReceived = appData.campaign ? appData.campaign.currentTurn : (currentTurn || 1);
         if (!hardMode.orders) hardMode.orders = [];
         hardMode.orders.push(order);
     }
@@ -3332,15 +3334,21 @@ function cancelOrder(orderId) {
 
 function returnMessenger(unit) {
     const unitId = appData.campaign.opUnits.indexOf(unit);
-    
+    // Возвращаем ОДНОГО посыльного (первого из списка), а не всех сразу
     if (unit.type === 'battalion_hq') {
-        hardMode.messengers.battalion.available++;
-        hardMode.messengers.battalion.active = hardMode.messengers.battalion.active.filter(a => a.unitId !== unitId);
-    } else if (unit.type === 'company_hq') {
+      const idx = hardMode.messengers.battalion.active.findIndex(a => a.unitId === unitId);
+        if (idx !== -1) {
+            hardMode.messengers.battalion.available++;
+            hardMode.messengers.battalion.active.splice(idx, 1);
+        }
+        } else if (unit.type === 'company_hq') {
         const companyMessengers = hardMode.messengers.companies[unitId];
         if (companyMessengers) {
-            companyMessengers.available++;
-            companyMessengers.active = companyMessengers.active.filter(a => a.unitId !== unitId);
+         const idx = companyMessengers.active.findIndex(a => a.unitId === unitId);
+            if (idx !== -1) {
+                companyMessengers.available++;
+                companyMessengers.active.splice(idx, 1);
+            }    
         }
     }
 }
@@ -3419,10 +3427,11 @@ function checkIdleUnits() {
         if (unit.movedThisTurn) return;
         
         // ======== АВТОМАТИЧЕСКАЯ СТРЕЛЬБА ========
+      // Исключаем врагов в тактическом бою (по ним огонь не ведётся)
         const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
             e.col !== null && e.row !== null &&
             getOpHexDistance(unit.col, unit.row, e.col, e.row) <= 3 &&
-            !e.isDestroyed
+            !e.isDestroyed && !e.isInBattle
         );
         
         if (enemies.length === 0) return;
@@ -9553,10 +9562,21 @@ function processOrders() {
     // 1. Обрабатываем доставку приказов (посыльные)
     if (hardMode.pendingOrders) {
         hardMode.pendingOrders.forEach(order => {
+          // Получатель уничтожен или исчез — приказ сгорает, посыльный возвращается
+            const targetUnit = appData.campaign.opUnits ? appData.campaign.opUnits[order.toUnitId] : null;
+            if (!targetUnit || targetUnit.isDestroyed) {
+                order.status = 'cancelled';
+                log(`❌ Приказ "${order.type}" не доставлен: получатель уничтожен.`);
+                const fromUnit = appData.campaign.opUnits ? appData.campaign.opUnits[order.fromUnitId] : null;
+                if (fromUnit) returnMessenger(fromUnit);
+                order.messengerId = null;
+                return;
+            }
+            
             order.deliveryTurnsPassed++;
             if (order.deliveryTurnsPassed >= order.deliveryTurnsNeeded) {
                 order.status = 'active';
-                order.turnReceived = currentTurn;
+                order.turnReceived = appData.campaign ? appData.campaign.currentTurn : (currentTurn || 1);
                 if (!hardMode.orders) hardMode.orders = [];
                 hardMode.orders.push(order);
                 
@@ -9569,7 +9589,9 @@ function processOrders() {
             }
         });
         
-        hardMode.pendingOrders = hardMode.pendingOrders.filter(o => o.status !== 'active');
+        hardMode.pendingOrders = hardMode.pendingOrders.filter(o => 
+            o.status !== 'active' && o.status !== 'cancelled'
+        );
     }
     
     // ⚡ ПРОВЕРКА: обновляем статус активных приказов (чтобы юниты не зависали)
@@ -9628,77 +9650,10 @@ function processOrders() {
         });
     }
     
-    // 4. ⚡ АВТОМАТИЧЕСКАЯ СТРЕЛЬБА - ТОЛЬКО ПО ПРИКАЗУ "ОГОНЬ ПО ГОТОВНОСТИ"
-    if (hardMode.orders) {
-        // Создаём копию массива, чтобы изменения во время итерации не ломали цикл
-        const ordersCopy = [...hardMode.orders];
-        
-        ordersCopy.forEach(order => {
-            // Проверяем, что это приказ "огонь по готовности" и он активен
-            if (order.status === 'active' && order.type === 'fire_at_will') {
-                const unit = appData.campaign.opUnits ? appData.campaign.opUnits[order.toUnitId] : null;
-                if (!unit) return;
-                if (unit.ap <= 0) return;
-                if (unit.isAmbush) return;
-                if (unit.hidden) return;
-                if (unit.isInBattle) return;  // Юнит в тактическом бою - не стреляет
-                if (unit.col === null || unit.row === null) return;
-                
-                const targetDistance = order.targetDistance || 3;
-                
-                // Ищем врагов в радиусе (включая гекс с врагом)
-                const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
-                    e.col !== null && e.row !== null &&
-                    getOpHexDistance(unit.col, unit.row, e.col, e.row) <= targetDistance &&
-                    !e.isDestroyed
-                );
-                
-                if (enemies.length === 0) {
-                    return;
-                }
-                
-                // ⚡ ФИЛЬТРУЕМ ЦЕЛИ: исключаем пехоту в тактическом бою, но бронетехнику можно
-                const validTargets = enemies.filter(e => {
-                    if (isArmoredUnit(e)) {
-                        return true;
-                    }
-                    return !e.isInBattle;
-                });
-                
-                if (validTargets.length === 0) {
-                    // Все цели в тактическом бою - не стреляем
-                    log(`ℹ️ [${unit.name}] Все враги в радиусе ${targetDistance} гексов находятся в тактическом бою.`);
-                    return;
-                }
-                
-                // Находим ближайшего врага среди валидных целей
-                let closestEnemy = null;
-                let minDist = Infinity;
-                validTargets.forEach(e => {
-                    const dist = getOpHexDistance(unit.col, unit.row, e.col, e.row);
-                    if (dist < minDist) {
-                        minDist = dist;
-                        closestEnemy = e;
-                    }
-                });
-                
-                if (closestEnemy && canUnitShoot(unit)) {
-                    const dist = getOpHexDistance(unit.col, unit.row, closestEnemy.col, closestEnemy.row);
-                    
-                    log(`🎯 [${unit.name}] Огонь по готовности! Цель: ${closestEnemy.name} (дистанция ${dist} гексов)`);
-                    
-                    // Настраиваем состояние обстрела
-                    opShootingState.shooter = unit;
-                    opShootingState.targets = [closestEnemy];
-                    opShootingState.weaponType = 'mg';
-                    
-                    // Выполняем обстрел
-                    executeOpShoot([closestEnemy], dist);
-                }
-            }
-        });
-    }
-    
+
+  // 4. Огонь по готовности выполняется в executeOrder (executeFireAtWillOrder) —
+    // отдельный блок здесь был удалён: он давал ДВОЙНОЙ выстрел за ход
+  
     // 5. ⚡ ПРОВЕРКА: враги на линиях связи (обрыв связи)
     if (hardMode.phoneLines) {
         hardMode.phoneLines.forEach(line => {
@@ -9747,7 +9702,18 @@ function executeOrder(order) {
     };
     
     const unit = appData.campaign.opUnits[order.toUnitId];
-    if (!unit) return;
+    if (!unit) {
+        order.status = 'cancelled';
+        log(`❌ Приказ отменён: юнит не найден.`);
+        return;
+    }
+    
+    // Юнит уничтожен или в тактическом бою — приказ не выполняется
+    if (unit.isDestroyed || unit.isInBattle) {
+        order.status = 'cancelled';
+        log(`❌ Приказ отменён: юнит ${unit.name} ${unit.isDestroyed ? 'уничтожен' : 'в тактическом бою'}.`);
+        return;
+    }
     
     switch (order.type) {
         case 'move':
@@ -9789,7 +9755,12 @@ function executeOrder(order) {
         case 'dig_in':
             executeDigInOrder(unit, order);
             break;
-            
+       case 'hold':
+            executeHoldOrder(unit, order);
+            break;
+        case 'retreat':
+            executeRetreatOrder(unit, order);
+            break;     
     }
     
     if (order.status === 'cancelled') {
@@ -9801,8 +9772,11 @@ function executeOrder(order) {
 }
 function executeSeriesOrder(unit, order) {
     if (!order.series || order.series.length === 0) {
-        order.status = 'cancelled';
-        log(`❌ [${unit.name}] Серия приказов пуста.`);
+     // уже завершённую/отменённую серию не трогаем
+        if (order.status !== 'completed' && order.status !== 'cancelled') {
+            order.status = 'cancelled';
+            log(`❌ [${unit.name}] Серия приказов пуста.`);
+        }   
         return;
     }
     
@@ -9931,7 +9905,7 @@ function executeSeriesOrder(unit, order) {
             if (unit.ap > 0) {
                 const [targetCol, targetRow] = currentAction.targetHex.split(',').map(Number);
                 
-                // Если юнит уже на целевом гексе, но врага нет - завершаем
+              // Если юнит уже на целевом гексе, но врага нет - завершаем
                 if (unit.col === targetCol && unit.row === targetRow) {
                     currentAction.status = 'completed';
                     log(`ℹ️ [${unit.name}] Прибыл на целевой гекс, но врага нет.`);
@@ -9939,7 +9913,7 @@ function executeSeriesOrder(unit, order) {
                 }
                 
                 // Двигаемся к цели
-                const route = getRouteToTarget(unit.col, unit.row, targetCol, targetRow);
+                const route = getRouteToTarget(unit.col, unit.row, targetCol, targetRow, unit);
                 if (route.length === 0) {
                     currentAction.status = 'cancelled';
                     log(`❌ [${unit.name}] Нет маршрута к цели.`);
@@ -10006,32 +9980,76 @@ function executeSeriesOrder(unit, order) {
         
         case 'dismount':
             executeDismountOrder(unit, currentAction);
-            currentAction.status = 'completed';
-            log(`✅ [${unit.name}] Спешился.`);
+            if (currentAction.status === 'completed') {
+                log(`✅ [${unit.name}] Спешился.`);
+            } else if (currentAction.status !== 'cancelled') {
+                currentAction.status = 'completed';
+                log(`✅ [${unit.name}] Спешился.`);
+            }
             break;
             
         case 'remount':
             executeRemountOrder(unit, currentAction);
-            currentAction.status = 'completed';
-            log(`✅ [${unit.name}] Сел на транспорт.`);
+            if (currentAction.status === 'completed') {
+                log(`✅ [${unit.name}] Сел на транспорт.`);
+            } else if (currentAction.status !== 'cancelled') {
+                currentAction.status = 'completed';
+                log(`✅ [${unit.name}] Сел на транспорт.`);
+            }
             break;
             
         case 'fire_at_will':
-            // Огонь по готовности выполняется каждый ход
-            executeFireAtWillOrder(unit, currentAction);
-            // Не завершаем приказ - он активен постоянно
+            // Непрерывный приказ не может "держать" серию:
+            // выносим его отдельным активным приказом, серия идёт дальше
+            {
+                // выстрел текущего хода
+                executeFireAtWillOrder(unit, currentAction);
+                const unitId = appData.campaign.opUnits.indexOf(unit);
+                if (!hardMode.orders) hardMode.orders = [];
+                const standOrder = {
+                    id: Date.now() + Math.random(),
+                    fromUnitId: order.fromUnitId != null ? order.fromUnitId : unitId,
+                    toUnitId: unitId,
+                    type: 'fire_at_will',
+                    status: 'active',
+                    targetDistance: currentAction.targetDistance || null,
+                    behavior: 'engage',
+                    startHex: null,
+                    waypoints: [],
+                    turnReceived: appData.campaign ? appData.campaign.currentTurn : null
+                };
+                hardMode.orders.push(standOrder);
+                currentAction.status = 'completed';
+                log(`🎯 [${unit.name}] Огонь по готовности вынесен отдельным приказом, серия продолжается.`);
+            }
+            break;
+            
+        case 'shoot':
+            executeShootOrder(unit, currentAction);
+            if (currentAction.status !== 'cancelled') {
+                currentAction.status = 'completed';
+                log(`✅ [${unit.name}] Обстрел выполнен.`);
+            }
             break;
             
         case 'shoot_at':
             executeShootAtOrder(unit, currentAction);
-            currentAction.status = 'completed';
-            log(`✅ [${unit.name}] Обстрел выполнен.`);
+            if (currentAction.status !== 'cancelled') {
+                currentAction.status = 'completed';
+                log(`✅ [${unit.name}] Обстрел бронетехники выполнен.`);
+            }
             break;
             
         case 'recon':
             executeReconOrder(unit, currentAction);
             if (currentAction.status === 'completed') {
                 log(`✅ [${unit.name}] Разведка выполнена.`);
+            }
+            break;
+            case 'dig_in':
+            executeDigInOrder(unit, currentAction);
+            if (currentAction.status === 'completed') {
+                log(`✅ [${unit.name}] Окопание завершено.`);
             }
             break;
             
@@ -10044,13 +10062,24 @@ function executeSeriesOrder(unit, order) {
             
         case 'defend':
             executeDefendOrder(unit, currentAction);
-            currentAction.status = 'completed';
-            log(`✅ [${unit.name}] Занял оборону.`);
+            // завершаем только когда юнит действительно занял позицию
+            if (currentAction.status === 'completed') {
+                log(`✅ [${unit.name}] Занял оборону.`);
+            }
             break;
             
         case 'hold':
-            // Удержание позиции - ничего не делаем
+            // Удержание позиции - действие считается выполненным,
+            // серия может переходить к следующему приказу
             log(`✋ [${unit.name}] Удерживает позицию.`);
+        currentAction.status = 'completed';
+            break;
+            
+        case 'retreat':
+            executeRetreatOrder(unit, currentAction);
+            if (currentAction.status === 'completed') {
+                log(`🏃 [${unit.name}] Отступление выполнено.`);
+            }
             break;
             
         default:
@@ -10082,6 +10111,42 @@ function executeSeriesOrder(unit, order) {
     saveData();
     redrawOperationalMap();
 }
+      // Пошаговое движение юнита к гексу (тратит ОД по-настоящему, без «телепорта»).
+// Возвращает: 'reached' (на месте) | 'partial' (сдвинулся, ОД кончились)
+//             | 'blocked' (не может двинуться) | 'no_route' (маршрута нет)
+//             | 'battle' (вступил в бой по пути)
+function stepUnitTowardTarget(unit, targetCol, targetRow) {
+    if (unit.col === targetCol && unit.row === targetRow) return 'reached';
+    if (unit.ap <= 0) return 'partial';
+    
+    const route = getRouteToTarget(unit.col, unit.row, targetCol, targetRow, unit);
+    if (route.length === 0) return 'no_route';
+    
+    for (let i = 0; i < route.length; i++) {
+        const next = route[i];
+        const cost = getOpMoveCost(unit, unit.col, unit.row, next.col, next.row);
+        if (!isFinite(cost) || unit.ap < cost) return 'blocked';
+        
+        const enemiesOnNext = (appData.campaign.enemyOpUnits || []).filter(e => 
+            e.col === next.col && e.row === next.row && !e.isDestroyed
+        );
+        
+        unit.ap -= cost;
+        unit.col = next.col;
+        unit.row = next.row;
+        unit.movedThisTurn = true;
+        unit.isHolding = false;
+        
+        if (enemiesOnNext.length > 0) {
+            startTacticalBattle([unit], enemiesOnNext);
+            return 'battle';
+        }
+        
+        if (unit.col === targetCol && unit.row === targetRow) return 'reached';
+    }
+    return 'partial';
+}
+
 function executeAmbushOrder(unit, order) {
     if (!order.targetHex) {
         order.status = 'cancelled';
@@ -10089,7 +10154,11 @@ function executeAmbushOrder(unit, order) {
     }
     
     const [targetCol, targetRow] = order.targetHex.split(',').map(Number);
-    
+    if (isNaN(targetCol) || isNaN(targetRow)) {
+        order.status = 'cancelled';
+        log(`❌ [${unit.name}] Неверные координаты для засады.`);
+        return;
+    }
     // Если юнит уже на целевом гексе — встаём в засаду
     if (unit.col === targetCol && unit.row === targetRow) {
         unit.isAmbush = true;
@@ -10099,36 +10168,32 @@ function executeAmbushOrder(unit, order) {
         unit.noiseMarker = false;
         order.status = 'completed';
         log(`🥷 ${unit.name} устроил засаду на гексе (${targetCol},${targetRow}).`);
+        saveData();
         redrawOperationalMap();
         return;
     }
     
-    // Иначе двигаемся к целевому гексу
-    if (unit.ap > 0) {
-        const moveCost = getOpMoveCost(unit, unit.col, unit.row, targetCol, targetRow);
-        if (moveCost === Infinity) {
-            order.status = 'cancelled';
-            log(`❌ ${unit.name} не может достичь гекса для засады.`);
-            return;
-        }
-        
-        if (unit.ap >= moveCost) {
-            unit.ap -= moveCost;
-            unit.col = targetCol;
-            unit.row = targetRow;
-            
-            // После входа в гекс — встаём в засаду
-            unit.isAmbush = true;
-            unit.ambushHex = `${targetCol},${targetRow}`;
-            unit.canMove = false;
-            unit.detected = false;
-            unit.noiseMarker = false;
-            order.status = 'completed';
-            log(`🥷 ${unit.name} устроил засаду на гексе (${targetCol},${targetRow}).`);
-        } else {
-            log(`⏳ ${unit.name} не хватило ОД для выдвижения в засаду.`);
-        }
+ // Иначе пошагово двигаемся к целевому гексу (пока хватает ОД)
+    const result = stepUnitTowardTarget(unit, targetCol, targetRow);
+    
+    if (result === 'reached') {
+        unit.isAmbush = true;
+        unit.ambushHex = `${unit.col},${unit.row}`;
+        unit.canMove = false;
+        unit.detected = false;
+        unit.noiseMarker = false;
+        order.status = 'completed';
+        log(`🥷 ${unit.name} устроил засаду на гексе (${unit.col},${unit.row}).`);
+    } else if (result === 'no_route') {
+        order.status = 'cancelled';
+        log(`❌ ${unit.name} не может достичь гекса для засады (${targetCol},${targetRow}). Приказ отменён.`);
+    } else if (result === 'battle') {
+        // Бой начался — приказ ждёт следующего хода
+        log(`⚔️ ${unit.name} вступил в бой на пути к засаде.`);
+    } else {
+        log(`⏳ ${unit.name} движется к гексу засады (${targetCol},${targetRow}). Осталось ОД: ${unit.ap}.`);
     }
+    saveData();
     redrawOperationalMap();
 }
 function executeAttackOrder(unit, order) {
@@ -10171,7 +10236,15 @@ function executeAttackOrder(unit, order) {
     const maxSteps = 20; // максимальное количество шагов
     
     // Получаем полный маршрут до цели
-    const route = getRouteToTarget(currentCol, currentRow, targetCol, targetRow);
+    const route = getRouteToTarget(currentCol, currentRow, targetCol, targetRow, unit);
+    
+    if (route.length === 0) {
+        log(`❌ ${unit.name}: нет маршрута к цели (${targetCol},${targetRow}). Приказ отменён.`);
+        order.status = 'cancelled';
+        saveData();
+        redrawOperationalMap();
+        return;
+    }
     
     for (let step of route) {
         steps++;
@@ -10409,20 +10482,25 @@ function executeRemountOrder(unit, order) {
 function executeMoveOrder(unit, order) {
     console.log(`=== executeMoveOrder: ${unit.name} ===`);
     console.log(`ОД: ${unit.ap}, Позиция: (${unit.col},${unit.row}), Цель: ${order.targetHex}, Waypoints:`, order.waypoints);
-    // Если у юнита нет целевого гекса - используем waypoints
+   // Если у юнита задан маршрут - цель = последняя точка маршрута,
+    // иначе используем целевой гекс
     let targetCol, targetRow;
-    
-    if (order.targetHex) {
-        const [c, r] = order.targetHex.split(',').map(Number);
-        targetCol = c;
-        targetRow = r;
-    } else if (order.waypoints && order.waypoints.length > 0) {
+    if (order.waypoints && order.waypoints.length > 0) {
         const last = order.waypoints[order.waypoints.length - 1];
         targetCol = last.col;
         targetRow = last.row;
+      } else if (order.targetHex) {
+        const [c, r] = order.targetHex.split(',').map(Number);
+        targetCol = c;
+        targetRow = r;
     } else {
         order.status = 'cancelled';
         log(`❌ [${unit.name}] Нет цели для движения.`);
+        return;
+    }
+    if (isNaN(targetCol) || isNaN(targetRow)) {
+        order.status = 'cancelled';
+        log(`❌ [${unit.name}] Неверные координаты цели движения.`);
         return;
     }
     
@@ -10447,171 +10525,136 @@ function executeMoveOrder(unit, order) {
         }
     }
     
-    // ======== НОВАЯ ЛОГИКА: ДВИЖЕНИЕ ПО МАРШРУТУ ЗА ВСЕ ОД ========
+    // ======== ДВИЖЕНИЕ ПО МАРШРУТУ ЗА ВСЕ ОД ========
     if (unit.ap <= 0) {
-        log(`⏳ [${unit.name}] Нет ОД для движения.`);
+        log(`⏳ [${unit.name}] Нет ОД для движения. Ожидание следующего хода.`);
         return;
     }
     
     // Строим полный маршрут до цели
     let fullRoute = [];
     if (order.waypoints && order.waypoints.length > 0) {
-        // Используем переданные waypoints
-        fullRoute = order.waypoints.map(wp => ({ col: wp.col, row: wp.row }));
-    } else {
-        // Строим маршрут автоматически
-        fullRoute = getRouteToTarget(unit.col, unit.row, targetCol, targetRow);
-    }
-    
-    // Добавляем текущую позицию в начало маршрута (для удобства)
-    const routeWithStart = [
-        { col: unit.col, row: unit.row },
-        ...fullRoute
-    ];
-    
-    // Переменные для отслеживания прогресса
-    let currentCol = unit.col;
-    let currentRow = unit.row;
-    let totalCost = 0;
-    let stepsTaken = 0;
-    let blockedHex = null;
-    
-    // Проходим по всем точкам маршрута
-    for (let i = 1; i < routeWithStart.length; i++) {
-        const next = routeWithStart[i];
-        const prev = routeWithStart[i - 1];
-        
-        // Проверяем, не вышел ли юнит за границы
-        if (next.col < 0 || next.col >= OP_MAP_COLS || next.row < 0 || next.row >= OP_MAP_ROWS) {
-            blockedHex = next;
-            break;
+    // Убираем уже пройденные точки (с начала списка), чтобы на
+        // следующем ходу юнит не «возвращался» к первой точке маршрута.
+        // Путь выглядит так: [startHex, wp1, wp2, ...] — если юнит стоит
+        // на i-й точке пути, всё до неё (включительно) уже пройдено.
+        if (order.startHex) {
+            const [sc, sr] = order.startHex.split(',').map(Number);
+            const path = [{ col: sc, row: sr }, ...order.waypoints];
+            const unitIdx = path.findIndex(p => p.col === unit.col && p.row === unit.row);
+            if (unitIdx > 0) {
+                // юнит стоит на unitIdx-й точке пути => пройдено unitIdx точек маршрута
+                order.waypoints.splice(0, unitIdx);
+                log(`📍 [${unit.name}] Продолжение маршрута от гекса (${unit.col},${unit.row}).`);
+            }
+        } else {
+            // Старый приказ без startHex: убираем точки, на которых юнит стоит
+            for (let i = order.waypoints.length - 1; i >= 0; i--) {
+                if (order.waypoints[i].col === unit.col && order.waypoints[i].row === unit.row) {
+                    order.waypoints.splice(0, i + 1);
+                    break;
+                }
+            }
         }
         
-        // Проверяем стоимость перемещения на следующий гекс
-        const moveCost = getOpMoveCost(unit, prev.col, prev.row, next.col, next.row);
-        
-        // Если гекс непроходим - останавливаемся
-        if (moveCost === Infinity || !isFinite(moveCost)) {
-            blockedHex = next;
-            log(`🚫 [${unit.name}] Препятствие на гексе (${next.col},${next.row}). Движение остановлено.`);
-            break;
-        }
-        
-        // Проверяем, хватает ли ОД на весь оставшийся путь
-        // Сначала считаем стоимость всего оставшегося пути
-        let remainingCost = 0;
-        for (let j = i; j < routeWithStart.length - 1; j++) {
-            const from = routeWithStart[j];
-            const to = routeWithStart[j + 1];
-            const cost = getOpMoveCost(unit, from.col, from.row, to.col, to.row);
-            if (cost === Infinity) {
-                remainingCost = Infinity;
+        // Разворачиваем точки в пошаговый маршрут (соседние гексы).
+        // Точки кликаются произвольно и могут быть не соседними!
+        fullRoute = [];
+        let cur = { col: unit.col, row: unit.row };
+        let routeBroken = false;
+        for (let wp of order.waypoints) {
+            if (cur.col === wp.col && cur.row === wp.row) continue;
+            const seg = getRouteToTarget(cur.col, cur.row, wp.col, wp.row, unit);
+            if (seg.length === 0) {
+                routeBroken = true;
                 break;
             }
-            remainingCost += cost;
+            fullRoute.push(...seg);
+            cur = { col: wp.col, row: wp.row };
         }
+        if (routeBroken) {
+            order.status = 'cancelled';
+            log(`❌ [${unit.name}] Маршрут по точкам (${order.waypoints.map(w => `(${w.col},${w.row})`).join(' → ')}) непроходим. Приказ отменён.`);
+            saveData();
+            redrawOperationalMap();
+            return;
+        }    
+    } else {
+     // Строим маршрут автоматически (с учётом местности и союзников)
+        fullRoute = getRouteToTarget(unit.col, unit.row, targetCol, targetRow, unit);  
+    }
+    // Маршрута нет — приказ выполнить невозможно
+    if (fullRoute.length === 0) {
+        order.status = 'cancelled';
+        log(`❌ [${unit.name}] Нет маршрута до цели (${targetCol},${targetRow}). Приказ отменён.`);
+        saveData();
+        redrawOperationalMap();
+        return;
+    }
+    
+ // Идём шаг за шагом, тратя все ОД
+    let stepsTaken = 0;
+   for (let i = 0; i < fullRoute.length; i++) {
+        const next = fullRoute[i];
         
-        // Если не хватает ОД на весь путь - проходим максимум
-        if (remainingCost > unit.ap) {
-            // Находим сколько шагов можно сделать
-            let tempAp = unit.ap;
-            let stepsPossible = 0;
-            let tempCol = prev.col;
-            let tempRow = prev.row;
-            
-            for (let j = i; j < routeWithStart.length - 1; j++) {
-                const from = routeWithStart[j];
-                const to = routeWithStart[j + 1];
-                const cost = getOpMoveCost(unit, from.col, from.row, to.col, to.row);
-                if (cost === Infinity || tempAp < cost) break;
-                tempAp -= cost;
-                tempCol = to.col;
-                tempRow = to.row;
-                stepsPossible++;
-            }
-            
-            // Если можем сделать хотя бы один шаг
-            if (stepsPossible > 0) {
-                totalCost += unit.ap - tempAp;
-                currentCol = tempCol;
-                currentRow = tempRow;
-                stepsTaken += stepsPossible;
-                unit.ap = tempAp;
-                
-                log(`🚶 [${unit.name}] Прошёл ${stepsPossible} гексов. ОД осталось: ${unit.ap}`);
-                
-                // Проверяем врагов на пути (для каждого пройденного гекса)
-                for (let j = 0; j < stepsPossible; j++) {
-                    const stepIndex = i + j;
-                    if (stepIndex < routeWithStart.length) {
-                        const hex = routeWithStart[stepIndex];
-                        const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
-                            e.col === hex.col && e.row === hex.row && !e.isDestroyed
-                        );
-                        if (enemies.length > 0) {
-                            log(`⚔️ [${unit.name}] Встретил врага на гексе (${hex.col},${hex.row})!`);
-                            unit.col = hex.col;
-                            unit.row = hex.row;
-                            startTacticalBattle([unit], enemies);
-                            order.status = 'completed';
-                            saveData();
-                            redrawOperationalMap();
-                            return;
-                        }
-                    }
-                }
-                
-                // Проверяем, достигли ли цели
-                if (currentCol === targetCol && currentRow === targetRow) {
-                    order.status = 'completed';
-                    log(`✅ [${unit.name}] Достиг цели (${targetCol},${targetRow}). Осталось ОД: ${unit.ap}`);
-                }
-            } else {
-                log(`⏳ [${unit.name}] Не хватает ОД даже для одного шага. ОД: ${unit.ap}`);
+        // Гекс вне карты — маршрут повреждён
+        if (next.col < 0 || next.col >= OP_MAP_COLS || next.row < 0 || next.row >= OP_MAP_ROWS) {
+            log(`🚫 [${unit.name}] Точка маршрута (${next.col},${next.row}) вне карты. Движение остановлено.`);
+            if (stepsTaken === 0) {
+                order.status = 'cancelled';
+                log(`❌ [${unit.name}] Приказ отменён: маршрут невалиден.`);
             }
             break;
         }
         
-        // Если хватает ОД на весь путь - идём дальше
-        // Проверяем врагов на следующем гексе
+        // Стоимость шага на следующий гекс
+        const moveCost = getOpMoveCost(unit, unit.col, unit.row, next.col, next.row);
+        
+       // Препятствие — останавливаемся
+        if (moveCost === Infinity || !isFinite(moveCost)) {
+           
+            log(`🚫 [${unit.name}] Препятствие на гексе (${next.col},${next.row}). Движение остановлено.`);
+           // Если не сделали ни одного шага - отменяем приказ
+            if (stepsTaken === 0) {
+                order.status = 'cancelled';
+                log(`❌ [${unit.name}] Приказ отменён: не может двинуться с текущего гекса.`);
+            }
+             break;
+        }
+        // Не хватает ОД на следующий шаг — ждём следующего хода
+        if (unit.ap < moveCost) {
+            log(`⏳ [${unit.name}] Не хватает ОД для следующего шага (нужно ${moveCost}, есть ${unit.ap}). Ожидание следующего хода.`);
+            break;
+        }
+        
+        // Проверяем, есть ли враг на следующем гексе
         const enemiesOnNext = (appData.campaign.enemyOpUnits || []).filter(e => 
             e.col === next.col && e.row === next.row && !e.isDestroyed
         );
         
-        if (enemiesOnNext.length > 0) {
-            // Тратим ОД на вход в гекс и начинаем бой
-            if (unit.ap >= moveCost) {
-                unit.ap -= moveCost;
-                currentCol = next.col;
-                currentRow = next.row;
-                stepsTaken++;
-                unit.col = currentCol;
-                unit.row = currentRow;
-                
-                log(`⚔️ [${unit.name}] Встретил врага на гексе (${currentCol},${currentRow})!`);
-                startTacticalBattle([unit], enemiesOnNext);
-                order.status = 'completed';
-                saveData();
-                redrawOperationalMap();
-                return;
-            }
-        }
-        
+               
         // Перемещаемся на следующий гекс
         unit.ap -= moveCost;
-        currentCol = next.col;
-        currentRow = next.row;
+        unit.col = next.col;
+        unit.row = next.row;
+        unit.movedThisTurn = true;
         stepsTaken++;
-        unit.col = currentCol;
-        unit.row = currentRow;
-        totalCost += moveCost;
-                // После перемещения (если юнит реально сдвинулся)
-        if (stepsTaken > 0) {
-            // Проверяем огонь в движении
-            checkMovingFire(unit);
+        // Враг на гексе — вступаем в бой
+        if (enemiesOnNext.length > 0) {
+            log(`⚔️ [${unit.name}] Встретил врага на гексе (${unit.col},${unit.row})!`);
+            startTacticalBattle([unit], enemiesOnNext);
+            order.status = 'completed';
+            saveData();
+            redrawOperationalMap();
+            renderActiveOrders();
+            return;
         }
-        // Проверяем, достигли ли цели
-        if (currentCol === targetCol && currentRow === targetRow) {
+        
+        // Огонь в движении (для техники)
+        checkMovingFire(unit);
+        
+        // Проверка, достигли ли цели
+        if (unit.col === targetCol && unit.row === targetRow) {
             order.status = 'completed';
             log(`✅ [${unit.name}] Достиг цели (${targetCol},${targetRow}). Осталось ОД: ${unit.ap}`);
             saveData();
@@ -10621,31 +10664,24 @@ function executeMoveOrder(unit, order) {
         }
     }
     
-    // Если у нас есть blockedHex - уведомляем о препятствии
-    if (blockedHex) {
-        log(`🚫 [${unit.name}] Не может пройти через гекс (${blockedHex.col},${blockedHex.row}).`);
-        // Если не сделали ни одного шага - отменяем приказ
-        if (stepsTaken === 0) {
-            order.status = 'cancelled';
-        }
+    // Юнит сдвинулся — сбрасываем флаги «удержание/оборона»
+    if (stepsTaken > 0) {
+        unit.isHolding = false;
     }
     
     // Если ОД закончились, но цель не достигнута - ждём следующий ход
-    if (unit.ap <= 0 && order.status !== 'completed' && order.status !== 'cancelled') {
-        log(`⏳ [${unit.name}] ОД закончились. Пройдено: ${stepsTaken} гексов. Цель: (${targetCol},${targetRow}).`);
+     if (stepsTaken > 0 && unit.ap <= 0 && order.status !== 'completed' && order.status !== 'cancelled') {
+        log(`⏳ [${unit.name}] ОД закончились. Пройдено: ${stepsTaken} гексов. Цель: (${targetCol},${targetRow}). Продолжение в следующем ходу.`);
     }
-    // После перемещения
-    if (stepsTaken > 0) {
-        checkMovingFire(unit);
-        
-        // ⚡ ПРОВЕРКА ВСТРЕЧИ С ВРАГОМ
-        if (order.behavior && order.behavior !== 'ignore') {
-            const encountered = checkEnemyEncounter(unit, order.behavior, order);
-            if (encountered) {
-                saveData();
-                redrawOperationalMap();
-                return;
-            }
+    // После перемещения — проверка встречи с врагом (поведение)
+    if (stepsTaken > 0 && order.status !== 'completed' && order.status !== 'cancelled' &&
+        order.behavior && order.behavior !== 'ignore') {
+        const encountered = checkEnemyEncounter(unit, order.behavior, order);
+        if (encountered) {
+            saveData();
+            redrawOperationalMap();
+            renderActiveOrders();
+            return;
         }
     } 
     unit.movedThisTurn = true;
@@ -10726,12 +10762,14 @@ function executeFireAtWillOrder(unit, order) {
     console.log(`🔥 executeFireAtWillOrder вызвана для ${unit.name}, ОД: ${unit.ap}`);
     
     // ⚡ ИЩЕМ ВРАГОВ В РАДИУСЕ (с учётом типа юнита)
-    const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
+     let enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
         e.col !== null && e.row !== null &&
         getOpHexDistance(unit.col, unit.row, e.col, e.row) <= targetDistance &&
         !e.isDestroyed
     );
-    
+    // Пехоту в тактическом бою не обстреливаем (бой идёт в тактике),
+    // бронетехнику — можно
+    enemies = enemies.filter(e => isArmoredUnit(e) || !e.isInBattle);
     console.log(`   Найдено врагов: ${enemies.length}`);
     
     if (enemies.length === 0) {
@@ -10808,28 +10846,32 @@ function executeReconOrder(unit, order) {
     
     const [targetCol, targetRow] = order.targetHex.split(',').map(Number);
     
-    // Если юнит ещё не на целевом гексе — двигаемся
+     // Если юнит ещё не на целевом гексе — двигаемся пошагово (тратя ОД)
     if (unit.col !== targetCol || unit.row !== targetRow) {
-        if (unit.ap > 0) {
-            const moveCost = getOpMoveCost(unit, unit.col, unit.row, targetCol, targetRow);
-            if (moveCost === Infinity) {
-                order.status = 'cancelled';
-                log(`❌ [${unit.name}] Не может достичь гекса (${targetCol},${targetRow}) для разведки.`);
-                return;
-            }
-            if (unit.ap >= moveCost) {
-                unit.ap -= moveCost;
-                unit.col = targetCol;
-                unit.row = targetRow;
-                log(`🔍 [${unit.name}] Выдвинулся на гекс (${targetCol},${targetRow}) для разведки.`);
-            } else {
-                log(`⏳ [${unit.name}] Не хватило ОД для выдвижения на разведку.`);
-                return;
-            }
-        } else {
-            log(`⏳ [${unit.name}] Нет ОД для выдвижения на разведку.`);
+const result = stepUnitTowardTarget(unit, targetCol, targetRow);
+        
+        if (result === 'no_route') {
+            order.status = 'cancelled';
+            log(`❌ [${unit.name}] Не может достичь гекса (${targetCol},${targetRow}) для разведки. Приказ отменён.`);
+            saveData();
+            redrawOperationalMap();
             return;
         }
+        
+        if (result === 'battle') {
+            log(`⚔️ ${unit.name} вступил в бой на пути к разведке. Продолжение в следующем ходу.`);
+            saveData();
+            redrawOperationalMap();
+            return;
+        }
+        
+        if (result !== 'reached') {
+            log(`⏳ [${unit.name}] Движется к гексу (${targetCol},${targetRow}) для разведки. Осталось ОД: ${unit.ap}.`);
+            saveData();
+            redrawOperationalMap();
+            return;
+        }
+      log(`🔍 [${unit.name}] Выдвинулся на гекс (${unit.col},${unit.row}) для разведки.`);
     }
     
     // ======== ВЫПОЛНЯЕМ РАЗВЕДКУ С ПОДСВЕТКОЙ ========
@@ -11236,6 +11278,50 @@ function pickTargetHex() {
     // ⚡ ПЕРЕРИСОВЫВАЕМ КАРТУ
     redrawOperationalMap();
 }
+function validateRoute(unit, waypoints) {
+    if (!unit || !waypoints || waypoints.length === 0) return { valid: true, totalCost: 0 };
+    
+    // Дубликаты точек
+    for (let i = 1; i < waypoints.length; i++) {
+        const prev = waypoints[i - 1];
+        if (waypoints[i].col === prev.col && waypoints[i].row === prev.row) {
+            return { valid: false, blockedHex: waypoints[i], blockedIndex: i, reason: `Точка ${i + 1} (${waypoints[i].col},${waypoints[i].row}) дублирует предыдущую` };
+        }
+    }
+    
+    // Стоимость считаем по РЕАЛЬНЫМ маршрутам между точками (как делает исполнитель),
+    // точки маршрута НЕ обязаны быть соседними
+    let current = { col: unit.col, row: unit.row };
+    let totalCost = 0;
+    
+    for (let i = 0; i < waypoints.length; i++) {
+        const wp = waypoints[i];
+        
+        // Границы карты
+        if (wp.col < 0 || wp.col >= OP_MAP_COLS || wp.row < 0 || wp.row >= OP_MAP_ROWS) {
+            return { valid: false, blockedHex: wp, blockedIndex: i, reason: `Гекс (${wp.col},${wp.row}) за пределами карты` };
+        }
+        
+        const segment = getRouteToTarget(current.col, current.row, wp.col, wp.row, unit);
+        if (!segment || segment.length === 0) {
+            return { valid: false, blockedHex: wp, blockedIndex: i, reason: `Нет маршрута до гекса (${wp.col},${wp.row}): непроходимо или заблокировано союзниками` };
+        }
+        
+        let prevHex = current;
+        for (const hex of segment) {
+            const cost = getOpMoveCost(unit, prevHex.col, prevHex.row, hex.col, hex.row);
+            if (!isFinite(cost)) {
+                return { valid: false, blockedHex: hex, blockedIndex: i, reason: `Гекс (${hex.col},${hex.row}) непроходим для ${unit.name}` };
+            }
+            totalCost += cost;
+            prevHex = hex;
+        }
+        
+        current = { col: wp.col, row: wp.row };
+    }
+    
+    return { valid: true, totalCost: totalCost, totalOD: Math.ceil(totalCost / 2) };
+}
 function updateOrderWaypointsDisplay() {
     const display = document.getElementById('orderWaypointsDisplay');
     if (!display) return;
@@ -11290,11 +11376,10 @@ function submitOrder()   {
         return;
     }
     
-    // === ПРОВЕРКА 3: Проверка ОД у отряда ===
-    if (unit.ap <= 0) {
-        alert(`❌ У отряда "${unit.name}" нет ОД для выполнения приказа!`);
-        return;
-    }
+    // === ПРОВЕРКА 3: ОД ===
+    // НЕ блокируем приказ по ОД: приказы выполняются в конце хода,
+    // а ОД восстанавливаются ДО выполнения приказов (endOperationalTurn).
+    // Исполнители приказов сами проверяют ОД и ждут следующего хода, если их нет.
     
     // === ПРОВЕРКА 4: Проверка, не в бою ли отряд ===
     if (unit.isInBattle) {
@@ -11420,8 +11505,9 @@ function submitOrder()   {
             return;
         }
         
-        // Для атаки проверяем расстояние
-        if (orderType === 'attack' || orderType === 'shoot' || orderType === 'shoot_at') {
+        // Для обстрела проверяем расстояние (атака не ограничена:
+        // юнит сам продвигается к цели и вступает в бой по пути)
+        if (orderType === 'shoot' || orderType === 'shoot_at') {
             const distance = getOpHexDistance(unit.col, unit.row, targetCol, targetRow);
             
             // Для САУ: ПТО-огонь только до 3 гексов
@@ -11535,7 +11621,9 @@ function submitOrder()   {
         behavior: behavior,
         waypoints: [...orderWaypoints],
         targetHex: targetHexValue,
-        targetDistance: fireDistanceValue
+        targetDistance: fireDistanceValue,
+        // Стартовая позиция юнита (для отслеживания прогресса маршрута)
+        startHex: (unit.col !== null && unit.row !== null) ? `${unit.col},${unit.row}` : null
     };
     
     // Проверяем, выбран ли штаб роты и есть ли подчинённые
@@ -11550,10 +11638,14 @@ function submitOrder()   {
         });
         
         if (checkedSubUnits.length > 0) {
-            // Отдаём приказ всем подчинённым взводам
+            // Отдаём приказ всем подчинённым взводам.
+            // ВАЖНО: сохраняем реальный тип приказа (orderType) —
+            // тип объекта будет 'company_order', а взводам исполнять
+            // нужно именно orderType
             const orderOptions = {
                 ...options,
-                subUnitIds: checkedSubUnits
+                subUnitIds: checkedSubUnits,
+                orderType: orderType
             };
             
             const order = createOrder(hqIndex, toUnitId, 'company_order', orderOptions);
@@ -11607,98 +11699,6 @@ function submitOrder()   {
 }
 
 // ======== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ПРОВЕРКИ МАРШРУТА ========
-function validateRoute(unit, waypoints) {
-    if (!unit || !waypoints || waypoints.length === 0) {
-        return { valid: true, totalCost: 0 };
-    }
-    
-    let currentCol = unit.col;
-    let currentRow = unit.row;
-    let totalCost = 0;
-    let blockedHex = null;
-    let blockedIndex = -1;
-    let visitedHexes = [];
-    
-    for (let i = 0; i < waypoints.length; i++) {
-        const wp = waypoints[i];
-        
-        // Проверяем, не дублируется ли точка
-        if (i > 0) {
-            const prev = waypoints[i - 1];
-            if (wp.col === prev.col && wp.row === prev.row) {
-                return {
-                    valid: false,
-                    blockedHex: wp,
-                    blockedIndex: i,
-                    reason: `Точка ${i+1} (${wp.col},${wp.row}) дублирует предыдущую.`
-                };
-            }
-        }
-        
-        // Проверяем границы карты
-        if (wp.col < 0 || wp.col >= OP_MAP_COLS || wp.row < 0 || wp.row >= OP_MAP_ROWS) {
-            return {
-                valid: false,
-                blockedHex: wp,
-                blockedIndex: i,
-                reason: `Гекс (${wp.col},${wp.row}) за пределами карты!`
-            };
-        }
-        
-        // Проверяем, не выходим ли за пределы (соседние гексы)
-        const distance = getOpHexDistance(currentCol, currentRow, wp.col, wp.row);
-        if (distance > 1) {
-            return {
-                valid: false,
-                blockedHex: wp,
-                blockedIndex: i,
-                reason: `Гекс (${wp.col},${wp.row}) не является соседним с текущей позицией (${currentCol},${currentRow})!`
-            };
-        }
-        
-        // Проверяем стоимость перемещения
-        const cost = getOpMoveCost(unit, currentCol, currentRow, wp.col, wp.row);
-        if (cost === Infinity || !isFinite(cost)) {
-            const types = getOpHexTypes(wp.col, wp.row);
-            const terrainType = types && types.length > 0 ? types[0] : 'неизвестно';
-            return {
-                valid: false,
-                blockedHex: wp,
-                blockedIndex: i,
-                reason: `Гекс (${wp.col},${wp.row}) непроходим для ${unit.name}! (тип местности: ${terrainType})`
-            };
-        }
-        
-        // Проверяем, не занят ли гекс союзным юнитом (кроме техники)
-        const friendlyUnits = (appData.campaign.opUnits || []).filter(u => 
-            u.col === wp.col && u.row === wp.row && 
-            u !== unit && !u.hidden && !u.isDestroyed
-        );
-        
-        if (friendlyUnits.length > 0 && !unit.isVehicle) {
-            // Пехота не может встать на гекс с другим отрядом
-            const unitNames = friendlyUnits.map(u => u.name).join(', ');
-            return {
-                valid: false,
-                blockedHex: wp,
-                blockedIndex: i,
-                reason: `Гекс (${wp.col},${wp.row}) занят союзным отрядом: ${unitNames}`
-            };
-        }
-        
-        visitedHexes.push({ col: wp.col, row: wp.row });
-        totalCost += cost;
-        currentCol = wp.col;
-        currentRow = wp.row;
-    }
-    
-    return {
-        valid: true,
-        totalCost: totalCost,
-        totalOD: Math.ceil(totalCost / 2),
-        visitedHexes: visitedHexes
-    };
-}
 
 // ======== ФУНКЦИЯ ДЛЯ ОЧИСТКИ МАРШРУТА (добавить для полноты) ========
 function clearOrderWaypoints() {
@@ -11726,14 +11726,16 @@ function addOrderToQueue() {
     
     // ⚡ СОХРАНЯЕМ ТЕКУЩИЙ МАРШРУТ
     const currentWaypoints = [...orderWaypoints];
-    
+    const queueUnitId = parseInt(unitSelect.value);
+    const queueUnit = (appData.campaign.opUnits || [])[queueUnitId];
     const orderData = {
-        toUnitId: parseInt(unitSelect.value),
+        toUnitId: queueUnitId,
         type: typeSelect.value,
         behavior: document.getElementById('orderBehavior')?.value || 'hold',
         waypoints: currentWaypoints, // ⚡ СОХРАНЯЕМ МАРШРУТ
         targetHex: document.getElementById('orderTargetHex')?.value || null,
         targetDistance: document.getElementById('orderFireDistance') ? parseInt(document.getElementById('orderFireDistance').value) : null,
+        startHex: queueUnit ? `${queueUnit.col},${queueUnit.row}` : null, // старт маршрута — для корректного срезания пройденного
         // ⚡ ДЛЯ СЕРИИ СОХРАНЯЕМ ВСЕ ПРИКАЗЫ
         series: []
     };
@@ -13732,12 +13734,16 @@ function getEnemyUnitAtHex(hexKey) {
 
 // Расстояние между двумя гексами в гексах
 function getOpHexDistance(col1, row1, col2, row2) {
-    // Расстояние между гексами считаем по максимальной разнице координат
-    // Дистанция: гекс юнита = 0, каждый следующий гекс = +1
-    const dc = Math.abs(col1 - col2);
-    const dr = Math.abs(row1 - row2);
-    // Возвращаем максимальную разницу (расстояние в гексах)
-    return Math.max(dc, dr);
+// Корректное расстояние по шестиугольной сетке (offset-координаты "odd-r":
+    // нечётные строки сдвинуты вправо на пол-гекса — см. отрисовку карты).
+    // Переводим в кубические координаты и считаем гекс-дистанцию.
+    const x1 = col1 - (row1 - (row1 & 1)) / 2;
+    const z1 = row1;
+    const y1 = -x1 - z1;
+    const x2 = col2 - (row2 - (row2 & 1)) / 2;
+    const z2 = row2;
+    const y2 = -x2 - z2;
+    return Math.max(Math.abs(x1 - x2), Math.abs(y1 - y2), Math.abs(z1 - z2));
 }
 // Функция для клика по цели на карте (переопределяем обработку)
 // Нужно добавить обработку режима 'selectTarget' в handleOpMapClick
@@ -14777,7 +14783,24 @@ function executeOpShootFromDialog(distance) {
     // Выполняем обстрел
     executeOpShoot(targets, distance);
 }
-
+// ПТО/орудия по бронетехнике из диалога выбора оружия
+function executeOpShootAtFromDialog(distance) {
+    // Закрываем диалог
+    closeShootChoiceModals();
+    
+    // Устанавливаем тип оружия
+    opShootingState.weaponType = 'at';
+    
+    // Получаем цели
+    const targets = opShootingState.targets || [];
+    if (targets.length === 0) {
+        cancelOpShooting();
+        return;
+    }
+    
+    // Выполняем обстрел
+    executeOpShootAt(targets, distance);
+}
 // Отмена из диалога
 function cancelOpShootingFromDialog() {
     closeShootChoiceModals();
@@ -15433,11 +15456,13 @@ function onOrderTargetUnitChange() {
         const subUnit = appData.campaign.opUnits[subUnitId];
         if (!subUnit) return;
         
-        // Создаём копию приказа для каждого взвода
+        // Создаём копию приказа для каждого взвода.
+        // ВАЖНО: тип объекта — 'company_order', а взводам исполнять
+        // нужно именно orderType (реальный тип приказа)
         const subOrder = {
             ...order,
             toUnitId: subUnitId,
-            type: order.type || 'move',
+            type: order.orderType || 'move',
             status: 'active'
         };
         
@@ -15452,11 +15477,35 @@ function onOrderTargetUnitChange() {
             case 'recon':
                 executeReconOrder(subUnit, subOrder);
                 break;
+             case 'ambush':
+                executeAmbushOrder(subUnit, subOrder);
+                break;
             case 'dismount':
                 executeDismountOrder(subUnit, subOrder);
                 break;
             case 'remount':
                 executeRemountOrder(subUnit, subOrder);
+                break;
+            case 'shoot':
+                executeShootOrder(subUnit, subOrder);
+                break;
+            case 'shoot_at':
+                executeShootAtOrder(subUnit, subOrder);
+                break;
+            case 'fire_at_will':
+                executeFireAtWillOrder(subUnit, subOrder);
+                break;
+            case 'defend':
+                executeDefendOrder(subUnit, subOrder);
+                break;
+            case 'dig_in':
+                executeDigInOrder(subUnit, subOrder);
+                break;
+            case 'hold':
+                executeHoldOrder(subUnit, subOrder);
+                break;
+            case 'retreat':
+                executeRetreatOrder(subUnit, subOrder);
                 break;
         }
         executed++;
@@ -15502,26 +15551,106 @@ function checkVehicleRadioAfterLoss(unit) {
         log(`📻 Рация в отряде "${unit.name}" перестала действовать (машина №1 уничтожена).`);
     }
 }
-function executeDefendOrder(unit, order) {
-    // Оборона: юнит занимает оборону, получает бонус к защите, но не может двигаться
-    unit.isDefending = true;
-    unit.canMove = false;
+// Удержание позиции: юнит закрепляется на месте, приказ выполняется за ход
+function executeHoldOrder(unit, order) {
+    if (unit.col === null || unit.row === null) {
+        order.status = 'cancelled';
+        log(`❌ [${unit.name}] Не может удерживать позицию: юнит не на карте.`);
+        return;
+    }
     
-    // Если есть целевой гекс - выдвигаемся туда
+    unit.isHolding = true;
+    order.status = 'completed';
+    log(`✋ [${unit.name}] Удерживает позицию.`);
+    saveData();
+    redrawOperationalMap();
+}
+
+// Отступление: отходим от ближайшего врага на столько гексов, сколько позволяет ОД
+function executeRetreatOrder(unit, order) {
+    if (unit.col === null || unit.row === null) {
+        order.status = 'cancelled';
+        log(`❌ [${unit.name}] Не может отступить: юнит не на карте.`);
+        return;
+    }
+    
+    // Если заданы маршрут или целевой гекс — отступаем именно туда
+    if ((order.waypoints && order.waypoints.length > 0) || order.targetHex) {
+        executeMoveOrder(unit, order);
+        return;
+    }
+    
+    // Ищем ближайшего врага
+    const enemies = (appData.campaign.enemyOpUnits || []).filter(e =>
+        !e.isDestroyed && e.col !== null && e.row !== null
+    );
+    if (enemies.length === 0) {
+        order.status = 'completed';
+        log(`🏃 [${unit.name}] Врагов нет — отступление не требуется.`);
+        return;
+    }
+    
+    let closestEnemy = null;
+    let minDist = Infinity;
+    enemies.forEach(e => {
+        const d = getOpHexDistance(unit.col, unit.row, e.col, e.row);
+        if (d < minDist) { minDist = d; closestEnemy = e; }
+    });
+    
+    // Отступаем, пока хватает ОД: каждый шаг — на лучший соседний гекс
+    let moved = 0;
+    while (unit.ap > 0) {
+        const retreatHex = findRetreatHexFromEnemy(unit, closestEnemy);
+        if (!retreatHex) break; // некуда — остаёмся на месте
+        const cost = getOpMoveCost(unit, unit.col, unit.row, retreatHex.col, retreatHex.row);
+        if (!isFinite(cost) || unit.ap < cost) break;
+        unit.ap -= cost;
+        unit.col = retreatHex.col;
+        unit.row = retreatHex.row;
+        moved++;
+    }
+    
+    order.status = 'completed';
+    log(`🏃 [${unit.name}] Отступил на ${moved} гекс(а) от врага. Осталось ОД: ${unit.ap}.`);
+    saveData();
+    redrawOperationalMap();
+}
+
+function executeDefendOrder(unit, order) {
+    // Если есть целевой гекс и юнит ещё не там — выдвигаемся пошагово
     if (order.targetHex) {
         const [targetCol, targetRow] = order.targetHex.split(',').map(Number);
         
-        if (unit.col !== targetCol || unit.row !== targetRow) {
-            if (unit.ap > 0) {
-                const moveCost = getOpMoveCost(unit, unit.col, unit.row, targetCol, targetRow);
-                if (moveCost !== Infinity && unit.ap >= moveCost) {
-                    unit.ap -= moveCost;
-                    unit.col = targetCol;
-                    unit.row = targetRow;
-                }
+if (!isNaN(targetCol) && !isNaN(targetRow) &&
+            (unit.col !== targetCol || unit.row !== targetRow)) {
+            const result = stepUnitTowardTarget(unit, targetCol, targetRow);
+            
+            if (result === 'no_route') {
+                order.status = 'cancelled';
+                log(`❌ [${unit.name}] Не может достичь гекса (${targetCol},${targetRow}) для обороны. Приказ отменён.`);
+                saveData();
+                redrawOperationalMap();
+                return;
+            }
+            
+            if (result === 'battle') {
+                log(`⚔️ ${unit.name} вступил в бой на пути к оборонительной позиции. Продолжение в следующем ходу.`);
+                saveData();
+                redrawOperationalMap();
+                return;
+            }
+            
+            if (result !== 'reached') {
+                log(`⏳ [${unit.name}] выдвигается на гекс (${targetCol},${targetRow}) для занятия обороны. Осталось ОД: ${unit.ap}.`);
+                saveData();
+                redrawOperationalMap();
+                return;
             }
         }
     }
+    // Оборона: юнит занимает оборону, получает бонус к защите, но не может двигаться
+    unit.isDefending = true;
+    unit.canMove = false;
     
     // Проверяем местность: окопы/здания дают бонус
     const types = getOpHexTypes(unit.col, unit.row);
@@ -15533,46 +15662,77 @@ function executeDefendOrder(unit, order) {
     
     order.status = 'completed';
     log(`🛡️ ${unit.name} занял оборону на гексе (${unit.col},${unit.row}) с бонусом защиты x${defenseBonus}.`);
+    saveData();
     redrawOperationalMap();
 }      
-function getRouteToTarget(fromCol, fromRow, toCol, toRow) {
-    const route = [];
-    let currentCol = fromCol;
-    let currentRow = fromRow;
-    
-    // Используем простой алгоритм: сначала двигаемся по горизонтали, потом по вертикали
-    while (currentCol !== toCol || currentRow !== toRow) {
-        const dc = toCol - currentCol;
-        const dr = toRow - currentRow;
-        
-        let nextCol = currentCol;
-        let nextRow = currentRow;
-        
-        // Двигаемся по диагонали, если нужно
-        if (Math.abs(dc) >= Math.abs(dr)) {
-            nextCol += dc > 0 ? 1 : -1;
-            if (dr !== 0 && Math.abs(dc) > Math.abs(dr)) {
-                // Если разница по горизонтали больше, двигаемся горизонтально
-            } else if (dr !== 0) {
-                nextRow += dr > 0 ? 1 : -1;
+function getRouteToTarget(fromCol, fromRow, toCol, toRow, unit = null) {
+    // Уже на месте
+    if (fromCol === toCol && fromRow === toRow) return [];
+    // Цель вне карты
+    if (toCol < 0 || toCol >= OP_MAP_COLS || toRow < 0 || toRow >= OP_MAP_ROWS) return [];
+    if (fromCol < 0 || fromCol >= OP_MAP_COLS || fromRow < 0 || fromRow >= OP_MAP_ROWS) return [];
+
+    // Гексы, занятые союзниками — через них нельзя идти
+    const friendlyOccupied = new Set();
+    if (appData.campaign.opUnits) {
+        appData.campaign.opUnits.forEach(u => {
+            if (!u || u === unit || u.isDestroyed || u.hidden) return;
+            if (u.col !== null && u.row !== null) {
+                friendlyOccupied.add(`${u.col},${u.row}`);
             }
-        } else {
-            nextRow += dr > 0 ? 1 : -1;
-            if (dc !== 0) {
-                nextCol += dc > 0 ? 1 : -1;
-            }
-        }
-        
-        // Проверяем, что не вышли за границы карты
-        if (nextCol < 0 || nextCol >= OP_MAP_COLS || nextRow < 0 || nextRow >= OP_MAP_ROWS) {
-            break;
-        }
-        
-        route.push({ col: nextCol, row: nextRow });
-        currentCol = nextCol;
-        currentRow = nextRow;
+          });
     }
-    
+
+    const startKey = `${fromCol},${fromRow}`;
+    const goalKey = `${toCol},${toRow}`;
+    // Цель, занятая союзником, недостижима
+    if (friendlyOccupied.has(goalKey)) return [];
+
+    // Дейкстра: стоимости шагов не одинаковые (местность)
+    const best = new Map([[startKey, 0]]);
+    const prev = new Map();
+    const queue = [{ col: fromCol, row: fromRow, cost: 0 }];
+
+    while (queue.length > 0) {
+        // Достаём узел с наименьшей стоимостью (малая карта — простой перебор ок)
+        let minIdx = 0;
+        for (let i = 1; i < queue.length; i++) {
+            if (queue[i].cost < queue[minIdx].cost) minIdx = i;
+        }
+      const cur = queue.splice(minIdx, 1)[0];
+
+        if (cur.col === toCol && cur.row === toRow) break;
+        if (best.get(`${cur.col},${cur.row}`) < cur.cost) continue; // устаревшая запись
+
+        const neighbors = getOpHexNeighbors(cur.col, cur.row);
+        for (let n of neighbors) {
+            const nKey = `${n.col},${n.row}`;
+            // Через занятые союзниками гексы не ходим (цель выше проверена)
+            if (friendlyOccupied.has(nKey)) continue;
+            const stepCost = getOpMoveCost(unit || {}, cur.col, cur.row, n.col, n.row);
+            if (!isFinite(stepCost)) continue; // непроходимая местность
+            const newCost = cur.cost + stepCost;
+            if (best.get(nKey) === undefined || newCost < best.get(nKey)) {
+                best.set(nKey, newCost);
+                prev.set(nKey, `${cur.col},${cur.row}`);
+                queue.push({ col: n.col, row: n.row, cost: newCost });
+            }
+        }
+      
+    }
+    if (!prev.has(goalKey)) return []; // цель недостижима
+
+    // Восстанавливаем путь от цели к старту
+    const route = [];
+    let key = goalKey;
+    let guard = 0;
+    while (key !== startKey && guard++ < 10000) {
+        const [c, r] = key.split(',').map(Number);
+        route.push({ col: c, row: r });
+        key = prev.get(key);
+        if (!key) return [];
+    }
+    route.reverse();
     return route;
 }      
   // ⚡ ФУНКЦИЯ ДЛЯ ЛОГА НА ОПЕРАЦИОННОЙ КАРТЕ
@@ -16127,50 +16287,7 @@ function checkMovingFire(unit) {
     unit.ap = savedAP;
     console.log(`   ОД после стрельбы: ${unit.ap} (восстановлено)`);
 }
-function validateRoute(unit, waypoints) {
-    if (!unit || !waypoints || waypoints.length === 0) return { valid: true };
-    
-    let currentCol = unit.col;
-    let currentRow = unit.row;
-    let totalCost = 0;
-    let blockedHex = null;
-    let blockedIndex = -1;
-    
-    for (let i = 0; i < waypoints.length; i++) {
-        const wp = waypoints[i];
-        
-        // Проверяем границы
-        if (wp.col < 0 || wp.col >= OP_MAP_COLS || wp.row < 0 || wp.row >= OP_MAP_ROWS) {
-            return { 
-                valid: false, 
-                blockedHex: wp, 
-                blockedIndex: i,
-                reason: `Гекс (${wp.col},${wp.row}) за пределами карты`
-            };
-        }
-        
-        // Проверяем стоимость
-        const cost = getOpMoveCost(unit, currentCol, currentRow, wp.col, wp.row);
-        if (cost === Infinity) {
-            return { 
-                valid: false, 
-                blockedHex: wp, 
-                blockedIndex: i,
-                reason: `Гекс (${wp.col},${wp.row}) непроходим для ${unit.name}`
-            };
-        }
-        
-        totalCost += cost;
-        currentCol = wp.col;
-        currentRow = wp.row;
-    }
-    
-    return { 
-        valid: true, 
-        totalCost: totalCost,
-        totalOD: Math.ceil(totalCost / 2) // перевод в ОД
-    };
-}
+
 function updateOrderWaypointsDisplay() {
     const display = document.getElementById('orderWaypointsDisplay');
     if (!display) return;
@@ -16722,32 +16839,45 @@ function executeDigInOrder(unit, order) {
         return;
     }
     
-    // ⚡ ЕСЛИ ЕСТЬ ЦЕЛЕВОЙ ГЕКС И ЮНИТ НЕ ТАМ — ДВИГАЕМСЯ
+   // ⚡ ЕСЛИ ЕСТЬ ЦЕЛЕВОЙ ГЕКС И ЮНИТ НЕ ТАМ — ДВИГАЕМСЯ ПОШАГОВО
     if (order.targetHex) {
         const [targetCol, targetRow] = order.targetHex.split(',').map(Number);
         
-        if (unit.col !== targetCol || unit.row !== targetRow) {
-            if (unit.ap > 0) {
-                const moveCost = getOpMoveCost(unit, unit.col, unit.row, targetCol, targetRow);
-                if (moveCost !== Infinity && unit.ap >= moveCost) {
-                    unit.ap -= moveCost;
-                    unit.col = targetCol;
-                    unit.row = targetRow;
-                    log(`🚶 ${unit.name} выдвинулся на гекс (${targetCol},${targetRow}) для окапывания.`);
-                    saveData();
-                    redrawOperationalMap();
-                    return; // Ждём следующего хода для начала окапывания
-                } else {
-                    log(`⏳ ${unit.name} не может достичь гекса окапывания.`);
-                    return;
-                }
-            } else {
-                log(`⏳ ${unit.name} нет ОД для выдвижения.`);
+ const result = stepUnitTowardTarget(unit, targetCol, targetRow);
+            
+            if (result === 'no_route') {
+                order.status = 'cancelled';
+                log(`❌ ${unit.name} не может достичь гекса (${targetCol},${targetRow}) для окапывания. Приказ отменён.`);
+                saveData();
+                redrawOperationalMap();
                 return;
             }
+            
+            if (result === 'battle') {
+                log(`⚔️ ${unit.name} вступил в бой на пути к окопам. Продолжение в следующем ходу.`);
+                saveData();
+                redrawOperationalMap();
+                return;
+            }
+            
+            if (result !== 'reached') {
+                log(`⏳ ${unit.name} выдвигается на гекс (${targetCol},${targetRow}) для окапывания. Осталось ОД: ${unit.ap}.`);
+                saveData();
+                redrawOperationalMap();
+                return;
+            }
+       log(`🚶 ${unit.name} выдвинулся на гекс (${unit.col},${unit.row}) для окапывания.`);
         }
     }
-    
+   // Если юнит переместился с гекса, на котором начал окапываться - отменяем приказ
+    if (order.originalHex && order.originalHex !== `${unit.col},${unit.row}`) {
+        order.status = 'cancelled';
+        log(`❌ ${unit.name} покинул гекс окапывания. Приказ отменён.`);
+        saveData();
+        redrawOperationalMap();
+        return;
+    }
+      
     // Проверяем, есть ли ОД
     if (unit.ap <= 0) {
         log(`⏳ ${unit.name} не хватает ОД для окапывания. Ожидание следующего хода.`);
@@ -16789,12 +16919,7 @@ function executeDigInOrder(unit, order) {
         return;
     }
     
-    // Если юнит переместился с гекса - отменяем приказ
-    if (order.originalHex && order.originalHex !== `${unit.col},${unit.row}`) {
-        order.status = 'cancelled';
-        log(`❌ ${unit.name} покинул гекс окапывания. Приказ отменён.`);
-        return;
-    }
+    
     
     // Сохраняем исходный гекс
     if (!order.originalHex) {
@@ -16814,8 +16939,16 @@ function checkEnemyEncounter(unit, behavior, order) {
     
     if (enemies.length === 0) return false;
     
-    const closestEnemy = enemies[0];
-    const dist = getOpHexDistance(unit.col, unit.row, closestEnemy.col, closestEnemy.row);
+    // Ищем БЛИЖАЙШЕГО врага
+    let closestEnemy = null;
+    let dist = Infinity;
+    enemies.forEach(e => {
+        const d = getOpHexDistance(unit.col, unit.row, e.col, e.row);
+        if (d < dist) {
+            dist = d;
+            closestEnemy = e;
+        }
+    });
     
     log(`⚠️ ${unit.name} обнаружил врага: ${closestEnemy.name} (дистанция ${dist})`);
     
@@ -16837,14 +16970,19 @@ function checkEnemyEncounter(unit, behavior, order) {
             order.status = 'completed';
             return true;
             
-        case 'retreat': // Отступить — отойти на 1 гекс назад
+        case 'retreat': // Отступить — отойти на 1 гекс от врага
             log(`🏃 ${unit.name} отступает!`);
-            // Находим гекс дальше от врага
+            // Находим гекс дальше от врага (проверенный на проходимость)
             const retreatHex = findRetreatHexFromEnemy(unit, closestEnemy);
             if (retreatHex) {
+              const retreatCost = getOpMoveCost(unit, unit.col, unit.row, retreatHex.col, retreatHex.row);
+                unit.ap -= retreatCost;
                 unit.col = retreatHex.col;
                 unit.row = retreatHex.row;
+                unit.movedThisTurn = true;
                 log(`   Отступил на гекс (${retreatHex.col},${retreatHex.row})`);
+              } else {
+                log(`   Некуда отступать — остаётся на позиции.`);
             }
             order.status = 'completed';
             return true;
@@ -16867,15 +17005,19 @@ function checkEnemyEncounter(unit, behavior, order) {
                 startTacticalBattle([unit], [closestEnemy]);
             } else {
                 // Двигаемся к врагу
-                const route = getRouteToTarget(unit.col, unit.row, closestEnemy.col, closestEnemy.row);
+                const route = getRouteToTarget(unit.col, unit.row, closestEnemy.col, closestEnemy.row, unit);
                 if (route.length > 0 && unit.ap > 0) {
                     const nextStep = route[0];
                     const moveCost = getOpMoveCost(unit, unit.col, unit.row, nextStep.col, nextStep.row);
-                    if (unit.ap >= moveCost) {
+                    if (isFinite(moveCost) && unit.ap >= moveCost) {
                         unit.ap -= moveCost;
                         unit.col = nextStep.col;
                         unit.row = nextStep.row;
                         log(`   Продвинулся к врагу на (${nextStep.col},${nextStep.row})`);
+                      // Если встал на гекс врага — начинаем бой
+                        if (unit.col === closestEnemy.col && unit.row === closestEnemy.row && !closestEnemy.isDestroyed) {
+                            startTacticalBattle([unit], [closestEnemy]);
+                        }
                     }
                 }
             }
@@ -16887,35 +17029,36 @@ function checkEnemyEncounter(unit, behavior, order) {
 }
 
 function findRetreatHexFromEnemy(unit, enemy) {
-    const directions = [
-        { dc: -1, dr: -1 }, { dc: 0, dr: -1 }, { dc: 1, dr: -1 },
-        { dc: -1, dr: 0 }, { dc: 1, dr: 0 },
-        { dc: -1, dr: 1 }, { dc: 0, dr: 1 }, { dc: 1, dr: 1 }
-    ];
+    // Гекс подходит, если: соседний, местность проходима,
+    // хватает ОД и гекс не занят союзником
+    const isPassable = (h) => {
+        const cost = getOpMoveCost(unit, unit.col, unit.row, h.col, h.row);
+        if (!isFinite(cost) || unit.ap < cost) return false;
+        // Не отступаем в гекс, занятый союзником или врагом
+        const friendly = (appData.campaign.opUnits || []).some(u => 
+            u !== unit && !u.isDestroyed && !u.hidden && u.col === h.col && u.row === h.row
+        );
+        if (friendly) return false;
+        const enemyHex = (appData.campaign.enemyOpUnits || []).some(e => 
+            !e.isDestroyed && e.col === h.col && e.row === h.row
+        );
+        return !enemyHex;
+    };
     
-    // Направление ОТ врага
-    const dx = unit.col - enemy.col;
-    const dy = unit.row - enemy.row;
+    const hexes = getOpHexNeighbors(unit.col, unit.row).filter(isPassable);
+    if (hexes.length === 0) return null; // никуда отступить нельзя
     
-    // Нормализуем
-    const stepX = dx !== 0 ? (dx > 0 ? 1 : -1) : 0;
-    const stepY = dy !== 0 ? (dy > 0 ? 1 : -1) : 0;
-    
-    const newCol = unit.col + stepX;
-    const newRow = unit.row + stepY;
-    
-    // Проверяем границы
-    if (newCol >= 0 && newCol < OP_MAP_COLS && newRow >= 0 && newRow < OP_MAP_ROWS) {
-        // Проверяем, что гекс проходим
-        const cost = getOpMoveCost(unit, unit.col, unit.row, newCol, newRow);
-        if (cost !== Infinity) {
-            return { col: newCol, row: newRow };
+    // Выбираем гекс, максимально отдаляющий от врага
+    let best = null;
+    let bestScore = -1;
+    hexes.forEach(h => {
+        const score = getOpHexDistance(h.col, h.row, enemy.col, enemy.row);
+        if (score > bestScore) {
+            bestScore = score;
+            best = h;
         }
-    }
-    
-    // Запасной вариант — случайное направление
-    const dir = directions[Math.floor(Math.random() * directions.length)];
-    return { col: unit.col + dir.dc, row: unit.row + dir.dr };
+    });
+    return best;
 }
 function onOrderBehaviorChange() {
     const behaviorSelect = document.getElementById('orderBehavior');
