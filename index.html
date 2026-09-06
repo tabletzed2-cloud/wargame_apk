@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.008 — операция  </title>
+  <title>Боевой модуль v13.009 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
@@ -1566,9 +1566,9 @@ if (pickingTargetHex) {
     }
     
     // ⚡ ОТРИСОВКА АКТИВНЫХ МАРШРУТОВ ПРИКАЗОВ (ДЛЯ ВСЕХ ОТРЯДОВ)
-    if (hardMode.enabled && hardMode.orders) {
+        if (hardMode.enabled && hardMode.orders) {
         hardMode.orders.forEach(order => {
-            if (order.status === 'active' && order.waypoints && order.waypoints.length > 0) {
+            if (order.status !== 'cancelled' && order.waypoints && order.waypoints.length > 0) {
                 const unit = appData.campaign.opUnits ? appData.campaign.opUnits[order.toUnitId] : null;
                 if (!unit || unit.col === null || unit.row === null) return;
                 
@@ -10279,6 +10279,7 @@ function executeShootOrder(unit, order) {
     // Обстреливаем целевую точку
     if (!order.targetHex) {
         order.status = 'cancelled';
+        log(`❌ ${unit.name}: не указан целевой гекс.`);
         return;
     }
     
@@ -10306,31 +10307,61 @@ function executeShootOrder(unit, order) {
         return;
     }
     
-    if (unit.ap > 0) {
-        // ⚡ СОХРАНЯЕМ ОД
-        const savedAP = unit.ap;
-        
-        // Устанавливаем стрелка
-        opShootingState.shooter = unit;
-        opShootingState.weaponType = 'mg';
-        opShootingState.targets = enemies;
-        
-        // Проверяем тип оружия
-        const hasArmor = enemies.some(u => isArmoredUnit(u));
-        const hasAtGuns = hasAtGunWeapons(unit);
-        
-        if (hasAtGuns && hasArmor) {
-            executeOpShootAt(enemies, distance);
-        } else {
-            executeOpShoot(enemies, distance);
-        }
-        
-        // ⚡ ВОССТАНАВЛИВАЕМ ОД
-        unit.ap = savedAP;
-        
-        order.status = 'completed';
-        log(`✅ ${unit.name} обстрелял гекс (${targetCol},${targetRow}).`);
+    if (unit.ap <= 0) {
+        log(`⏳ ${unit.name} не может стрелять: нет ОД.`);
+        return;
     }
+    
+    // ⚡ ПРОВЕРЯЕМ, МОЖЕТ ЛИ ЮНИТ СТРЕЛЯТЬ
+    if (!canUnitShoot(unit)) {
+        log(`❌ ${unit.name} не может стрелять (нет оружия).`);
+        order.status = 'cancelled';
+        return;
+    }
+    
+    // ⚡ СОХРАНЯЕМ ОД
+    const savedAP = unit.ap;
+    
+    // Определяем тип оружия
+    const hasArmor = enemies.some(u => isArmoredUnit(u));
+    const hasAtGuns = hasAtGunWeapons(unit);
+    const hasMGs = hasMgWeapons(unit);
+    
+    console.log(`🔥 executeShootOrder: ${unit.name} → (${targetCol},${targetRow}), дистанция: ${distance}, врагов: ${enemies.length}, ПТО: ${hasAtGuns}, Пулемёты: ${hasMGs}, Броня: ${hasArmor}`);
+    
+    // Настраиваем состояние обстрела
+    opShootingState.active = true;
+    opShootingState.shooter = unit;
+    opShootingState.targets = enemies;
+    
+    // ⚡ ВЫПОЛНЯЕМ ОБСТРЕЛ
+    if (hasAtGuns && hasArmor) {
+        // Стреляем ПТО по бронетехнике
+        opShootingState.weaponType = 'at';
+        console.log('   Используем ПТО');
+        executeOpShootAt(enemies, distance);
+    } else if (hasMGs || hasAtGuns) {
+        // Стреляем по пехоте
+        opShootingState.weaponType = 'mg';
+        console.log('   Используем пулемёты');
+        executeOpShoot(enemies, distance);
+    } else {
+        // Стреляем из личного оружия
+        opShootingState.weaponType = 'mg';
+        console.log('   Используем стрелковое оружие');
+        executeOpShoot(enemies, distance);
+    }
+    
+    // ⚡ ВОССТАНАВЛИВАЕМ ОД
+    unit.ap = savedAP;
+    unit.movedThisTurn = true;
+    
+    order.status = 'completed';
+    log(`✅ ${unit.name} обстрелял гекс (${targetCol},${targetRow}).`);
+    
+    saveData();
+    redrawOperationalMap();
+    renderActiveOrders();
 }
 
 function executeDismountOrder(unit, order) {
@@ -10585,6 +10616,7 @@ function executeMoveOrder(unit, order) {
             log(`✅ [${unit.name}] Достиг цели (${targetCol},${targetRow}). Осталось ОД: ${unit.ap}`);
             saveData();
             redrawOperationalMap();
+            renderActiveOrders();
             return;
         }
     }
@@ -10619,6 +10651,7 @@ function executeMoveOrder(unit, order) {
     unit.movedThisTurn = true;
     saveData();
     redrawOperationalMap();
+    renderActiveOrders();
 }
 // ⚡ ПРОВЕРКА ПЕРЕСЕЧЕНИЯ ЛИНИИ СВЯЗИ
 function checkPhoneLineCrossing(unit, fromCol, fromRow, toCol, toRow) {
@@ -16689,6 +16722,32 @@ function executeDigInOrder(unit, order) {
         return;
     }
     
+    // ⚡ ЕСЛИ ЕСТЬ ЦЕЛЕВОЙ ГЕКС И ЮНИТ НЕ ТАМ — ДВИГАЕМСЯ
+    if (order.targetHex) {
+        const [targetCol, targetRow] = order.targetHex.split(',').map(Number);
+        
+        if (unit.col !== targetCol || unit.row !== targetRow) {
+            if (unit.ap > 0) {
+                const moveCost = getOpMoveCost(unit, unit.col, unit.row, targetCol, targetRow);
+                if (moveCost !== Infinity && unit.ap >= moveCost) {
+                    unit.ap -= moveCost;
+                    unit.col = targetCol;
+                    unit.row = targetRow;
+                    log(`🚶 ${unit.name} выдвинулся на гекс (${targetCol},${targetRow}) для окапывания.`);
+                    saveData();
+                    redrawOperationalMap();
+                    return; // Ждём следующего хода для начала окапывания
+                } else {
+                    log(`⏳ ${unit.name} не может достичь гекса окапывания.`);
+                    return;
+                }
+            } else {
+                log(`⏳ ${unit.name} нет ОД для выдвижения.`);
+                return;
+            }
+        }
+    }
+    
     // Проверяем, есть ли ОД
     if (unit.ap <= 0) {
         log(`⏳ ${unit.name} не хватает ОД для окапывания. Ожидание следующего хода.`);
@@ -16708,7 +16767,6 @@ function executeDigInOrder(unit, order) {
     
     // Если завершили 3 хода окапывания
     if (order.digProgress >= 3) {
-        // Ставим метку "окоп" на гексе
         const hexKey = `${unit.col},${unit.row}`;
         if (appData.campaign.opMapGrid) {
             if (!appData.campaign.opMapGrid[hexKey]) {
@@ -16727,6 +16785,7 @@ function executeDigInOrder(unit, order) {
         
         saveData();
         redrawOperationalMap();
+        renderActiveOrders();
         return;
     }
     
@@ -16744,14 +16803,11 @@ function executeDigInOrder(unit, order) {
     
     saveData();
     redrawOperationalMap();
-    
-    // Приказ остаётся активным до завершения или отмены
 }
 function checkEnemyEncounter(unit, behavior, order) {
     // Ищем обнаруженных врагов в радиусе 3 гексов
     const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
         e.col !== null && e.row !== null &&
-        e.detected && // Только обнаруженные враги!
         getOpHexDistance(unit.col, unit.row, e.col, e.row) <= 3 &&
         !e.isDestroyed
     );
