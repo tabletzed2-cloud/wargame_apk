@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.004 — операция  </title>
+  <title>Боевой модуль v13.005 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.004</h1>
+    <h1>⚔️ Боевой модуль v13.005</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -38,7 +38,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.004 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.005 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -697,165 +697,17 @@ function buildOperationalUnits() {
     const battalion = appData.campaign.battalions.player;
     if (!battalion) return;
 
-    if (appData.campaign.opUnits && appData.campaign.opUnits.length > 0) {
-        appData.campaign.opUnits.forEach(u => {
-            if (u.ap === undefined) {
-                u.maxAp = 4;
-                u.ap = 4;
-            }
-        });
-        saveData();
-        return;
-    }
+    // ⚡ ПРОВЕРЯЕМ, ЕСТЬ ЛИ УЖЕ СВОИ ЮНИТЫ
+    const hasPlayerUnits = appData.campaign.opUnits && appData.campaign.opUnits.length > 0;
     
-    const opUnits = [];
+    if (!hasPlayerUnits) {
+        console.log('=== Создание своих юнитов ===');
+        const opUnits = [];
 
-    function addOpUnit(name, type, squads, icon = null) {
-        // ПРЯМОЕ ОПРЕДЕЛЕНИЕ МОБИЛЬНОСТИ ПО ИМЕНИ
-        let mobility = 'foot';
-        let maxAp = 4;
-
-        // Проверяем имя юнита
-        const nameLower = name.toLowerCase();
-        if (nameLower.includes('самокат') || nameLower.includes('велосипед')) {
-            mobility = 'bicycle';
-            maxAp = 4;
-        } else if (nameLower.includes('мотоцикл')) {
-            mobility = 'motorcycle';
-            maxAp = 4;
-        } else if (nameLower.includes('бтр') || nameLower.includes('бронеавтомобиль') || 
-                   nameLower.includes('танк') || nameLower.includes('сау') || 
-                   nameLower.includes('дот') || nameLower.includes('автомобиль')) {
-            mobility = 'vehicle';
-            maxAp = 4;
-        } else if (type === 'battalion_hq' || type === 'company_hq' || type === 'infantry_platoon' || 
-                   type === 'mortar_battery' || type === 'at_gun' || type === 'engineer_platoon' || 
-                   type === 'recon_platoon') {
-            mobility = 'foot';
-            maxAp = 4;
-        } else if (type === 'bicycle_platoon') {
-            mobility = 'bicycle';
-            maxAp = 4;
-        } else if (type === 'motorcycle_platoon') {
-            mobility = 'motorcycle';
-            maxAp = 4;
-        } else if (type === 'tank_platoon' || type === 'btr_platoon' || type === 'sau_battery' || 
-                   type === 'armored_vehicle_platoon' || type === 'vehicle' || type === 'armored_vehicles' || 
-                   type === 'dots' || type === 'regimental_artillery') {
-            mobility = 'vehicle';
-            maxAp = 4;
-        }
-
-        opUnits.push({
-            name,
-            type,
-            squads: squads || [],
-            col: null,
-            row: null,
-            side: 'player',
-            ap: maxAp,
-            maxAp: maxAp,
-            mobility: mobility,
-            dismounted: false,
-            icon: icon,
-            detected: false,
-            noiseMarker: false,
-            modules: {
-                turret: { name: 'Башня', status: 'ok', weapons: [] },
-                hull: { name: 'Корпус', status: 'ok', weapons: [] },
-                suspension: { name: 'Ходовая', status: 'ok' }
-            },
-            fighters: squads && squads.length > 0 && squads[0].fighters ? 
-                JSON.parse(JSON.stringify(squads[0].fighters)) : [],
-            isImmobilized: false,
-            isDestroyed: false
-        });
-    }
-
-    // Перебираем units батальона
-    battalion.units.forEach(unit => {
-        switch (unit.type) {
-            case 'hq':
-                addOpUnit(unit.name, 'battalion_hq', unit.squads, unit.icon || null);
-                break;
-            case 'mortar_battery':
-                addOpUnit(unit.name, 'mortar_battery', unit.squads, unit.icon || null);
-                break;
-            case 'at_battery':
-                unit.squads.forEach(squad => {
-                    addOpUnit(squad.name, 'at_gun', [squad], squad.icon || unit.icon || null);
-                });
-                break;
-            case 'infantry_company':
-                unit.platoons.forEach(pl => {
-                    // Определяем тип взвода ПО ИМЕНИ, если нет mobilityType
-                    let platoonType = 'infantry_platoon';
-                    const plName = pl.name || '';
-                    if (pl.mobilityType === 'bicycle' || plName.includes('самокат') || plName.includes('Самокат')) {
-                        platoonType = 'bicycle_platoon';
-                    } else if (pl.mobilityType === 'motorcycle' || plName.includes('мотоцикл') || plName.includes('Мотоцикл')) {
-                        platoonType = 'motorcycle_platoon';
-                    }
-                    
-                    if (pl.type === 'armored_vehicle_platoon') {
-                        pl.squads.forEach(squad => {
-                            addOpUnit(squad.name, 'vehicle', [squad], squad.icon || pl.icon || unit.icon || null);
-                        });
-                    } else {
-                        addOpUnit(pl.name, platoonType, pl.squads, pl.icon || unit.icon || null);
-                    }
-                });
-                if (unit.hq) {
-                    addOpUnit(unit.hq.name || 'Штаб роты', 'company_hq', [unit.hq], unit.hq.icon || unit.icon || null);
-                }
-                break;
-            case 'engineer_platoon':
-            case 'recon_platoon':
-            case 'armored_vehicle_platoon':
-                if (unit.squads && unit.squads.length > 0) {
-                    unit.squads.forEach(squad => {
-                        addOpUnit(squad.name, 'vehicle', [squad], squad.icon || unit.icon || null);
-                    });
-                }
-                break;
-            case 'dots':
-            case 'sau_battery':
-            case 'btr_platoon':
-            case 'tank_platoon':
-            case 'regimental_artillery':
-                if (unit.squads && unit.squads.length > 0) {
-                    unit.squads.forEach((squad) => {
-                        const vehName = squad.name || unit.name;
-                        addOpUnit(vehName, unit.type, [squad], squad.icon || unit.icon || null);
-                    });
-                } else {
-                    addOpUnit(unit.name, unit.type, [], unit.icon || null);
-                }
-                break;
-            default:
-                if (unit.squads && unit.squads.length > 0) {
-                    unit.squads.forEach((squad, idx) => {
-                        addOpUnit(`${unit.name} ${idx+1}`, unit.type, [squad]);
-                    });
-                } else {
-                    addOpUnit(unit.name, unit.type, []);
-                }
-        }
-    });
-
-    appData.campaign.opUnits = opUnits;
-    
-    // ======== СОЗДАЕМ ВРАЖЕСКИЕ ЮНИТЫ ========
-    if (appData.campaign.battalions.enemy) {
-        const enemyBattalion = appData.campaign.battalions.enemy;
-        console.log('=== Создание вражеских юнитов ===');
-        console.log('Вражеский батальон:', enemyBattalion);
-        const enemyUnits = [];
-        
-        function addEnemyOpUnitLocal(name, type, squads, icon = null) {
+        function addOpUnit(name, type, squads, icon = null) {
             let mobility = 'foot';
             let maxAp = 4;
-            
+
             const nameLower = name.toLowerCase();
             if (nameLower.includes('самокат') || nameLower.includes('велосипед')) {
                 mobility = 'bicycle';
@@ -885,37 +737,52 @@ function buildOperationalUnits() {
                 mobility = 'vehicle';
                 maxAp = 4;
             }
-            
-            enemyUnits.push({
+
+            opUnits.push({
                 name,
                 type,
                 squads: squads || [],
                 col: null,
                 row: null,
-                side: 'enemy',
-                maxAp: maxAp,
+                side: 'player',
                 ap: maxAp,
+                maxAp: maxAp,
                 mobility: mobility,
                 dismounted: false,
-                faction: enemyBattalion.faction || 'A.I.R.F.',
                 icon: icon,
-                detected: true,
-                noiseMarker: false
+                detected: false,
+                noiseMarker: false,
+                modules: {
+                    turret: { name: 'Башня', status: 'ok', weapons: [] },
+                    hull: { name: 'Корпус', status: 'ok', weapons: [] },
+                    suspension: { name: 'Ходовая', status: 'ok' }
+                },
+                fighters: squads && squads.length > 0 && squads[0].fighters ? 
+                    JSON.parse(JSON.stringify(squads[0].fighters)) : [],
+                isImmobilized: false,
+                isDestroyed: false
             });
         }
-        
-        // Проходим по вражескому батальону
-        enemyBattalion.units.forEach(unit => {
+
+        // Перебираем units батальона
+        battalion.units.forEach(unit => {
             switch (unit.type) {
                 case 'hq':
-                    addEnemyOpUnitLocal(unit.name, 'battalion_hq', unit.squads, unit.icon || null);
+                    // ⚡ ЕСЛИ У HQ ЕСТЬ squads — КЛОНИРУЕМ КАЖДЫЙ ОТРЯД
+                    if (unit.squads && unit.squads.length > 0) {
+                        unit.squads.forEach(squad => {
+                            addOpUnit(squad.name || unit.name, 'hq', [squad], squad.icon || unit.icon || null);
+                        });
+                    } else {
+                        addOpUnit(unit.name, 'battalion_hq', unit.squads, unit.icon || null);
+                    }
                     break;
                 case 'mortar_battery':
-                    addEnemyOpUnitLocal(unit.name, 'mortar_battery', unit.squads, unit.icon || null);
+                    addOpUnit(unit.name, 'mortar_battery', unit.squads, unit.icon || null);
                     break;
                 case 'at_battery':
                     unit.squads.forEach(squad => {
-                        addEnemyOpUnitLocal(squad.name, 'at_gun', [squad], squad.icon || unit.icon || null);
+                        addOpUnit(squad.name, 'at_gun', [squad], squad.icon || unit.icon || null);
                     });
                     break;
                 case 'infantry_company':
@@ -927,10 +794,26 @@ function buildOperationalUnits() {
                         } else if (pl.mobilityType === 'motorcycle' || plName.includes('мотоцикл') || plName.includes('Мотоцикл')) {
                             platoonType = 'motorcycle_platoon';
                         }
-                        addEnemyOpUnitLocal(pl.name, platoonType, pl.squads, pl.icon || unit.icon || null);
+                        
+                        if (pl.type === 'armored_vehicle_platoon') {
+                            pl.squads.forEach(squad => {
+                                addOpUnit(squad.name, 'vehicle', [squad], squad.icon || pl.icon || unit.icon || null);
+                            });
+                        } else {
+                            addOpUnit(pl.name, platoonType, pl.squads, pl.icon || unit.icon || null);
+                        }
                     });
                     if (unit.hq) {
-                        addEnemyOpUnitLocal(unit.hq.name || 'Штаб роты', 'company_hq', [unit.hq], unit.hq.icon || unit.icon || null);
+                        addOpUnit(unit.hq.name || 'Штаб роты', 'company_hq', [unit.hq], unit.hq.icon || unit.icon || null);
+                    }
+                    break;
+                case 'engineer_platoon':
+                case 'recon_platoon':
+                case 'armored_vehicle_platoon':
+                    if (unit.squads && unit.squads.length > 0) {
+                        unit.squads.forEach(squad => {
+                            addOpUnit(squad.name, 'vehicle', [squad], squad.icon || unit.icon || null);
+                        });
                     }
                     break;
                 case 'dots':
@@ -940,31 +823,162 @@ function buildOperationalUnits() {
                 case 'regimental_artillery':
                     if (unit.squads && unit.squads.length > 0) {
                         unit.squads.forEach((squad) => {
-                            addEnemyOpUnitLocal(squad.name || unit.name, unit.type, [squad], squad.icon || unit.icon || null);
+                            const vehName = squad.name || unit.name;
+                            addOpUnit(vehName, unit.type, [squad], squad.icon || unit.icon || null);
                         });
                     } else {
-                        addEnemyOpUnitLocal(unit.name, unit.type, [], unit.icon || null);
+                        addOpUnit(unit.name, unit.type, [], unit.icon || null);
                     }
                     break;
                 default:
                     if (unit.squads && unit.squads.length > 0) {
                         unit.squads.forEach((squad, idx) => {
-                            addEnemyOpUnitLocal(`${unit.name} ${idx+1}`, unit.type, [squad]);
+                            addOpUnit(`${unit.name} ${idx+1}`, unit.type, [squad]);
                         });
                     } else {
-                        addEnemyOpUnitLocal(unit.name, unit.type, []);
+                        addOpUnit(unit.name, unit.type, []);
                     }
             }
         });
-        console.log('Создано вражеских юнитов:', enemyUnits.length);
-        appData.campaign.enemyOpUnits = enemyUnits;
-      } else {
-        console.warn('Вражеский батальон не найден!');
+
+        appData.campaign.opUnits = opUnits;
+        console.log(`Создано своих юнитов: ${opUnits.length}`);
+    } else {
+        // Обновляем ОД у существующих юнитов
+        appData.campaign.opUnits.forEach(u => {
+            if (u.ap === undefined) {
+                u.maxAp = 4;
+                u.ap = 4;
+            }
+        });
     }
-    // ⚡ СОЗДАЁМ ВРАЖЕСКИХ ЮНИТОВ
-    createEnemyOperationalUnits();
+    
+    // ⚡ СОЗДАЁМ ВРАЖЕСКИХ ЮНИТОВ (если их ещё нет)
+    const hasEnemyUnits = appData.campaign.enemyOpUnits && appData.campaign.enemyOpUnits.length > 0;
+    if (!hasEnemyUnits) {
+        createEnemyOperationalUnits();
+    }
+    
     saveData();
 }
+
+// ⚡ НОВАЯ ФУНКЦИЯ: СОЗДАНИЕ ВРАЖЕСКИХ ЮНИТОВ
+function createEnemyOperationalUnits() {
+    const enemyBattalion = appData.campaign.battalions.enemy;
+    if (!enemyBattalion) {
+        console.warn('Вражеский батальон не найден!');
+        appData.campaign.enemyOpUnits = [];
+        return;
+    }
+    
+    console.log('=== Создание вражеских юнитов ===');
+    const enemyUnits = [];
+    
+    function addEnemyOpUnitLocal(name, type, squads, icon = null) {
+        let mobility = 'foot';
+        let maxAp = 4;
+        
+        const nameLower = name.toLowerCase();
+        if (nameLower.includes('самокат') || nameLower.includes('велосипед')) {
+            mobility = 'bicycle';
+        } else if (nameLower.includes('мотоцикл')) {
+            mobility = 'motorcycle';
+        } else if (nameLower.includes('бтр') || nameLower.includes('бронеавтомобиль') || 
+                   nameLower.includes('танк') || nameLower.includes('сау')) {
+            mobility = 'vehicle';
+        }
+        
+        enemyUnits.push({
+            name,
+            type,
+            squads: squads || [],
+            col: null,
+            row: null,
+            side: 'enemy',
+            maxAp: maxAp,
+            ap: maxAp,
+            mobility: mobility,
+            dismounted: false,
+            faction: enemyBattalion.faction || 'A.I.R.F.',
+            icon: icon,
+            detected: true,
+            noiseMarker: false,
+            modules: {
+                turret: { name: 'Башня', status: 'ok', weapons: [] },
+                hull: { name: 'Корпус', status: 'ok', weapons: [] },
+                suspension: { name: 'Ходовая', status: 'ok' }
+            },
+            fighters: squads && squads.length > 0 && squads[0].fighters ? 
+                JSON.parse(JSON.stringify(squads[0].fighters)) : [],
+            isImmobilized: false,
+            isDestroyed: false
+        });
+    }
+    
+    // Перебираем units вражеского батальона
+    enemyBattalion.units.forEach(unit => {
+        switch (unit.type) {
+            case 'hq':
+                // ⚡ ЕСЛИ У HQ ЕСТЬ squads — КЛОНИРУЕМ КАЖДЫЙ ОТРЯД
+                if (unit.squads && unit.squads.length > 0) {
+                    unit.squads.forEach(squad => {
+                        addEnemyOpUnitLocal(squad.name || unit.name, 'hq', [squad], squad.icon || unit.icon || null);
+                    });
+                } else {
+                    addEnemyOpUnitLocal(unit.name, 'battalion_hq', unit.squads, unit.icon || null);
+                }
+                break;
+            case 'mortar_battery':
+                addEnemyOpUnitLocal(unit.name, 'mortar_battery', unit.squads, unit.icon || null);
+                break;
+            case 'at_battery':
+                unit.squads.forEach(squad => {
+                    addEnemyOpUnitLocal(squad.name, 'at_gun', [squad], squad.icon || unit.icon || null);
+                });
+                break;
+            case 'infantry_company':
+                unit.platoons.forEach(pl => {
+                    let platoonType = 'infantry_platoon';
+                    const plName = pl.name || '';
+                    if (pl.mobilityType === 'bicycle' || plName.includes('самокат')) {
+                        platoonType = 'bicycle_platoon';
+                    } else if (pl.mobilityType === 'motorcycle' || plName.includes('мотоцикл')) {
+                        platoonType = 'motorcycle_platoon';
+                    }
+                    addEnemyOpUnitLocal(pl.name, platoonType, pl.squads, pl.icon || unit.icon || null);
+                });
+                if (unit.hq) {
+                    addEnemyOpUnitLocal(unit.hq.name || 'Штаб роты', 'company_hq', [unit.hq], unit.hq.icon || unit.icon || null);
+                }
+                break;
+            case 'dots':
+            case 'sau_battery':
+            case 'btr_platoon':
+            case 'tank_platoon':
+            case 'regimental_artillery':
+                if (unit.squads && unit.squads.length > 0) {
+                    unit.squads.forEach((squad) => {
+                        addEnemyOpUnitLocal(squad.name || unit.name, unit.type, [squad], squad.icon || unit.icon || null);
+                    });
+                } else {
+                    addEnemyOpUnitLocal(unit.name, unit.type, [], unit.icon || null);
+                }
+                break;
+            default:
+                if (unit.squads && unit.squads.length > 0) {
+                    unit.squads.forEach((squad, idx) => {
+                        addEnemyOpUnitLocal(`${unit.name} ${idx+1}`, unit.type, [squad]);
+                    });
+                } else {
+                    addEnemyOpUnitLocal(unit.name, unit.type, []);
+                }
+        }
+    });
+    
+    console.log(`Создано вражеских юнитов: ${enemyUnits.length}`);
+    appData.campaign.enemyOpUnits = enemyUnits;
+}
+  
 function createEnemyOperationalUnits() {
     if (!appData.campaign.battalions.enemy) {
         console.warn('Вражеский батальон не найден!');
