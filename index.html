@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.001 — операция  </title>
+  <title>Боевой модуль v13.002 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.001</h1>
+    <h1>⚔️ Боевой модуль v13.002</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -38,7 +38,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.001 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.002 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -649,6 +649,11 @@ function confirmBattalion(faction) {
 appData.campaign.opUnits = null;
 appData.campaign.enemyOpUnits = null;
 saveData();
+  // ⚡ ВЫДАЁМ РАЦИИ И ТЕЛЕФОНЫ ШТАБУ И ТЕХНИКЕ
+    if (hardMode.enabled) {
+        buildOperationalUnits();
+        initHardMode();
+    }
 // Генерируем вражеский батальон 
 const enemyFaction = faction === 'BeVe' ? 'A.I.R.F.' : 'BeVe';
 // Получаем все id поддержки для вражеской фракции
@@ -659,8 +664,10 @@ appData.campaign.battalions.enemy = enemyBattalion;
 // Сбрасываем старые вражеские юниты, чтобы они создались заново
 appData.campaign.enemyOpUnits = null;
   saveData();
-appData.campaign.currentTime = 840; // 14:00
-appData.currentTime = 840;
+// ⚡ ВРЕМЯ НАЧАЛА СЦЕНАРИЯ ВАЛЕНСИЯ — 00:00
+appData.campaign.currentTime = 0;
+appData.currentTime = 0;
+appData.campaign.opTurnStartTime = 0;
 updateOperationalTimeDisplay();
   
   const container = document.getElementById('campaignContent');
@@ -2997,11 +3004,11 @@ function initHardMode() {
         buildOperationalUnits();
     }
     
+    // ⚡ ШТАБ БАТАЛЬОНА ВСЕГДА ПОЛУЧАЕТ РАЦИЮ И ТЕЛЕФОН
     const hq = (appData.campaign.opUnits || []).find(u => u.type === 'battalion_hq');
     if (hq) {
         hardMode.hqUnitId = appData.campaign.opUnits.indexOf(hq);
         
-        // ⚡ ШТАБ БАТАЛЬОНА ВСЕГДА ПОЛУЧАЕТ РАЦИЮ И ТЕЛЕФОН
         const hasRadio = hardMode.signalPlatoon.radios.assigned.some(r => r.unitId === hardMode.hqUnitId);
         const hasPhone = hardMode.signalPlatoon.phones.assigned.some(p => p.unitId === hardMode.hqUnitId);
 
@@ -3021,7 +3028,7 @@ function initHardMode() {
         }
     }
     
-    // ⚡ ВЫДАЁМ РАЦИИ ВСЕМ МАШИНАМ №1
+    // ⚡ ВЫДАЁМ РАЦИИ МАШИНАМ №1 (САУ, Бронеавтомобили, Танки, БТР)
     const vehicleUnits = (appData.campaign.opUnits || []).filter(u => 
         u.type === 'tank_platoon' || u.type === 'btr_platoon' || 
         u.type === 'sau_battery' || u.type === 'armored_vehicle_platoon' ||
@@ -3062,7 +3069,7 @@ function initHardMode() {
     // ⚡ СОХРАНЯЕМ
     saveData();
     
-    // ⚡ ОБНОВЛЯЕМ ПАНЕЛЬ СВЯЗИ (если она открыта)
+    // ⚡ ОБНОВЛЯЕМ ПАНЕЛЬ СВЯЗИ
     renderCommunicationPanel();
 }
 
@@ -3070,6 +3077,7 @@ function initHardMode() {
 const ORDER_TYPES = {
     MOVE: 'move',
     ATTACK: 'attack',
+    DIG_IN: 'dig_in',
     DEFEND: 'defend',
     RECON: 'recon',
     HOLD: 'hold',
@@ -9654,9 +9662,6 @@ function executeOrder(order) {
         case 'move':
             executeMoveOrder(unit, order);
             break;
-        case 'hold':
-            // Ничего не делаем
-            break;
         case 'fire_at_will':
             executeFireAtWillOrder(unit, order);
             break;
@@ -9689,6 +9694,9 @@ function executeOrder(order) {
             break;
          case 'defend':
             executeDefendOrder(unit, order);
+            break;
+        case 'dig_in':
+            executeDigInOrder(unit, order);
             break;
             
     }
@@ -10501,7 +10509,20 @@ function executeMoveOrder(unit, order) {
     if (unit.ap <= 0 && order.status !== 'completed' && order.status !== 'cancelled') {
         log(`⏳ [${unit.name}] ОД закончились. Пройдено: ${stepsTaken} гексов. Цель: (${targetCol},${targetRow}).`);
     }
-    
+    // После перемещения
+    if (stepsTaken > 0) {
+        checkMovingFire(unit);
+        
+        // ⚡ ПРОВЕРКА ВСТРЕЧИ С ВРАГОМ
+        if (order.behavior && order.behavior !== 'ignore') {
+            const encountered = checkEnemyEncounter(unit, order.behavior, order);
+            if (encountered) {
+                saveData();
+                redrawOperationalMap();
+                return;
+            }
+        }
+    } 
     unit.movedThisTurn = true;
     saveData();
     redrawOperationalMap();
@@ -10774,7 +10795,7 @@ function renderCommunicationPanel() {
                 const isHQ = r.isHQ ? ' (штаб)' : '';
                 // Штабную рацию нельзя вернуть
                 const returnBtn = r.isHQ ? '' : ` <button onclick="returnRadio(${idx})" style="background:#555; font-size:0.7rem;">Вернуть</button>`;
-                return `<div style="color:#f1c40f;">📻 ${unitName}${isHQ}${returnBtn}</div>`;
+                return `<div style="color:#f1c40f;"><img src="images/рация.png" style="width:20px;height:20px;vertical-align:middle;"> ${unitName}${isHQ}${returnBtn}</div>`;
             }).join('');
         }
     }
@@ -10796,7 +10817,7 @@ function renderCommunicationPanel() {
                 const unitName = unit ? unit.name : 'Неизвестно';
                 const isHQ = p.isHQ ? ' (штаб)' : '';
                 const returnBtn = p.isHQ ? '' : ` <button onclick="returnPhone(${idx})" style="background:#555; font-size:0.7rem;">Вернуть</button>`;
-                return `<div style="color:#f1c40f;">📞 ${unitName}${isHQ}${returnBtn}</div>`;
+                return `<div style="color:#f1c40f;"><img src="images/полевой телефон.png" style="width:20px;height:20px;vertical-align:middle;"> ${unitName}${isHQ}${returnBtn}</div>`;
             }).join('');
         }
     }
@@ -11036,7 +11057,11 @@ function hideOrderPanel() {
 function onOrderTypeChange() {
     const type = document.getElementById('orderType').value;
     const fireDistanceContainer = document.getElementById('fireDistanceContainer');
-    
+    const assaultArmorOption = document.getElementById('assaultArmorOption');
+   // Показываем опцию "не штурмовать бронетехнику" только для Штурма
+    if (assaultArmorOption) {
+        assaultArmorOption.style.display = behaviorSelect && behaviorSelect.value === 'assault' ? 'block' : 'none';
+    }
     if (fireDistanceContainer) {
         fireDistanceContainer.style.display = (type === 'fire_at_will') ? 'block' : 'none';
     }
@@ -11099,7 +11124,7 @@ function addOrderWaypoint(col, row) {
     redrawOperationalMap();
 }
 
-function submitOrder() {
+function submitOrder()   {
     const unitSelect = document.getElementById('orderTargetUnit');
     const typeSelect = document.getElementById('orderType');
     const behaviorSelect = document.getElementById('orderBehavior');
@@ -11117,7 +11142,7 @@ function submitOrder() {
         alert('❌ Выберите тип приказа!');
         return;
     }
-    
+ 
     // Получаем данные
     const toUnitId = parseInt(unitSelect.value);
     const orderType = typeSelect.value;
@@ -11335,7 +11360,23 @@ function submitOrder() {
             return;
         }
     }
-    
+      // === ПРОВЕРКА 11: Проверка для окапывания ===
+    if (orderType === 'dig_in') {
+        // Пехота может окапываться, техника - нет
+        const isVehicle = unit.type === 'tank_platoon' || 
+                         unit.type === 'btr_platoon' || 
+                         unit.type === 'sau_battery' || 
+                         unit.type === 'armored_vehicle_platoon' ||
+                         (unit.name && (unit.name.includes('САУ') || 
+                          unit.name.includes('Танк') || 
+                          unit.name.includes('БТР') || 
+                          unit.name.includes('Бронеавтомобиль')));
+        
+        if (isVehicle) {
+            alert('❌ Техника не может окапываться!');
+            return;
+        }
+    }
     // === ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ - СОЗДАЁМ ПРИКАЗ ===
     
     const targetHexValue = targetHexInput ? targetHexInput.value.trim() : null;
@@ -12035,6 +12076,9 @@ function getOpDetectionModifier(unit) {
   if (unit.type === 'recon_platoon' || unit.type === 'infantry_platoon' && unit.name.includes('Развед')) bestMod -= 1;
   if (unit.type === 'vehicle' || unit.type === 'tank_platoon' || unit.type === 'btr_platoon') bestMod += 2;
   if (unit.isDefending) bestMod -= 1; // обороняющийся лучше скрыт
+   // ⚡ НОЧНОЙ ШТРАФ К ОБНАРУЖЕНИЮ
+  if (isNightTime()) {bestMod += 2; // Ночью сложнее обнаружить
+    } 
   return bestMod;
 }
 function checkOpDetection() {
@@ -13744,7 +13788,14 @@ function executeOpShoot(targets, distance) {
             }
         }
     }
+    // ⚡ НОЧНОЙ МОДИФИКАТОР
+    const nightMod = getNightModifier();
+    if (nightMod < 1) {
+        log(`🌙 Ночь! Точность снижена на 50%`);
+    }
     
+    // Примените к итоговому урону:
+    finalDamage = Math.round(finalDamage * nightMod);
     // ⚡ ИТОГОВЫЙ УРОН - ОБЯЗАТЕЛЬНО ОБЪЯВЛЯЕМ
     let finalDamage = Math.ceil(totalDamage * distanceMod * terrainMod);
     const randomFactor = 0.8 + (Math.random() * 0.4);
@@ -14423,7 +14474,12 @@ function executeOpShootAt(targets, distance) {
                 }
                 
                 console.log(`   Броня "${location}": ${armorValue}мм, пробитие: ${penetration}мм`);
-                
+               // ⚡ НОЧНОЙ МОДИФИКАТОР
+    const nightMod = getNightModifier();
+    if (nightMod < 1) {
+        hitChance *= nightMod; // Снижаем шанс попадания вдвое
+        log(`🌙 Ночь! Шанс попадания снижен на 50%`);
+    } 
                 // ⚡ ОБРАБАТЫВАЕМ ПОПАДАНИЕ
                 const result = processVehicleHit(targetVehicle, location, penetration, armorValue, shooter.name);
                 
@@ -15726,14 +15782,21 @@ function drawOperationalUnits(ctx) {
         }
         ctx.fillText(`ОД:${displayAP}`, drawX, drawY - radius - 2);
         
-        // Пометка рации
+                // Пометка рации
         if (hardMode.enabled && !isEnemy && hardMode.signalPlatoon && hardMode.signalPlatoon.radios && 
             hardMode.signalPlatoon.radios.assigned.some(r => appData.campaign.opUnits[r.unitId] === unit)) {
-            ctx.fillStyle = '#3498db';
-            ctx.font = '12px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'top';
-            ctx.fillText('📻', drawX + radius, drawY - radius - 10);
+            // ⚡ ИСПОЛЬЗУЕМ ИЗОБРАЖЕНИЕ ВМЕСТО ЭМОДЗИ:
+            const radioIcon = new Image();
+            radioIcon.src = 'images/рация.png';
+            if (radioIcon.complete) {
+                ctx.drawImage(radioIcon, drawX + radius, drawY - radius - 20, 16, 16);
+            } else {
+                ctx.fillStyle = '#3498db';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillText('📻', drawX + radius, drawY - radius - 10);
+            }
         }
         
         // Проверка, в бою ли юнит
@@ -16217,9 +16280,16 @@ function removeImmobilizedVehicleFromGroup(groupUnit, vehicle) {
 function renderVehicleStatus(unit) {
     const panel = document.getElementById('vehicleStatusPanel');
     const content = document.getElementById('vehicleStatusContent');
-    
+    const icon = document.getElementById('vehicleStatusToggleIcon');
     if (!panel || !content) return;
-    
+   // Восстанавливаем состояние сворачивания
+    if (vehicleStatusCollapsed) {
+        content.style.display = 'none';
+        if (icon) icon.textContent = '▶';
+    } else {
+        content.style.display = 'block';
+        if (icon) icon.textContent = '▼';
+    } 
     // Проверяем, является ли выбранный юнит техникой
     const isVehicle = unit && (unit.isVehicle || unit.isGroup || 
         (unit.name && (unit.name.includes('БТР') || 
@@ -16457,7 +16527,231 @@ document.addEventListener('DOMContentLoaded', function() {
     renderFactionInfo();
     resetAP();
 });
+vehicleStatusCollapsed = localStorage.getItem('vehicleStatusCollapsed') === 'true';
       
+function isNightTime() {
+    const time = appData.currentTime || appData.campaign.currentTime || 0;
+    // Ночь с 22:00 (1320 минут) до 5:00 (300 минут)
+    return time >= 1320 || time < 300;
+}
+
+function getNightModifier() {
+    return isNightTime() ? 0.5 : 1; // 50% точность ночью
+}
+let vehicleStatusCollapsed = false;
+
+function toggleVehicleStatusPanel() {
+    vehicleStatusCollapsed = !vehicleStatusCollapsed;
+    
+    const content = document.getElementById('vehicleStatusContent');
+    const icon = document.getElementById('vehicleStatusToggleIcon');
+    
+    if (content) {
+        content.style.display = vehicleStatusCollapsed ? 'none' : 'block';
+    }
+    if (icon) {
+        icon.textContent = vehicleStatusCollapsed ? '▶' : '▼';
+    }
+    
+    // Сохраняем состояние
+    localStorage.setItem('vehicleStatusCollapsed', vehicleStatusCollapsed);
+}
+function executeDigInOrder(unit, order) {
+    // Если юнит в тактическом бою - отменяем приказ
+    if (unit.isInBattle) {
+        order.status = 'cancelled';
+        log(`❌ ${unit.name} вступил в тактический бой! Окапывание прервано.`);
+        return;
+    }
+    
+    // Если юнит уничтожен
+    if (unit.isDestroyed) {
+        order.status = 'cancelled';
+        log(`❌ ${unit.name} уничтожен!`);
+        return;
+    }
+    
+    // Проверяем, есть ли ОД
+    if (unit.ap <= 0) {
+        log(`⏳ ${unit.name} не хватает ОД для окапывания. Ожидание следующего хода.`);
+        return;
+    }
+    
+    // Инициализируем счётчик окапывания
+    if (!order.digProgress) {
+        order.digProgress = 0;
+    }
+    
+    // Тратим все ОД на окапывание
+    unit.ap = 0;
+    order.digProgress++;
+    
+    log(`🕳️ ${unit.name} окапывается... Прогресс: ${order.digProgress}/3`);
+    
+    // Если завершили 3 хода окапывания
+    if (order.digProgress >= 3) {
+        // Ставим метку "окоп" на гексе
+        const hexKey = `${unit.col},${unit.row}`;
+        if (appData.campaign.opMapGrid) {
+            if (!appData.campaign.opMapGrid[hexKey]) {
+                appData.campaign.opMapGrid[hexKey] = {};
+            }
+            if (!appData.campaign.opMapGrid[hexKey].markers) {
+                appData.campaign.opMapGrid[hexKey].markers = [];
+            }
+            if (!appData.campaign.opMapGrid[hexKey].markers.includes('trenches')) {
+                appData.campaign.opMapGrid[hexKey].markers.push('trenches');
+            }
+        }
+        
+        order.status = 'completed';
+        log(`✅ ${unit.name} завершил окапывание! Метка "окоп" установлена на гексе (${unit.col},${unit.row}).`);
+        
+        saveData();
+        redrawOperationalMap();
+        return;
+    }
+    
+    // Если юнит переместился с гекса - отменяем приказ
+    if (order.originalHex && order.originalHex !== `${unit.col},${unit.row}`) {
+        order.status = 'cancelled';
+        log(`❌ ${unit.name} покинул гекс окапывания. Приказ отменён.`);
+        return;
+    }
+    
+    // Сохраняем исходный гекс
+    if (!order.originalHex) {
+        order.originalHex = `${unit.col},${unit.row}`;
+    }
+    
+    saveData();
+    redrawOperationalMap();
+    
+    // Приказ остаётся активным до завершения или отмены
+}
+function checkEnemyEncounter(unit, behavior, order) {
+    // Ищем обнаруженных врагов в радиусе 3 гексов
+    const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
+        e.col !== null && e.row !== null &&
+        e.detected && // Только обнаруженные враги!
+        getOpHexDistance(unit.col, unit.row, e.col, e.row) <= 3 &&
+        !e.isDestroyed
+    );
+    
+    if (enemies.length === 0) return false;
+    
+    const closestEnemy = enemies[0];
+    const dist = getOpHexDistance(unit.col, unit.row, closestEnemy.col, closestEnemy.row);
+    
+    log(`⚠️ ${unit.name} обнаружил врага: ${closestEnemy.name} (дистанция ${dist})`);
+    
+    switch (behavior) {
+        case 'engage': // Атаковать — обстрел по готовности
+            log(`⚔️ ${unit.name} атакует врага!`);
+            opShootingState.shooter = unit;
+            opShootingState.targets = [closestEnemy];
+            opShootingState.weaponType = hasAtGunWeapons(unit) && isArmoredUnit(closestEnemy) ? 'at' : 'mg';
+            if (opShootingState.weaponType === 'at') {
+                executeOpShootAt([closestEnemy], dist);
+            } else {
+                executeOpShoot([closestEnemy], dist);
+            }
+            return true;
+            
+        case 'hold': // Закрепиться — остановиться и ждать
+            log(`🛡️ ${unit.name} закрепился и ждёт приказа.`);
+            order.status = 'completed';
+            return true;
+            
+        case 'retreat': // Отступить — отойти на 1 гекс назад
+            log(`🏃 ${unit.name} отступает!`);
+            // Находим гекс дальше от врага
+            const retreatHex = findRetreatHexFromEnemy(unit, closestEnemy);
+            if (retreatHex) {
+                unit.col = retreatHex.col;
+                unit.row = retreatHex.row;
+                log(`   Отступил на гекс (${retreatHex.col},${retreatHex.row})`);
+            }
+            order.status = 'completed';
+            return true;
+            
+        case 'ignore': // Игнорировать — продолжать путь
+            log(`🚶 ${unit.name} игнорирует врага и продолжает путь.`);
+            return false;
+            
+        case 'assault': // Штурмовать — сближаться для тактического боя
+            const ignoreArmor = document.getElementById('assaultIgnoreArmor')?.checked ?? true;
+            
+            if (ignoreArmor && isArmoredUnit(closestEnemy)) {
+                log(`🚫 ${unit.name} не штурмует бронетехнику.`);
+                return false;
+            }
+            
+            log(`⚡ ${unit.name} штурмует врага!`);
+            // Начинаем тактический бой
+            if (dist === 0) {
+                startTacticalBattle([unit], [closestEnemy]);
+            } else {
+                // Двигаемся к врагу
+                const route = getRouteToTarget(unit.col, unit.row, closestEnemy.col, closestEnemy.row);
+                if (route.length > 0 && unit.ap > 0) {
+                    const nextStep = route[0];
+                    const moveCost = getOpMoveCost(unit, unit.col, unit.row, nextStep.col, nextStep.row);
+                    if (unit.ap >= moveCost) {
+                        unit.ap -= moveCost;
+                        unit.col = nextStep.col;
+                        unit.row = nextStep.row;
+                        log(`   Продвинулся к врагу на (${nextStep.col},${nextStep.row})`);
+                    }
+                }
+            }
+            order.status = 'completed';
+            return true;
+    }
+    
+    return false;
+}
+
+function findRetreatHexFromEnemy(unit, enemy) {
+    const directions = [
+        { dc: -1, dr: -1 }, { dc: 0, dr: -1 }, { dc: 1, dr: -1 },
+        { dc: -1, dr: 0 }, { dc: 1, dr: 0 },
+        { dc: -1, dr: 1 }, { dc: 0, dr: 1 }, { dc: 1, dr: 1 }
+    ];
+    
+    // Направление ОТ врага
+    const dx = unit.col - enemy.col;
+    const dy = unit.row - enemy.row;
+    
+    // Нормализуем
+    const stepX = dx !== 0 ? (dx > 0 ? 1 : -1) : 0;
+    const stepY = dy !== 0 ? (dy > 0 ? 1 : -1) : 0;
+    
+    const newCol = unit.col + stepX;
+    const newRow = unit.row + stepY;
+    
+    // Проверяем границы
+    if (newCol >= 0 && newCol < OP_MAP_COLS && newRow >= 0 && newRow < OP_MAP_ROWS) {
+        // Проверяем, что гекс проходим
+        const cost = getOpMoveCost(unit, unit.col, unit.row, newCol, newRow);
+        if (cost !== Infinity) {
+            return { col: newCol, row: newRow };
+        }
+    }
+    
+    // Запасной вариант — случайное направление
+    const dir = directions[Math.floor(Math.random() * directions.length)];
+    return { col: unit.col + dir.dc, row: unit.row + dir.dr };
+}
+function onOrderBehaviorChange() {
+    const behaviorSelect = document.getElementById('orderBehavior');
+    const assaultArmorOption = document.getElementById('assaultArmorOption');
+    
+    if (!behaviorSelect || !assaultArmorOption) return;
+    
+    // Показываем галочку только для режима "Штурмовать"
+    assaultArmorOption.style.display = behaviorSelect.value === 'assault' ? 'block' : 'none';
+}      
   </script> 
   
  <div id="awardsTab" class="tabcontent">
@@ -16533,14 +16827,14 @@ document.addEventListener('DOMContentLoaded', function() {
   <div style="margin-top:4px; display:flex; gap:8px; flex-wrap:wrap;">
     <!-- Рации -->
     <div style="flex:1; min-width:200px;">
-      <strong style="color:#3498db;">Рации:</strong>
+      <strong style="color:#3498db;"><img src="images/рация.png" style="width:16px;height:16px;vertical-align:middle;"> Рации:</strong>
       <span id="radiosAvailable" style="color:#aaa;"></span>
       <div id="radiosList" style="margin-top:2px;"></div>
     </div>
     
     <!-- Телефоны -->
     <div style="flex:1; min-width:200px;">
-      <strong style="color:#3498db;">Телефоны:</strong>
+      <strong style="color:#3498db;"><img src="images/полевой телефон.png" style="width:16px;height:16px;vertical-align:middle;"> Телефоны:</strong>
       <span id="phonesAvailable" style="color:#aaa;"></span>
       <div id="phonesList" style="margin-top:2px;"></div>
     </div>
@@ -16589,9 +16883,8 @@ document.addEventListener('DOMContentLoaded', function() {
       <option value="-1">-- Выберите приказ --</option>
       <option value="move">🚶 Движение</option>
       <option value="attack">⚔️ Атака</option>
-      <option value="defend">🛡️ Оборона</option>
+      <option value="dig_in">🕳️ Окопаться</option>
       <option value="recon">🔍 Разведка</option>
-      <option value="hold">✋ Удерживать позицию</option>
       <option value="retreat">🏃 Отступление</option>
       <option value="shoot_at">💥 Стрельба по бронетехнике</option>
       <option value="fire_at_will">🎯 Огонь по готовности</option>
@@ -16616,9 +16909,17 @@ document.addEventListener('DOMContentLoaded', function() {
       <option value="hold">🛡️ Закрепиться и ждать</option>
       <option value="engage">⚔️ Атаковать</option>
       <option value="retreat">🏃 Отступить</option>
+      <option value="ignore">🚶 Игнорировать</option>
+      <option value="assault">⚡ Штурмовать</option>
     </select>
   </div>
   
+        <div id="assaultArmorOption" style="display:none; margin-top:4px;">
+    <label style="color:#aaa;">
+        <input type="checkbox" id="assaultIgnoreArmor" checked>
+        Не штурмовать бронетехнику
+    </label>
+</div>
   <!-- Дистанция для огня по готовности -->
   <div id="fireDistanceContainer" style="display:none; margin-top:4px;">
     <label style="color:#aaa;">Дистанция открытия огня: </label>
@@ -16684,9 +16985,12 @@ document.addEventListener('DOMContentLoaded', function() {
     <button onclick="renameGroup()" id="renameBtn" style="display:none; background:#2980b9;">✏️ Переименовать</button>
     <button onclick="showGroupDetails()" id="detailsBtn" style="display:none; background:#27ae60;">📋 Состав</button>
 </div>
-      <div id="vehicleStatusPanel" style="display:none; margin-bottom:8px; padding:6px; background:#1a1a2e; border-radius:6px; border:1px solid #444;">
-    <strong style="color:#f39c12;">🔧 Состояние техники</strong>
-    <div id="vehicleStatusContent"></div>
+    <div id="vehicleStatusPanel" style="display:none; margin-bottom:8px; padding:6px; background:#1a1a2e; border-radius:6px; border:1px solid #444;">
+    <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleVehicleStatusPanel()">
+        <strong style="color:#f39c12;">🔧 Состояние техники</strong>
+        <span id="vehicleStatusToggleIcon" style="color:#aaa; font-size:1.2rem;">▼</span>
+    </div>
+    <div id="vehicleStatusContent" style="margin-top:6px;"></div>
 </div>
       <div style="margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
   <strong>☠️ Противник</strong>
