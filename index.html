@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.006 — операция  </title>
+  <title>Боевой модуль v13.007 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.006</h1>
+    <h1>⚔️ Боевой модуль v13.007</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -38,7 +38,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.006 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.007 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -937,6 +937,7 @@ function createEnemyOperationalUnits() {
                 });
                 break;
             case 'infantry_company':
+                // ⚡ СОЗДАЁМ ОТДЕЛЬНЫЙ ЮНИТ ДЛЯ КАЖДОГО ВЗВОДА
                 unit.platoons.forEach(pl => {
                     let platoonType = 'infantry_platoon';
                     const plName = pl.name || '';
@@ -945,8 +946,10 @@ function createEnemyOperationalUnits() {
                     } else if (pl.mobilityType === 'motorcycle' || plName.includes('мотоцикл')) {
                         platoonType = 'motorcycle_platoon';
                     }
+                    // ⚡ ВЗВОД ЦЕЛИКОМ — ОДИН ЮНИТ СО ВСЕМИ ОТДЕЛЕНИЯМИ
                     addEnemyOpUnitLocal(pl.name, platoonType, pl.squads, pl.icon || unit.icon || null);
                 });
+                // ⚡ ШТАБ РОТЫ — ОТДЕЛЬНЫЙ ЮНИТ
                 if (unit.hq) {
                     addEnemyOpUnitLocal(unit.hq.name || 'Штаб роты', 'company_hq', [unit.hq], unit.hq.icon || unit.icon || null);
                 }
@@ -979,70 +982,6 @@ function createEnemyOperationalUnits() {
     appData.campaign.enemyOpUnits = enemyUnits;
 }
   
-function createEnemyOperationalUnits() {
-    if (!appData.campaign.battalions.enemy) {
-        console.warn('Вражеский батальон не найден!');
-        return;
-    }
-    
-    const enemyBattalion = appData.campaign.battalions.enemy;
-    const enemyUnits = [];
-    
-    console.log('=== Создание вражеских юнитов ===');
-    console.log('Вражеский батальон:', enemyBattalion);
-    
-    // Перебираем units вражеского батальона
-    enemyBattalion.units.forEach(unit => {
-        console.log(`Обработка вражеского юнита: ${unit.name} (${unit.type})`);
-        
-        if (unit.squads && unit.squads.length > 0) {
-            unit.squads.forEach(squad => {
-                enemyUnits.push({
-                    name: squad.name,
-                    type: unit.type,
-                    squads: [squad],
-                    col: null,
-                    row: null,
-                    side: 'enemy',
-                    maxAp: 4,
-                    ap: 4,
-                    mobility: 'foot',
-                    dismounted: false,
-                    faction: enemyBattalion.faction || 'A.I.R.F.',
-                    icon: squad.icon || unit.icon || null,
-                    detected: true,
-                    noiseMarker: false
-                });
-            });
-        } else if (unit.platoons) {
-            unit.platoons.forEach(platoon => {
-                if (platoon.squads) {
-                    platoon.squads.forEach(squad => {
-                        enemyUnits.push({
-                            name: squad.name,
-                            type: platoon.type || 'infantry_platoon',
-                            squads: [squad],
-                            col: null,
-                            row: null,
-                            side: 'enemy',
-                            maxAp: 4,
-                            ap: 4,
-                            mobility: 'foot',
-                            dismounted: false,
-                            faction: enemyBattalion.faction || 'A.I.R.F.',
-                            icon: squad.icon || platoon.icon || unit.icon || null,
-                            detected: true,
-                            noiseMarker: false
-                        });
-                    });
-                }
-            });
-        }
-    });
-    
-    console.log(`Создано вражеских юнитов: ${enemyUnits.length}`);
-    appData.campaign.enemyOpUnits = enemyUnits;
-}
 function getOpMaxAP(unit) {
   return unit.maxAp || 6;
 }
@@ -3097,8 +3036,18 @@ function initHardMode() {
         buildOperationalUnits();
     }
     
-    // ⚡ ШТАБ БАТАЛЬОНА ВСЕГДА ПОЛУЧАЕТ РАЦИЮ И ТЕЛЕФОН
- // Ищем штаб батальона (по типу ИЛИ по имени)
+    // ⚡ ИНИЦИАЛИЗИРУЕМ ПОСЫЛЬНЫХ (если их нет)
+    if (!hardMode.messengers) {
+        hardMode.messengers = {
+            battalion: { total: 5, available: 5, active: [] },
+            companies: {}
+        };
+    }
+    if (!hardMode.messengers.battalion) {
+        hardMode.messengers.battalion = { total: 5, available: 5, active: [] };
+    }
+    
+    // ⚡ ИЩЕМ ШТАБ БАТАЛЬОНА (по типу ИЛИ по имени)
     const hq = (appData.campaign.opUnits || []).find(u => 
         u.type === 'battalion_hq' || 
         u.type === 'hq' || 
@@ -3107,7 +3056,23 @@ function initHardMode() {
     
     if (hq) {
         hardMode.hqUnitId = appData.campaign.opUnits.indexOf(hq);
+        console.log(`Штаб найден: ${hq.name}, индекс: ${hardMode.hqUnitId}`);
         
+        // ⚡ ОТМЕЧАЕМ ПОСЫЛЬНЫХ В ШТАБЕ
+        if (hq.squads) {
+            hq.squads.forEach(squad => {
+                if (squad.fighters) {
+                    squad.fighters.forEach(f => {
+                        if (f.name && f.name.includes('Посыльный')) {
+                            f.isMessenger = true;
+                            console.log(`Посыльный найден: ${f.name} в ${squad.name}`);
+                        }
+                    });
+                }
+            });
+        }
+        
+        // ⚡ ВЫДАЁМ РАЦИЮ И ТЕЛЕФОН ШТАБУ
         const hasRadio = hardMode.signalPlatoon.radios.assigned.some(r => r.unitId === hardMode.hqUnitId);
         const hasPhone = hardMode.signalPlatoon.phones.assigned.some(p => p.unitId === hardMode.hqUnitId);
 
@@ -3125,9 +3090,41 @@ function initHardMode() {
             });
             console.log(`📞 Телефон выдан штабу батальона: ${hq.name}`);
         }
+    } else {
+        console.warn('Штаб батальона не найден!');
     }
     
-    // ⚡ ВЫДАЁМ РАЦИИ МАШИНАМ №1 (САУ, Бронеавтомобили, Танки, БТР)
+    // ⚡ НАХОДИМ ШТАБЫ РОТ И ИНИЦИАЛИЗИРУЕМ ИХ ПОСЫЛЬНЫХ
+    const companies = (appData.campaign.opUnits || []).filter(u => 
+        u.type === 'company_hq' || 
+        (u.name && u.name.includes('Штаб роты'))
+    );
+    
+    companies.forEach(company => {
+        const companyId = appData.campaign.opUnits.indexOf(company);
+        if (!hardMode.messengers.companies[companyId]) {
+            hardMode.messengers.companies[companyId] = {
+                total: 4,
+                available: 4,
+                active: []
+            };
+        }
+        
+        // Отмечаем посыльных в штабе роты
+        if (company.squads) {
+            company.squads.forEach(squad => {
+                if (squad.fighters) {
+                    squad.fighters.forEach(f => {
+                        if (f.name && f.name.includes('Посыльный')) {
+                            f.isMessenger = true;
+                        }
+                    });
+                }
+            });
+        }
+    });
+    
+    // ⚡ ВЫДАЁМ РАЦИИ МАШИНАМ №1
     const vehicleUnits = (appData.campaign.opUnits || []).filter(u => 
         u.type === 'tank_platoon' || u.type === 'btr_platoon' || 
         u.type === 'sau_battery' || u.type === 'armored_vehicle_platoon' ||
