@@ -2730,7 +2730,8 @@ let hardMode = {
     phoneLines: [],
     orders: [],
     pendingOrders: [],
-    orderQueue: []
+    orderQueue: [],
+    messengerQueue: []
 };
 let appData;
 try {
@@ -2760,6 +2761,9 @@ try {
         }
         if (appData.hardMode.orderQueue) {
             hardMode.orderQueue = appData.hardMode.orderQueue;
+        }
+        if (appData.hardMode.messengerQueue) {
+            hardMode.messengerQueue = appData.hardMode.messengerQueue;
         }
     }
     // ⚠️ БЕЗ БЛОКА else! hardMode уже объявлена выше и не перезаписывается!
@@ -3226,8 +3230,15 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
     if (deliveryMethod === 'messenger') {
         const messenger = assignMessenger(fromUnit);
         if (!messenger) {
-            alert('Нет свободных посыльных! Все посыльные несут приказы в путь — попробуйте в следующем ходу.');
-            return null;
+            // ⚡ Нет свободных посыльных — приказ НЕ теряется:
+            // он уходит в ОЧЕРЕДЬ, и первый освободившийся посыльный
+            // сразу отправится на доставку (dispatchQueuedOrders).
+            order.status = 'queued';
+            if (!hardMode.messengerQueue) hardMode.messengerQueue = [];
+            hardMode.messengerQueue.push(order);
+            log(`⏳ Приказ "${orderType}" для "${toUnit.name}" поставлен в очередь — ждёт посыльного (№${hardMode.messengerQueue.length} в очереди).`);
+            saveData();
+            return order;
         }
         order.messengerId = messenger;
         order.status = 'delivering';
@@ -3254,19 +3265,25 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
 }
 
 function checkCommunication(fromUnit, toUnit) {
-    // 1. Проверяем рацию: ловит в радиусе ОТ ИСТОЧНИКА приказа
-    //    (штаб батальона — 10 гексов, штаб роты / прочие — 5 гексов).
-    //    Целевой юнит собственную рацию иметь не обязан.
+    // 1. Радиус от источника приказа (штаб батальона — 10 гексов,
+    //    штаб роты / прочие — 5 гексов). Целевой юнит рацию иметь не обязан.
     if (isInRadioRange(fromUnit, toUnit)) {
         return 'radio';
     }
     
-    // 2. Проверяем телефон
+    // 2. Рация, выданная ИГРОКОМ (распределяются в панели «Связь»):
+    //    прямая связь со штабом батальона на любой дистанции.
+    //    Может быть выдана штабу роты или взводу.
+    if ((fromUnit.type === 'battalion_hq' || fromUnit.type === 'hq') && hasRadio(toUnit)) {
+        return 'radio';
+    }
+    
+    // 3. Проверяем телефон
     if (hasPhoneLine(fromUnit, toUnit)) {
         return 'phone';
     }
     
-    // 3. Посыльный
+    // 4. Посыльный
     return 'messenger';
 }
 
@@ -3324,10 +3341,11 @@ function assignMessenger(unit) {
 
 function cancelOrder(orderId) {
     const order = hardMode.orders.find(o => o.id === orderId) || 
-                   hardMode.pendingOrders.find(o => o.id === orderId);
+                   hardMode.pendingOrders.find(o => o.id === orderId) ||
+                   (hardMode.messengerQueue || []).find(o => o.id === orderId);
         if (!order) return;
     order.status = 'cancelled';
-    // Возвращаем посыльного если он был
+    // Возвращаем посыльного если он был (у приказа из очереди его ещё нет)
     if (order.messengerId) {
         const fromUnit = appData.campaign.opUnits[order.fromUnitId];
         if (fromUnit) {
@@ -3352,6 +3370,7 @@ function cancelOrder(orderId) {
         // Удаляем из списков (вместе с relay-приказами отменённого приказа)
     hardMode.orders = hardMode.orders.filter(o => o.id !== orderId && o.relayParentId !== orderId);
     hardMode.pendingOrders = hardMode.pendingOrders.filter(o => o.id !== orderId && o.relayParentId !== orderId);
+    if (hardMode.messengerQueue) hardMode.messengerQueue = hardMode.messengerQueue.filter(o => o.id !== orderId && o.relayParentId !== orderId);
     saveData();
     renderActiveOrders();
 }
@@ -3359,11 +3378,13 @@ function cancelOrder(orderId) {
 function returnMessenger(unit) {
     const unitId = appData.campaign.opUnits.indexOf(unit);
     // Возвращаем ОДНОГО посыльного (первого из списка), а не всех сразу
+    let freed = false;
     if (unit.type === 'battalion_hq' || unit.type === 'hq') {
       const idx = hardMode.messengers.battalion.active.findIndex(a => a.unitId === unitId);
         if (idx !== -1) {
             hardMode.messengers.battalion.available++;
             hardMode.messengers.battalion.active.splice(idx, 1);
+            freed = true;
         }
         } else if (unit.type === 'company_hq') {
         const companyMessengers = hardMode.messengers.companies[unitId];
@@ -3372,9 +3393,65 @@ function returnMessenger(unit) {
             if (idx !== -1) {
                 companyMessengers.available++;
                 companyMessengers.active.splice(idx, 1);
+                freed = true;
             }    
         }
     }
+    // ⚡ Свободный посыльный есть — сразу отдаём ему первый приказ из очереди
+    if (freed) dispatchQueuedOrders();
+}
+
+// ⚡ ОЧЕРЕДЬ ПРИКАЗОВ, ЖДУЩИХ ПОСЫЛЬНОГО
+// Приказы, созданные без свободных посыльных, хранятся в hardMode.messengerQueue.
+// Эта функция отправляет первого свободного посыльного на доставку
+// первого в очереди приказа (по порядку создания).
+function dispatchQueuedOrders() {
+    if (!hardMode.messengerQueue || hardMode.messengerQueue.length === 0) return;
+    let dispatched = true;
+    while (dispatched && hardMode.messengerQueue.length > 0) {
+        dispatched = false;
+        for (let i = 0; i < hardMode.messengerQueue.length; i++) {
+            const order = hardMode.messengerQueue[i];
+            const fromUnit = appData.campaign.opUnits ? appData.campaign.opUnits[order.fromUnitId] : null;
+            const toUnit = appData.campaign.opUnits ? appData.campaign.opUnits[order.toUnitId] : null;
+            
+            // Получатель уничтожен или исчез — приказ сгорает
+            if (!toUnit || toUnit.isDestroyed) {
+                hardMode.messengerQueue.splice(i, 1);
+                order.status = 'cancelled';
+                log(`❌ Приказ "${order.type}" из очереди сгорел: получатель уничтожен.`);
+                saveData();
+                continue;
+            }
+            if (!fromUnit) { hardMode.messengerQueue.splice(i, 1); continue; }
+            
+            // Есть ли у отправителя свободный посыльный?
+            const fromId = appData.campaign.opUnits.indexOf(fromUnit);
+            const pool = (fromUnit.type === 'battalion_hq' || fromUnit.type === 'hq')
+                ? hardMode.messengers.battalion
+                : hardMode.messengers.companies[fromId];
+            if (!pool || pool.available <= 0) continue;
+            
+            const messenger = assignMessenger(fromUnit);
+            if (!messenger) continue;
+            
+            order.messengerId = messenger;
+            order.status = 'delivering';
+            const hasCoords = fromUnit.col != null && fromUnit.row != null && toUnit.col != null && toUnit.row != null;
+            const distance = hasCoords ? getOpHexDistance(fromUnit.col, fromUnit.row, toUnit.col, toUnit.row) : 0;
+            order.deliveryTurnsNeeded = Math.ceil(distance / 3);
+            order.deliveryTurnsPassed = 0;
+            
+            hardMode.messengerQueue.splice(i, 1);
+            if (!hardMode.pendingOrders) hardMode.pendingOrders = [];
+            hardMode.pendingOrders.push(order);
+            log(`🚶 Посыльный отправлен на доставку приказа "${order.type}" для "${toUnit.name}" (снят с очереди).`);
+            saveData();
+            dispatched = true;
+            break; // заново проходим очередь (могло освободиться несколько посыльных)
+        }
+    }
+    renderActiveOrders();
 }
 function findParentCompany(platoonUnit) {
     // Ищем штаб роты, которому подчиняется взвод
@@ -9624,6 +9701,9 @@ function endOperationalTurn() {
     }
 }
 function processOrders() {
+    // 0. Отдаём очереди приказов, ждущих посыльных (страховка на конец хода)
+    dispatchQueuedOrders();
+    
     // 1. Обрабатываем доставку приказов (посыльные)
     if (hardMode.pendingOrders) {
         hardMode.pendingOrders.forEach(order => {
@@ -11549,27 +11629,11 @@ function submitOrder()   {
     // приказ доставляется ЧЕРЕЗ штаб роты: посыльный штаба батальона несёт
     // приказ в штаб роты и возвращается обратно (не тратит время на путь
     // до взвода), а штаб роты передаёт приказ взводу своими каналами связи.
+    // ⚡ Посыльные: если свободных нет — createOrder поставит приказ в очередь,
+    // первый освободившийся посыльный сам отправится на доставку.
     let viaCompany = null;
     if (hardMode.enabled) {
         viaCompany = getRelayCompanyForOrder(hqUnit, unit);
-        const effectiveTarget = viaCompany || unit;
-        const deliveryMethod = checkCommunication(hqUnit, effectiveTarget);
-        if (deliveryMethod === 'messenger') {
-            // Проверяем, есть ли свободные посыльные
-            let hasMessenger = false;
-            if (hqUnit.type === 'battalion_hq' || hqUnit.type === 'hq') {
-                hasMessenger = hardMode.messengers.battalion.available > 0;
-            } else if (hqUnit.type === 'company_hq') {
-                const companyId = appData.campaign.opUnits.indexOf(hqUnit);
-                const companyMessengers = hardMode.messengers.companies[companyId];
-                hasMessenger = companyMessengers && companyMessengers.available > 0;
-            }
-            
-            if (!hasMessenger) {
-                alert('❌ Нет свободных посыльных: все посыльные несут приказы в путь. Они вернутся после доставки.\n\nПопробуйте ещё раз в следующем ходу (или выберите юнита в радиусе рации — 10 гексов от штаба).');
-                return;
-            }
-        }
     }
     
     // === ПРОВЕРКА 6: Проверка маршрута для движения и отступления ===
@@ -12044,7 +12108,7 @@ function renderActiveOrders() {
     const container = document.getElementById('ordersContainer');
     if (!container) return;
     
-    const allOrders = [...hardMode.pendingOrders, ...hardMode.orders];
+    const allOrders = [...(hardMode.messengerQueue || []), ...hardMode.pendingOrders, ...hardMode.orders];
     
     if (allOrders.length === 0) {
         container.innerHTML = '<span style="color:#aaa;">Нет активных приказов</span>';
@@ -12069,6 +12133,7 @@ function renderActiveOrders() {
     
     const statusNames = {
         'pending': '⏳ Ожидает',
+        'queued': '⏸️ В очереди (ждёт посыльного)',
         'delivering': '🚶 Доставляется',
         'active': '✅ Выполняется',
         'completed': '✅ Завершен',
@@ -16409,7 +16474,20 @@ function checkVehicleRadioAfterLoss(unit) {
 }
 // ⚡ РЕЖИМ "ОГОНЬ НА ХОДУ" ДЛЯ ТЕХНИКИ
 function checkMovingFire(unit) {
-    if (!unit || !unit.isVehicle) return;
+    if (!unit) return;
+    // ⚡ Техника: isVehicle (группы) ИЛИ тип/название обычного операционного юнита
+    //    (раньше обычные танки/БА без isVehicle не стреляли на ходу)
+    const isVeh = unit.isVehicle || unit.type === 'tank_platoon' ||
+                  unit.type === 'btr_platoon' ||
+                  unit.type === 'sau_battery' ||
+                  unit.type === 'armored_vehicle_platoon' ||
+                  unit.type === 'vehicle' ||
+                  (unit.name && (unit.name.includes('БТР') ||
+                  unit.name.includes('CL/39') ||
+                  unit.name.includes('САУ') ||
+                  unit.name.includes('Бронеавтомобиль') ||
+                  unit.name.includes('Landsverk')));
+    if (!isVeh) return;
     if (unit.isInBattle) return;
     if (unit.ap <= 0) return;
     if (!unit.movedThisTurn) return;
