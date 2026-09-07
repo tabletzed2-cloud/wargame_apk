@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.017 — операция  </title>
+  <title>Боевой модуль v13.018 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.017</h1>
+    <h1>⚔️ Боевой модуль v13.018</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -38,7 +38,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.017 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.018 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1389,14 +1389,14 @@ function redrawOperationalMap() {
     }
     
 // Подсветка зоны разведки (голубым)
-// ⚡ Поле видно только в ход выполнения разведки и гаснет в следующем
+// ⚡ v13.018: зона (окружность радиуса 2) показывается ТОЛЬКО в ход ПОСЛЕ
+//    проведения разведки и гаснет в следующий ход. reconHighlightHexes
+//    заполняется процессом на ход показа (reconActiveTurn) и очищается позже.
 if (appData.campaign.opUnits) {
     appData.campaign.opUnits.forEach(unit => {
-        const reconTurn = (unit.reconActiveTurn !== undefined) ? unit.reconActiveTurn : Infinity;
-        if (unit.reconPending && unit.reconHex &&
-            (appData.campaign.currentTurn || 1) <= reconTurn) {
-            const [rCol, rRow] = unit.reconHex.split(',').map(Number);
-            const radius = unit.reconRadius || 5;
+        if (unit.reconHighlightHexes && unit.reconHighlightHexes.length > 0) {
+            const [rCol, rRow] = (unit.reconHex || '0,0').split(',').map(Number);
+            const radius = unit.reconRadius || 2;
             
             ctx.save();
             ctx.fillStyle = 'rgba(52, 152, 219, 0.25)';
@@ -1569,9 +1569,11 @@ if (pickingTargetHex) {
     }
     
     // ⚡ ОТРИСОВКА АКТИВНЫХ МАРШРУТОВ ПРИКАЗОВ (ДЛЯ ВСЕХ ОТРЯДОВ)
+    // ⚡ v13.018: рисуются ТОЛЬКО пока приказ выполняется (status 'active').
+    //    После завершения/отмены маршрута зелёные метки исчезают (не «остаются»).
         if (hardMode.enabled && hardMode.orders) {
         hardMode.orders.forEach(order => {
-            if (order.status !== 'cancelled' && order.waypoints && order.waypoints.length > 0) {
+            if (order.status === 'active' && order.waypoints && order.waypoints.length > 0) {
                 const unit = appData.campaign.opUnits ? appData.campaign.opUnits[order.toUnitId] : null;
                 if (!unit || unit.col === null || unit.row === null) return;
                 
@@ -1603,59 +1605,6 @@ if (pickingTargetHex) {
                 });
                 ctx.stroke();
                 ctx.setLineDash([]);
-                ctx.restore();
-            }
-        });
-    }
-    
-    // Отрисовка активных маршрутов приказов (стрелки) - старый код для совместимости
-    if (hardMode.enabled) {
-        hardMode.orders.forEach(order => {
-            if (order.status === 'active' && order.waypoints && order.waypoints.length > 0) {
-                const unit = appData.campaign.opUnits[order.toUnitId];
-                if (!unit || unit.col === null || unit.row === null) return;
-                
-                const nextWp = order.waypoints[0];
-                const fromX = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
-                const fromY = unit.row * 1.5 * size + size;
-                const toX = nextWp.col * Math.sqrt(3) * size + (nextWp.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
-                const toY = nextWp.row * 1.5 * size + size;
-                
-                ctx.save();
-                ctx.strokeStyle = '#00ff00';
-                ctx.lineWidth = 3;
-                ctx.setLineDash([5, 5]);
-                ctx.beginPath();
-                ctx.moveTo(fromX, fromY);
-                ctx.lineTo(toX, toY);
-                ctx.stroke();
-                ctx.setLineDash([]);
-                
-                const angle = Math.atan2(toY - fromY, toX - fromX);
-                const arrowSize = size * 0.3;
-                ctx.fillStyle = '#00ff00';
-                ctx.beginPath();
-                ctx.moveTo(toX, toY);
-                ctx.lineTo(toX - arrowSize * Math.cos(angle - 0.5), toY - arrowSize * Math.sin(angle - 0.5));
-                ctx.lineTo(toX - arrowSize * Math.cos(angle + 0.5), toY - arrowSize * Math.sin(angle + 0.5));
-                ctx.closePath();
-                ctx.fill();
-                
-                order.waypoints.forEach((wp, idx) => {
-                    const x = wp.col * Math.sqrt(3) * size + (wp.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
-                    const y = wp.row * 1.5 * size + size;
-                    
-                    ctx.fillStyle = '#00ff00';
-                    ctx.beginPath();
-                    ctx.arc(x, y, size * 0.2, 0, 2 * Math.PI);
-                    ctx.fill();
-                    
-                    ctx.fillStyle = '#fff';
-                    ctx.font = `${size * 0.25}px Arial`;
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(idx + 1, x, y);
-                });
                 ctx.restore();
             }
         });
@@ -3155,6 +3104,15 @@ function initHardMode() {
                 r.unitId === unitId
             );
             if (!alreadyAssigned) {
+                // ⚡ Помечаем конкретную машину с рацией — чтобы при её потере
+                //    рация у отряда (группы) перестала действовать
+                if (vehicle.isGroup && vehicle.vehicleList) {
+                    vehicle.vehicleList.forEach(v => {
+                        if (v.name && v.name.includes('№1')) v.hasRadio = true;
+                    });
+                } else {
+                    vehicle.hasRadio = true;
+                }
                 hardMode.signalPlatoon.radios.assigned.push({
                     unitId: unitId,
                     isVehicleRadio: true,
@@ -3271,30 +3229,28 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
 }
 
 function checkCommunication(fromUnit, toUnit) {
-    // ⚡ МОДЕЛЬ СВЯЗИ:
-    // 1. Мгновенная доставка (рация) — ТОЛЬКО в радиусе 10 гексов
-    //    от штаба батальона (у ШБ есть своя рация). Штаб роты
-    //    самостоятельной рации для доставки приказов взводам НЕ имеет —
-    //    из штаба роты приказ во взвод несёт ПОСЫЛЬНЫЙ штаба роты.
-    const fromIsBattalionHQ = fromUnit && (fromUnit.type === 'battalion_hq' || fromUnit.type === 'hq');
-    if (fromIsBattalionHQ && isInRadioRange(fromUnit, toUnit)) {
-        return 'radio';
-    }
-    
-    // 2. Рация, выданная ИГРОКОМ (распределяются в панели «Связь»):
-    //    прямая связь со штабом батальона на любой дистанции (в обе стороны).
-    //    Может быть выдана штабу роты или взводу.
+    // ⚡ МОДЕЛЬ СВЯЗИ (v13.018):
+    // Приказы выдаёт ТОЛЬКО штаб батальона — телефоном, рацией или посыльными.
+    // 1. РАЦИЯ — мгновенно, если ПОЛУЧАТЕЛЬ имеет выданную игроком рацию
+    //    и находится в радиусе 10 гексов от штаба батальона.
+    //    Без рации (и телефона) у получателя — ТОЛЬКО посыльный (3 гекса/ход),
+    //    даже если он рядом со штабом батальона.
+    // 2. ТЕЛЕФОН — мгновенно, если есть целая линия связи штаб↔юнит.
+    // 3. ПОСЫЛЬНЫЙ — 3 гекса/ход. Если взвод приписан к штабу роты —
+    //    посыльному штаба батальона достаточно дойти до штаба роты,
+    //    дальше приказ несёт СВОЙ посыльный штаба роты (не мгновенно).
     const isBattalionHQ = (u) => u && (u.type === 'battalion_hq' || u.type === 'hq');
-    if ((isBattalionHQ(fromUnit) && hasRadio(toUnit)) || (isBattalionHQ(toUnit) && hasRadio(fromUnit))) {
+    if (isBattalionHQ(fromUnit) && hasRadio(toUnit) && isInRadioRange(fromUnit, toUnit)) {
         return 'radio';
     }
-    
-    // 3. Проверяем телефон
+    // Рация выдана юнитом со стороны получателя приказа — прямая связь
+    // со штабом батальона (для направления юнит→штаб)
+    if (isBattalionHQ(toUnit) && hasRadio(fromUnit)) {
+        return 'radio';
+    }
     if (hasPhoneLine(fromUnit, toUnit)) {
         return 'phone';
     }
-    
-    // 4. Посыльный
     return 'messenger';
 }
 
@@ -3302,7 +3258,24 @@ function hasRadio(unit) {
     if (!hardMode || !hardMode.signalPlatoon || !hardMode.signalPlatoon.radios) return false;
     const unitId = appData.campaign.opUnits ? appData.campaign.opUnits.indexOf(unit) : -1;
     if (unitId === -1) return false;
-    return hardMode.signalPlatoon.radios.assigned.some(a => a.unitId === unitId);
+    const entry = hardMode.signalPlatoon.radios.assigned.find(a => a.unitId === unitId);
+    if (!entry) return false;
+    // ⚡ Рация, которая «вышла из строя» (машина с рацией подбита) — не действует
+    if (entry.isDestroyed) return false;
+    // ⚡ ГРУППА ТЕХНИКИ: рация действует, пока в строю (не подбита)
+    //    машина, на которой она установлена (машина №1 или v.hasRadio)
+    if (unit.isGroup && unit.vehicleList) {
+        const radioVehicleAlive = unit.vehicleList.some(v =>
+            v && !v.destroyed &&
+            (v.hasRadio || (entry.hasNumber1 && v.name && v.name.includes('№1')))
+        );
+        if (!radioVehicleAlive) {
+            entry.isDestroyed = true; // рация утрачена — больше по ней связь невозможна
+            try { saveData(); } catch (e) {}
+            return false;
+        }
+    }
+    return true;
 }
 
 function isInRadioRange(fromUnit, toUnit) {
@@ -9705,7 +9678,7 @@ function backToBattalionAssembly() {
   startBattalionAssembly(appData.campaign.playerFaction);
 }
 function endOperationalTurn() {
-    // ⚡ ИНИЦИАЛИЗАЦИЯ, если не задано (v13.017)
+    // ⚡ ИНИЦИАЛИЗАЦИЯ, если не задано (v13.018)
     if (appData.campaign.opTurnStartTime === undefined) {
         appData.campaign.opTurnStartTime = appData.campaign.currentTime || 0;
     }
@@ -9730,6 +9703,15 @@ function endOperationalTurn() {
             u.ap = u.maxAp;
             u.movedThisTurn = false;
         });
+    }
+    
+    // ⚡ АНИМАЦИЯ: страховка — если предыдущая анимация «зависла»
+    //    (rAF не запускался, вкладка была в фоне), сбрасываем оверрайды,
+    //    чтобы карта не показывала юнитов в старых позициях
+    if (opMoveAnim && opMoveAnim.playing &&
+        opMoveAnim.startedAt && (Date.now() - opMoveAnim.startedAt) > 8000) {
+        Object.keys(opUnitAnimPixel).forEach(k => { opUnitAnimPixel[k] = null; });
+        opMoveAnim.playing = false;
     }
     
     // ⚡ АНИМАЦИЯ: запоминаем позиции юнитов ДО обработки приказов,
@@ -9778,19 +9760,29 @@ function processOrders() {
     repairMessengerPools();
     dispatchQueuedOrders();
     
-    // ⚡ ГАСНЕМ ПОЛЯ РАЗВЕДКИ: подсветка живёт только в ход выполнения
-    //    разведки, в следующем ходу поле исчезает
+    // ⚡ ЗОНА РАЗВЕДКИ (v13.018): показывается ТОЛЬКО в ход reconActiveTurn
+    //    (следующий за ходом проведения разведки), затем гаснет
     if (appData.campaign && appData.campaign.opUnits) {
-        let reconExpired = false;
+        let reconChanged = false;
+        const tNow = (appData.campaign.currentTurn || 1);
         appData.campaign.opUnits.forEach(u => {
-            if (u && u.reconActiveTurn !== undefined &&
-                (appData.campaign.currentTurn || 1) > u.reconActiveTurn) {
-                u.reconPending = false;
+            if (!u || u.reconActiveTurn === undefined) return;
+            if (tNow === u.reconActiveTurn) {
+                // В ход показа — зажигаем зону
+                if (!u.reconHighlightHexes && u.reconZoneHexes) {
+                    u.reconHighlightHexes = u.reconZoneHexes;
+                    reconChanged = true;
+                }
+            } else if (tNow > u.reconActiveTurn) {
+                // Гасим зону
                 u.reconHighlightHexes = null;
-                reconExpired = true;
+                u.reconZoneHexes = null;
+                u.reconActiveTurn = undefined;
+                u.reconPending = false;
+                reconChanged = true;
             }
         });
-        if (reconExpired) saveData();
+        if (reconChanged) saveData();
     }
     
     // 1. Обрабатываем доставку приказов (посыльные)
@@ -10582,6 +10574,8 @@ function executeAttackOrder(unit, order) {
     redrawOperationalMap();
 }
 function executeShootOrder(unit, order) {
+    // ⚡ Юнит в тактическом бою НЕ ведёт автоматический обстрел
+    if (unit.isInBattle) return;
     // Обстреливаем целевую точку
     if (!order.targetHex) {
         order.status = 'cancelled';
@@ -11057,6 +11051,8 @@ function isHexOnLine(hexCol, hexRow, lineCol1, lineRow1, lineCol2, lineRow2) {
     return false;
 }
 function executeFireAtWillOrder(unit, order) {
+    // ⚡ Юнит в тактическом бою НЕ ведёт автоматический обстрел
+    if (unit.isInBattle) return;
     const targetDistance = order.targetDistance || 3;
     
     // Проверяем, есть ли у юнита ОД для стрельбы
@@ -11149,13 +11145,13 @@ function executeReconOrder(unit, order) {
         order.status = 'cancelled';
         return;
     }
-    
+
     const [targetCol, targetRow] = order.targetHex.split(',').map(Number);
-    
-     // Если юнит ещё не на целевом гексе — двигаемся пошагово (тратя ОД)
+
+    // Если юнит ещё не на целевом гексе — двигаемся пошагово (тратя ОД)
     if (unit.col !== targetCol || unit.row !== targetRow) {
-const result = stepUnitTowardTarget(unit, targetCol, targetRow);
-        
+        const result = stepUnitTowardTarget(unit, targetCol, targetRow);
+
         if (result === 'no_route') {
             order.status = 'cancelled';
             log(`❌ [${unit.name}] Не может достичь гекса (${targetCol},${targetRow}) для разведки. Приказ отменён.`);
@@ -11163,70 +11159,73 @@ const result = stepUnitTowardTarget(unit, targetCol, targetRow);
             redrawOperationalMap();
             return;
         }
-        
+
         if (result === 'battle') {
             log(`⚔️ ${unit.name} вступил в бой на пути к разведке. Продолжение в следующем ходу.`);
             saveData();
             redrawOperationalMap();
             return;
         }
-        
+
         if (result !== 'reached') {
             log(`⏳ [${unit.name}] Движется к гексу (${targetCol},${targetRow}) для разведки. Осталось ОД: ${unit.ap}.`);
             saveData();
             redrawOperationalMap();
             return;
         }
-      log(`🔍 [${unit.name}] Выдвинулся на гекс (${unit.col},${unit.row}) для разведки.`);
+        log(`🔍 [${unit.name}] Выдвинулся на гекс (${unit.col},${unit.row}) для разведки.`);
     }
-    
-    // ======== ВЫПОЛНЯЕМ РАЗВЕДКУ С ПОДСВЕТКОЙ ========
-    // ⚡ Радиус разведки — 5 гексов, форма — ОКРУЖНОСТЬ (гексовое расстояние),
-    //    а не квадрат. Поле видно в ход выполнения разведки и гаснет
-    //    в следующем ходу (unit.reconActiveTurn).
-    const reconRadius = 5;
-    
-    // Устанавливаем флаги для подсветки
-    unit.reconPending = true;
-    unit.reconHex = `${targetCol},${targetRow}`;
-    unit.reconRadius = reconRadius;
-    unit.reconActiveTurn = (appData.campaign && appData.campaign.currentTurn) || 1;
-    
-    // ======== ДОБАВЛЯЕМ ЯВНУЮ ПОДСВЕТКУ НА КАРТЕ ========
-    // Создаём массив гексов для подсветки: ОКРУЖНОСТЬ радиуса reconRadius
+
+    // ======== РАЗВЕДКА: тратит 3 ОД ========
+    // ⚡ v13.018: разведка стоит 3 ОД. Если ОД не хватает — ждём следующего
+    //    хода (когда ОД восстановятся) и проводим разведку тогда.
+    const RECON_COST = 3;
+    if (unit.ap < RECON_COST) {
+        unit.reconPending = true;
+        log(`⏳ [${unit.name}] Не хватает ОД на разведку (нужно ${RECON_COST}, есть ${unit.ap}). Проведём в следующем ходу.`);
+        saveData();
+        redrawOperationalMap();
+        return; // приказ остаётся активным
+    }
+
+    unit.ap -= RECON_COST;
+
+    // ======== ЗОНА РАЗВЕДКИ: ОКРУЖНОСТЬ радиуса 2 гекса ========
+    const reconRadius = 2;
     const highlightHexes = [];
     for (let hRow = targetRow - reconRadius; hRow <= targetRow + reconRadius; hRow++) {
         for (let hCol = targetCol - reconRadius; hCol <= targetCol + reconRadius; hCol++) {
             if (hCol < 0 || hCol >= OP_MAP_COLS || hRow < 0 || hRow >= OP_MAP_ROWS) continue;
-            // Гексовое расстояние — не «квадрат», а окружность
             if (getOpHexDistance(targetCol, targetRow, hCol, hRow) <= reconRadius) {
                 highlightHexes.push({ col: hCol, row: hRow });
             }
         }
     }
-    
-    // Сохраняем подсвеченные гексы в юните
-    unit.reconHighlightHexes = highlightHexes;
-    
-    // Логируем результат разведки
-    const enemiesFound = (appData.campaign.enemyOpUnits || []).filter(e => 
+
+    const currentTurnNum = (appData.campaign && appData.campaign.currentTurn) || 1;
+    unit.reconPending = false;
+    unit.reconHex = `${targetCol},${targetRow}`;
+    unit.reconRadius = reconRadius;
+    unit.reconZoneHexes = highlightHexes;
+    // ⚡ Зона ПОДСВЕЧИВАЕТСЯ ТОЛЬКО НА СЛЕДУЮЩИЙ ход и гаснет в следующий за ним
+    unit.reconActiveTurn = currentTurnNum + 1;
+    unit.reconHighlightHexes = null; // в ход проведения — ещё не показываем
+
+    // Логируем результат разведки (врагов ищем в зоне)
+    const enemiesFound = (appData.campaign.enemyOpUnits || []).filter(e =>
         highlightHexes.some(h => h.col === e.col && h.row === e.row) &&
         !e.isDestroyed
     );
-    
     if (enemiesFound.length > 0) {
         log(`🔍 [${unit.name}] Обнаружены враги в зоне разведки: ${enemiesFound.map(e => e.name).join(', ')}`);
-        // Отмечаем врагов как обнаруженных
-        enemiesFound.forEach(e => {
-            e.detected = true;
-        });
+        enemiesFound.forEach(e => { e.detected = true; });
     } else {
         log(`🔍 [${unit.name}] В зоне разведки врагов не обнаружено.`);
     }
-    
+
     order.status = 'completed';
-    log(`✅ [${unit.name}] Разведка гекса (${targetCol},${targetRow}) выполнена. Радиус: ${reconRadius} гексов.`);
-    
+    log(`✅ [${unit.name}] Разведка гекса (${targetCol},${targetRow}) выполнена (−${RECON_COST} ОД). Зона радиуса ${reconRadius} гекса будет подсвечена в следующем ходу.`);
+
     saveData();
     redrawOperationalMap();
 }
@@ -11524,6 +11523,13 @@ function showOrderPanel() {
     }
     
     orderWaypoints = [];
+    // ⚡ v13.018: ВКЛЮЧАЕМ РЕЖИМ ПЛАНИРОВАНИЯ МАРШРУТА ВСЕГДА для движения/
+    //    отступления (раньше он гас после первого приказа, и на следующих
+    //    приказах клики по карте не рисовали маршрут)
+    const typeEl = document.getElementById('orderType');
+    if (typeEl) {
+        isPlanningRoute = (typeEl.value === 'move' || typeEl.value === 'retreat');
+    }
     updateOrderWaypointsDisplay();
     renderActiveOrders();
 }
@@ -11538,10 +11544,10 @@ function onOrderTypeChange() {
     const type = document.getElementById('orderType').value;
     const fireDistanceContainer = document.getElementById('fireDistanceContainer');
     const assaultArmorOption = document.getElementById('assaultArmorOption');
-    const behaviorSelectEl = document.getElementById('orderBehavior');
-   // Показываем опцию "не штурмовать бронетехнику" только для Штурма
+    // ⚡ v13.018: галочка «не штурмовать бронетехнику» ВСЕГДА видна
+    //    (это глобальная настройка штурма, а не привязка к типу приказа)
     if (assaultArmorOption) {
-        assaultArmorOption.style.display = behaviorSelectEl && behaviorSelectEl.value === 'assault' ? 'block' : 'none';
+        assaultArmorOption.style.display = 'block';
     }
     if (fireDistanceContainer) {
         fireDistanceContainer.style.display = (type === 'fire_at_will') ? 'block' : 'none';
@@ -11932,19 +11938,31 @@ function submitOrder()   {
         });
         
         if (checkedSubUnits.length > 0) {
-            // Отдаём приказ всем подчинённым взводам.
+            // Отдаём приказ подчинённым взводам ЧЕРЕЗ штаб роты.
+            // ⚡ v13.018: ОДИН посыльный штаба батальона несёт приказы
+            //    максимум для 3 взводов одной роты (доставляет их до
+            //    штаба роты, а штаб роты рассылает своими посыльными).
+            //    Если взводов больше — создаём несколько company_order
+            //    (каждый со своим посыльным штаба батальона).
             // ВАЖНО: сохраняем реальный тип приказа (orderType) —
             // тип объекта будет 'company_order', а взводам исполнять
             // нужно именно orderType
-            const orderOptions = {
-                ...options,
-                subUnitIds: checkedSubUnits,
-                orderType: orderType
-            };
-            
-            const order = createOrder(hqIndex, toUnitId, 'company_order', orderOptions);
-            if (order) {
-                log(`📋 Приказ "${orderType}" от ${selectedUnit.name} передан ${checkedSubUnits.length} взводам.`);
+            const groups = [];
+            for (let i = 0; i < checkedSubUnits.length; i += 3) {
+                groups.push(checkedSubUnits.slice(i, i + 3));
+            }
+            let created = 0;
+            groups.forEach(group => {
+                const orderOptions = {
+                    ...options,
+                    subUnitIds: group,
+                    orderType: orderType
+                };
+                const order = createOrder(hqIndex, toUnitId, 'company_order', orderOptions);
+                if (order) created++;
+            });
+            if (created > 0) {
+                log(`📋 Приказ "${orderType}" от ${selectedUnit.name} передан ${checkedSubUnits.length} взводам (${created} прик. штабу роты, по 3 взвода на посыльного).`);
                 orderWaypoints = [];
                 isPlanningRoute = false;
                 updateOrderWaypointsDisplay();
@@ -11952,7 +11970,7 @@ function submitOrder()   {
                 renderActiveOrders();
                 redrawOperationalMap();
                 saveData();
-                alert(`✅ Приказ "${orderType}" отправлен!`);
+                alert(`✅ Приказ "${orderType}" отправлен (${checkedSubUnits.length} взводам)!`);
             }
             return;
         }
@@ -15704,6 +15722,8 @@ function autoBuildRoute(unit, targetCol, targetRow) {
         return route;
 }
 function executeShootAtOrder(unit, order) {
+    // ⚡ Юнит в тактическом бою НЕ ведёт автоматический обстрел
+    if (unit.isInBattle) return;
     const targetDistance = order.targetDistance || 5;
     
     // Ищем бронетехнику в радиусе
@@ -16293,7 +16313,26 @@ function animateMovedUnits(posBefore) {
         const uid = appData.campaign.opUnits.indexOf(a.unit);
         if (uid >= 0) opUnitAnimPixel[uid] = a.pathPx[0];
     });
+    // ⚡ v13.018: страховка — если rAF «завис» (вкладка в фоне, лаг карты),
+    //    анимация принудительно завершается через максимум:
+    //    (самый длинный маршрут * HEX_MS) + 2 секунды
+    let maxPath = 1;
+    anims.forEach(a => { if (a.pathPx.length - 1 > maxPath) maxPath = a.pathPx.length - 1; });
+    const MAX_MS = maxPath * HEX_MS + 2000;
+    opMoveAnim.startedAt = Date.now();
+    function finish() {
+        anims.forEach(a => {
+            const uid = appData.campaign.opUnits.indexOf(a.unit);
+            if (uid >= 0) opUnitAnimPixel[uid] = null;
+        });
+        opMoveAnim.playing = false;
+        redrawOperationalMap();
+    }
+    if (typeof setTimeout !== 'undefined') {
+        opMoveAnim.watchdog = setTimeout(finish, MAX_MS);
+    }
     let lastTime = null;
+    let lastRedraw = 0;
     function frame(now) {
         if (lastTime === null) lastTime = now;
         const dt = now - lastTime;
@@ -16312,14 +16351,24 @@ function animateMovedUnits(posBefore) {
             const p1 = a.pathPx[Math.min(i0 + 1, a.pathPx.length - 1)];
             opUnitAnimPixel[uid] = { x: p0.x + (p1.x - p0.x) * frac, y: p0.y + (p1.y - p0.y) * frac };
         });
-        redrawOperationalMap();
-        if (allDone) {
-            anims.forEach(a => {
-                const uid = appData.campaign.opUnits.indexOf(a.unit);
-                if (uid >= 0) opUnitAnimPixel[uid] = null;
-            });
-            opMoveAnim.playing = false;
+        // ⚡ Перерисовка не чаще ~30 кадров/с — чтобы карта не лагала
+        if (now - lastRedraw >= 33 || allDone) {
             redrawOperationalMap();
+            lastRedraw = now;
+        }
+        if (allDone) {
+            if (opMoveAnim.watchdog && typeof clearTimeout !== 'undefined') {
+                clearTimeout(opMoveAnim.watchdog);
+                opMoveAnim.watchdog = null;
+            }
+            finish();
+        } else if (Date.now() - opMoveAnim.startedAt > MAX_MS) {
+            // страховочный таймаут внутри цикла
+            if (opMoveAnim.watchdog && typeof clearTimeout !== 'undefined') {
+                clearTimeout(opMoveAnim.watchdog);
+                opMoveAnim.watchdog = null;
+            }
+            finish();
         } else {
             requestAnimationFrame(frame);
         }
@@ -16594,8 +16643,9 @@ function drawOperationalUnits(ctx) {
         ctx.fillText(`ОД:${displayAP}`, drawX, drawY - radius - 2);
         
                 // Пометка рации
-        if (hardMode.enabled && !isEnemy && hardMode.signalPlatoon && hardMode.signalPlatoon.radios && 
-            hardMode.signalPlatoon.radios.assigned.some(r => appData.campaign.opUnits[r.unitId] === unit)) {
+        // ⚡ hasRadio учитывает: группа техники — только пока в строю машина с рацией;
+        //    если машина подбита — entry.isDestroyed и значок пропадает
+        if (hardMode.enabled && !isEnemy && hasRadio(unit)) {
             // ⚡ ИСПОЛЬЗУЕМ ИЗОБРАЖЕНИЕ ВМЕСТО ЭМОДЗИ:
             const radioIcon = new Image();
             radioIcon.src = 'images/рация.png';
@@ -17456,6 +17506,9 @@ function executeDigInOrder(unit, order) {
     redrawOperationalMap();
 }
 function checkEnemyEncounter(unit, behavior, order) {
+    // ⚡ Юнит, уже вступивший в тактический бой, НЕ ведёт автоматический
+    //    обстрел соседних врагов (бой идёт в тактике)
+    if (unit.isInBattle) return false;
     // Ищем обнаруженных врагов в радиусе 3 гексов
     const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
         e.col !== null && e.row !== null &&
@@ -17600,8 +17653,8 @@ function onOrderBehaviorChange() {
     
     if (!behaviorSelect || !assaultArmorOption) return;
     
-    // Показываем галочку только для режима "Штурмовать"
-    assaultArmorOption.style.display = behaviorSelect.value === 'assault' ? 'block' : 'none';
+    // ⚡ v13.018: галочка «не штурмовать бронетехнику» видна ВСЕГДА
+    assaultArmorOption.style.display = 'block';
 }      
   </script> 
   
@@ -17765,7 +17818,7 @@ function onOrderBehaviorChange() {
     </select>
   </div>
   
-        <div id="assaultArmorOption" style="display:none; margin-top:4px;">
+        <div id="assaultArmorOption" style="display:block; margin-top:4px;">
     <label style="color:#aaa;">
         <input type="checkbox" id="assaultIgnoreArmor" checked>
         Не штурмовать бронетехнику
