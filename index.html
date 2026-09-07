@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.018 — операция  </title>
+  <title>Боевой модуль v13.019 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.018</h1>
+    <h1>⚔️ Боевой модуль v13.019</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -38,7 +38,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.018 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.019 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -368,6 +368,12 @@ function generateBattalion(faction, supportIds) {
   squad.name = name;
   squad.currentMorale = squad.baseMorale;
   squad.hidden = false;
+  // ⚡ v13.019: нормализуем поля, которые тактический UI читает без защиты.
+  //    У техники (БА, САУ, танки, ДОТ) в шаблолах нет десанта — без этой
+  //    нормализации updateUI падал (embarkedSquadIndex === undefined !== null),
+  //    и в тактический бой с техникой было невозможно перейти.
+  if (squad.embarkedSquadIndex === undefined) squad.embarkedSquadIndex = null;
+  if (squad.armor === undefined) squad.armor = null;
   // Определяем мобильность по названию шаблона или отряда
   const isMotorcycle = (templateName || '').includes('Мотоцикл') || (name || '').includes('Мотоцикл');
   const isBicycle = (templateName || '').includes('Самокат') || (name || '').includes('Самокат');
@@ -602,10 +608,21 @@ function renderActiveBattlesList() {
   }
   let html = '';
   battles.forEach(battle => {
+    // ⚡ v13.019: показываем ВСЕХ участников боя (юниты, вошедшие в бой)
+    const pNames = battle.playerUnitNames && battle.playerUnitNames.length > 0
+        ? battle.playerUnitNames
+        : (battle.playerUnitName ? battle.playerUnitName.split(', ') : ['?']);
+    const eNames = battle.enemyUnitNames && battle.enemyUnitNames.length > 0
+        ? battle.enemyUnitNames
+        : (battle.enemyUnitName ? battle.enemyUnitName.split(', ') : ['?']);
     html += `
-      <div style="display:flex; justify-content:space-between; align-items:center; background:#2c2c2c; padding:6px; margin:4px 0; border-radius:4px;">
-        <span>${battle.playerUnitName} vs ${battle.enemyUnitName} (ход ${battle.currentTurn || 1})</span>
-        <button onclick="switchToBattle(${battle.id})">➡️ Перейти в бой </button>
+      <div style="background:#2c2c2c; padding:6px; margin:4px 0; border-radius:4px;">
+        <div style="color:#4fc3f7; margin-bottom:2px;">Свои: ${pNames.join(', ')}</div>
+        <div style="color:#ef5350; margin-bottom:4px;">Враг: ${eNames.join(', ')}</div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="color:#aaa; font-size:0.85em;">(ход ${battle.currentTurn || 1})</span>
+          <button onclick="switchToBattle(${battle.id})">➡️ Перейти в бой</button>
+        </div>
       </div>
     `;
   });
@@ -616,7 +633,14 @@ function renderActiveBattlesList() {
   if (!battle) return;
 
   // Загружаем состояние боя
-  appData.squads = battle.playerSquads.map(s => JSON.parse(JSON.stringify(s)));
+  appData.squads = battle.playerSquads.map(s => {
+    const copy = JSON.parse(JSON.stringify(s));
+    // ⚡ v13.019: защита от старых сейвов — у техники могло не быть
+    //    embarkedSquadIndex, и updateUI падал
+    if (copy.embarkedSquadIndex === undefined) copy.embarkedSquadIndex = null;
+    if (copy.armor === undefined) copy.armor = null;
+    return copy;
+  });
   appData.map = JSON.parse(JSON.stringify(battle.tacticalMap));
   appData.currentTurn = battle.currentTurn || 1;
   currentTurn = appData.currentTurn;
@@ -690,14 +714,35 @@ updateOperationalTimeDisplay();
   `;
   buildOperationalUnits();
 }
+// ⚡ v13.019: сигнатура состава батальона (имя:тип по всем юнитам).
+//    Позволяет понять, что сохранившиеся операционные юниты построены
+//    из ДРУГОГО состава (старый сейв), и пересоздать их.
+function getBattalionSignature(battalion) {
+    if (!battalion || !battalion.units || battalion.units.length === 0) return '';
+    return battalion.units.map(u => (u.name || '') + ':' + (u.type || '')).sort().join('|');
+}
+
 function buildOperationalUnits() {
     const battalion = appData.campaign.battalions.player;
     if (!battalion) return;
 
     // ⚡ ПРОВЕРЯЕМ, ЕСТЬ ЛИ УЖЕ СВОИ ЮНИТЫ
-    const hasPlayerUnits = appData.campaign.opUnits && appData.campaign.opUnits.length > 0;
-    
-    if (!hasPlayerUnits) {
+    const oldUnits = appData.campaign.opUnits && appData.campaign.opUnits.length > 0 ? appData.campaign.opUnits : null;
+
+    // ⚡ v13.019: если состав батальона изменился (добавили/сменили поддержку —
+    //    например, выбрали ДОТ) или сейв старый (сигнатура не записана),
+    //    пересоздаём операционные юниты — иначе новые юниты не появятся
+    //    в списке размещения. Позиции и состояние сохранившихся юнитов
+    //    переносятся по имени.
+    const battalionSig = getBattalionSignature(battalion);
+    const sigMismatch = !!oldUnits && appData.campaign.opUnitsSignature !== battalionSig;
+    const preserveByName = {};
+    if (sigMismatch) {
+        console.log('⚠️ Состав батальона изменился (или старый сейв) — пересоздаём операционные юниты');
+        oldUnits.forEach(u => { if (u && u.name) preserveByName[u.name] = u; });
+    }
+
+    if (!oldUnits || sigMismatch) {
         console.log('=== Создание своих юнитов ===');
         const opUnits = [];
 
@@ -839,6 +884,33 @@ function buildOperationalUnits() {
         });
 
         appData.campaign.opUnits = opUnits;
+
+        // ⚡ v13.019: переносим позиции и состояние сохранившихся юнитов
+        //    (при пересоздании после смены состава батальона)
+        if (Object.keys(preserveByName).length > 0) {
+            let restored = 0;
+            opUnits.forEach(u => {
+                const old = preserveByName[u.name];
+                if (!old) return;
+                if (old.col !== null && old.col !== undefined && old.row !== null && old.row !== undefined) {
+                    u.col = old.col;
+                    u.row = old.row;
+                    restored++;
+                }
+                ['ap', 'maxAp', 'isDefending', 'orders', 'messengerState', 'isDestroyed',
+                 'isAmbush', 'hidden', 'detected', 'noiseMarker', 'suppressed',
+                 'behavior', 'hasPhone'].forEach(k => {
+                    if (old[k] !== undefined) {
+                        try { u[k] = JSON.parse(JSON.stringify(old[k])); } catch (e) { u[k] = old[k]; }
+                    }
+                });
+            });
+            console.log(`Пересоздано юнитов: ${opUnits.length}, позиций сохранено: ${restored}`);
+            log(`⚔️ Состав батальона изменился — юниты пересозданы, позиции сохранены`);
+        }
+
+        // ⚡ v13.019: запоминаем состав батальона для проверки в следующий раз
+        appData.campaign.opUnitsSignature = battalionSig;
         console.log(`Создано своих юнитов: ${opUnits.length}`);
     } else {
         // Обновляем ОД у существующих юнитов
@@ -3582,72 +3654,36 @@ function getMaxAP(squad) {
 // ⚡ ПРОВЕРКА БЕЗДЕЙСТВИЯ И АВТОМАТИЧЕСКИЙ ОГОНЬ
 function checkIdleUnits() {
     if (!appData.campaign.opUnits) return;
-    
+
     appData.campaign.opUnits.forEach(unit => {
+        // ⚡ Юнит в тактическом бою не ведёт автоматический огонь
         if (unit.isInBattle) return;
+        if (unit.isDestroyed) return;
         if (unit.isAmbush) return;
         if (unit.hidden) return;
-        if (unit.ap <= 0) return;
         if (unit.col === null || unit.row === null) return;
         if (!canUnitShoot(unit)) return;
-        
-        const hasActiveOrder = hardMode.orders ? hardMode.orders.some(o => 
-            o.status === 'active' && o.toUnitId === appData.campaign.opUnits.indexOf(unit)
+
+        // Активный приказ юнит уже выполняет — автоматического огня нет
+        const unitIdx = appData.campaign.opUnits.indexOf(unit);
+        const hasActiveOrder = hardMode.orders ? hardMode.orders.some(o =>
+            o.status === 'active' && o.toUnitId === unitIdx
         ) : false;
-        
         if (hasActiveOrder) return;
-        if (unit.movedThisTurn) return;
-        
-        // ======== АВТОМАТИЧЕСКАЯ СТРЕЛЬБА ========
-      // Исключаем врагов в тактическом бою (по ним огонь не ведётся)
-        const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
-            e.col !== null && e.row !== null &&
-            getOpHexDistance(unit.col, unit.row, e.col, e.row) <= 3 &&
-            !e.isDestroyed && !e.isInBattle
-        );
-        
-        if (enemies.length === 0) return;
-        
-        const armorTargets = enemies.filter(e => isArmoredUnit(e));
-        const infantryTargets = enemies.filter(e => !isArmoredUnit(e));
-        const targets = armorTargets.length > 0 ? armorTargets : infantryTargets;
-        
-        let closestEnemy = null;
-        let minDist = Infinity;
-        targets.forEach(e => {
-            const dist = getOpHexDistance(unit.col, unit.row, e.col, e.row);
-            if (dist < minDist) {
-                minDist = dist;
-                closestEnemy = e;
-            }
-        });
-        
-        if (closestEnemy && canUnitShoot(unit)) {
-            const dist = getOpHexDistance(unit.col, unit.row, closestEnemy.col, closestEnemy.row);
-            log(`🎯 [${unit.name}] Автоматический огонь! Цель: ${closestEnemy.name} (дистанция ${dist})`);
-            
-            // ⚡ НЕ ТРАТИМ ОД ПРИ АВТОМАТИЧЕСКОЙ СТРЕЛЬБЕ!
-            const savedAP = unit.ap;
-            
-            const hasAtGuns = hasAtGunWeapons(unit);
-            const isArmor = isArmoredUnit(closestEnemy);
-            
-            if (hasAtGuns && isArmor) {
-                opShootingState.shooter = unit;
-                opShootingState.targets = [closestEnemy];
-                opShootingState.weaponType = 'at';
-                executeOpShootAt([closestEnemy], dist);
-            } else {
-                opShootingState.shooter = unit;
-                opShootingState.targets = [closestEnemy];
-                opShootingState.weaponType = 'mg';
-                executeOpShoot([closestEnemy], dist);
-            }
-            
-            // ⚡ ВОССТАНАВЛИВАЕМ ОД!
-            unit.ap = savedAP;
+
+        // ⚡ v13.019: автоматический огонь — только при поведении
+        //    «при встрече с врагом» = АТАКА или ЗАКРЕПИТЬСЯ (и штурм).
+        //    Отступить / игнорировать — огонь не ведётся.
+        const behavior = unit.behavior || 'hold';
+        if (behavior !== 'engage' && behavior !== 'hold' && behavior !== 'assault') return;
+
+        // ⚡ v13.019: СНА — ближайший враг. Миномёт — 15 снарядов по
+        //    правилам миномётов, ПТО — броня в приоритете, иначе пехота
+        //    по правилам лёгкой артиллерии. ОД не тратятся.
+        //    (ОД больше не блокируют: огонь открывается сразу.)
+        if (unitAutoFire(unit, 3)) {
+            log(`🎯 [${unit.name}] Автоматический огонь!`);
         }
-        
     });
 }
       // ======== ПРИОРИТЕТ: СНА
@@ -3662,6 +3698,28 @@ function startTacticalBattle(playerUnits, enemyUnits) {
         enemyUnits = [enemyUnits];
     }
     
+    // ⚡ v13.019: ВСЕ юниты на гексе, где начался бой, вступают в этот бой
+    //    (не только тот, кто вошёл). Гекс боя — гекс первого своего юнита
+    //    (или первого врага, если своих не передано).
+    {
+        const anchor = (playerUnits[0] && playerUnits[0].col !== null && playerUnits[0].row !== null)
+            ? playerUnits[0] : enemyUnits[0];
+        if (anchor && anchor.col !== null && anchor.row !== null) {
+            (appData.campaign.opUnits || []).forEach(u => {
+                if (u && !u.isDestroyed && u.col === anchor.col && u.row === anchor.row &&
+                    !playerUnits.some(p => p === u)) {
+                    playerUnits.push(u);
+                }
+            });
+            (appData.campaign.enemyOpUnits || []).forEach(e => {
+                if (e && !e.isDestroyed && e.col === anchor.col && e.row === anchor.row &&
+                    !enemyUnits.some(x => x === e)) {
+                    enemyUnits.push(e);
+                }
+            });
+        }
+    }
+    
     // ⚡ ОТМЕЧАЕМ, ЧТО ЮНИТЫ В БОЮ
     playerUnits.forEach(u => {
         u.isInBattle = true;
@@ -3669,6 +3727,15 @@ function startTacticalBattle(playerUnits, enemyUnits) {
     enemyUnits.forEach(u => {
         u.isInBattle = true;
     });
+    
+    // ⚡ v13.019: нормализация полей отряда для тактического UI.
+    //    У техники (БА/САУ/танки/ДОТ) в шаблонах нет embarkedSquadIndex —
+    //    undefined !== null, и updateUI падал: в бой с техникой нельзя было войти.
+    const normalizeSquadForBattle = (s) => {
+        if (s.embarkedSquadIndex === undefined) s.embarkedSquadIndex = null;
+        if (s.armor === undefined) s.armor = null;
+        return s;
+    };
     
     // Собираем все отряды игрока
     let playerSquads = [];
@@ -3679,7 +3746,7 @@ function startTacticalBattle(playerUnits, enemyUnits) {
                 const hasAlive = s.fighters && s.fighters.some(f => f.hp > 0);
                 if (hasAlive) {
                     const exists = playerSquads.some(ps => ps.name === s.name);
-                    if (!exists) playerSquads.push(JSON.parse(JSON.stringify(s)));
+                    if (!exists) playerSquads.push(normalizeSquadForBattle(JSON.parse(JSON.stringify(s))));
                 }
             });
         } else {
@@ -3690,7 +3757,8 @@ function startTacticalBattle(playerUnits, enemyUnits) {
                 faction: u.faction || 'A.I.R.F.',
                 fighters: [{ name: 'Боец', weapon: 'Винтовка', hp: 3, maxHp: 3 }],
                 currentMorale: 5,
-                baseMorale: 5
+                baseMorale: 5,
+                embarkedSquadIndex: null
             };
             playerSquads.push(tempSquad);
         }
@@ -3704,7 +3772,7 @@ function startTacticalBattle(playerUnits, enemyUnits) {
                 const hasAlive = s.fighters && s.fighters.some(f => f.hp > 0);
                 if (hasAlive) {
                     const exists = enemySquads.some(es => es.name === s.name);
-                    if (!exists) enemySquads.push(JSON.parse(JSON.stringify(s)));
+                    if (!exists) enemySquads.push(normalizeSquadForBattle(JSON.parse(JSON.stringify(s))));
                 }
             });
         } else {
@@ -3715,7 +3783,8 @@ function startTacticalBattle(playerUnits, enemyUnits) {
                 faction: u.faction || 'A.I.R.F.',
                 fighters: [{ name: 'Враг', weapon: 'Винтовка', hp: 3, maxHp: 3 }],
                 currentMorale: 5,
-                baseMorale: 5
+                baseMorale: 5,
+                embarkedSquadIndex: null
             };
             enemySquads.push(tempSquad);
         }
@@ -3729,7 +3798,8 @@ function startTacticalBattle(playerUnits, enemyUnits) {
             faction: 'BeVe',
             fighters: [{ name: 'Боец', weapon: 'Винтовка', hp: 3, maxHp: 3 }],
             currentMorale: 5,
-            baseMorale: 5
+            baseMorale: 5,
+            embarkedSquadIndex: null
         });
     }
     if (enemySquads.length === 0) {
@@ -3739,7 +3809,8 @@ function startTacticalBattle(playerUnits, enemyUnits) {
             faction: 'A.I.R.F.',
             fighters: [{ name: 'Враг', weapon: 'Винтовка', hp: 3, maxHp: 3 }],
             currentMorale: 5,
-            baseMorale: 5
+            baseMorale: 5,
+            embarkedSquadIndex: null
         });
     }
     
@@ -3760,6 +3831,20 @@ function startTacticalBattle(playerUnits, enemyUnits) {
             const exists = existingBattle.enemySquads.some(es => es.name === s.name);
             if (!exists) existingBattle.enemySquads.push(s);
         });
+        // ⚡ v13.019: обновляем список участников — ВСЕ вступившие юниты
+        //    отображаются в меню боя
+        existingBattle.playerUnitNames = existingBattle.playerUnitNames ||
+            (existingBattle.playerUnitName ? existingBattle.playerUnitName.split(', ') : []);
+        existingBattle.enemyUnitNames = existingBattle.enemyUnitNames ||
+            (existingBattle.enemyUnitName ? existingBattle.enemyUnitName.split(', ') : []);
+        playerUnits.forEach(u => {
+            if (!existingBattle.playerUnitNames.includes(u.name)) existingBattle.playerUnitNames.push(u.name);
+        });
+        enemyUnits.forEach(u => {
+            if (!existingBattle.enemyUnitNames.includes(u.name)) existingBattle.enemyUnitNames.push(u.name);
+        });
+        existingBattle.playerUnitName = existingBattle.playerUnitNames.join(', ');
+        existingBattle.enemyUnitName = existingBattle.enemyUnitNames.join(', ');
         
         // Переключаемся на бой
         appData.squads = existingBattle.playerSquads.map(s => JSON.parse(JSON.stringify(s)));
@@ -3826,6 +3911,8 @@ function startTacticalBattle(playerUnits, enemyUnits) {
         id: Date.now(),
         playerUnitName: playerUnits.map(u => u.name).join(', '),
         enemyUnitName: enemyUnits.map(u => u.name).join(', '),
+        playerUnitNames: playerUnits.map(u => u.name),
+        enemyUnitNames: enemyUnits.map(u => u.name),
         playerSquads: playerSquads.map(s => JSON.parse(JSON.stringify(s))),
         enemySquads: enemySquads.map(s => JSON.parse(JSON.stringify(s))),
         tacticalMap: JSON.parse(JSON.stringify(tacticalMap)),
@@ -4419,7 +4506,7 @@ if (awayCount > 0) status = ` (${awayCount} в отлучке)`;
           <div class="squad-select-card ${activeClass}">
             <div class="squad-select-info">
               ${squad.icon ? `<img src="${squad.icon}" style="height:80px; vertical-align:middle; margin-right:8px;">` : ''}${(appData.factions[squad.faction] && appData.factions[squad.faction].icon) ? `<img src="${appData.factions[squad.faction].icon}" style="height:50px; vertical-align:middle; margin-right:4px;">` : ''}<strong>${squad.name}</strong> [${squad.faction}]${armorStr} — бойцов: ${squad.fighters.length}, дух: ${squad.currentMorale ?? squad.baseMorale}/${squad.baseMorale}
-              ${squad.embarkedSquadIndex !== null ? ' <span class="embarked-info">🚌 Десант: ' + appData.squads[squad.embarkedSquadIndex].name + '</span>' : ''}
+              ${squad.embarkedSquadIndex != null && appData.squads[squad.embarkedSquadIndex] ? ' <span class="embarked-info">🚌 Десант: ' + appData.squads[squad.embarkedSquadIndex].name + '</span>' : ''}
             </div>
             <button onclick="selectSquad(${index})" ${isActive ? 'disabled' : ''}>${isActive ? '✅ Текущий' : 'Выбрать'}</button>
             <button onclick="removeSquadByIndex(${index})" style="background:#555;">❌</button>
@@ -4488,7 +4575,7 @@ movedThisTurn: false
       const available = appData.squads.filter((s, i) => 
         i !== currentSquadIndex && !s.armor && !s.hidden && s.fighters.length <= 10
       );
-      if (currentSquad.embarkedSquadIndex !== null) {
+      if (currentSquad.embarkedSquadIndex != null) {
         const emb = appData.squads[currentSquad.embarkedSquadIndex];
         panel.innerHTML = `Десант: ${emb.name} (${emb.fighters.length} чел.) <button onclick="disembarkSquad()">Высадить</button>`;
       } else {
@@ -4560,7 +4647,7 @@ function disembarkSquad() {
     function getEffectiveFighters() {
       if (!currentSquad) return 0;
       let count = currentSquad.fighters.filter(f => f.hp > 0).length;
-      if (currentSquad.embarkedSquadIndex !== null) {
+      if (currentSquad.embarkedSquadIndex != null) {
         const emb = appData.squads[currentSquad.embarkedSquadIndex];
         count += emb.fighters.filter(f => f.hp > 0).length;
       }
@@ -4616,7 +4703,7 @@ currentSquad.fighters.forEach((f, index) => {
     <button onclick="assignAwardToFighter(${index})" style="background:#f1c40f; padding:2px 5px; margin-left:4px;" title="Наградить">🏅</button>
   </div>`;
 });
-            if (currentSquad.embarkedSquadIndex !== null) {
+            if (currentSquad.embarkedSquadIndex != null) {
         const emb = appData.squads[currentSquad.embarkedSquadIndex];
         html += `<div style="margin-top:8px; padding:6px; background:#2a2a2a; border-radius:4px;"><strong>🚌 Десант: ${emb.name} (${emb.fighters.filter(f=>f.hp>0).length} живых)</strong></div>`;
       }
@@ -5135,7 +5222,7 @@ if (btnSmall) {
   let canUseSmallArms = true;
   if (currentSquad.armor) {
     // Бронетехника: нужен десант ИЛИ активированный пулемёт
-    const hasEmbarked = currentSquad.embarkedSquadIndex !== null;
+    const hasEmbarked = currentSquad.embarkedSquadIndex != null;
     const hasActiveMG = currentSquad.crewInstances && currentSquad.crewInstances.some(ci => {
   if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') return false;
   const cw = getFactionCrewWeapons(currentSquad.faction).find(w => w.name === ci.weaponName);
@@ -6954,7 +7041,7 @@ shots = Math.max(0, shots); // не уходим в минус
       if (!cw || cw.type !== 'mg') return;
       if (ci.deployed === false) return;
       let alive = ci.fighterIndices.filter(idx => currentSquad.fighters[idx]?.hp > 0).length;
-      if (isVehicle && currentSquad.embarkedSquadIndex !== null && cw.name.includes('Станковый')) {
+      if (isVehicle && currentSquad.embarkedSquadIndex != null && cw.name.includes('Станковый')) {
         const emb = appData.squads[currentSquad.embarkedSquadIndex];
         alive = emb.fighters.filter(f => f.hp > 0).length > 0 ? 1 : 0;
       }
@@ -9758,6 +9845,8 @@ function processOrders() {
     // 0. Диагностика полов посыльных + страховочная выдача очереди
     //    приказов, ждущих посыльных (на конец хода)
     repairMessengerPools();
+    // ⚡ v13.019: лечение назначений раций из старых сейвов
+    repairRadioAssignments();
     dispatchQueuedOrders();
     
     // ⚡ ЗОНА РАЗВЕДКИ (v13.018): показывается ТОЛЬКО в ход reconActiveTurn
@@ -9880,33 +9969,14 @@ function processOrders() {
   // 4. Огонь по готовности выполняется в executeOrder (executeFireAtWillOrder) —
     // отдельный блок здесь был удалён: он давал ДВОЙНОЙ выстрел за ход
   
-    // 5. ⚡ ПРОВЕРКА: враги на линиях связи (обрыв связи)
-    if (hardMode.phoneLines) {
-        hardMode.phoneLines.forEach(line => {
-            if (!line.intact) return;
-            
-            const fromUnit = appData.campaign.opUnits ? appData.campaign.opUnits[line.fromUnitId] : null;
-            const toUnit = appData.campaign.opUnits ? appData.campaign.opUnits[line.toUnitId] : null;
-            if (!fromUnit || !toUnit) return;
-            if (fromUnit.col === null || fromUnit.row === null || toUnit.col === null || toUnit.row === null) return;
-            
-            // Проверяем, есть ли враг на линии связи
-            const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
-                e.col !== null && e.row !== null && !e.isDestroyed
-            );
-            
-            enemies.forEach(enemy => {
-                const onLine = isHexOnLine(enemy.col, enemy.row, fromUnit.col, fromUnit.row, toUnit.col, toUnit.row);
-                if (onLine) {
-                    line.intact = false;
-                    log(`📞 Телефонная линия оборвана! Враг ${enemy.name} на линии связи.`);
-                }
-            });
-        });
-    }
+    // 5. ⚡ ПРОВЕРКА: линии связи (обрыв — враг на линии / конец сместился)
+    checkPhoneLinesIntact();
     
     // ⚡ ПРОВЕРКА БЕЗДЕЙСТВИЯ (в самом конце)
     checkIdleUnits();
+    
+    // ⚡ v13.019: в конце хода — проверка обнаружения ВСЕХ своих юнитов
+    checkAllUnitsDetection();
     
     renderActiveOrders();
 }
@@ -9933,6 +10003,11 @@ function executeOrder(order) {
         log(`❌ Приказ отменён: юнит не найден.`);
         return;
     }
+    
+    // ⚡ v13.019: запоминаем на юните поведение «при встрече с врагом»
+    //    — чтобы и в состоянии без приказа (простой) он знал,
+    //    открывать ли огонь или ждать.
+    if (order.behavior) unit.behavior = order.behavior;
     
     // Юнит уничтожен или в тактическом бою — приказ не выполняется
     if (unit.isDestroyed || unit.isInBattle) {
@@ -10573,6 +10648,146 @@ function executeAttackOrder(unit, order) {
     saveData();
     redrawOperationalMap();
 }
+// ⚡ v13.019: ближайший юнит из списка (по гексовой дистанции)
+function getNearestOpUnit(units, col, row) {
+    let best = null, bestD = Infinity;
+    units.forEach(u => {
+        if (!u || u.col === null || u.row === null) return;
+        const d = getOpHexDistance(col, row, u.col, u.row);
+        if (d < bestD) { bestD = d; best = u; }
+    });
+    return best ? { unit: best, dist: bestD } : null;
+}
+
+// ⚡ v13.019: серия средней артиллерии (миномётная батарея / САУ):
+//    N выстрелов, каждый попадает с 50%, каждая попадания = 2d6.
+//    Общий код для приказа «обстрел» и автоматического огня миномётов.
+function executeMortarSalvo(unit, enemies, distance, rounds) {
+    const aliveFirst = enemies.filter(e => !e.isDestroyed);
+    if (aliveFirst.length === 0) return;
+    let hits = 0, totalSalvoDamage = 0, totalKilled = 0;
+    log(`💣 ${unit.name} обстреливает гекс (${aliveFirst[0].col},${aliveFirst[0].row}) — ${rounds} снарядов`);
+    for (let i = 0; i < rounds; i++) {
+        const alive = enemies.filter(e => !e.isDestroyed);
+        if (alive.length === 0) break;
+        if (Math.random() < 0.5) {
+            hits++;
+            const dmg = rollD6() + rollD6(); // 2d6
+            const victim = alive[Math.floor(Math.random() * alive.length)];
+            const result = applyDamageToOpUnit(victim, dmg);
+            totalSalvoDamage += result.damage;
+            totalKilled += result.killed;
+        }
+        // ⚡ Лог засоряем только ИТОГОМ, а не каждым снарядом
+    }
+    const summary = `🎯 ${unit.name}: ${hits}/${rounds} снарядов попали | Урон: ${totalSalvoDamage}${totalKilled > 0 ? ` | Убито: ${totalKilled}` : ''}`;
+    log(summary);
+    const mapInfo = document.getElementById('mapInfo');
+    if (mapInfo) {
+        mapInfo.innerHTML = summary;
+        mapInfo.style.color = '#27ae60';
+    }
+    try { showShootNotification(unit.name, enemies.map(e => e.name).join(', '), distance, totalSalvoDamage, totalKilled); } catch (e) {}
+}
+
+// ⚡ v13.019: ПТО по пехоте — правила ЛЁГКОЙ артиллерии:
+//    12 выстрелов, вероятность попадания как по броне (1 гекс — 35%,
+//    2 — 25%, 3+ — 15%), каждое попадание наносит 1d6 урона.
+function executeLightArtilleryBarrage(unit, targets, distance) {
+    const aliveT = targets.filter(t => !t.isDestroyed);
+    if (aliveT.length === 0) return;
+    const victim = aliveT[0];
+    let hitChance = 0.15;
+    if (distance === 1) hitChance = 0.35;
+    else if (distance === 2) hitChance = 0.25;
+    const SHOTS = 12;
+    let hits = 0, damage = 0;
+    for (let i = 0; i < SHOTS; i++) {
+        if (Math.random() < hitChance) {
+            hits++;
+            damage += rollD6(); // каждое попадание = 1d6
+        }
+    }
+    const res = applyDamageToOpUnit(victim, damage);
+    const summary = `🎯 ${unit.name} (лёгкая артиллерия) → ${victim.name}: ${hits}/${SHOTS} выстрелов | Урон: ${res.damage}${res.killed > 0 ? ` | Убито: ${res.killed}` : ''}`;
+    log(summary);
+    const mapInfo = document.getElementById('mapInfo');
+    if (mapInfo) {
+        mapInfo.innerHTML = summary;
+        mapInfo.style.color = '#27ae60';
+    }
+}
+
+// ⚡ v13.019: ОБЩАЯ логика АВТОМАТИЧЕСКОГО ОГНЯ по ближайшему врагу:
+//   • юнит без приказа с поведением «атаковать»/«закрепиться» (checkIdleUnits);
+//   • приказ «огонь по готовности» (executeFireAtWillOrder).
+// Правила:
+//   • батарея миномётов — до 10 гексов, 15 выстрелов по правилам миномётов;
+//   • ПТО — приоритет ближайшая бронетехника (до 3 гексов, 4 выстрела),
+//     если брони нет — пехота по правилам лёгкой артиллерии (12 выстрелов, 1d6/попадание);
+//   • остальные — ближайший враг (приоритет броня), обычный обстрел.
+// Юнит в тактическом бою НЕ ведёт огонь по операционной карте.
+function unitAutoFire(unit, maxDist) {
+    if (!unit || unit.isDestroyed) return false;
+    if (unit.isInBattle) return false; // в бою — никаких обстрелов по оп. карте
+    if (unit.col === null || unit.row === null) return false;
+    if (!canUnitShoot(unit)) return false;
+
+    const isSau = (unit.type === 'sau_battery') || (unit.name && /САУ/i.test(unit.name));
+    const isMortarBatt = isMediumArtillery(unit) && !isSau;
+    const range = isMortarBatt ? 10 : (maxDist || 3);
+
+    const enemies = (appData.campaign.enemyOpUnits || []).filter(e =>
+        e && e.col !== null && e.row !== null && !e.isDestroyed &&
+        getOpHexDistance(unit.col, unit.row, e.col, e.row) <= range &&
+        (isArmoredUnit(e) || !e.isInBattle)
+    );
+    if (enemies.length === 0) return false;
+
+    const savedAP = unit.ap;
+    try {
+        // Миномётная батарея: 15 выстрелов по ближайшему врагу
+        if (isMortarBatt) {
+            const nearest = getNearestOpUnit(enemies, unit.col, unit.row);
+            if (!nearest) return false;
+            executeMortarSalvo(unit, [nearest.unit], nearest.dist, 15);
+            return true;
+        }
+        // ПТО: приоритет — ближайшая бронетехника
+        if (hasAtGunWeapons(unit)) {
+            const armorNear = enemies.filter(e => isArmoredUnit(e));
+            if (armorNear.length > 0) {
+                const nearest = getNearestOpUnit(armorNear, unit.col, unit.row);
+                opShootingState.active = true;
+                opShootingState.shooter = unit;
+                opShootingState.targets = [nearest.unit];
+                opShootingState.weaponType = 'at';
+                executeOpShootAt([nearest.unit], nearest.dist);
+                return true;
+            }
+            // Брони нет — пехота по правилам лёгкой артиллерии
+            const infNear = enemies.filter(e => !isArmoredUnit(e));
+            const nearest = getNearestOpUnit(infNear, unit.col, unit.row);
+            if (!nearest) return false;
+            executeLightArtilleryBarrage(unit, [nearest.unit], nearest.dist);
+            return true;
+        }
+        // Остальные: ближайший враг (приоритет бронетехника)
+        const armor = enemies.filter(e => isArmoredUnit(e));
+        const pool = armor.length > 0 ? armor : enemies;
+        const nearest = getNearestOpUnit(pool, unit.col, unit.row);
+        if (!nearest) return false;
+        opShootingState.active = true;
+        opShootingState.shooter = unit;
+        opShootingState.targets = [nearest.unit];
+        opShootingState.weaponType = 'mg';
+        executeOpShoot([nearest.unit], nearest.dist);
+        return true;
+    } finally {
+        unit.ap = savedAP; // автоматический огонь не тратит ОД
+    }
+}
+
 function executeShootOrder(unit, order) {
     // ⚡ Юнит в тактическом бою НЕ ведёт автоматический обстрел
     if (unit.isInBattle) return;
@@ -10623,46 +10838,23 @@ function executeShootOrder(unit, order) {
     const savedAP = unit.ap;
     
     // ============ СРЕДНЯЯ АРТИЛЛЕРИЯ: СЕРИЯ ВЫСТРЕЛОВ ============
-    // ⚡ Количество выстрелов за ход: миномёт 82-мм — 15, каждая САУ — 6.
+    // ⚡ v13.019: Количество выстрелов за ход: миномёт 82-мм — 15,
+    //    каждая САУ — 7 (приказ «обстрел» бьёт с КАЖДОЙ машины отряда).
     // Каждый снаряд попадает с вероятностью 50%.
     // Каждый попавший снаряд наносит урон 2d6.
     if (isMediumArt) {
         const isSau = (unit.type === 'sau_battery') ||
                       (unit.name && /САУ/i.test(unit.name));
-        const ROUNDS = isSau ? 6 : 15;
-        const d6 = () => 1 + Math.floor(Math.random() * 6);
-        let hits = 0;
-        let totalSalvoDamage = 0;
-        let totalKilled = 0;
-        
-        log(`💣 ${unit.name} обстреливает гекс (${targetCol},${targetRow}) — ${ROUNDS} снарядов`);
-
-        for (let i = 0; i < ROUNDS; i++) {
-            const alive = enemies.filter(e => !e.isDestroyed);
-            if (alive.length === 0) break;
-
-            // Вероятность попадания — 50%
-            if (Math.random() < 0.5) {
-                hits++;
-                const dmg = d6() + d6(); // 2d6
-                // Снаряд падает на случайного живого врага на гексе
-                const victim = alive[Math.floor(Math.random() * alive.length)];
-                const result = applyDamageToOpUnit(victim, dmg);
-                totalSalvoDamage += result.damage;
-                totalKilled += result.killed;
-            }
-            // ⚡ Лог засоряем только ИТОГОМ, а не каждым снарядом
+        let ROUNDS = 15;
+        if (isSau) {
+            // ⚡ Отряд САУ: 7 выстрелов на КАЖДУЮ живую машину
+            const vehicleCount = (unit.isGroup && unit.vehicleList)
+                ? unit.vehicleList.filter(v => v && !v.destroyed).length
+                : 1;
+            ROUNDS = 7 * Math.max(1, vehicleCount);
         }
+        executeMortarSalvo(unit, enemies, distance, ROUNDS);
 
-        const summary = `🎯 ${unit.name}: ${hits}/${ROUNDS} снарядов попали | Урон: ${totalSalvoDamage}${totalKilled > 0 ? ` | Убито: ${totalKilled}` : ''}`;
-        log(summary);
-        const mapInfo = document.getElementById('mapInfo');
-        if (mapInfo) {
-            mapInfo.innerHTML = summary;
-            mapInfo.style.color = '#27ae60';
-        }
-        try { showShootNotification(unit.name, enemies.map(e => e.name).join(', '), distance, totalSalvoDamage, totalKilled); } catch (e) {}
-        
         // ⚡ ВОССТАНАВЛИВАЕМ ОД
         unit.ap = savedAP;
         unit.movedThisTurn = true;
@@ -11050,94 +11242,74 @@ function isHexOnLine(hexCol, hexRow, lineCol1, lineRow1, lineCol2, lineRow2) {
     
     return false;
 }
+
+// ⚡ v13.019: ЦЕЛОСТНОСТЬ ТЕЛЕФОННЫХ ЛИНИЙ (проверяется в конце хода).
+//    Линия ОБРЫВАЕТСЯ, если:
+//      а) ЛЮБОЙ из двух отрядов-концов переместился с гекса,
+//         зафиксированного при прокладке (line.fromHex / line.toHex);
+//      б) враг стоит на самой линии.
+function checkPhoneLinesIntact() {
+    if (!hardMode || !hardMode.phoneLines) return;
+    hardMode.phoneLines.forEach(line => {
+        if (!line.intact) return;
+
+        const fromUnit = appData.campaign.opUnits ? appData.campaign.opUnits[line.fromUnitId] : null;
+        const toUnit = appData.campaign.opUnits ? appData.campaign.opUnits[line.toUnitId] : null;
+        if (!fromUnit || !toUnit) return;
+        if (fromUnit.col === null || fromUnit.row === null || toUnit.col === null || toUnit.row === null) return;
+
+        // (а) ПЕРЕМЕЩЕНИЕ КОНЦА ЛИНИИ — ЛИНИЯ ОБРЫВАЕТСЯ
+        if (line.fromHex && line.toHex) {
+            const [fc, fr] = String(line.fromHex).split(',').map(Number);
+            const [tc, tr] = String(line.toHex).split(',').map(Number);
+            const fromMoved = (fc !== fromUnit.col || fr !== fromUnit.row);
+            const toMoved = (tc !== toUnit.col || tr !== toUnit.row);
+            if (fromMoved || toMoved) {
+                line.intact = false;
+                const who = fromMoved ? fromUnit.name : toUnit.name;
+                log(`📞 Телефонная линия оборвана! Юнит ${who} переместился.`);
+                return;
+            }
+        }
+
+        // (б) Враг на линии связи
+        const enemies = (appData.campaign.enemyOpUnits || []).filter(e =>
+            e.col !== null && e.row !== null && !e.isDestroyed
+        );
+        enemies.forEach(enemy => {
+            if (!line.intact) return;
+            const onLine = isHexOnLine(enemy.col, enemy.row, fromUnit.col, fromUnit.row, toUnit.col, toUnit.row);
+            if (onLine) {
+                line.intact = false;
+                log(`📞 Телефонная линия оборвана! Враг ${enemy.name} на линии связи.`);
+            }
+        });
+    });
+}
+
 function executeFireAtWillOrder(unit, order) {
     // ⚡ Юнит в тактическом бою НЕ ведёт автоматический обстрел
     if (unit.isInBattle) return;
+
+    // ⚡ v13.019: ОД НЕ НУЖНЫ — огонь открывается СРАЗУ, как только
+    //    противник появился в радиусе (ОД после выстрела восстанавливаются).
     const targetDistance = order.targetDistance || 3;
-    
-    // Проверяем, есть ли у юнита ОД для стрельбы
-    if (unit.ap <= 0) {
-        log(`⏳ [${unit.name}] Нет ОД для стрельбы по готовности.`);
-        return;
-    }
-    
-    console.log(`🔥 executeFireAtWillOrder вызвана для ${unit.name}, ОД: ${unit.ap}`);
-    
-    // ⚡ ИЩЕМ ВРАГОВ В РАДИУСЕ (с учётом типа юнита)
-     let enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
-        e.col !== null && e.row !== null &&
-        getOpHexDistance(unit.col, unit.row, e.col, e.row) <= targetDistance &&
-        !e.isDestroyed
-    );
-    // Пехоту в тактическом бою не обстреливаем (бой идёт в тактике),
-    // бронетехнику — можно
-    enemies = enemies.filter(e => isArmoredUnit(e) || !e.isInBattle);
-    console.log(`   Найдено врагов: ${enemies.length}`);
-    
-    if (enemies.length === 0) {
-        log(`ℹ️ [${unit.name}] Нет врагов в радиусе ${targetDistance} гексов.`);
-        return;
-    }
-    
-    // ⚡ ПРИОРИТЕТ: БРОНЕТЕХНИКА СНАЧАЛА
-    const armorTargets = enemies.filter(e => isArmoredUnit(e));
-    const infantryTargets = enemies.filter(e => !isArmoredUnit(e));
-    const targets = armorTargets.length > 0 ? armorTargets : infantryTargets;
-    
-    if (targets.length === 0) {
-        log(`ℹ️ [${unit.name}] Нет подходящих целей.`);
-        return;
-    }
-    
-    // Находим ближайшего врага
-    let closestEnemy = null;
-    let minDist = Infinity;
-    targets.forEach(e => {
-        const dist = getOpHexDistance(unit.col, unit.row, e.col, e.row);
-        if (dist < minDist) {
-            minDist = dist;
-            closestEnemy = e;
-        }
-    });
-    
-    console.log(`   Ближайшая цель: ${closestEnemy ? closestEnemy.name : 'нет'}, дистанция: ${minDist}`);
-    
-    if (!closestEnemy) return;
-    
+
     // ⚡ ПРОВЕРЯЕМ, МОЖЕТ ЛИ ЮНИТ СТРЕЛЯТЬ
     if (!canUnitShoot(unit)) {
-        console.log(`   canUnitShoot вернул false для ${unit.name}`);
-        log(`❌ [${unit.name}] Не может стрелять (нет оружия).`);
+        log(`❌ [${unit.name}] Не может вести огонь по готовности (нет оружия).`);
+        order.status = 'completed';
         return;
     }
-    
-    // Проверяем тип оружия
-    const hasAtGuns = hasAtGunWeapons(unit);
-    const isArmor = isArmoredUnit(closestEnemy);
-    
-    console.log(`   Есть ПТО: ${hasAtGuns}, цель бронирована: ${isArmor}`);
-    
-    log(`🎯 [${unit.name}] Огонь по готовности! Цель: ${closestEnemy.name} (дистанция ${minDist} гексов)`);
-    
-    // ⚡ СОХРАНЯЕМ ОД ДО ВЫСТРЕЛА
-    const savedAP = unit.ap;
-    
-    // Выполняем обстрел
-    if (hasAtGuns && isArmor) {
-        opShootingState.shooter = unit;
-        opShootingState.targets = [closestEnemy];
-        opShootingState.weaponType = 'at';
-        executeOpShootAt([closestEnemy], minDist);
-    } else {
-        opShootingState.shooter = unit;
-        opShootingState.targets = [closestEnemy];
-        opShootingState.weaponType = 'mg';
-        executeOpShoot([closestEnemy], minDist);
+
+    // ⚡ v13.019: общая логика: миномёт — 15 снарядов (радиус 10),
+    //    ПТО — броня в приоритете, иначе пехота (лёгкая артиллерия),
+    //    остальные — ближайший враг. Приказ остаётся активным:
+    //    юнит продолжает стрелять, пока враг в радиусе.
+    if (unitAutoFire(unit, targetDistance)) {
+        log(`🔥 [${unit.name}] ОГОНЬ ПО ГОТОВНОСТИ!`);
+        saveData();
     }
-    
-    // ⚡ ВОССТАНАВЛИВАЕМ ОД ПОСЛЕ ВЫСТРЕЛА
-    unit.ap = savedAP;
-    console.log(`   ОД после стрельбы: ${unit.ap}`);
 }
 
 function executeReconOrder(unit, order) {
@@ -11331,11 +11503,57 @@ function assignRadioToSelected() {
     }
     
     hardMode.signalPlatoon.radios.available--;
-    hardMode.signalPlatoon.radios.assigned.push({ unitId });
-    
+    const radioEntry = { unitId };
+    // ⚡ v13.019: ГРУППА ТЕХНИКИ (БА, САУ, танковый взвод) — устанавливаем
+    //    рацию на машине №1 (если подбита — на первой живой) и отмечаем её.
+    //    Без отметки hasRadio() не находит живую машину с рацией,
+    //    «теряет» её сразу и значок не появляется (был баг с Landsverk/САУ).
+    if (selectedUnit.isGroup && selectedUnit.vehicleList && selectedUnit.vehicleList.length > 0) {
+        const radioVehicle = selectedUnit.vehicleList.find(v => v && !v.destroyed && v.name && v.name.includes('№1'))
+            || selectedUnit.vehicleList.find(v => v && !v.destroyed);
+        if (radioVehicle) {
+            radioVehicle.hasRadio = true;
+            radioEntry.isVehicleRadio = true;
+            radioEntry.hasNumber1 = (radioVehicle.name || '').includes('№1');
+        }
+    }
+    hardMode.signalPlatoon.radios.assigned.push(radioEntry);
+
     saveData();
     renderCommunicationPanel();
     alert(`Рация выдана юниту "${selectedUnit.name}"`);
+}
+
+// ⚡ v13.019: ЛЕЧЕНИЕ старых сейвов: если рация помечена «утрачена», хотя
+//    ни одна машина юнита рации никогда не имела (баг старых версий:
+//    машина не отмечалась), — возвращаем рацию на первую живую машину.
+//    Легитимные потери (машина с рацией подбита) не трогаются.
+function repairRadioAssignments() {
+    if (!hardMode || !hardMode.signalPlatoon || !hardMode.signalPlatoon.radios) return;
+    const assigned = hardMode.signalPlatoon.radios.assigned;
+    if (!assigned || assigned.length === 0) return;
+    let fixed = 0;
+    assigned.forEach(entry => {
+        if (!entry || !entry.isDestroyed) return;
+        const unit = appData.campaign.opUnits ? appData.campaign.opUnits[entry.unitId] : null;
+        if (!unit || !unit.isGroup || !unit.vehicleList) return;
+        // Рация была установлена (есть/была отметка на машине) — это
+        // легитимная потеря, не чиним.
+        const everMarked = unit.vehicleList.some(v => v && v.hasRadio === true);
+        if (everMarked) return;
+        const alive = unit.vehicleList.find(v => v && !v.destroyed);
+        if (alive) {
+            alive.hasRadio = true;
+            entry.isDestroyed = false;
+            entry.isVehicleRadio = true;
+            entry.hasNumber1 = (alive.name || '').includes('№1');
+            fixed++;
+        }
+    });
+    if (fixed > 0) {
+        log(`📻 Исправлено назначений раций (старые сейвы): ${fixed}`);
+        saveData();
+    }
 }
 
 function returnRadio(idx) {
@@ -12631,6 +12849,56 @@ function checkOpDetection() {
   
   saveData();
   redrawOperationalMap();
+}
+
+// ⚡ v13.019: В КОНЦЕ КАЖДОГО ХОДА у ВСЕХ своих юнитов проходит
+//    проверка на обнаружение (автоматически, без ручного клика).
+//    Логика та же, что и у ручной проверки: модификаторы местности,
+//    типа юнита, движения, подавления + d10.
+//      result > 6  — обнаружен;
+//      result == 6 — маркер «Шум»;
+//      result < 6  — незамечен.
+//    Юниты в тактическом бою, засаде или скрытые — не проверяются.
+function checkAllUnitsDetection() {
+    if (!appData.campaign || !appData.campaign.opUnits) return;
+    const units = appData.campaign.opUnits;
+    let detected = 0, noise = 0, clean = 0;
+    
+    units.forEach(unit => {
+        if (!unit || unit.isDestroyed) return;
+        if (unit.col === null || unit.row === null) return;   // не размещён
+        if (unit.isInBattle) return;                          // в тактическом бою
+        if (unit.isAmbush) return;                            // засада — не обнаруживается
+        if (unit.hidden) return;                              // скрыт
+    
+        let mod = getOpDetectionModifier(unit);
+        if (unit.movedThisTurn) mod += 1;   // если двигался – легче обнаружить
+        if (unit.suppressed) mod += 1;      // подавление
+        // (штраф за технику уже учитывается в getOpDetectionModifier)
+    
+        const roll = rollD10();
+        const result = roll + mod;
+    
+        if (result > 6) {
+            unit.detected = true;
+            unit.noiseMarker = false;
+            detected++;
+            log(`🔴 Обнаружен: ${unit.name} (d10=${roll} + мод=${mod} = ${result})`);
+        } else if (result === 6) {
+            unit.detected = false;
+            unit.noiseMarker = true;
+            noise++;
+            log(`❗ Шум: ${unit.name} (d10=${roll} + мод=${mod} = ${result})`);
+        } else {
+            unit.detected = false;
+            unit.noiseMarker = false;
+            clean++;
+        }
+    });
+    
+    log(`🔎 Конец хода — проверка обнаружения: обнаружено ${detected}, шум ${noise}, незамеченных ${clean}.`);
+    saveData();
+    redrawOperationalMap();
 }
 
 function openTerrainEditor(hexKey) {
