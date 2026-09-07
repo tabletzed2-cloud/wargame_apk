@@ -3226,7 +3226,7 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
     if (deliveryMethod === 'messenger') {
         const messenger = assignMessenger(fromUnit);
         if (!messenger) {
-            alert('Нет свободных посыльных!');
+            alert('Нет свободных посыльных! Все посыльные несут приказы в путь — попробуйте в следующем ходу.');
             return null;
         }
         order.messengerId = messenger;
@@ -3254,8 +3254,10 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
 }
 
 function checkCommunication(fromUnit, toUnit) {
-    // 1. Проверяем рацию
-    if (hasRadio(toUnit) && isInRadioRange(fromUnit, toUnit)) {
+    // 1. Проверяем рацию: ловит в радиусе ОТ ИСТОЧНИКА приказа
+    //    (штаб батальона — 10 гексов, штаб роты / прочие — 5 гексов).
+    //    Целевой юнит собственную рацию иметь не обязан.
+    if (isInRadioRange(fromUnit, toUnit)) {
         return 'radio';
     }
     
@@ -3281,7 +3283,7 @@ function isInRadioRange(fromUnit, toUnit) {
         return false;
     }
     const distance = getOpHexDistance(fromUnit.col, fromUnit.row, toUnit.col, toUnit.row);
-    const range = fromUnit.type === 'battalion_hq' ? 10 : 5;
+    const range = (fromUnit.type === 'battalion_hq' || fromUnit.type === 'hq') ? 10 : 5;
     return distance <= range;
 }
 
@@ -3302,7 +3304,7 @@ function assignMessenger(unit) {
     const unitId = appData.campaign.opUnits ? appData.campaign.opUnits.indexOf(unit) : -1;
     if (unitId === -1) return null;
     
-    if (unit.type === 'battalion_hq') {
+    if (unit.type === 'battalion_hq' || unit.type === 'hq') {
         if (hardMode.messengers.battalion.available > 0) {
             hardMode.messengers.battalion.available--;
             hardMode.messengers.battalion.active.push({ unitId, turnSent: (appData.campaign && appData.campaign.currentTurn) || currentTurn });
@@ -3357,7 +3359,7 @@ function cancelOrder(orderId) {
 function returnMessenger(unit) {
     const unitId = appData.campaign.opUnits.indexOf(unit);
     // Возвращаем ОДНОГО посыльного (первого из списка), а не всех сразу
-    if (unit.type === 'battalion_hq') {
+    if (unit.type === 'battalion_hq' || unit.type === 'hq') {
       const idx = hardMode.messengers.battalion.active.findIndex(a => a.unitId === unitId);
         if (idx !== -1) {
             hardMode.messengers.battalion.available++;
@@ -10468,12 +10470,12 @@ function executeShootOrder(unit, order) {
         let totalSalvoDamage = 0;
         let totalKilled = 0;
         
-        log(`💣 ${unit.name} открывает огонь по гексу (${targetCol},${targetRow}) — ${ROUNDS} выстрелов`);
-        
+        log(`💣 ${unit.name} обстреливает гекс (${targetCol},${targetRow}) — ${ROUNDS} снарядов`);
+
         for (let i = 0; i < ROUNDS; i++) {
             const alive = enemies.filter(e => !e.isDestroyed);
             if (alive.length === 0) break;
-            
+
             // Вероятность попадания — 50%
             if (Math.random() < 0.5) {
                 hits++;
@@ -10483,13 +10485,11 @@ function executeShootOrder(unit, order) {
                 const result = applyDamageToOpUnit(victim, dmg);
                 totalSalvoDamage += result.damage;
                 totalKilled += result.killed;
-                log(`💥 Снаряд ${i + 1}/${ROUNDS} ПОПАЛ: ${victim.name} — урон ${dmg}${result.killed > 0 ? ` (убито: ${result.killed})` : ''}`);
-            } else {
-                log(`· Снаряд ${i + 1}/${ROUNDS} не попал`);
             }
+            // ⚡ Лог засоряем только ИТОГОМ, а не каждым снарядом
         }
-        
-        const summary = `🎯 ${unit.name}: ${hits}/${ROUNDS} снарядов попали | Урон: ${totalSalvoDamage} | Убито: ${totalKilled}`;
+
+        const summary = `🎯 ${unit.name}: ${hits}/${ROUNDS} снарядов попали | Урон: ${totalSalvoDamage}${totalKilled > 0 ? ` | Убито: ${totalKilled}` : ''}`;
         log(summary);
         const mapInfo = document.getElementById('mapInfo');
         if (mapInfo) {
@@ -11557,7 +11557,7 @@ function submitOrder()   {
         if (deliveryMethod === 'messenger') {
             // Проверяем, есть ли свободные посыльные
             let hasMessenger = false;
-            if (hqUnit.type === 'battalion_hq') {
+            if (hqUnit.type === 'battalion_hq' || hqUnit.type === 'hq') {
                 hasMessenger = hardMode.messengers.battalion.available > 0;
             } else if (hqUnit.type === 'company_hq') {
                 const companyId = appData.campaign.opUnits.indexOf(hqUnit);
@@ -11566,7 +11566,7 @@ function submitOrder()   {
             }
             
             if (!hasMessenger) {
-                alert('❌ Нет свободных посыльных для доставки приказа!');
+                alert('❌ Нет свободных посыльных: все посыльные несут приказы в путь. Они вернутся после доставки.\n\nПопробуйте ещё раз в следующем ходу (или выберите юнита в радиусе рации — 10 гексов от штаба).');
                 return;
             }
         }
@@ -11761,7 +11761,7 @@ function submitOrder()   {
     const selectedUnit = appData.campaign.opUnits[toUnitId];
     const subUnitsPanel = document.getElementById('subUnitsPanel');
     
-    if (selectedUnit && (selectedUnit.type === 'company_hq' || selectedUnit.type === 'battalion_hq') && subUnitsPanel && subUnitsPanel.style.display === 'block') {
+    if (selectedUnit && (selectedUnit.type === 'company_hq' || selectedUnit.type === 'battalion_hq' || selectedUnit.type === 'hq') && subUnitsPanel && subUnitsPanel.style.display === 'block') {
         // Собираем отмеченные подчинённые взводы
         const checkedSubUnits = [];
         document.querySelectorAll('#subUnitsList input[type="checkbox"]:checked').forEach(cb => {
@@ -11924,7 +11924,7 @@ function submitOrderQueue() {
     }
     
     const hqIndex = hardMode.hqUnitId !== null ? hardMode.hqUnitId : 
-                    (appData.campaign.opUnits || []).findIndex(u => u.type === 'battalion_hq');
+                    (appData.campaign.opUnits || []).findIndex(u => u.type === 'battalion_hq' || u.type === 'hq');
     
     if (hqIndex === -1) {
         alert('Штаб батальона не найден!');
@@ -15586,9 +15586,9 @@ function onOrderTargetUnitChange() {
     }
     
     // ⚡ ШТАБ РОТЫ / ШТАБ БАТАЛЬОНА: показываем подчинённые взводы
-    if (unit.type === 'company_hq' || unit.type === 'battalion_hq') {
+    if (unit.type === 'company_hq' || unit.type === 'battalion_hq' || unit.type === 'hq') {
         // штаб батальона видит взводы дальше (радиус связи 10), штаб роты — 5
-        const subRadius = unit.type === 'battalion_hq' ? 10 : 5;
+        const subRadius = (unit.type === 'battalion_hq' || unit.type === 'hq') ? 10 : 5;
         const subUnits = (appData.campaign.opUnits || []).filter(u => {
             if (u.col === null || u.row === null || u.hidden) return false;
             if (u.type === 'infantry_platoon' || u.type === 'bicycle_platoon' || 
