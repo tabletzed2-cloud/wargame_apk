@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.015 — операция  </title>
+  <title>Боевой модуль v13.016 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.015</h1>
+    <h1>⚔️ Боевой модуль v13.016</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -38,7 +38,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.015 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.016 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -1389,11 +1389,14 @@ function redrawOperationalMap() {
     }
     
 // Подсветка зоны разведки (голубым)
+// ⚡ Поле видно только в ход выполнения разведки и гаснет в следующем
 if (appData.campaign.opUnits) {
     appData.campaign.opUnits.forEach(unit => {
-        if (unit.reconPending && unit.reconHex) {
+        const reconTurn = (unit.reconActiveTurn !== undefined) ? unit.reconActiveTurn : Infinity;
+        if (unit.reconPending && unit.reconHex &&
+            (appData.campaign.currentTurn || 1) <= reconTurn) {
             const [rCol, rRow] = unit.reconHex.split(',').map(Number);
-            const radius = unit.reconRadius || 2;
+            const radius = unit.reconRadius || 5;
             
             ctx.save();
             ctx.fillStyle = 'rgba(52, 152, 219, 0.25)';
@@ -1421,10 +1424,10 @@ if (appData.campaign.opUnits) {
                     ctx.stroke();
                 });
             } else {
-                // Запасной вариант: подсвечиваем по радиусу
+                // Запасной вариант: подсвечиваем по радиусу (окружность, не квадрат)
                 for (let dr = -radius; dr <= radius; dr++) {
                     for (let dc = -radius; dc <= radius; dc++) {
-                        if (Math.max(Math.abs(dc), Math.abs(dr)) <= radius) {
+                        if (getOpHexDistance(rCol, rRow, rCol + dc, rRow + dr) <= radius) {
                             const hCol = rCol + dc;
                             const hRow = rRow + dr;
                             if (hCol >= 0 && hCol < OP_MAP_COLS && hRow >= 0 && hRow < OP_MAP_ROWS) {
@@ -3269,8 +3272,12 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
 
 function checkCommunication(fromUnit, toUnit) {
     // 1. Радиус от источника приказа (штаб батальона — 10 гексов,
-    //    штаб роты / прочие — 5 гексов). Целевой юнит рацию иметь не обязан.
-    if (isInRadioRange(fromUnit, toUnit)) {
+    //    штаб роты / прочие — 5 гексов).
+    //    ⚡ ПОЛУЧАТЕЛЬ обязан иметь рацию (выданную игроком) — ЛИБО быть
+    //    штабом (штабы имеют собственное радиосредство).
+    //    Взвод без выданной рации приказ по рации НЕ получает.
+    const toIsStaff = toUnit && (toUnit.type === 'battalion_hq' || toUnit.type === 'company_hq' || toUnit.type === 'hq');
+    if (isInRadioRange(fromUnit, toUnit) && (toIsStaff || hasRadio(toUnit))) {
         return 'radio';
     }
     
@@ -9698,7 +9705,7 @@ function backToBattalionAssembly() {
   startBattalionAssembly(appData.campaign.playerFaction);
 }
 function endOperationalTurn() {
-    // ⚡ ИНИЦИАЛИЗАЦИЯ, если не задано (v13.015)
+    // ⚡ ИНИЦИАЛИЗАЦИЯ, если не задано (v13.016)
     if (appData.campaign.opTurnStartTime === undefined) {
         appData.campaign.opTurnStartTime = appData.campaign.currentTime || 0;
     }
@@ -9762,6 +9769,21 @@ function processOrders() {
     //    приказов, ждущих посыльных (на конец хода)
     repairMessengerPools();
     dispatchQueuedOrders();
+    
+    // ⚡ ГАСНЕМ ПОЛЯ РАЗВЕДКИ: подсветка живёт только в ход выполнения
+    //    разведки, в следующем ходу поле исчезает
+    if (appData.campaign && appData.campaign.opUnits) {
+        let reconExpired = false;
+        appData.campaign.opUnits.forEach(u => {
+            if (u && u.reconActiveTurn !== undefined &&
+                (appData.campaign.currentTurn || 1) > u.reconActiveTurn) {
+                u.reconPending = false;
+                u.reconHighlightHexes = null;
+                reconExpired = true;
+            }
+        });
+        if (reconExpired) saveData();
+    }
     
     // 1. Обрабатываем доставку приказов (посыльные)
     if (hardMode.pendingOrders) {
@@ -10598,11 +10620,14 @@ function executeShootOrder(unit, order) {
     // ⚡ СОХРАНЯЕМ ОД (артиллерийский обстрел не тратит ОД)
     const savedAP = unit.ap;
     
-    // ============ СРЕДНЯЯ АРТИЛЛЕРИЯ: СЕРИЯ ИЗ 15 ВЫСТРЕЛОВ ============
+    // ============ СРЕДНЯЯ АРТИЛЛЕРИЯ: СЕРИЯ ВЫСТРЕЛОВ ============
+    // ⚡ Количество выстрелов за ход: миномёт 82-мм — 15, каждая САУ — 6.
     // Каждый снаряд попадает с вероятностью 50%.
     // Каждый попавший снаряд наносит урон 2d6.
     if (isMediumArt) {
-        const ROUNDS = 15;
+        const isSau = (unit.type === 'sau_battery') ||
+                      (unit.name && /САУ/i.test(unit.name));
+        const ROUNDS = isSau ? 6 : 15;
         const d6 = () => 1 + Math.floor(Math.random() * 6);
         let hits = 0;
         let totalSalvoDamage = 0;
@@ -10853,6 +10878,18 @@ function executeMoveOrder(unit, order) {
         return;
     }
     
+ // ⚡ ШТУРМ: если враг уже рядом (в радиусе 3 гексов) — СНАЧАЛА сближаемся
+ //    с ним, а не идём своей дорогой (отряд должен вступить в рукопашный бой)
+    if (order.behavior === 'assault' && unit.ap > 0) {
+        const encountered = checkEnemyEncounter(unit, 'assault', order);
+        if (encountered) {
+            saveData();
+            redrawOperationalMap();
+            renderActiveOrders();
+            return;
+        }
+    }
+
  // Идём шаг за шагом, тратя все ОД
     let stepsTaken = 0;
    for (let i = 0; i < fullRoute.length; i++) {
@@ -11136,30 +11173,26 @@ const result = stepUnitTowardTarget(unit, targetCol, targetRow);
     }
     
     // ======== ВЫПОЛНЯЕМ РАЗВЕДКУ С ПОДСВЕТКОЙ ========
-    // Определяем радиус разведки
-    let reconRadius = 2; // стандартный радиус
-    if (unit.type === 'recon_platoon' || 
-        (unit.name && unit.name.includes('Развед'))) {
-        reconRadius = 3;
-    }
+    // ⚡ Радиус разведки — 5 гексов, форма — ОКРУЖНОСТЬ (гексовое расстояние),
+    //    а не квадрат. Поле видно в ход выполнения разведки и гаснет
+    //    в следующем ходу (unit.reconActiveTurn).
+    const reconRadius = 5;
     
     // Устанавливаем флаги для подсветки
     unit.reconPending = true;
     unit.reconHex = `${targetCol},${targetRow}`;
     unit.reconRadius = reconRadius;
+    unit.reconActiveTurn = (appData.campaign && appData.campaign.currentTurn) || 1;
     
     // ======== ДОБАВЛЯЕМ ЯВНУЮ ПОДСВЕТКУ НА КАРТЕ ========
-    // Создаём массив гексов для подсветки
+    // Создаём массив гексов для подсветки: ОКРУЖНОСТЬ радиуса reconRadius
     const highlightHexes = [];
-    for (let dr = -reconRadius; dr <= reconRadius; dr++) {
-        for (let dc = -reconRadius; dc <= reconRadius; dc++) {
-            // Проверяем, что гекс в радиусе (по максимальной разнице)
-            if (Math.max(Math.abs(dc), Math.abs(dr)) <= reconRadius) {
-                const hCol = targetCol + dc;
-                const hRow = targetRow + dr;
-                if (hCol >= 0 && hCol < OP_MAP_COLS && hRow >= 0 && hRow < OP_MAP_ROWS) {
-                    highlightHexes.push({ col: hCol, row: hRow });
-                }
+    for (let hRow = targetRow - reconRadius; hRow <= targetRow + reconRadius; hRow++) {
+        for (let hCol = targetCol - reconRadius; hCol <= targetCol + reconRadius; hCol++) {
+            if (hCol < 0 || hCol >= OP_MAP_COLS || hRow < 0 || hRow >= OP_MAP_ROWS) continue;
+            // Гексовое расстояние — не «квадрат», а окружность
+            if (getOpHexDistance(targetCol, targetRow, hCol, hRow) <= reconRadius) {
+                highlightHexes.push({ col: hCol, row: hRow });
             }
         }
     }
@@ -14520,6 +14553,16 @@ function calculateOpShootDamage(shooter, target, distance) {
 function applyDamageToOpUnit(unit, damage) {
     if (!unit || damage <= 0) return { damage: 0, killed: 0 };
 
+    // ⚡ ВРЕМЕННО (до внедрения системы урона отряда противника):
+    //    при обстреле пехотные отряды противника НЕУЯЗВИМЫ —
+    //    урон не применяется, отряды не уничтожаются.
+    //    (система конкретного урона будет добавлена позже —
+    //     для этого достаточно удалить этот блок)
+    if (appData.campaign && appData.campaign.enemyOpUnits &&
+        appData.campaign.enemyOpUnits.includes(unit)) {
+        return { damage: 0, killed: 0 };
+    }
+
     let remainingDamage = damage;
     let killed = 0;
 
@@ -16092,6 +16135,47 @@ function drawOrderRoute(ctx, size) {
     if (!orderWaypoints || orderWaypoints.length === 0) return;
     
     ctx.save();
+    
+    // ⚡ ЦЕПОЧКА ГЕКСОВ: подсвечиваем РЕАЛЬНЫЙ маршрут (пошагово, с учётом
+    //    местности) от выбранного отряда через все точки маршрута
+    const selEl = document.getElementById('orderTargetUnit');
+    const routeUnit = selEl ? (appData.campaign.opUnits || [])[parseInt(selEl.value)] : null;
+    if (routeUnit && routeUnit.col !== null && routeUnit.row !== null) {
+        const chainHexes = [];
+        let cur = { col: routeUnit.col, row: routeUnit.row };
+        for (const wp of orderWaypoints) {
+            if (cur.col === wp.col && cur.row === wp.row) continue;
+            const seg = getRouteToTarget(cur.col, cur.row, wp.col, wp.row, routeUnit);
+            seg.forEach(h => chainHexes.push({ col: h.col, row: h.row }));
+            cur = { col: wp.col, row: wp.row };
+        }
+        chainHexes.forEach((h, i) => {
+            const x = h.col * Math.sqrt(3) * size + (h.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+            const y = h.row * 1.5 * size + size;
+            
+            ctx.beginPath();
+            for (let k = 0; k < 6; k++) {
+                const angle = Math.PI / 180 * (60 * k - 30);
+                const xi = x + size * 0.92 * Math.cos(angle);
+                const yi = y + size * 0.92 * Math.sin(angle);
+                if (k === 0) ctx.moveTo(xi, yi);
+                else ctx.lineTo(xi, yi);
+            }
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(241, 196, 15, 0.30)';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(241, 196, 15, 0.85)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Номер шага внутри гекса
+            ctx.fillStyle = '#f1c40f';
+            ctx.font = `bold ${size * 0.28}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(i + 1, x, y);
+        });
+    }
     
     // Рисуем линии между точками
     if (orderWaypoints.length > 1) {
