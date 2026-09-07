@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.016 — операция  </title>
+  <title>Боевой модуль v13.017 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.016</h1>
+    <h1>⚔️ Боевой модуль v13.017</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -38,7 +38,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.016 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.017 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -3271,13 +3271,13 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
 }
 
 function checkCommunication(fromUnit, toUnit) {
-    // 1. Радиус от источника приказа (штаб батальона — 10 гексов,
-    //    штаб роты / прочие — 5 гексов).
-    //    ⚡ ПОЛУЧАТЕЛЬ обязан иметь рацию (выданную игроком) — ЛИБО быть
-    //    штабом (штабы имеют собственное радиосредство).
-    //    Взвод без выданной рации приказ по рации НЕ получает.
-    const toIsStaff = toUnit && (toUnit.type === 'battalion_hq' || toUnit.type === 'company_hq' || toUnit.type === 'hq');
-    if (isInRadioRange(fromUnit, toUnit) && (toIsStaff || hasRadio(toUnit))) {
+    // ⚡ МОДЕЛЬ СВЯЗИ:
+    // 1. Мгновенная доставка (рация) — ТОЛЬКО в радиусе 10 гексов
+    //    от штаба батальона (у ШБ есть своя рация). Штаб роты
+    //    самостоятельной рации для доставки приказов взводам НЕ имеет —
+    //    из штаба роты приказ во взвод несёт ПОСЫЛЬНЫЙ штаба роты.
+    const fromIsBattalionHQ = fromUnit && (fromUnit.type === 'battalion_hq' || fromUnit.type === 'hq');
+    if (fromIsBattalionHQ && isInRadioRange(fromUnit, toUnit)) {
         return 'radio';
     }
     
@@ -9705,7 +9705,7 @@ function backToBattalionAssembly() {
   startBattalionAssembly(appData.campaign.playerFaction);
 }
 function endOperationalTurn() {
-    // ⚡ ИНИЦИАЛИЗАЦИЯ, если не задано (v13.016)
+    // ⚡ ИНИЦИАЛИЗАЦИЯ, если не задано (v13.017)
     if (appData.campaign.opTurnStartTime === undefined) {
         appData.campaign.opTurnStartTime = appData.campaign.currentTime || 0;
     }
@@ -9732,6 +9732,10 @@ function endOperationalTurn() {
         });
     }
     
+    // ⚡ АНИМАЦИЯ: запоминаем позиции юнитов ДО обработки приказов,
+    //    чтобы после хода показать, по каким гексам они двигались
+    const opPosBefore = (appData.campaign.opUnits || []).map(u => ({ col: u.col, row: u.row }));
+    
     // Обрабатываем приказы (Hard Mode)
     if (hardMode.enabled) {
         processOrders();
@@ -9739,6 +9743,10 @@ function endOperationalTurn() {
     
     // ⚡ ОБЯЗАТЕЛЬНО ОБНОВЛЯЕМ КАРТУ И ВРЕМЯ
     saveData();
+    
+    // ⚡ АНИМАЦИЯ ДВИЖЕНИЯ: юниты «проскакивают» по гексам своего маршрута
+    //    (вместо мгновенного телепорта на новое место)
+    animateMovedUnits(opPosBefore);
     
     // ⚡ ПЕРЕРИСОВЫВАЕМ КАРТУ
     redrawOperationalMap();
@@ -14554,13 +14562,14 @@ function applyDamageToOpUnit(unit, damage) {
     if (!unit || damage <= 0) return { damage: 0, killed: 0 };
 
     // ⚡ ВРЕМЕННО (до внедрения системы урона отряда противника):
-    //    при обстреле пехотные отряды противника НЕУЯЗВИМЫ —
-    //    урон не применяется, отряды не уничтожаются.
-    //    (система конкретного урона будет добавлена позже —
+    //    отряды противника НЕУЯЗВИМЫ — урон в ЛОГЕ показывается
+    //    (насколько попал бы), но НЕ применяется: hp не меняется,
+    //    отряды не уничтожаются.
+    //    (система реального урона будет добавлена позже —
     //     для этого достаточно удалить этот блок)
     if (appData.campaign && appData.campaign.enemyOpUnits &&
         appData.campaign.enemyOpUnits.includes(unit)) {
-        return { damage: 0, killed: 0 };
+        return { damage: damage, killed: 0 };
     }
 
     let remainingDamage = damage;
@@ -16232,6 +16241,92 @@ function drawOrderRoute(ctx, size) {
     
     ctx.restore();
 }  
+// ⚡ АНИМАЦИЯ ДВИЖЕНИЯ: после завершения хода юниты НЕ телепортируются,
+//    а плавно «проскакивают» по гексам своего маршрута.
+//    opUnitAnimPixel[unitIndex] = {x, y} — текущая ПИКСЕЛЬНАЯ позиция
+//    анимируемой иконки (реальные col/row юнита при этом НЕ меняются).
+let opUnitAnimPixel = {};
+let opMoveAnim = { playing: false };
+
+// Центр гекса (col,row) в пикселях карты (та же формула, что в отрисовке)
+function opHexCenter(col, row) {
+    const size = OP_HEX_SIZE * (appData.campaign.opZoomLevel || 1);
+    return {
+        x: col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2,
+        y: row * 1.5 * size + size
+    };
+}
+
+// Собираем юнитов, которые переместились за ход (posBefore — позиции ДО
+// processOrders), и запускаем анимацию по их маршрутам.
+function animateMovedUnits(posBefore) {
+    if (typeof requestAnimationFrame === 'undefined') return;
+    const units = appData.campaign.opUnits || [];
+    const moves = [];
+    units.forEach((u, i) => {
+        const before = posBefore ? posBefore[i] : null;
+        if (!u || !before) return;
+        if (u.col === null || u.row === null || before.col === null || before.row === null) return;
+        if (u.col === before.col && u.row === before.row) return; // не двигался
+        // Маршрут «откуда → куда» (гекс за гексом, с учётом местности)
+        let path = [];
+        try {
+            path = getRouteToTarget(before.col, before.row, u.col, u.row, u) || [];
+        } catch (e) { path = []; }
+        // getRouteToTarget возвращает гексы ПУТИ (без стартового, с конечным)
+        const fullPath = [{ col: before.col, row: before.row }].concat(
+            path.length > 0 ? path : [{ col: u.col, row: u.row }]
+        );
+        moves.push({ unit: u, path: fullPath });
+    });
+    if (moves.length === 0) return;
+    if (opMoveAnim.playing) return; // не дублируем анимацию
+    opMoveAnim.playing = true;
+    const HEX_MS = 150; // длительность «проскакивания» одного гекса
+    const anims = moves.map(m => ({
+        unit: m.unit,
+        pathPx: m.path.map(h => opHexCenter(h.col, h.row)),
+        t: 0
+    }));
+    // Сразу ставим иконки в СТАРТОВУЮ позицию (чтобы не мелькнуло конечное место)
+    anims.forEach(a => {
+        const uid = appData.campaign.opUnits.indexOf(a.unit);
+        if (uid >= 0) opUnitAnimPixel[uid] = a.pathPx[0];
+    });
+    let lastTime = null;
+    function frame(now) {
+        if (lastTime === null) lastTime = now;
+        const dt = now - lastTime;
+        lastTime = now;
+        const stepDelta = dt / HEX_MS;
+        let allDone = true;
+        anims.forEach(a => {
+            const uid = appData.campaign.opUnits.indexOf(a.unit);
+            if (uid < 0) return;
+            if (a.t >= a.pathPx.length - 1) return; // уже на месте
+            a.t = Math.min(a.t + stepDelta, a.pathPx.length - 1);
+            if (a.t < a.pathPx.length - 1) allDone = false;
+            const i0 = Math.floor(a.t);
+            const frac = a.t - i0;
+            const p0 = a.pathPx[i0];
+            const p1 = a.pathPx[Math.min(i0 + 1, a.pathPx.length - 1)];
+            opUnitAnimPixel[uid] = { x: p0.x + (p1.x - p0.x) * frac, y: p0.y + (p1.y - p0.y) * frac };
+        });
+        redrawOperationalMap();
+        if (allDone) {
+            anims.forEach(a => {
+                const uid = appData.campaign.opUnits.indexOf(a.unit);
+                if (uid >= 0) opUnitAnimPixel[uid] = null;
+            });
+            opMoveAnim.playing = false;
+            redrawOperationalMap();
+        } else {
+            requestAnimationFrame(frame);
+        }
+    }
+    requestAnimationFrame(frame);
+}
+
 function drawOperationalUnits(ctx) {
     const size = OP_HEX_SIZE * (appData.campaign.opZoomLevel || 1);
     const iconRadius = 18 * (appData.campaign.opZoomLevel || 1);
@@ -16240,8 +16335,18 @@ function drawOperationalUnits(ctx) {
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
-        const x = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
-        const y = unit.row * 1.5 * size + size;
+        // ⚡ Если юнит анимируется — рисуем его в текущей пиксельной позиции
+        let x, y;
+        const unitList = isEnemy ? (appData.campaign.enemyOpUnits || []) : (appData.campaign.opUnits || []);
+        const animUid = unitList.indexOf(unit);
+        const animPx = (animUid >= 0) ? opUnitAnimPixel[animUid] : null;
+        if (animPx) {
+            x = animPx.x;
+            y = animPx.y;
+        } else {
+            x = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+            y = unit.row * 1.5 * size + size;
+        }
         const drawX = x + offsetX;
         const drawY = y + offsetY;
         const radius = 18 * (appData.campaign.opZoomLevel || 1);
@@ -16553,8 +16658,18 @@ function drawOperationalUnits(ctx) {
     function drawGroupedUnits(units, isEnemy) {
         if (!units) return;
         
+        // ⚡ Анимируемые юниты рисуем ОТДЕЛЬНО (в их текущей пиксельной
+        //    позиции), чтобы они «проскакивали» по маршруту, а не
+        //    телепортировались к конечному гексу
+        const isAnimating = (u) => {
+            const uid = units.indexOf(u);
+            return uid >= 0 && !!opUnitAnimPixel[uid];
+        };
+        const animUnits = units.filter(isAnimating);
+        const staticUnits = units.filter(u => !isAnimating(u));
+        
         const groupedByHex = new Map();
-        units.forEach(unit => {
+        staticUnits.forEach(unit => {
             if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
             const key = `${unit.col},${unit.row}`;
             if (!groupedByHex.has(key)) {
@@ -16562,6 +16677,9 @@ function drawOperationalUnits(ctx) {
             }
             groupedByHex.get(key).push(unit);
         });
+        
+        // Анимируемые — по одному, в пиксельной позиции
+        animUnits.forEach(unit => drawUnit(unit, isEnemy, 0, 0));
         
         groupedByHex.forEach((group) => {
             const [col, row] = group[0].col !== undefined ? [group[0].col, group[0].row] : [0, 0];
