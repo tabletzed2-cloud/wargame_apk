@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.014 — операция  </title>
+  <title>Боевой модуль v13.015 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.014</h1>
+    <h1>⚔️ Боевой модуль v13.015</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -38,7 +38,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.014 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.015 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -2730,7 +2730,8 @@ let hardMode = {
     phoneLines: [],
     orders: [],
     pendingOrders: [],
-    orderQueue: []
+    orderQueue: [],
+    messengerQueue: []
 };
 let appData;
 try {
@@ -2760,6 +2761,9 @@ try {
         }
         if (appData.hardMode.orderQueue) {
             hardMode.orderQueue = appData.hardMode.orderQueue;
+        }
+        if (appData.hardMode.messengerQueue) {
+            hardMode.messengerQueue = appData.hardMode.messengerQueue;
         }
     }
     // ⚠️ БЕЗ БЛОКА else! hardMode уже объявлена выше и не перезаписывается!
@@ -3158,6 +3162,9 @@ function initHardMode() {
         }
     });
     
+    // ⚡ САМОДИАГНОСТИКА ПОЛОВ ПОСЫЛЬНЫХ (исправление старых сохранений)
+    repairMessengerPools();
+    
     // ⚡ СОХРАНЯЕМ
     saveData();
     
@@ -3226,8 +3233,15 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
     if (deliveryMethod === 'messenger') {
         const messenger = assignMessenger(fromUnit);
         if (!messenger) {
-            alert('Нет свободных посыльных!');
-            return null;
+            // ⚡ Нет свободных посыльных — приказ НЕ теряется:
+            // он уходит в ОЧЕРЕДЬ, и первый освободившийся посыльный
+            // сразу отправится на доставку (dispatchQueuedOrders).
+            order.status = 'queued';
+            if (!hardMode.messengerQueue) hardMode.messengerQueue = [];
+            hardMode.messengerQueue.push(order);
+            log(`⏳ Приказ "${orderType}" для "${toUnit.name}" поставлен в очередь — ждёт посыльного (№${hardMode.messengerQueue.length} в очереди).`);
+            saveData();
+            return order;
         }
         order.messengerId = messenger;
         order.status = 'delivering';
@@ -3254,17 +3268,26 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
 }
 
 function checkCommunication(fromUnit, toUnit) {
-    // 1. Проверяем рацию
-    if (hasRadio(toUnit) && isInRadioRange(fromUnit, toUnit)) {
+    // 1. Радиус от источника приказа (штаб батальона — 10 гексов,
+    //    штаб роты / прочие — 5 гексов). Целевой юнит рацию иметь не обязан.
+    if (isInRadioRange(fromUnit, toUnit)) {
         return 'radio';
     }
     
-    // 2. Проверяем телефон
+    // 2. Рация, выданная ИГРОКОМ (распределяются в панели «Связь»):
+    //    прямая связь со штабом батальона на любой дистанции (в обе стороны).
+    //    Может быть выдана штабу роты или взводу.
+    const isBattalionHQ = (u) => u && (u.type === 'battalion_hq' || u.type === 'hq');
+    if ((isBattalionHQ(fromUnit) && hasRadio(toUnit)) || (isBattalionHQ(toUnit) && hasRadio(fromUnit))) {
+        return 'radio';
+    }
+    
+    // 3. Проверяем телефон
     if (hasPhoneLine(fromUnit, toUnit)) {
         return 'phone';
     }
     
-    // 3. Посыльный
+    // 4. Посыльный
     return 'messenger';
 }
 
@@ -3281,7 +3304,7 @@ function isInRadioRange(fromUnit, toUnit) {
         return false;
     }
     const distance = getOpHexDistance(fromUnit.col, fromUnit.row, toUnit.col, toUnit.row);
-    const range = fromUnit.type === 'battalion_hq' ? 10 : 5;
+    const range = (fromUnit.type === 'battalion_hq' || fromUnit.type === 'hq') ? 10 : 5;
     return distance <= range;
 }
 
@@ -3302,7 +3325,7 @@ function assignMessenger(unit) {
     const unitId = appData.campaign.opUnits ? appData.campaign.opUnits.indexOf(unit) : -1;
     if (unitId === -1) return null;
     
-    if (unit.type === 'battalion_hq') {
+    if (unit.type === 'battalion_hq' || unit.type === 'hq') {
         if (hardMode.messengers.battalion.available > 0) {
             hardMode.messengers.battalion.available--;
             hardMode.messengers.battalion.active.push({ unitId, turnSent: (appData.campaign && appData.campaign.currentTurn) || currentTurn });
@@ -3322,10 +3345,11 @@ function assignMessenger(unit) {
 
 function cancelOrder(orderId) {
     const order = hardMode.orders.find(o => o.id === orderId) || 
-                   hardMode.pendingOrders.find(o => o.id === orderId);
+                   hardMode.pendingOrders.find(o => o.id === orderId) ||
+                   (hardMode.messengerQueue || []).find(o => o.id === orderId);
         if (!order) return;
     order.status = 'cancelled';
-    // Возвращаем посыльного если он был
+    // Возвращаем посыльного если он был (у приказа из очереди его ещё нет)
     if (order.messengerId) {
         const fromUnit = appData.campaign.opUnits[order.fromUnitId];
         if (fromUnit) {
@@ -3350,6 +3374,7 @@ function cancelOrder(orderId) {
         // Удаляем из списков (вместе с relay-приказами отменённого приказа)
     hardMode.orders = hardMode.orders.filter(o => o.id !== orderId && o.relayParentId !== orderId);
     hardMode.pendingOrders = hardMode.pendingOrders.filter(o => o.id !== orderId && o.relayParentId !== orderId);
+    if (hardMode.messengerQueue) hardMode.messengerQueue = hardMode.messengerQueue.filter(o => o.id !== orderId && o.relayParentId !== orderId);
     saveData();
     renderActiveOrders();
 }
@@ -3357,11 +3382,13 @@ function cancelOrder(orderId) {
 function returnMessenger(unit) {
     const unitId = appData.campaign.opUnits.indexOf(unit);
     // Возвращаем ОДНОГО посыльного (первого из списка), а не всех сразу
-    if (unit.type === 'battalion_hq') {
+    let freed = false;
+    if (unit.type === 'battalion_hq' || unit.type === 'hq') {
       const idx = hardMode.messengers.battalion.active.findIndex(a => a.unitId === unitId);
         if (idx !== -1) {
             hardMode.messengers.battalion.available++;
             hardMode.messengers.battalion.active.splice(idx, 1);
+            freed = true;
         }
         } else if (unit.type === 'company_hq') {
         const companyMessengers = hardMode.messengers.companies[unitId];
@@ -3370,8 +3397,117 @@ function returnMessenger(unit) {
             if (idx !== -1) {
                 companyMessengers.available++;
                 companyMessengers.active.splice(idx, 1);
+                freed = true;
             }    
         }
+    }
+    // ⚡ Свободный посыльный есть — сразу отдаём ему первый приказ из очереди
+    if (freed) dispatchQueuedOrders();
+}
+
+// ⚡ ОЧЕРЕДЬ ПРИКАЗОВ, ЖДУЩИХ ПОСЫЛЬНОГО
+// Приказы, созданные без свободных посыльных, хранятся в hardMode.messengerQueue.
+// Эта функция отправляет первого свободного посыльного на доставку
+// первого в очереди приказа (по порядку создания).
+function dispatchQueuedOrders() {
+    if (!hardMode.messengerQueue || hardMode.messengerQueue.length === 0) return;
+    let dispatched = true;
+    while (dispatched && hardMode.messengerQueue.length > 0) {
+        dispatched = false;
+        for (let i = 0; i < hardMode.messengerQueue.length; i++) {
+            const order = hardMode.messengerQueue[i];
+            const fromUnit = appData.campaign.opUnits ? appData.campaign.opUnits[order.fromUnitId] : null;
+            const toUnit = appData.campaign.opUnits ? appData.campaign.opUnits[order.toUnitId] : null;
+            
+            // Получатель уничтожен или исчез — приказ сгорает
+            if (!toUnit || toUnit.isDestroyed) {
+                hardMode.messengerQueue.splice(i, 1);
+                order.status = 'cancelled';
+                log(`❌ Приказ "${order.type}" из очереди сгорел: получатель уничтожен.`);
+                saveData();
+                continue;
+            }
+            if (!fromUnit) { hardMode.messengerQueue.splice(i, 1); continue; }
+            
+            // Есть ли у отправителя свободный посыльный?
+            const fromId = appData.campaign.opUnits.indexOf(fromUnit);
+            const pool = (fromUnit.type === 'battalion_hq' || fromUnit.type === 'hq')
+                ? hardMode.messengers.battalion
+                : hardMode.messengers.companies[fromId];
+            if (!pool || pool.available <= 0) continue;
+            
+            const messenger = assignMessenger(fromUnit);
+            if (!messenger) continue;
+            
+            order.messengerId = messenger;
+            order.status = 'delivering';
+            const hasCoords = fromUnit.col != null && fromUnit.row != null && toUnit.col != null && toUnit.row != null;
+            const distance = hasCoords ? getOpHexDistance(fromUnit.col, fromUnit.row, toUnit.col, toUnit.row) : 0;
+            order.deliveryTurnsNeeded = Math.ceil(distance / 3);
+            order.deliveryTurnsPassed = 0;
+            
+            hardMode.messengerQueue.splice(i, 1);
+            if (!hardMode.pendingOrders) hardMode.pendingOrders = [];
+            hardMode.pendingOrders.push(order);
+            log(`🚶 Посыльный отправлен на доставку приказа "${order.type}" для "${toUnit.name}" (снят с очереди).`);
+            saveData();
+            dispatched = true;
+            break; // заново проходим очередь (могло освободиться несколько посыльных)
+        }
+    }
+    renderActiveOrders();
+}
+
+// ⚡ САМОДИАГНОСТИКА ПОЛОВ ПОСЫЛЬНЫХ
+// В старых версиях была ошибка возврата посыльных (посыльный штаба батальона
+// мог «вернуться» в пул роты и наоборот). Из-за этого в сохранении мог
+// застрять пул: available=0, а приказа, который несли эти посыльные, уже нет.
+// Если посыльный числится «в пути», но доставляемого приказа нет —
+// возвращаем его в пул.
+function repairMessengerPools() {
+    if (!hardMode || !hardMode.messengers || !appData.campaign || !appData.campaign.opUnits) return;
+    
+    const deliveringFrom = (unitId) => (hardMode.pendingOrders || []).filter(o =>
+        o.status === 'delivering' && o.messengerId && o.fromUnitId === unitId
+    ).length;
+    
+    let fixedTotal = 0;
+    
+    // Батальон (все юниты типа battalion_hq/hq делят общий пул)
+    if (hardMode.messengers.battalion) {
+        const expected = (appData.campaign.opUnits || []).filter(u =>
+            u && (u.type === 'battalion_hq' || u.type === 'hq')
+        ).reduce((sum, u) => sum + deliveringFrom(appData.campaign.opUnits.indexOf(u)), 0);
+        const active = hardMode.messengers.battalion.active;
+        if (active.length > expected) {
+            const orphaned = active.length - expected;
+            active.splice(expected);
+            hardMode.messengers.battalion.available = Math.min(
+                hardMode.messengers.battalion.total,
+                hardMode.messengers.battalion.available + orphaned
+            );
+            fixedTotal += orphaned;
+        }
+    }
+    
+    // Роты
+    (appData.campaign.opUnits || []).forEach(u => {
+        if (!u || u.type !== 'company_hq') return;
+        const uid = appData.campaign.opUnits.indexOf(u);
+        const pool = hardMode.messengers.companies[uid];
+        if (!pool) return;
+        const expected = deliveringFrom(uid);
+        if (pool.active.length > expected) {
+            const orphaned = pool.active.length - expected;
+            pool.active.splice(expected);
+            pool.available = Math.min(pool.total, pool.available + orphaned);
+            fixedTotal += orphaned;
+        }
+    });
+    
+    if (fixedTotal > 0) {
+        log(`🔧 Самодиагностика: ${fixedTotal} посыльного(х) числилось в пути без приказов — возвращено в пул.`);
+        saveData();
     }
 }
 function findParentCompany(platoonUnit) {
@@ -9562,7 +9698,7 @@ function backToBattalionAssembly() {
   startBattalionAssembly(appData.campaign.playerFaction);
 }
 function endOperationalTurn() {
-    // ⚡ ИНИЦИАЛИЗАЦИЯ, если не задано (v13.012)
+    // ⚡ ИНИЦИАЛИЗАЦИЯ, если не задано (v13.015)
     if (appData.campaign.opTurnStartTime === undefined) {
         appData.campaign.opTurnStartTime = appData.campaign.currentTime || 0;
     }
@@ -9622,6 +9758,11 @@ function endOperationalTurn() {
     }
 }
 function processOrders() {
+    // 0. Диагностика полов посыльных + страховочная выдача очереди
+    //    приказов, ждущих посыльных (на конец хода)
+    repairMessengerPools();
+    dispatchQueuedOrders();
+    
     // 1. Обрабатываем доставку приказов (посыльные)
     if (hardMode.pendingOrders) {
         hardMode.pendingOrders.forEach(order => {
@@ -10132,10 +10273,9 @@ function executeSeriesOrder(unit, order) {
             break;
             
         case 'hold':
-            // Удержание позиции - действие считается выполненным,
-            // серия может переходить к следующему приказу
-            log(`✋ [${unit.name}] Удерживает позицию.`);
-        currentAction.status = 'completed';
+            // Удержание позиции: применяем состояние удержания (isHolding),
+            // действие считается выполненным, серия переходит к следующему приказу
+            executeHoldOrder(unit, currentAction);
             break;
             
         case 'retreat':
@@ -10468,12 +10608,12 @@ function executeShootOrder(unit, order) {
         let totalSalvoDamage = 0;
         let totalKilled = 0;
         
-        log(`💣 ${unit.name} открывает огонь по гексу (${targetCol},${targetRow}) — ${ROUNDS} выстрелов`);
-        
+        log(`💣 ${unit.name} обстреливает гекс (${targetCol},${targetRow}) — ${ROUNDS} снарядов`);
+
         for (let i = 0; i < ROUNDS; i++) {
             const alive = enemies.filter(e => !e.isDestroyed);
             if (alive.length === 0) break;
-            
+
             // Вероятность попадания — 50%
             if (Math.random() < 0.5) {
                 hits++;
@@ -10483,13 +10623,11 @@ function executeShootOrder(unit, order) {
                 const result = applyDamageToOpUnit(victim, dmg);
                 totalSalvoDamage += result.damage;
                 totalKilled += result.killed;
-                log(`💥 Снаряд ${i + 1}/${ROUNDS} ПОПАЛ: ${victim.name} — урон ${dmg}${result.killed > 0 ? ` (убито: ${result.killed})` : ''}`);
-            } else {
-                log(`· Снаряд ${i + 1}/${ROUNDS} не попал`);
             }
+            // ⚡ Лог засоряем только ИТОГОМ, а не каждым снарядом
         }
-        
-        const summary = `🎯 ${unit.name}: ${hits}/${ROUNDS} снарядов попали | Урон: ${totalSalvoDamage} | Убито: ${totalKilled}`;
+
+        const summary = `🎯 ${unit.name}: ${hits}/${ROUNDS} снарядов попали | Урон: ${totalSalvoDamage}${totalKilled > 0 ? ` | Убито: ${totalKilled}` : ''}`;
         log(summary);
         const mapInfo = document.getElementById('mapInfo');
         if (mapInfo) {
@@ -11549,27 +11687,11 @@ function submitOrder()   {
     // приказ доставляется ЧЕРЕЗ штаб роты: посыльный штаба батальона несёт
     // приказ в штаб роты и возвращается обратно (не тратит время на путь
     // до взвода), а штаб роты передаёт приказ взводу своими каналами связи.
+    // ⚡ Посыльные: если свободных нет — createOrder поставит приказ в очередь,
+    // первый освободившийся посыльный сам отправится на доставку.
     let viaCompany = null;
     if (hardMode.enabled) {
         viaCompany = getRelayCompanyForOrder(hqUnit, unit);
-        const effectiveTarget = viaCompany || unit;
-        const deliveryMethod = checkCommunication(hqUnit, effectiveTarget);
-        if (deliveryMethod === 'messenger') {
-            // Проверяем, есть ли свободные посыльные
-            let hasMessenger = false;
-            if (hqUnit.type === 'battalion_hq') {
-                hasMessenger = hardMode.messengers.battalion.available > 0;
-            } else if (hqUnit.type === 'company_hq') {
-                const companyId = appData.campaign.opUnits.indexOf(hqUnit);
-                const companyMessengers = hardMode.messengers.companies[companyId];
-                hasMessenger = companyMessengers && companyMessengers.available > 0;
-            }
-            
-            if (!hasMessenger) {
-                alert('❌ Нет свободных посыльных для доставки приказа!');
-                return;
-            }
-        }
     }
     
     // === ПРОВЕРКА 6: Проверка маршрута для движения и отступления ===
@@ -11761,7 +11883,7 @@ function submitOrder()   {
     const selectedUnit = appData.campaign.opUnits[toUnitId];
     const subUnitsPanel = document.getElementById('subUnitsPanel');
     
-    if (selectedUnit && (selectedUnit.type === 'company_hq' || selectedUnit.type === 'battalion_hq') && subUnitsPanel && subUnitsPanel.style.display === 'block') {
+    if (selectedUnit && (selectedUnit.type === 'company_hq' || selectedUnit.type === 'battalion_hq' || selectedUnit.type === 'hq') && subUnitsPanel && subUnitsPanel.style.display === 'block') {
         // Собираем отмеченные подчинённые взводы
         const checkedSubUnits = [];
         document.querySelectorAll('#subUnitsList input[type="checkbox"]:checked').forEach(cb => {
@@ -11924,7 +12046,7 @@ function submitOrderQueue() {
     }
     
     const hqIndex = hardMode.hqUnitId !== null ? hardMode.hqUnitId : 
-                    (appData.campaign.opUnits || []).findIndex(u => u.type === 'battalion_hq');
+                    (appData.campaign.opUnits || []).findIndex(u => u.type === 'battalion_hq' || u.type === 'hq');
     
     if (hqIndex === -1) {
         alert('Штаб батальона не найден!');
@@ -12044,7 +12166,7 @@ function renderActiveOrders() {
     const container = document.getElementById('ordersContainer');
     if (!container) return;
     
-    const allOrders = [...hardMode.pendingOrders, ...hardMode.orders];
+    const allOrders = [...(hardMode.messengerQueue || []), ...hardMode.pendingOrders, ...hardMode.orders];
     
     if (allOrders.length === 0) {
         container.innerHTML = '<span style="color:#aaa;">Нет активных приказов</span>';
@@ -12069,6 +12191,7 @@ function renderActiveOrders() {
     
     const statusNames = {
         'pending': '⏳ Ожидает',
+        'queued': '⏸️ В очереди (ждёт посыльного)',
         'delivering': '🚶 Доставляется',
         'active': '✅ Выполняется',
         'completed': '✅ Завершен',
@@ -15586,9 +15709,9 @@ function onOrderTargetUnitChange() {
     }
     
     // ⚡ ШТАБ РОТЫ / ШТАБ БАТАЛЬОНА: показываем подчинённые взводы
-    if (unit.type === 'company_hq' || unit.type === 'battalion_hq') {
+    if (unit.type === 'company_hq' || unit.type === 'battalion_hq' || unit.type === 'hq') {
         // штаб батальона видит взводы дальше (радиус связи 10), штаб роты — 5
-        const subRadius = unit.type === 'battalion_hq' ? 10 : 5;
+        const subRadius = (unit.type === 'battalion_hq' || unit.type === 'hq') ? 10 : 5;
         const subUnits = (appData.campaign.opUnits || []).filter(u => {
             if (u.col === null || u.row === null || u.hidden) return false;
             if (u.type === 'infantry_platoon' || u.type === 'bicycle_platoon' || 
@@ -15709,7 +15832,7 @@ function onOrderTargetUnitChange() {
         log(`✅ ${unit.name} передал приказы взводам.`);
     } else {
         // Ждём свободных посыльных — повторим в конце следующего хода
-        log(`⏳ ${unit.name}: нет свободных посыльных для ${order.subUnitIds.length} взвода(ов). Приказы дойдут позже.`);
+        log(`⏳ ${unit.name}: все посыльные роты в пути — приказ будет передан ${order.subUnitIds.length} взводу(ам), как только кто-то освободится.`);
     }
 }
 function moveOrderPriority(orderIdx, direction) {
@@ -16409,7 +16532,20 @@ function checkVehicleRadioAfterLoss(unit) {
 }
 // ⚡ РЕЖИМ "ОГОНЬ НА ХОДУ" ДЛЯ ТЕХНИКИ
 function checkMovingFire(unit) {
-    if (!unit || !unit.isVehicle) return;
+    if (!unit) return;
+    // ⚡ Техника: isVehicle (группы) ИЛИ тип/название обычного операционного юнита
+    //    (раньше обычные танки/БА без isVehicle не стреляли на ходу)
+    const isVeh = unit.isVehicle || unit.type === 'tank_platoon' ||
+                  unit.type === 'btr_platoon' ||
+                  unit.type === 'sau_battery' ||
+                  unit.type === 'armored_vehicle_platoon' ||
+                  unit.type === 'vehicle' ||
+                  (unit.name && (unit.name.includes('БТР') ||
+                  unit.name.includes('CL/39') ||
+                  unit.name.includes('САУ') ||
+                  unit.name.includes('Бронеавтомобиль') ||
+                  unit.name.includes('Landsverk')));
+    if (!isVeh) return;
     if (unit.isInBattle) return;
     if (unit.ap <= 0) return;
     if (!unit.movedThisTurn) return;
