@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.012 — операция  </title>
+  <title>Боевой модуль v13.015 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.012</h1>
+    <h1>⚔️ Боевой модуль v13.015</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -38,7 +38,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.012 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.015 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -3162,6 +3162,9 @@ function initHardMode() {
         }
     });
     
+    // ⚡ САМОДИАГНОСТИКА ПОЛОВ ПОСЫЛЬНЫХ (исправление старых сохранений)
+    repairMessengerPools();
+    
     // ⚡ СОХРАНЯЕМ
     saveData();
     
@@ -3272,9 +3275,10 @@ function checkCommunication(fromUnit, toUnit) {
     }
     
     // 2. Рация, выданная ИГРОКОМ (распределяются в панели «Связь»):
-    //    прямая связь со штабом батальона на любой дистанции.
+    //    прямая связь со штабом батальона на любой дистанции (в обе стороны).
     //    Может быть выдана штабу роты или взводу.
-    if ((fromUnit.type === 'battalion_hq' || fromUnit.type === 'hq') && hasRadio(toUnit)) {
+    const isBattalionHQ = (u) => u && (u.type === 'battalion_hq' || u.type === 'hq');
+    if ((isBattalionHQ(fromUnit) && hasRadio(toUnit)) || (isBattalionHQ(toUnit) && hasRadio(fromUnit))) {
         return 'radio';
     }
     
@@ -3452,6 +3456,59 @@ function dispatchQueuedOrders() {
         }
     }
     renderActiveOrders();
+}
+
+// ⚡ САМОДИАГНОСТИКА ПОЛОВ ПОСЫЛЬНЫХ
+// В старых версиях была ошибка возврата посыльных (посыльный штаба батальона
+// мог «вернуться» в пул роты и наоборот). Из-за этого в сохранении мог
+// застрять пул: available=0, а приказа, который несли эти посыльные, уже нет.
+// Если посыльный числится «в пути», но доставляемого приказа нет —
+// возвращаем его в пул.
+function repairMessengerPools() {
+    if (!hardMode || !hardMode.messengers || !appData.campaign || !appData.campaign.opUnits) return;
+    
+    const deliveringFrom = (unitId) => (hardMode.pendingOrders || []).filter(o =>
+        o.status === 'delivering' && o.messengerId && o.fromUnitId === unitId
+    ).length;
+    
+    let fixedTotal = 0;
+    
+    // Батальон (все юниты типа battalion_hq/hq делят общий пул)
+    if (hardMode.messengers.battalion) {
+        const expected = (appData.campaign.opUnits || []).filter(u =>
+            u && (u.type === 'battalion_hq' || u.type === 'hq')
+        ).reduce((sum, u) => sum + deliveringFrom(appData.campaign.opUnits.indexOf(u)), 0);
+        const active = hardMode.messengers.battalion.active;
+        if (active.length > expected) {
+            const orphaned = active.length - expected;
+            active.splice(expected);
+            hardMode.messengers.battalion.available = Math.min(
+                hardMode.messengers.battalion.total,
+                hardMode.messengers.battalion.available + orphaned
+            );
+            fixedTotal += orphaned;
+        }
+    }
+    
+    // Роты
+    (appData.campaign.opUnits || []).forEach(u => {
+        if (!u || u.type !== 'company_hq') return;
+        const uid = appData.campaign.opUnits.indexOf(u);
+        const pool = hardMode.messengers.companies[uid];
+        if (!pool) return;
+        const expected = deliveringFrom(uid);
+        if (pool.active.length > expected) {
+            const orphaned = pool.active.length - expected;
+            pool.active.splice(expected);
+            pool.available = Math.min(pool.total, pool.available + orphaned);
+            fixedTotal += orphaned;
+        }
+    });
+    
+    if (fixedTotal > 0) {
+        log(`🔧 Самодиагностика: ${fixedTotal} посыльного(х) числилось в пути без приказов — возвращено в пул.`);
+        saveData();
+    }
 }
 function findParentCompany(platoonUnit) {
     // Ищем штаб роты, которому подчиняется взвод
@@ -9641,7 +9698,7 @@ function backToBattalionAssembly() {
   startBattalionAssembly(appData.campaign.playerFaction);
 }
 function endOperationalTurn() {
-    // ⚡ ИНИЦИАЛИЗАЦИЯ, если не задано (v13.012)
+    // ⚡ ИНИЦИАЛИЗАЦИЯ, если не задано (v13.015)
     if (appData.campaign.opTurnStartTime === undefined) {
         appData.campaign.opTurnStartTime = appData.campaign.currentTime || 0;
     }
@@ -9701,7 +9758,9 @@ function endOperationalTurn() {
     }
 }
 function processOrders() {
-    // 0. Отдаём очереди приказов, ждущих посыльных (страховка на конец хода)
+    // 0. Диагностика полов посыльных + страховочная выдача очереди
+    //    приказов, ждущих посыльных (на конец хода)
+    repairMessengerPools();
     dispatchQueuedOrders();
     
     // 1. Обрабатываем доставку приказов (посыльные)
@@ -10214,10 +10273,9 @@ function executeSeriesOrder(unit, order) {
             break;
             
         case 'hold':
-            // Удержание позиции - действие считается выполненным,
-            // серия может переходить к следующему приказу
-            log(`✋ [${unit.name}] Удерживает позицию.`);
-        currentAction.status = 'completed';
+            // Удержание позиции: применяем состояние удержания (isHolding),
+            // действие считается выполненным, серия переходит к следующему приказу
+            executeHoldOrder(unit, currentAction);
             break;
             
         case 'retreat':
@@ -15774,7 +15832,7 @@ function onOrderTargetUnitChange() {
         log(`✅ ${unit.name} передал приказы взводам.`);
     } else {
         // Ждём свободных посыльных — повторим в конце следующего хода
-        log(`⏳ ${unit.name}: нет свободных посыльных для ${order.subUnitIds.length} взвода(ов). Приказы дойдут позже.`);
+        log(`⏳ ${unit.name}: все посыльные роты в пути — приказ будет передан ${order.subUnitIds.length} взводу(ам), как только кто-то освободится.`);
     }
 }
 function moveOrderPriority(orderIdx, direction) {
