@@ -148,10 +148,9 @@ const BATTALION_PRESETS = {
         { name: "ДОТ Bosh", templateName: "ДОТ Bosh", icon: "images/BeVe/ДОТ Bosh.png" },
         { name: "ДОТ Van Hees", templateName: "ДОТ Van Hees", icon: "images/BeVe/ДОТ Bosh.png" }
       ] },
-      { id: "regimental_artillery", name: "Поддержка полковой артиллерии (2 пушки 75-мм)", templates: [
-        { name: "Пушка 75-мм №1", templateName: "Полковой расчёт 75-мм №1", icon: "images/BeVe/мина 82 1.jpg" },
-        { name: "Пушка 75-мм №2", templateName: "Полковой расчёт 75-мм №2", icon: "images/BeVe/мина 82 2.jpg" }
-      ] },
+      // ⚡ v13.028: у BeVe (как и у AIRF с v13.025) НЕТ полковых пушек
+      //    как юнитов — артиллерийская поддержка = приказ штаба «Арт. обстрел»
+      { id: "artillery_support", name: "Поддержка полковой артиллерии (приказ штаба «Арт. обстрел»)", orderOnly: true },
       { id: "sau_battery", name: "Батарея САУ (3 САУ)", templates: [
         { name: "САУ Brugge №1", templateName: "САУ Brugge №1", icon: "images/BeVe/САУ Brugge №1.jpg"},
         { name: "САУ Brugge №2", templateName: "САУ Brugge №2", icon: "images/BeVe/САУ Brugge №2.jpg"},

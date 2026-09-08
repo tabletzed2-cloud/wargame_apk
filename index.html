@@ -361,7 +361,12 @@ function getPresetSignature(faction) {
   const std = (preset.standard || []).map(u =>
     `${u.type}|${u.name}|${(u.squads || []).map(s => s.name + ':' + (s.templateName || '')).join(';')}`
   ).join('§');
-  const sup = (preset.supportOptions || []).map(o => o.id).join(',');
+  // ⚡ v13.028: в сигнатуру поддержки входят имена шаблонов опции —
+  //    добавление нового юнита (например, «ДОТ Van Hees» в v13.026)
+  //    автоматически пересобирает старые сейвы.
+  const sup = (preset.supportOptions || []).map(o =>
+    o.id + ((o.templates || []).length ? ':' + o.templates.map(t => t.name).join('+') : '')
+  ).join(',');
   return `${faction}::${std}::${sup}`;
 }
 
@@ -797,11 +802,10 @@ function buildOperationalUnits() {
             const suppOptions = (BATTALION_PRESETS[battalion.faction] || {}).supportOptions || [];
             supportIds = suppOptions.filter(o => (battalion.units || []).some(u => u && u.type === o.type)).map(o => o.id);
         }
-        // ⚡ v13.025: миграция старых AIRF-сейвов: полковая артиллерия
-        //    (2 пушки 75-мм) стала приказом штаба — id опции сменился
-        if (battalion.faction === 'A.I.R.F.') {
-            supportIds = supportIds.map(id => id === 'regimental_artillery' ? 'artillery_support' : id);
-        }
+        // ⚡ v13.025/v13.028: миграция старых сейвов (обе фракции):
+        //    полковая артиллерия (2 пушки 75-мм) стала приказом штаба —
+        //    id опции сменился на artillery_support
+        supportIds = supportIds.map(id => id === 'regimental_artillery' ? 'artillery_support' : id);
         // BeVe: ДОТы — основа обороны по сценарию; в старом сейве могли
         // отсутствовать, если игрок не успел их выбрать до обновления.
         const beveSupports = (BATTALION_PRESETS[battalion.faction] || {}).supportOptions || [];
@@ -12657,20 +12661,18 @@ function addOrderWaypoint(col, row) {
 // ⚡ v13.023: АРТОБСТРЕЛ — 4 выстрела кампанией по 20 снарядов (60% точность,
 //    3d6 за попадание), обстрел начинается в СЛЕДУЮЩЕМ ходу.
 //    Урон делится поровну на ВСЕ отряды на гексе (включая свои).
-// ⚡ v13.025: кто может издавать приказ «Арт. обстрел»:
-//    BeVe — всегда (свои полковые пушки + приказ штаба),
-//    AIRF — только если при формировании батальона выбрана опция
+// ⚡ v13.025/v13.028: кто может издавать приказ «Арт. обстрел» (обе фракции):
+//    только если при формировании батальона выбрана опция
 //    «Поддержка полковой артиллерии (приказ штаба «Арт. обстрел»)».
+//    Старые сейвы с regimental_artillery (пушки 75-мм) — обстрел доступен.
 function canIssueArtilleryStrike() {
     const faction = appData.campaign && appData.campaign.playerFaction;
-    if (faction === 'BeVe') return true;
-    if (faction === 'A.I.R.F.') {
-        const b = (appData.campaign.battalions || {}).player;
-        if (b && b.artillerySupport) return true;
-        if (b && (b.supportIds || []).includes('regimental_artillery')) return true; // старые сейвы
-        return false;
-    }
-    return true;
+    if (faction !== 'BeVe' && faction !== 'A.I.R.F.') return true;
+    const b = (appData.campaign.battalions || {}).player;
+    if (b && b.artillerySupport) return true;
+    if (b && (b.supportIds || []).includes('regimental_artillery')) return true; // старые сейвы
+    if (b && (b.supportIds || []).includes('artillery_support')) return true;
+    return false;
 }
 
 function submitArtilleryStrikeOrder() {
