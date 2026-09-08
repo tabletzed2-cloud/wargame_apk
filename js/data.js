@@ -146,7 +146,9 @@ const BATTALION_PRESETS = {
       //    обслуга 7 человек)
       { id: "dots", name: "Расчёты ДОТов и ДОТы (стационарные)", templates: [
         { name: "ДОТ Bosh", templateName: "ДОТ Bosh", icon: "images/BeVe/ДОТ Bosh.png" },
-        { name: "ДОТ Van Hees", templateName: "ДОТ Van Hees", icon: "images/BeVe/ДОТ Bosh.png" }
+        // ⚡ v13.030: свой файл иконки (если в репозитории его нет — на карте
+        //    автоматически подставляется иконка «ДОТ Bosh.png»)
+        { name: "ДОТ Van Hees", templateName: "ДОТ Van Hees", icon: "images/BeVe/ДОТ Van Hees.png" }
       ] },
       // ⚡ v13.028: у BeVe (как и у AIRF с v13.025) НЕТ полковых пушек
       //    как юнитов — артиллерийская поддержка = приказ штаба «Арт. обстрел»
@@ -347,19 +349,20 @@ const GROUP_ICONS = {
     'default_5': 'images/groups/default_5.png',
 };
 // Иконки меток
-// ⚡ v13.029: все 8 пропавших файлов иконок восстановлены (сгенерированы заново);
-//    fallback — нормальные эмодзи (пока картинка грузится), а не «??»
+// ⚡ v13.030: сгенерированные иконки удалены (по запросу) — метки рисуются
+//    эмодзи-fallback'ами (как окопы/здания/лес); если появится свой PNG —
+//    достаточно заполнить поле icon у нужной метки.
 const markerIconMap = {
-  'detected': { icon: 'images/marker_detected.png', fallback: '👁️', width: 30, height: 30 },
-  'noise': { icon: 'images/marker_noise.png', fallback: '🔊', width: 30, height: 30 },
-  'artillery': { icon: 'images/marker_artillery.png', fallback: '💥', width: 30, height: 30 },
+  'detected': { icon: null, fallback: '👁️', width: 30, height: 30 },
+  'noise': { icon: null, fallback: '🔊', width: 30, height: 30 },
+  'artillery': { icon: null, fallback: '💥', width: 30, height: 30 },
   'fireField': { icon: 'images/BeVe/горящее поле.png', fallback: '🔥', width: 30, height: 30 },
   'bicyclePark': { icon: 'images/BeVe/велостоянка метка.png', fallback: '🚲', width: 30, height: 30 },
-  'ammoPoint': { icon: 'images/marker_ammo.png', fallback: '📦', width: 30, height: 30 },
-  'destroyedVehicle': { icon: 'images/marker_destroyed_vehicle.png', fallback: '🔥', width: 30, height: 30 },
-  'destroyedSquadFriendly': { icon: 'images/marker_destroyed_squad_friendly.png', fallback: '💀', width: 30, height: 30 },
-  'destroyedSquadEnemy': { icon: 'images/marker_destroyed_squad_enemy.png', fallback: '☠️', width: 30, height: 30 },
-  'dot': { icon: 'images/marker_dot.png', fallback: '🏰', width: 30, height: 30 },
+  'ammoPoint': { icon: null, fallback: '📦', width: 30, height: 30 },
+  'destroyedVehicle': { icon: null, fallback: '🔥', width: 30, height: 30 },
+  'destroyedSquadFriendly': { icon: null, fallback: '💀', width: 30, height: 30 },
+  'destroyedSquadEnemy': { icon: null, fallback: '☠️', width: 30, height: 30 },
+  'dot': { icon: null, fallback: '🏰', width: 30, height: 30 },
   'trenches': { icon: null, fallback: '🕳️', width: 30, height: 30 },
   'building': { icon: null, fallback: '🏠', width: 30, height: 30 },
   'forest': { icon: null, fallback: '🌲', width: 30, height: 30 },

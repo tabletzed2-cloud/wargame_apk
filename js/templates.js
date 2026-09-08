@@ -170,7 +170,7 @@ const SQUAD_TEMPLATES = [
           ]},
           // ⚡ v13.026: ДОТ Van Hees — 1 ПТО-пушка + 1 пулемёт, обслуга 7 человек
           //    (Лейтенант, Заместитель, расчёт ПТО 3 человека, расчёт пулемёта 2 человека)
-          {"name":"ДОТ Van Hees","faction":"BeVe","baseMorale":10,"currentMorale":10,"icon":"images/BeVe/ДОТ Bosh.png","ammoSmall":120,"ammoOrdnance":50,"grenades":0,"fighters":[
+          {"name":"ДОТ Van Hees","faction":"BeVe","baseMorale":10,"currentMorale":10,"icon":"images/BeVe/ДОТ Van Hees.png","ammoSmall":120,"ammoOrdnance":50,"grenades":0,"fighters":[
             {"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},
             {"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},
             {"name":"Сержант (ПТО)","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},
@@ -358,29 +358,6 @@ const SQUAD_TEMPLATES = [
           ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
         
-        // ⚡ v13.023: полковая артиллерия (поддержка — обе фракции)
-        {"name":"Полковой расчёт 75-мм №1","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/мина 82 1.jpg",
-         "fighters":[{"name":"Наводчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},
-                     {"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},
-                     {"name":"Водитель","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],
-         "crewInstances":[{"weaponName":"Полковое орудие 75-мм","fighterIndices":[0,1,2],"active":true}],
-         "ammoSmall":32,"ammoOrdnance":12,"grenades":6},
-        {"name":"Полковой расчёт 75-мм №2","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/мина 82 2.jpg",
-         "fighters":[{"name":"Наводчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},
-                     {"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},
-                     {"name":"Водитель","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],
-         "crewInstances":[{"weaponName":"Полковое орудие 75-мм","fighterIndices":[0,1,2],"active":true}],
-         "ammoSmall":32,"ammoOrdnance":12,"grenades":6},
-        {"name":"Полковой расчёт 75-мм №1","faction":"A.I.R.F.","baseMorale":3,"currentMorale":3,"icon":null,
-         "fighters":[{"name":"Наводчик","weapon":"Винтовка Vz.24","hp":3,"maxHp":3,"isCommander":true},
-                     {"name":"Заряжающий","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},
-                     {"name":"Водитель","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],
-         "crewInstances":[{"weaponName":"Полковое орудие 75-мм","fighterIndices":[0,1,2],"active":true}],
-         "ammoSmall":32,"ammoOrdnance":12,"grenades":6},
-        {"name":"Полковой расчёт 75-мм №2","faction":"A.I.R.F.","baseMorale":3,"currentMorale":3,"icon":null,
-         "fighters":[{"name":"Наводчик","weapon":"Винтовка Vz.24","hp":3,"maxHp":3,"isCommander":true},
-                     {"name":"Заряжающий","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},
-                     {"name":"Водитель","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],
-         "crewInstances":[{"weaponName":"Полковое орудие 75-мм","fighterIndices":[0,1,2],"active":true}],
-         "ammoSmall":32,"ammoOrdnance":12,"grenades":6}
+        // ⚡ v13.030: шаблоны «Полковой расчёт 75-мм» удалены — артподдержка
+        //    обеих фракций теперь только приказ штаба «Арт. обстрел» (v13.025/v13.028)
 ];

@@ -159,7 +159,10 @@ console.log('\n== I. v13.026: ДОТ Van Hees ==');
     if (dotsUnit) {
         const names = dotsUnit.squads.map(q => q.name).join(', ');
         ok(names.includes('ДОТ Bosh') && names.includes('ДОТ Van Hees'), 'I8: в составе оба ДОТа', names);
-        ok(dotsUnit.squads.every(q => q.icon === 'images/BeVe/ДОТ Bosh.png'), 'I9: иконка обоих ДОТов — ДОТ Bosh.png');
+        const boshSq = dotsUnit.squads.find(q => q.name === 'ДОТ Bosh');
+        const heesSq = dotsUnit.squads.find(q => q.name === 'ДОТ Van Hees');
+        ok(boshSq.icon === 'images/BeVe/ДОТ Bosh.png' && heesSq.icon === 'images/BeVe/ДОТ Van Hees.png',
+            'I9: иконки — свой файл у каждого ДОТа (Van Hees: свой PNG, fallback на карте — Bosh)');
     }
     ok(s.evalCtx('isStaticOpUnit({ type: "dots", name: "ДОТ Van Hees" })') === true, 'I10: Van Hees — стационарный');
 }
@@ -266,20 +269,26 @@ console.log('\n== F. Regression v13.023/24: арт. обстрел + ворон�
 }
 
 // ============================================================
-console.log('\n== M. v13.029: иконки меток существуют в репозитории ==');
+console.log('\n== M. v13.030: иконки меток — без битых ссылок ==');
 {
     const path2 = require('path');
     const root = path2.resolve(__dirname, '..');
     const ad = freshAppData();
     const s = makeSandbox(ad);
     const map = s.evalCtx('markerIconMap');
+    // M1: каждая установленная icon ведёт на существующий файл (или icon = null → эмодзи)
     let missing = [];
     Object.keys(map).forEach(k => {
         if (map[k].icon && !fs.existsSync(path2.join(root, map[k].icon))) missing.push(map[k].icon);
     });
-    ok(missing.length === 0, 'M1: все файлы иконок меток на месте', missing.join(', '));
-    const badFb = Object.keys(map).filter(k => /⁇|^\?\?$/.test(map[k].fallback) || map[k].fallback === '??');
+    ok(missing.length === 0, 'M1: все установленные файлы иконок меток на месте', missing.join(', '));
+    // M2: fallback — нормальный эмодзи, а не «??»
+    const badFb = Object.keys(map).filter(k => map[k].fallback === '??' || map[k].fallback === '???');
     ok(badFb.length === 0, 'M2: fallback без «??» (эмодзи)', JSON.stringify(badFb));
+    // M3: сгенерированные v13.029 иконки удалены — у меток icon = null
+    const nullIcons = ['detected', 'noise', 'artillery', 'ammoPoint', 'destroyedVehicle', 'destroyedSquadFriendly', 'destroyedSquadEnemy', 'dot'];
+    const wrong = nullIcons.filter(k => map[k].icon !== null);
+    ok(wrong.length === 0, 'M3: 8 сгенерированных иконок удалены (icon = null, метка = эмодзи)', JSON.stringify(wrong));
 }
 
 console.log('\n====================================');
