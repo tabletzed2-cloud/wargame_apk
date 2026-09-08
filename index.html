@@ -15455,6 +15455,12 @@ function executeOpShoot(targets, distance) {
         return;
     }
     
+    // ⚡ v13.027: BeVe — +20% точности, если юнит в 2 гексах от штаба
+    const hqModMg = getHqSupportAccuracyMod(shooter);
+    if (hqModMg > 1) {
+        log(`🎖️ [${shooter.name}]: поддержка штаба (в радиусе 2 гексов) — точность +20%.`);
+    }
+    
     // Отфильтровываем только пехоту (не бронетехнику)
     let infantryTargets = targets;
     if (opShootingState.weaponType === 'mg') {
@@ -15485,7 +15491,8 @@ function executeOpShoot(targets, distance) {
                 (v.squads && v.squads[0] && v.squads[0].fighters && v.squads[0].fighters.some(f => f.hp > 0));
             if (!crewAlive) continue;
             const shots = 6;
-            const hc = distance === 1 ? 0.35 : (distance === 2 ? 0.25 : 0.15);
+            // ⚡ v13.027: бонус штаба BeVe (+20%)
+            const hc = Math.min(1, (distance === 1 ? 0.35 : (distance === 2 ? 0.25 : 0.15)) * hqModMg);
             let h = 0;
             for (let i = 0; i < shots; i++) {
                 if (Math.random() < hc) { h++; totalDamage += rollD6(); }
@@ -15551,6 +15558,8 @@ function executeOpShoot(targets, distance) {
                                 else if (distance === 2) hitChance = 0.25;
                                 else if (distance >= 3) hitChance = 0.15;
                                 else hitChance = 0.15;
+                                // ⚡ v13.027: бонус штаба BeVe (+20%)
+                                hitChance = Math.min(1, hitChance * hqModMg);
                                 
                                 const totalShots = 12;
                                 let hits = 0;
@@ -16181,6 +16190,27 @@ function showWeaponChoiceDialog(targets, distance) {
 }
 
 // Выполнить обстрел ПТО из диалога
+// ⚡ v13.027: бонус BeVe — подразделения в радиусе 2 гексов от штаба
+//    батальона получают +20% к точности (весь огонь по карте кампании:
+//    ПТО, пулемёты, огонь по готовности, огонь на ходу).
+function getHqSupportAccuracyMod(unit) {
+    if (!unit || unit.col === null || unit.row === null) return 1;
+    const isEnemySide = (appData.campaign.enemyOpUnits || []).includes(unit);
+    const faction = isEnemySide
+        ? (unit.faction || 'A.I.R.F.')
+        : (appData.campaign.playerFaction || 'BeVe');
+    if (faction !== 'BeVe') return 1;
+    const list = isEnemySide
+        ? (appData.campaign.enemyOpUnits || [])
+        : (appData.campaign.opUnits || []);
+    const hq = list.find(u => u && !u.isDestroyed && u.col !== null && u.row !== null &&
+        (u.type === 'battalion_hq' || u.type === 'hq' ||
+         (u.name && u.name.includes('Штаб') && u.name.includes('Батальон'))));
+    if (!hq || hq === unit) return 1;
+    if (getOpHexDistance(unit.col, unit.row, hq.col, hq.row) > 2) return 1;
+    return 1.2;
+}
+
 function executeOpShootAt(targets, distance) {
     const shooter = opShootingState.shooter;
     if (!shooter) {
@@ -16238,6 +16268,13 @@ function executeOpShootAt(targets, distance) {
     // ⚡ v13.020: таблицы пробития в data.js рассчитаны на дистанции 1–30 (мм).
     //    Ключи 35/38/40 в таблицах отсутствуют → пробитие было 0 уже с 4-го гекса.
     penetrationKey = Math.min(penetrationKey, 30);
+    
+    // ⚡ v13.027: BeVe — +20% точности, если юнит в 2 гексах от штаба
+    const hqModAt = getHqSupportAccuracyMod(shooter);
+    if (hqModAt > 1) {
+        hitChance = Math.min(1, hitChance * hqModAt);
+        log(`🎖️ [${shooter.name}]: поддержка штаба (в радиусе 2 гексов) — точность +20% (${Math.round(hitChance * 100)}%).`);
+    }
     
     // Определяем пробиваемость
     let penetration = 0;
