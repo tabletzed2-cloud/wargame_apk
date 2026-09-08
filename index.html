@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.020 — операция  </title>
+  <title>Боевой модуль v13.021 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.020</h1>
+    <h1>⚔️ Боевой модуль v13.021</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -38,7 +38,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.020 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.021 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -470,7 +470,10 @@ if (opt.templates) {
     squads
   });
 } else if (opt.template) {
-  const squad = cloneTemplate(faction, opt.name, opt.template, opt.icon || null);
+  // ⚡ v13.021: юнит получает имя ТЕМПЛАТА (например, «ДОT Bosh»),
+  //    а не общее название опции («Расчёты ДОТов и ДОТы (стационарные)») —
+  //    в меню размещения должен быть «ДОT Bosh».
+  const squad = cloneTemplate(faction, opt.template, opt.template, opt.icon || null);
   battalion.units.push({
     type: opt.id,
     name: opt.name,
@@ -741,9 +744,10 @@ updateOperationalTimeDisplay();
 //    версия поднимается — и старые сейвы пересобирают операционные юниты
 //    (позиции сохранившихся юнитов переносятся по имени).
 //    v3: расчёты ПТО снова отдельные юниты (не одна батарея).
+//    v4: юнит ДОТ называется по шаблону («ДОT Bosh»).
 function getBattalionSignature(battalion) {
     if (!battalion || !battalion.units || battalion.units.length === 0) return '';
-    const OP_LAYOUT_VERSION = 3;
+    const OP_LAYOUT_VERSION = 4;
     return OP_LAYOUT_VERSION + '::' + battalion.units.map(u => (u.name || '') + ':' + (u.type || '')).sort().join('|');
 }
 
@@ -1434,12 +1438,17 @@ if (!appData.campaign.opMapGrid || Object.keys(appData.campaign.opMapGrid).lengt
 }
 
   // Настройка размеров canvas
+  // ⚡ v13.021: Hi-DPI (devicePixelRatio) — иначе на телефонах карта,
+  //    фоновое изображение и иконки юнитов в низком качестве.
   const zoom = appData.campaign.opZoomLevel || 1;
   const size = OP_HEX_SIZE * zoom;
-  canvas.width = (OP_MAP_COLS + 0.5) * Math.sqrt(3) * size;
-  canvas.height = (OP_MAP_ROWS + 0.5) * 1.5 * size;
-  canvas.style.width = canvas.width + 'px';
-  canvas.style.height = canvas.height + 'px';
+  const dprOp = window.devicePixelRatio || 1;
+  const opCssW = (OP_MAP_COLS + 0.5) * Math.sqrt(3) * size;
+  const opCssH = (OP_MAP_ROWS + 0.5) * 1.5 * size;
+  canvas.width = Math.round(opCssW * dprOp);
+  canvas.height = Math.round(opCssH * dprOp);
+  canvas.style.width = opCssW + 'px';
+  canvas.style.height = opCssH + 'px';
 
   // Обработчик кликов
   canvas.onclick = handleOpMapClick;
@@ -1460,19 +1469,29 @@ if (!appData.campaign.opMapGrid || Object.keys(appData.campaign.opMapGrid).lengt
 function getOpHexTypes(col, row) {
     const key = `${col},${row}`;
     const grid = appData.campaign.opMapGrid;
-    if (!grid || !grid[key]) return ['grass'];
-    
-    const types = Array.isArray(grid[key]) ? grid[key] : [grid[key]];
-    
+    const cell = grid ? grid[key] : null;
+    if (!cell) return ['grass'];
+
+    // ⚡ v13.021: ячейка может быть МАССИВОМ типов (формат valencia_terrain.json)
+    //    ИЛИ ОБЪЕКТОМ {types:[...], markers:[...]} (гекс с метками).
+    let types;
+    if (Array.isArray(cell)) {
+        types = cell.slice();
+    } else if (cell && Array.isArray(cell.types)) {
+        types = cell.types.slice();
+    } else {
+        types = [cell];
+    }
+
     // Добавляем метки как дополнительные типы (для защиты)
-    if (grid[key].markers && grid[key].markers.length > 0) {
-        grid[key].markers.forEach(marker => {
+    if (cell && Array.isArray(cell.markers) && cell.markers.length > 0) {
+        cell.markers.forEach(marker => {
             if (!types.includes(marker)) {
                 types.push(marker);
             }
         });
     }
-    
+
     return types;
 }
 
@@ -1481,8 +1500,24 @@ function hasOpTerrain(col, row, terrainType) {
 }
       
 
+// ⚡ v13.021: ячейка гекса в объектной форме {types, markers}
+//    (для меток местности). Местность гекса при этом сохраняется.
+function ensureOpHexCell(key) {
+    const grid = appData.campaign.opMapGrid;
+    let cell = grid[key];
+    if (!cell) {
+        cell = { types: ['grass'], markers: [] };
+    } else if (Array.isArray(cell)) {
+        cell = { types: cell.slice(), markers: [] };
+    }
+    if (!Array.isArray(cell.types) || cell.types.length === 0) cell.types = ['grass'];
+    if (!Array.isArray(cell.markers)) cell.markers = [];
+    grid[key] = cell;
+    return cell;
+}
+
 function getOpHexNeighbors(col, row) {
-  const parity = row % 2;
+    const parity = row % 2;
   const offsets = parity === 0
     ? [[1,0], [0,1], [-1,1], [-1,0], [-1,-1], [0,-1]]
     : [[1,0], [1,1], [0,1], [-1,0], [0,-1], [1,-1]];
@@ -1503,6 +1538,9 @@ function redrawOperationalMap() {
     const canvas = document.getElementById('opMapCanvas');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
+    // ⚡ v13.021: Hi-DPI — рисуем в CSS-пикселях на dpr-масштабированном канвасе
+    const dprOp = window.devicePixelRatio || 1;
+    ctx.setTransform(dprOp, 0, 0, dprOp, 0, 0);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     const zoom = appData.campaign.opZoomLevel || 1;
@@ -1515,8 +1553,9 @@ function redrawOperationalMap() {
             loadedOpMapImage.src = appData.campaign.opMapImage;
         }
         if (loadedOpMapImage.complete && loadedOpMapImage.naturalWidth > 0) {
-            const baseWidth = canvas.width;
-            const baseHeight = canvas.height;
+            // ⚡ v13.021: размеры в CSS-пикселях (канвас физически больше в dpr раз)
+            const baseWidth = canvas.width / dprOp;
+            const baseHeight = canvas.height / dprOp;
             const scaleX = appData.campaign.opMapScaleX || 1;
             const scaleY = appData.campaign.opMapScaleY || 1;
             const offsetX = appData.campaign.opMapOffsetX || 0;
@@ -1951,8 +1990,11 @@ function handleOpMapClick(e) {
   if (!canvas) return;
 
   const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
+  // ⚡ v13.021: канвас масштабирован на devicePixelRatio — переводим
+  //    координаты клика в CSS-пиксели (система координат отрисовки)
+  const dprOp = window.devicePixelRatio || 1;
+  const scaleX = (canvas.width / dprOp) / rect.width;
+  const scaleY = (canvas.height / dprOp) / rect.height;
   const clickX = (e.clientX - rect.left) * scaleX;
   const clickY = (e.clientY - rect.top) * scaleY;
 
@@ -2176,15 +2218,10 @@ function handleOpMapClick(e) {
     const markerSelect = document.getElementById('opMarkerTypeSelect');
     const markerType = markerSelect ? markerSelect.value : 'trenches';
     
-    // Получаем текущие маркеры гекса
-    if (!appData.campaign.opMapGrid[closestKey]) {
-        appData.campaign.opMapGrid[closestKey] = {};
-    }
-    if (!appData.campaign.opMapGrid[closestKey].markers) {
-        appData.campaign.opMapGrid[closestKey].markers = [];
-    }
-    
-    const markers = appData.campaign.opMapGrid[closestKey].markers;
+    // ⚡ v13.021: метка ставится С ХРАНЕНИЕМ МЕСТНОСТИ гекса
+    //    (раньше клетка перезаписывалась и тип местности терялся).
+    const cell = ensureOpHexCell(closestKey);
+    const markers = cell.markers;
     const idx = markers.indexOf(markerType);
     
     if (idx !== -1) {
@@ -2195,6 +2232,11 @@ function handleOpMapClick(e) {
         // Добавляем метку
         markers.push(markerType);
         document.getElementById('mapInfo').innerHTML = `✅ Метка "${markerType}" установлена на гекс ${closestKey}`;
+    }
+    
+    // Если меток не осталось — возвращаем компактный формат (массив типов)
+    if (markers.length === 0) {
+        appData.campaign.opMapGrid[closestKey] = cell.types.slice();
     }
     
     saveData();
@@ -3933,6 +3975,10 @@ function startTacticalBattle(playerUnits, enemyUnits) {
             currentMorale: 5,
             baseMorale: 5,
             isVehicle: true,
+            // ⚡ v13.021: icon — для отрисовки на тактической карте
+            //    (раньше был только vehicleIcon, который карта не читала —
+            //    иконки техники не отображались у обеих фракций).
+            icon: v.icon || u.icon || null,
             vehicleIcon: v.icon || u.icon || null,
             opUnitName: u.name
         });
@@ -4345,7 +4391,7 @@ function syncBattleLossesToCampaign(battleId) {
                     const hexKey = `${unit.col},${unit.row}`;
                     if (appData.campaign.opMapGrid) {
                         if (!appData.campaign.opMapGrid[hexKey]) {
-                            appData.campaign.opMapGrid[hexKey] = {};
+                            appData.campaign.opMapGrid[hexKey] = { types: ['grass'], markers: [] }; // ⚡ v13.021: с сохранением формата {types, markers}
                         }
                         if (!appData.campaign.opMapGrid[hexKey].markers) {
                             appData.campaign.opMapGrid[hexKey].markers = [];
@@ -4427,7 +4473,7 @@ function syncBattleLossesToCampaign(battleId) {
                     const hexKey = `${unit.col},${unit.row}`;
                     if (appData.campaign.opMapGrid) {
                         if (!appData.campaign.opMapGrid[hexKey]) {
-                            appData.campaign.opMapGrid[hexKey] = {};
+                            appData.campaign.opMapGrid[hexKey] = { types: ['grass'], markers: [] }; // ⚡ v13.021: с сохранением формата {types, markers}
                         }
                         if (!appData.campaign.opMapGrid[hexKey].markers) {
                             appData.campaign.opMapGrid[hexKey].markers = [];
@@ -8781,15 +8827,37 @@ async function loadInfoFile(filename, containerId) {
   }
 }
       
+    // ⚡ v13.021: КЭШ ИКОНОК ТАКТИЧЕСКОЙ КАРТЫ.
+    //    Раньше рисовался new Image() БЕЖАЛО загрузки — иконка не
+    //    успевала загрузиться и drawImage рисовал пустое. Теперь:
+    //    картинка кэшируется, после onload — перерисовка.
+    const tacticalSquadIconCache = {};
+    function getTacticalIconImage(src) {
+        if (!src) return null;
+        if (!tacticalSquadIconCache[src]) {
+            const img = new Image();
+            img.onload = () => { try { redrawMap(); } catch (e) {} };
+            img.onerror = () => { tacticalSquadIconCache[src] = { complete: true, naturalWidth: 0 }; };
+            img.src = src;
+            tacticalSquadIconCache[src] = img;
+        }
+        return tacticalSquadIconCache[src];
+    }
+
     function initMap() {
       const canvas = document.getElementById('gameMap');
       if (!canvas) return;
       
       const size = appData.map.baseHexSize * appData.map.zoomLevel;
-canvas.width = (TACTICAL_MAP_SIZE + 0.5) * Math.sqrt(3) * size;
-canvas.height = (TACTICAL_MAP_SIZE + 0.5) * 1.5 * size;
-canvas.style.width = canvas.width + 'px';
-canvas.style.height = canvas.height + 'px';
+      // ⚡ v13.021: Hi-DPI (devicePixelRatio) — иначе на телефонах карта
+      //    и иконки в низком качестве (канвас растягивается браузером).
+      const dprT = window.devicePixelRatio || 1;
+      const cssW = (TACTICAL_MAP_SIZE + 0.5) * Math.sqrt(3) * size;
+      const cssH = (TACTICAL_MAP_SIZE + 0.5) * 1.5 * size;
+      canvas.width = Math.round(cssW * dprT);
+      canvas.height = Math.round(cssH * dprT);
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
       
       // Инициализируем сетку, если пустая
       if (Object.keys(appData.map.grid).length === 0) {
@@ -8835,6 +8903,9 @@ canvas.style.height = canvas.height + 'px';
       if (!canvas) return;
       
       const ctx = canvas.getContext('2d');
+      // ⚡ v13.021: Hi-DPI — рисуем в CSS-пикселях на dpr-масштабированном канвасе
+      const dprT = window.devicePixelRatio || 1;
+      ctx.setTransform(dprT, 0, 0, dprT, 0, 0);
       const size = appData.map.baseHexSize * appData.map.zoomLevel;
       const gridCols = TACTICAL_MAP_SIZE, gridRows = TACTICAL_MAP_SIZE;
       
@@ -8949,10 +9020,18 @@ if (squadIds.length > 0) {
     const drawY = y - size * 0.1;
     
     // Рисуем иконку отряда
+    // ⚡ v13.021: иконки через кэш (до загрузки — символ, после — перерисовка)
     if (squad.icon) {
-      const img = new Image();
-      img.src = squad.icon;
-      ctx.drawImage(img, drawX - iconSize/2, drawY - iconSize/2, iconSize, iconSize);
+      const img = getTacticalIconImage(squad.icon);
+      if (img && img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, drawX - iconSize/2, drawY - iconSize/2, iconSize, iconSize);
+      } else {
+        ctx.fillStyle = '#f1c40f';
+        ctx.font = (iconSize * 0.8) + 'px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('⚔️', drawX, drawY);
+      }
     } else {
       ctx.fillStyle = '#f1c40f';
       ctx.font = (iconSize * 0.8) + 'px Arial';
@@ -9002,10 +9081,18 @@ if (squadIds.length > 0) {
           const drawY = y + size * 0.2;
           
           // Если у врага есть иконка — рисуем её, иначе рисуем череп ☠️
+          // ⚡ v13.021: иконки через кэш (до загрузки — символ, после — перерисовка)
           if (enemy.icon) {
-            const img = new Image();
-            img.src = enemy.icon;
-            ctx.drawImage(img, drawX - iconSize/2, drawY - iconSize/2, iconSize, iconSize);
+            const img = getTacticalIconImage(enemy.icon);
+            if (img && img.complete && img.naturalWidth > 0) {
+              ctx.drawImage(img, drawX - iconSize/2, drawY - iconSize/2, iconSize, iconSize);
+            } else {
+              ctx.fillStyle = '#e74c3c';
+              ctx.font = (iconSize * 0.8) + 'px Arial';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText('☠️', drawX, drawY);
+            }
             // Подпись: название врага (первые 5 букв)
 if (enemy.name) {
   ctx.fillStyle = '#fff';
@@ -9070,8 +9157,11 @@ markers.forEach(type => {
     // ========== ОБРАБОТЧИКИ КЛИКОВ (ВОССТАНОВЛЕНЫ) ==========
     function handleCanvasClick(clientX, clientY, canvas) {
       const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
+      // ⚡ v13.021: канвас масштабирован на devicePixelRatio — переводим
+      //    координаты клика в CSS-пиксели (система координат отрисовки)
+      const dprT = window.devicePixelRatio || 1;
+      const scaleX = (canvas.width / dprT) / rect.width;
+      const scaleY = (canvas.height / dprT) / rect.height;
       const mx = (clientX - rect.left) * scaleX;
       const my = (clientY - rect.top) * scaleY;
       
@@ -13269,13 +13359,23 @@ function checkAllUnitsDetection() {
 function openTerrainEditor(hexKey) {
   const typesList = ['grass', 'forest', 'road', 'hill', 'water', 'swamp_passable', 'swamp_impassable', 'bushes', 'rocks', 'trenches'];
   const current = appData.campaign.opMapGrid[hexKey] || ['grass'];
-  // Берём первый тип как текущий
-  const currentType = Array.isArray(current) ? current[0] : current;
+  // ⚡ v13.021: тип и метки читаем в обоих форматах клетки (массив / {types, markers})
+  const currentTypes = Array.isArray(current) ? current : (current && Array.isArray(current.types) ? current.types : ['grass']);
+  const currentMarkers = (current && !Array.isArray(current) && Array.isArray(current.markers)) ? current.markers : [];
+  const currentType = currentTypes[0];
   
   let html = '';
   typesList.forEach(type => {
     const checked = (type === currentType) ? 'checked' : '';
     html += `<div><label><input type="radio" name="terrainType" value="${type}" ${checked}> ${type}</label></div>`;
+  });
+  // ⚡ v13.021: метки местности редактируются в том же окне
+  const markersList = ['trenches', 'building', 'forest', 'bushes', 'rocks', 'bicyclePark'];
+  const markerNames = { trenches: '🕳️ Окопы', building: '🏠 Здание', forest: '🌲 Лес', bushes: '🌳 Кусты', rocks: '🪨 Камни', bicyclePark: '🚲 Велостоянка' };
+  html += `<hr style="border-color:#555; margin:8px 0;"><div><strong style="color:#f1c40f;">Метки на гексе:</strong></div>`;
+  markersList.forEach(m => {
+    const checked = currentMarkers.includes(m) ? 'checked' : '';
+    html += `<div><label><input type="checkbox" name="hexMarker" value="${m}" ${checked}> ${markerNames[m] || m}</label></div>`;
   });
   html += `<button onclick="saveTerrainEditor('${hexKey}')">Сохранить</button>`;
   document.getElementById('terrainEditorContent').innerHTML = html;
@@ -13286,8 +13386,13 @@ function saveTerrainEditor(hexKey) {
   const selected = document.querySelector('input[name="terrainType"]:checked');
   if (!selected) return;
   const type = selected.value;
-  // Сохраняем как массив из одного элемента
-  appData.campaign.opMapGrid[hexKey] = [type];
+  // ⚡ v13.021: метки гекса сохраняются вместе с местностью
+  const checkedMarkers = Array.from(document.querySelectorAll('input[name="hexMarker"]:checked')).map(i => i.value);
+  if (checkedMarkers.length > 0) {
+    appData.campaign.opMapGrid[hexKey] = { types: [type], markers: checkedMarkers };
+  } else {
+    appData.campaign.opMapGrid[hexKey] = [type];
+  }
   saveData();
   closeTerrainEditor();
   redrawOperationalMap();
@@ -13636,6 +13741,54 @@ function exportTerrainMap() {
   a.click();
   URL.revokeObjectURL(url);
   document.getElementById('mapInfo').innerHTML = 'Карта местности экспортирована.';
+}
+
+// ⚡ v13.021: КОД КАРТЫ — компактный JSON текущей карты (местность + метки)
+//    для вставки в maps/valencia_terrain.json (метки «зашиваются» в сценарий).
+function buildOpMapCode() {
+  const grid = appData.campaign.opMapGrid;
+  if (!grid) return '';
+  const out = {};
+  Object.keys(grid).forEach(key => {
+    const cell = grid[key];
+    if (Array.isArray(cell)) {
+      out[key] = cell;
+    } else if (cell && Array.isArray(cell.markers)) {
+      if (cell.markers.length > 0) {
+        out[key] = { types: cell.types, markers: cell.markers };
+      } else {
+        out[key] = cell.types;
+      }
+    }
+  });
+  return JSON.stringify(out, null, 1);
+}
+
+function showMapCodeModal() {
+  const code = buildOpMapCode();
+  if (!code) {
+    alert('Нет данных карты.');
+    return;
+  }
+  document.getElementById('mapCodeTextarea').value = code;
+  document.getElementById('mapCodeStatus').textContent = '';
+  document.getElementById('mapCodeModal').style.display = 'block';
+}
+
+function copyMapCode() {
+  const ta = document.getElementById('mapCodeTextarea');
+  const status = document.getElementById('mapCodeStatus');
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, 999999999);
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) {}
+  if (!ok && navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ta.value).then(() => {
+      status.textContent = '✅ Скопировано!';
+    }).catch(() => {});
+  }
+  status.textContent = ok ? '✅ Скопировано! Вставьте в maps/valencia_terrain.json' : 'Копирую... (не сработало? выделите код вручную)';
 }
 
 // Импорт карты местности из JSON-файла
@@ -15780,7 +15933,7 @@ function executeOpShootAt(targets, distance) {
                         const hexKey = `${target.col},${target.row}`;
                         if (appData.campaign.opMapGrid) {
                             if (!appData.campaign.opMapGrid[hexKey]) {
-                                appData.campaign.opMapGrid[hexKey] = {};
+                                appData.campaign.opMapGrid[hexKey] = { types: ['grass'], markers: [] }; // ⚡ v13.021: с сохранением формата {types, markers}
                             }
                             if (!appData.campaign.opMapGrid[hexKey].markers) {
                                 appData.campaign.opMapGrid[hexKey].markers = [];
@@ -16361,7 +16514,7 @@ function removeSelectedEnemyOpUnit() {
             const hexKey = `${selectedEnemy.col},${selectedEnemy.row}`;
             if (appData.campaign.opMapGrid) {
                 if (!appData.campaign.opMapGrid[hexKey]) {
-                    appData.campaign.opMapGrid[hexKey] = {};
+                    appData.campaign.opMapGrid[hexKey] = { types: ['grass'], markers: [] }; // ⚡ v13.021: с сохранением формата {types, markers}
                 }
                 if (!appData.campaign.opMapGrid[hexKey].markers) {
                     appData.campaign.opMapGrid[hexKey].markers = [];
@@ -16401,7 +16554,7 @@ function removeSelectedOpUnit() {
             const hexKey = `${selectedUnit.col},${selectedUnit.row}`;
             if (appData.campaign.opMapGrid) {
                 if (!appData.campaign.opMapGrid[hexKey]) {
-                    appData.campaign.opMapGrid[hexKey] = {};
+                    appData.campaign.opMapGrid[hexKey] = { types: ['grass'], markers: [] }; // ⚡ v13.021: с сохранением формата {types, markers}
                 }
                 if (!appData.campaign.opMapGrid[hexKey].markers) {
                     appData.campaign.opMapGrid[hexKey].markers = [];
@@ -18228,7 +18381,7 @@ function executeDigInOrder(unit, order) {
         const hexKey = `${unit.col},${unit.row}`;
         if (appData.campaign.opMapGrid) {
             if (!appData.campaign.opMapGrid[hexKey]) {
-                appData.campaign.opMapGrid[hexKey] = {};
+                appData.campaign.opMapGrid[hexKey] = { types: ['grass'], markers: [] }; // ⚡ v13.021: с сохранением формата {types, markers}
             }
             if (!appData.campaign.opMapGrid[hexKey].markers) {
                 appData.campaign.opMapGrid[hexKey].markers = [];
@@ -18692,6 +18845,7 @@ function onOrderBehaviorChange() {
   <button onclick="zoomOpMap(1.2)">➕</button>
   <button onclick="zoomOpMap(0.8)">➖</button>
   <button onclick="exportTerrainMap()" style="background:#8e44ad;">🗺️ Экспорт местности</button>
+  <button onclick="showMapCodeModal()" style="background:#16a085;">📋 Код карты</button>
   <button onclick="importTerrainMap()" style="background:#2980b9;">📂 Загрузить местность</button>
   <button onclick="resetOpMapZoom()">🔄</button>
 </div>
@@ -18728,11 +18882,23 @@ function onOrderBehaviorChange() {
     <button onclick="cancelContact()" style="background:#555;">Отмена</button>
   </div>
  </div>
-      <div id="terrainEditorModal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#2c2c2c; border:2px solid #f39c12; border-radius:12px; padding:20px; z-index:1000; width:400px; color:#ddd;">
+      <div id="terrainEditorModal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#2c2c2c; border:2px solid #f39c12; border-radius:12px; padding:20px; z-index:1000; width:min(92vw, 400px); color:#ddd;">
   <h3>Редактор местности</h3>
   <div id="terrainEditorContent"></div>
   <button onclick="closeTerrainEditor()" style="background:#555;">Закрыть</button>
 </div>
+  <!-- ⚡ v13.021: КОД КАРТЫ — экспорт меток/местности в файл сценария -->
+  <div id="mapCodeModal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#2c2c2c; border:2px solid #16a085; border-radius:12px; padding:20px; z-index:1001; width:min(92vw, 700px); color:#ddd;">
+    <h3 style="margin-top:0;">📋 Код карты сценария</h3>
+    <p style="font-size:0.85rem; color:#aaa; margin:4px 0 8px 0;">Это текущая карта операции (местность + все метки). Вставьте этот код ВМЕСТО содержимого файла <b>maps/valencia_terrain.json</b> — и все метки будут зашиты в код сценария (будут подгружаться при выборе сценария).</p>
+    <textarea id="mapCodeTextarea" readonly style="width:100%; height:30vh; box-sizing:border-box; background:#1a1a1a; color:#9ccc65; font-family:monospace; font-size:11px; border:1px solid #555; border-radius:6px; padding:6px;"></textarea>
+    <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+      <button onclick="copyMapCode()" style="background:#16a085;">📋 Копировать код</button>
+      <button onclick="document.getElementById('mapCodeModal').style.display='none'" style="background:#555;">Закрыть</button>
+      <span id="mapCodeStatus" style="color:#9ccc65; font-size:0.85rem;"></span>
+    </div>
+    <p style="font-size:0.75rem; color:#777; margin-bottom:0;">Если копирование кнопкой не сработало (на телефоне) — выделите код в окне и скопируйте вручную (Ctrl+C / долгий тап).</p>
+  </div>
 </div>
   <div id="battalionRosterScreen" style="display:none; padding:20px;">
   <h2>👥 Личный состав батальона</h2>
