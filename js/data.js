@@ -308,7 +308,7 @@ const BTR_REQUIREMENTS = {
     'company_hq': 2,            // штаб роты
     'battalion_hq': 3,          // штаб батальона
     'mortar_battery': 3,        // минометная батарея
-    'at_gun': 2,                // ПТО
+    'at_gun': 1,                // ПТО
     'at_battery': 4,            // батарея ПТО
     'hq': 3,                    // штаб (общий)
     'default': 4                // по умолчанию
@@ -357,7 +357,7 @@ const markerIconMap = {
   'building': { icon: null, fallback: '🏠', width: 30, height: 30 },
   'forest': { icon: null, fallback: '🌲', width: 30, height: 30 },
   'bushes': { icon: null, fallback: '🌳', width: 30, height: 30 },
-  'rocks': { icon: null, fallback: '🪨', width: 30, height: 30 }
+  'rocks': { icon: 'images/валуны.png', fallback: '🪨', width: 35, height: 25 }
 };
 
 // Функции доступа к данным
