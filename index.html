@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.022 — операция  </title>
+  <title>Боевой модуль v13.023 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.022</h1>
+    <h1>⚔️ Боевой модуль v13.023</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -38,7 +38,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.022 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.023 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -747,7 +747,10 @@ updateOperationalTimeDisplay();
 //    v4: юнит ДОТ называется по шаблону («ДОT Bosh»).
 function getBattalionSignature(battalion) {
     if (!battalion || !battalion.units || battalion.units.length === 0) return '';
-    const OP_LAYOUT_VERSION = 4;
+    // ⚡ v13.023: версия 5 — опция «полковая артиллерия» теперь реально
+    //    создаёт юниты (2 пушки 75-мм); старые сейвы пересобираются
+    //    (позиции совпадающих по имени юнитов сохраняются)
+    const OP_LAYOUT_VERSION = 5;
     return OP_LAYOUT_VERSION + '::' + battalion.units.map(u => (u.name || '') + ':' + (u.type || '')).sort().join('|');
 }
 
@@ -3296,6 +3299,19 @@ function initHardMode() {
         console.warn('Штаб батальона не найден!');
     }
     
+    // ⚡ v13.023: AIRF — на старте всего 1 рация (у BeVe — 3).
+    //    Считаем только «свежий» пул (ещё не выданы рации юнитам),
+    //    чтобы не срезать рации при повторном вызове в середине игры.
+    if (appData.campaign.playerFaction === 'A.I.R.F.' &&
+        hardMode.signalPlatoon && hardMode.signalPlatoon.radios) {
+        const nonHqRadios = hardMode.signalPlatoon.radios.assigned.filter(r => !r.isHQ).length;
+        if (nonHqRadios === 0) {
+            hardMode.signalPlatoon.radios.total = 1;
+            hardMode.signalPlatoon.radios.available = 1;
+            console.log('📻 AIRF: на старте 1 рация (вместо 3)');
+        }
+    }
+    
     // ⚡ НАХОДИМ ШТАБЫ РОТ И ИНИЦИАЛИЗИРУЕМ ИХ ПОСЫЛЬНЫХ
     const companies = (appData.campaign.opUnits || []).filter(u => 
         u.type === 'company_hq' || 
@@ -3465,8 +3481,44 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         // иначе getOpHexDistance вернёт NaN и приказ зависнет в пути.
         const hasCoords = fromUnit.col != null && fromUnit.row != null && toUnit.col != null && toUnit.row != null;
         const distance = hasCoords ? getOpHexDistance(fromUnit.col, fromUnit.row, toUnit.col, toUnit.row) : 0;
-        const speed = 3;
-        order.deliveryTurnsNeeded = Math.ceil(distance / speed);
+        
+        // ⚡ v13.023: СКОРОСТЬ ПОСЫЛЬНОГО ЗАВИСИТ ОТ ФРАКЦИИ:
+        // BeVe — как у пехоты (4 гекса/ход) + МОТОЦИКЛ по дороге:
+        //    до 2 гексов дороги за ход проходят «бесплатно»
+        //    (чистая дорога — 6 гексов/ход, смешанный путь — 4..6)
+        // AIRF — 3 гекса/ход (как было)
+        const playerFaction = (appData.campaign && appData.campaign.playerFaction) || '';
+        let turnsNeeded;
+        if (playerFaction === 'BeVe' && hasCoords) {
+            // маршрут считаем как для МОТОЦИКЛИСТА: дорога дешевле (1 ОД против
+            // 2 у пехоты), поэтому маршрут проходит через дорогу, где и работает
+            // «мотоциклетный» бонус
+            const route = getRouteToTarget(fromUnit.col, fromUnit.row, toUnit.col, toUnit.row, { mobility: 'motorcycle', type: 'infantry_platoon' });
+            if (route && route.length > 0) {
+                let remaining = route.length;
+                turnsNeeded = 0;
+                while (remaining > 0) {
+                    turnsNeeded++;
+                    let used = 0, freeRoad = 2;
+                    while (used < 4 && remaining > 0) {
+                        const hex = route[route.length - remaining];
+                        const hexTypes = getOpHexTypes(hex.col, hex.row);
+                        if (hexTypes.includes('road') && freeRoad > 0) {
+                            freeRoad--; // мотоцикл по дороге — бесплатно
+                        } else {
+                            used++; // пешком
+                        }
+                        remaining--;
+                    }
+                }
+                turnsNeeded = Math.max(1, turnsNeeded);
+            } else {
+                turnsNeeded = Math.max(1, Math.ceil(distance / 4));
+            }
+        } else {
+            turnsNeeded = Math.max(1, Math.ceil(distance / 3));
+        }
+        order.deliveryTurnsNeeded = turnsNeeded;
         order.deliveryTurnsPassed = 0;
         
         if (!hardMode.pendingOrders) hardMode.pendingOrders = [];
@@ -10152,6 +10204,8 @@ function endOperationalTurn() {
         appData.campaign.opUnits.forEach(u => {
             u.ap = u.maxAp;
             u.movedThisTurn = false;
+            // ⚡ v13.023: сиеста AIRF — бросок «спать» делается раз за ход
+            u.siestaRolledThisTurn = false;
         });
     }
     if (appData.campaign.enemyOpUnits) {
@@ -10283,28 +10337,27 @@ function processOrders() {
     // ⚡ ПРОВЕРКА: обновляем статус активных приказов (чтобы юниты не зависали)
     if (hardMode.orders) {
         hardMode.orders.forEach(order => {
-            if (order.status === 'active') {
-                const unit = appData.campaign.opUnits ? appData.campaign.opUnits[order.toUnitId] : null;
-                if (!unit) {
-                    order.status = 'cancelled';
-                    log(`❌ Приказ отменён: юнит не найден.`);
-                    return;
-                }
-                
-                // Если юнит уничтожен - отменяем приказ
-                if (unit.isDestroyed) {
-                    order.status = 'cancelled';
-                    log(`❌ Приказ отменён: юнит ${unit.name} уничтожен.`);
-                    return;
-                }
-                
-                // Если юнит в тактическом бою - отменяем операционные приказы
-                if (unit.isInBattle) {
-                    order.status = 'cancelled';
-                    log(`❌ Приказ отменён: юнит ${unit.name} в тактическом бою.`);
-                    return;
-                }
+            if (order.status !== 'active') return;
+            // ⚡ v13.023: арт. обстрел не адресован отряду (toUnitId = -1) —
+            //    проверка «юнит не найден» к нему не применяется
+            if (order.type === 'artillery_strike') return;
+            const unit = appData.campaign.opUnits ? appData.campaign.opUnits[order.toUnitId] : null;
+            if (!unit) {
+                order.status = 'cancelled';
+                log(`❌ Приказ отменён: юнит не найден.`);
+                return;
             }
+            
+            // Если юнит уничтожен - отменяем приказ
+            if (unit.isDestroyed) {
+                order.status = 'cancelled';
+                log(`❌ Приказ отменён: юнит ${unit.name} уничтожен.`);
+                return;
+            }
+            
+            // ⚡ v13.023: юнит в тактическом бою — приказ НЕ отменяется
+            //    (executeOrder пропускает его на время боя, после боя
+            //    приказ возобновится — например, «огонь по готовности»)
         });
     }
     
@@ -10352,7 +10405,128 @@ function processOrders() {
     renderActiveOrders();
 }
 
+// ⚡ v13.023: исполнение АРТОБСТРЕЛА: 20 выстрелов, точность 60%,
+//    каждое попадание = 3d6. Урон делится поровну на ВСЕ отряды на гексе
+//    (и вражеские, и свои). Обстрел начинается в СЛЕДУЮЩЕМ ходу после приказа.
+function executeArtilleryStrikeOrder(order) {
+    const curTurn = (appData.campaign && appData.campaign.currentTurn) || 1;
+    if (curTurn <= (order.issueTurn || 0)) {
+        // ещё ход приказа — ждём следующий
+        return;
+    }
+    const [c, r] = String(order.targetHex || '').split(',').map(Number);
+    if (isNaN(c) || isNaN(r) || c < 0 || c >= OP_MAP_COLS || r < 0 || r >= OP_MAP_ROWS) {
+        order.status = 'cancelled';
+        log(`❌ Арт. обстрел отменён: неверный гекс ${order.targetHex}.`);
+        saveData();
+        return;
+    }
+    log(`💥 АРТОБСТРЕЛ: гекс (${c},${r})! 20 выстрелов (точность 60%, 3d6 за попадание).`);
+    let hits = 0, totalDamage = 0;
+    for (let i = 0; i < 20; i++) {
+        if (Math.random() < 0.6) {
+            hits++;
+            totalDamage += rollD6() + rollD6() + rollD6();
+        }
+    }
+    log(`   Попаданий: ${hits}/20 | Общий урон: ${totalDamage}.`);
+    
+    // Все «отряды» на гексе: отряды обычных юнитов + каждая машина группы
+    const targets = [];
+    const collect = (units, isEnemy) => {
+        (units || []).forEach(u => {
+            if (!u || u.isDestroyed || u.col !== c || u.row !== r) return;
+            if (u.isGroup && u.vehicleList) {
+                u.vehicleList.forEach(v => {
+                    if (v && !v.isDestroyed && !v.destroyed) targets.push({ unit: u, label: v.name, isEnemy });
+                });
+            }
+            (u.squads || []).forEach(sq => {
+                if (sq && sq.fighters && sq.fighters.some(f => f.hp > 0)) targets.push({ unit: u, label: sq.name, isEnemy });
+            });
+        });
+    };
+    collect(appData.campaign.opUnits, false);
+    collect(appData.campaign.enemyOpUnits, true);
+    
+    if (targets.length === 0) {
+        log(`   ⚠️ На гексе (${c},${r}) некого бить — снаряды разбили пустоту.`);
+        order.status = 'completed';
+        saveData();
+        redrawOperationalMap();
+        renderActiveOrders();
+        return;
+    }
+    
+    // Поровну на все отряды
+    const base = Math.floor(totalDamage / targets.length);
+    let remainder = totalDamage - base * targets.length;
+    const unitTotals = {}; // урон по юнитам (для лога)
+    targets.forEach(t => {
+        let dmg = base + (remainder > 0 ? 1 : 0);
+        if (remainder > 0) remainder--;
+        if (dmg <= 0) return;
+        unitTotals[t.unit.name] = (unitTotals[t.unit.name] || 0) + dmg;
+        if (t.isEnemy) {
+            // враг неуязвим — урон только в лог (как все остальные обстрелы)
+            return;
+        }
+        // свой юнит: применяем урон по его отрядам/машинам
+        if (t.unit.isGroup && t.unit.vehicleList) {
+            const v = t.unit.vehicleList.find(vv => vv.name === t.label);
+            if (v) {
+                let left = dmg;
+                const fighters = (v.squads && v.squads[0] && v.squads[0].fighters) || v.fighters || [];
+                fighters.forEach(f => {
+                    if (left <= 0 || f.hp <= 0) return;
+                    const d = Math.min(f.hp, left);
+                    f.hp -= d; left -= d;
+                });
+                if (fighters.length > 0 && fighters.every(f => f.hp <= 0)) {
+                    v.isDestroyed = true;
+                    v.destroyed = true;
+                    log(`   💀 Машина «${v.name}» (${t.unit.name}) уничтожена арт. обстрелом.`);
+                }
+            }
+        } else if (t.unit.squads) {
+            const sq = t.unit.squads.find(s => s.name === t.label);
+            if (sq && sq.fighters) {
+                let left = dmg;
+                sq.fighters.forEach(f => {
+                    if (left <= 0 || f.hp <= 0) return;
+                    const d = Math.min(f.hp, left);
+                    f.hp -= d; left -= d;
+                });
+                if (sq.fighters.every(f => f.hp <= 0)) {
+                    log(`   💀 Отряд «${sq.name}» (${t.unit.name}) полностью уничтожен арт. обстрелом.`);
+                    // юнит, у которого погибли все отряды
+                    if (t.unit.squads.every(s => !(s.fighters || []).some(f => f.hp > 0))) {
+                        t.unit.isDestroyed = true;
+                    }
+                }
+            }
+        }
+    });
+    
+    // Итог по юнитам
+    Object.keys(unitTotals).forEach(nm => {
+        const isEnemyUnit = (appData.campaign.enemyOpUnits || []).some(e => e && e.name === nm);
+        log(`   🎯 ${nm}: урон ${unitTotals[nm]}${isEnemyUnit ? ' (враг неуязвим — в лог)' : ''}`);
+    });
+    
+    order.status = 'completed';
+    saveData();
+    redrawOperationalMap();
+    renderActiveOrders();
+}
+
 function executeOrder(order) {
+    // ⚡ v13.023: АРТОБСТРЕЛ — приказ штаба, не адресован отряду
+    if (order.type === 'artillery_strike') {
+        executeArtilleryStrikeOrder(order);
+        return;
+    }
+    
     const typeNames = {
         'move': '🚶 Движение',
         'attack': '⚔️ Атака',
@@ -10366,7 +10540,8 @@ function executeOrder(order) {
         'ambush': '🥷 Засада',
         'dismount': '🚲 Спешивание',
         'remount': '🚲 Посадка',
-        'disembark': '🚌 Высадка десанта'
+        'disembark': '🚌 Высадка десанта',
+        'artillery_strike': '💣 Арт. обстрел'
     };
     
     const unit = appData.campaign.opUnits[order.toUnitId];
@@ -10392,6 +10567,25 @@ function executeOrder(order) {
     //    он возобновится после боя (например, «огонь по готовности»).
     if (unit.isInBattle) {
         return;
+    }
+    
+    // ⚡ v13.023: СИЕСТА AIRF (14:00–15:00): юнит, который дальше 5 гексов
+    //    от ближайшего врага, с вероятностью 50% не выполняет приказов.
+    //    Приказ остаётся активным — попробуем в следующем ходу.
+    if (appData.campaign.playerFaction === 'A.I.R.F.' &&
+        appData.campaign.currentTime >= 840 && appData.campaign.currentTime < 900 &&
+        unit.col !== null && unit.row !== null && !unit.siestaRolledThisTurn) {
+        unit.siestaRolledThisTurn = true;
+        let nearestEnemyDist = Infinity;
+        (appData.campaign.enemyOpUnits || []).forEach(e => {
+            if (!e || e.isDestroyed || e.col === null || e.row === null) return;
+            const d = getOpHexDistance(unit.col, unit.row, e.col, e.row);
+            if (d < nearestEnemyDist) nearestEnemyDist = d;
+        });
+        if (nearestEnemyDist > 5 && Math.random() < 0.5) {
+            log(`😴 [${unit.name}] Сиеста: враг далеко (${nearestEnemyDist === Infinity ? 'нет видимых' : nearestEnemyDist + ' гексов'}) — приказ не выполняется.`);
+            return;
+        }
     }
     
     switch (order.type) {
@@ -11293,12 +11487,12 @@ function executeShootOrder(unit, order) {
     renderActiveOrders();
 }
 
-// ⚡ СРЕДНЯЯ АРТИЛЛЕРИЯ: САУ и средний миномет 82-мм
+// ⚡ СРЕДНЯЯ АРТИЛЛЕРИЯ: САУ, средний миномет 82-мм, полковая артиллерия
 function isMediumArtillery(unit) {
     if (!unit) return false;
-    if (unit.type === 'sau_battery' || unit.type === 'mortar_battery') return true;
+    if (unit.type === 'sau_battery' || unit.type === 'mortar_battery' || unit.type === 'regimental_artillery') return true;
     const name = unit.name || '';
-    return /САУ/i.test(name) || /миномет\s*82/i.test(name);
+    return /САУ/i.test(name) || /миномет\s*82/i.test(name) || /пушка 75-мм/i.test(name);
 }
 
 function executeDismountOrder(unit, order) {
@@ -12230,8 +12424,14 @@ function onOrderTypeChange() {
     } else {
         orderWaypoints = [];
         updateOrderWaypointsDisplay();
-        document.getElementById('mapInfo').innerHTML = '';
-        document.getElementById('mapInfo').style.color = '#aaa';
+        if (type === 'artillery_strike') {
+            document.getElementById('mapInfo').innerHTML = '💣 Арт. обстрел: отряд не нужен — укажите целевой гекс (обстрел начнётся в следующем ходу). Осталось: ' +
+                (4 - ((appData.campaign && appData.campaign.artilleryStrikesUsed) || 0));
+            document.getElementById('mapInfo').style.color = '#e74c3c';
+        } else {
+            document.getElementById('mapInfo').innerHTML = '';
+            document.getElementById('mapInfo').style.color = '#aaa';
+        }
     }
     
     redrawOperationalMap();
@@ -12323,12 +12523,81 @@ function addOrderWaypoint(col, row) {
     redrawOperationalMap();
 }
 
+// ⚡ v13.023: АРТОБСТРЕЛ — 4 выстрела кампанией по 20 снарядов (60% точность,
+//    3d6 за попадание), обстрел начинается в СЛЕДУЮЩЕМ ходу.
+//    Урон делится поровну на ВСЕ отряды на гексе (включая свои).
+function submitArtilleryStrikeOrder() {
+    const targetHexInput = document.getElementById('orderTargetHex');
+    const targetHex = targetHexInput ? targetHexInput.value.trim() : '';
+    if (!targetHex) {
+        alert('❌ Укажите гекс для арт. обстрела! (формат: "колонка,строка" или кнопка «📍 Выбрать на карте»)\n\nОбстрел начнётся в следующем ходу.');
+        return;
+    }
+    const parts = targetHex.split(',');
+    const ac = parseInt(parts[0], 10);
+    const ar = parseInt(parts[1], 10);
+    if (isNaN(ac) || isNaN(ar) || ac < 0 || ac >= OP_MAP_COLS || ar < 0 || ar >= OP_MAP_ROWS) {
+        alert(`❌ Неверные координаты гекса: ${targetHex}\n\nФормат: "колонка,строка" (например: 5,3)`);
+        return;
+    }
+    // Штаб батальона (издает приказ)
+    let aHq = hardMode.hqUnitId;
+    if (aHq === null || aHq === undefined || !appData.campaign.opUnits[aHq]) {
+        aHq = (appData.campaign.opUnits || []).findIndex(u =>
+            u.type === 'battalion_hq' || u.type === 'hq' ||
+            (u.name && u.name.includes('Штаб') && u.name.includes('Батальон'))
+        );
+    }
+    if (aHq === -1 || !appData.campaign.opUnits[aHq]) {
+        alert('❌ Штаб батальона не найден!');
+        return;
+    }
+    // Лимит: 4 обстрела за кампанию
+    if (appData.campaign.artilleryStrikesUsed === undefined) appData.campaign.artilleryStrikesUsed = 0;
+    if (appData.campaign.artilleryStrikesUsed >= 4) {
+        alert('❌ Арт. обстрелы исчерпаны (4 за кампанию)!');
+        return;
+    }
+    appData.campaign.artilleryStrikesUsed++;
+    if (!hardMode.orders) hardMode.orders = [];
+    hardMode.orders.push({
+        id: Date.now() + Math.random(),
+        fromUnitId: aHq,
+        toUnitId: -1, // ⚡ НЕ адресован ни одному отряду
+        type: 'artillery_strike',
+        targetHex: `${ac},${ar}`,
+        status: 'active',
+        issueTurn: (appData.campaign.currentTurn || 1),
+        behavior: 'hold',
+        waypoints: [],
+        startHex: null,
+        targetDistance: null,
+        subUnitIds: [],
+        ignoreArmor: true
+    });
+    log(`💣 АРТОБСТРЕЛ назначен на гекс (${ac},${ar}) — начнётся в следующем ходу. Осталось обстрелов: ${4 - appData.campaign.artilleryStrikesUsed}.`);
+    saveData();
+    renderActiveOrders();
+    const mi = document.getElementById('mapInfo');
+    if (mi) {
+        mi.innerHTML = `💣 Гекс (${ac},${ar}) будет обстрелян в следующем ходу (20 снарядов).`;
+        mi.style.color = '#e74c3c';
+    }
+}
+
 function submitOrder()   {
     const unitSelect = document.getElementById('orderTargetUnit');
     const typeSelect = document.getElementById('orderType');
     const behaviorSelect = document.getElementById('orderBehavior');
     const targetHexInput = document.getElementById('orderTargetHex');
     const fireDistanceInput = document.getElementById('orderFireDistance');
+    
+    // ⚡ v13.023: АРТОБСТРЕЛ — приказ штаба батальона, НЕ адресован отряду:
+    //    отряд выбирать не нужно, нужен только целевой гекс
+    if (typeSelect && typeSelect.value === 'artillery_strike') {
+        submitArtilleryStrikeOrder();
+        return;
+    }
     
     // === ПРОВЕРКА 1: Выбран ли отряд ===
     if (!unitSelect || unitSelect.value === '-1') {
@@ -12915,6 +13184,13 @@ function renderActiveOrders() {
     const container = document.getElementById('ordersContainer');
     if (!container) return;
     
+    // ⚡ v13.023: счётчик арт. обстрелов
+    const strikeCountEl = document.getElementById('artilleryStrikeCount');
+    if (strikeCountEl) {
+        const used = (appData.campaign && appData.campaign.artilleryStrikesUsed) || 0;
+        strikeCountEl.textContent = `💣 Арт. обстрелов осталось: ${4 - used}/4`;
+    }
+    
     const allOrders = [...(hardMode.messengerQueue || []), ...hardMode.pendingOrders, ...hardMode.orders];
     
     if (allOrders.length === 0) {
@@ -12935,7 +13211,8 @@ function renderActiveOrders() {
         'disembark': '🚶 Высадка',
         'dismount': '🚲 Спешивание',
         'remount': '🚲 Посадка на велосипед',
-        'series': '📋 Серия'
+        'series': '📋 Серия',
+        'artillery_strike': '💣 Арт. обстрел'
     };
     
     const statusNames = {
@@ -12950,7 +13227,12 @@ function renderActiveOrders() {
     let html = '';
     allOrders.forEach((order, orderIdx) => {
         const toUnit = appData.campaign.opUnits[order.toUnitId];
-        const unitName = toUnit ? toUnit.name : 'Неизвестно';
+        let unitName = toUnit ? toUnit.name : 'Неизвестно';
+        // ⚡ v13.023: арт. обстрел — не адресован отряду (штаб + гекс)
+        if (order.type === 'artillery_strike') {
+            const hq = appData.campaign.opUnits[order.fromUnitId];
+            unitName = (hq ? hq.name : 'Штаб батальона') + ` → гекс ${order.targetHex || '?'}`;
+        }
         
         let statusText = statusNames[order.status] || order.status;
         if (order.status === 'delivering') {
@@ -18760,7 +19042,9 @@ function onOrderBehaviorChange() {
       <option value="remount">🚲 Сесть на велосипеды</option>
       <option value="disembark">🚌 Высадить десант</option>
       <option value="ambush">🥷 Засада</option>
+      <option value="artillery_strike">💣 Арт. обстрел (штаб, без отряда)</option>
     </select>
+    <span id="artilleryStrikeCount" style="color:#f39c12; font-size:0.8rem; margin-left:8px;"></span>
   </div>
   
   <!-- Целевой гекс (вне select) -->
