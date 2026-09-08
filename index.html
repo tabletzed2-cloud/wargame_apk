@@ -736,9 +736,15 @@ updateOperationalTimeDisplay();
 // ⚡ v13.019: сигнатура состава батальона (имя:тип по всем юнитам).
 //    Позволяет понять, что сохранившиеся операционные юниты построены
 //    из ДРУГОГО состава (старый сейв), и пересоздать их.
+// ⚡ v13.020: ВЕРСИЯ КАРТЫ «батальон → операционные юниты».
+//    Если меняется КАК юниты батальона выставляются на карту (например,
+//    расчёты ПТО теперь — одна батарея, а не отдельные отделения),
+//    версия поднимается — и старые сейвы пересобирают операционные юниты
+//    (позиции сохранившихся юнитов переносятся по имени).
 function getBattalionSignature(battalion) {
     if (!battalion || !battalion.units || battalion.units.length === 0) return '';
-    return battalion.units.map(u => (u.name || '') + ':' + (u.type || '')).sort().join('|');
+    const OP_LAYOUT_VERSION = 2;
+    return OP_LAYOUT_VERSION + '::' + battalion.units.map(u => (u.name || '') + ':' + (u.type || '')).sort().join('|');
 }
 
 function buildOperationalUnits() {
@@ -832,6 +838,10 @@ function buildOperationalUnits() {
                        type === 'recon_platoon') {
                 mobility = 'foot';
                 maxAp = 4;
+            } else if (type === 'at_battery') {
+                // ⚡ v13.020: батарея ПТО — буксируемая, как миномётная (пешая мобильность)
+                mobility = 'foot';
+                maxAp = 4;
             } else if (type === 'bicycle_platoon') {
                 mobility = 'bicycle';
                 maxAp = 4;
@@ -893,9 +903,9 @@ function buildOperationalUnits() {
                     addOpUnit(unit.name, 'mortar_battery', unit.squads, unit.icon || null);
                     break;
                 case 'at_battery':
-                    unit.squads.forEach(squad => {
-                        addOpUnit(squad.name, 'at_gun', [squad], squad.icon || unit.icon || null);
-                    });
+                    // ⚡ v13.020: батарея ПТО — ОДИН юнит со ВСЕМИ расчётами.
+                    //    Отделения не выставляются на карту отдельными юнитами.
+                    addOpUnit(unit.name, 'at_battery', unit.squads, unit.icon || null);
                     break;
                 case 'infantry_company':
                     unit.platoons.forEach(pl => {
@@ -993,9 +1003,47 @@ function buildOperationalUnits() {
     }
     
     // ⚡ СОЗДАЁМ ВРАЖЕСКИХ ЮНИТОВ (если их ещё нет)
+    //    ИЛИ ПЕРЕСОЗДАЁМ, ЕСЛИ СОСТАВ/ВЕРСИЯ КАРТЫ ИЗМЕНИЛАСЬ (сигнатура).
     const hasEnemyUnits = appData.campaign.enemyOpUnits && appData.campaign.enemyOpUnits.length > 0;
-    if (!hasEnemyUnits) {
+    const enemyBattalionRef = appData.campaign.battalions.enemy;
+    let enemySigChanged = false;
+    if (hasEnemyUnits && enemyBattalionRef) {
+        const enemySigNow = getBattalionSignature(enemyBattalionRef);
+        enemySigChanged = appData.campaign.enemyOpUnitsSignature !== enemySigNow;
+    }
+    if (!hasEnemyUnits || enemySigChanged) {
+        if (enemySigChanged) {
+            console.log('⚠️ Состав/карта вражеского батальона изменилась — пересоздаём вражеские юниты');
+        }
+        const oldEnemy = hasEnemyUnits ? appData.campaign.enemyOpUnits : null;
+        const preserveEnemyByName = {};
+        if (enemySigChanged && oldEnemy) {
+            oldEnemy.forEach(u => { if (u && u.name) preserveEnemyByName[u.name] = u; });
+        }
         createEnemyOperationalUnits();
+        if (preserveEnemyByName && Object.keys(preserveEnemyByName).length > 0) {
+            let restored = 0;
+            appData.campaign.enemyOpUnits.forEach(u => {
+                const old = preserveEnemyByName[u.name];
+                if (!old) return;
+                if (old.col !== null && old.col !== undefined && old.row !== null && old.row !== undefined) {
+                    u.col = old.col;
+                    u.row = old.row;
+                    restored++;
+                }
+                ['ap', 'maxAp', 'isDefending', 'orders', 'messengerState', 'isDestroyed',
+                 'isAmbush', 'hidden', 'detected', 'noiseMarker', 'suppressed',
+                 'behavior', 'hasPhone'].forEach(k => {
+                    if (old[k] !== undefined) {
+                        try { u[k] = JSON.parse(JSON.stringify(old[k])); } catch (e) { u[k] = old[k]; }
+                    }
+                });
+            });
+            log(`⚔️ Состав врага изменился — юниты пересозданы, позиций сохранено: ${restored}`);
+        }
+        if (enemyBattalionRef) {
+            appData.campaign.enemyOpUnitsSignature = getBattalionSignature(enemyBattalionRef);
+        }
     }
     
     saveData();
@@ -1069,9 +1117,9 @@ function createEnemyOperationalUnits() {
                 addEnemyOpUnitLocal(unit.name, 'mortar_battery', unit.squads, unit.icon || null);
                 break;
             case 'at_battery':
-                unit.squads.forEach(squad => {
-                    addEnemyOpUnitLocal(squad.name, 'at_gun', [squad], squad.icon || unit.icon || null);
-                });
+                // ⚡ v13.020: батарея ПТО — ОДИН юнит со ВСЕМИ расчётами
+                //    (отделения не выставляются отдельными юнитами).
+                addEnemyOpUnitLocal(unit.name, 'at_battery', unit.squads, unit.icon || null);
                 break;
             case 'infantry_company':
                 // ⚡ СОЗДАЁМ ОТДЕЛЬНЫЙ ЮНИТ ДЛЯ КАЖДОГО ВЗВОДА
@@ -17484,11 +17532,8 @@ function checkVehicleRadioAfterLoss(unit) {
 // ⚡ РЕЖИМ "ОГОНЬ НА ХОДУ" ДЛЯ ТЕХНИКИ
 function checkMovingFire(unit) {
     if (!unit) return;
-    // ⚡ v13.020: ТАНКИ НЕ ВЕДУТ ОГОНЬ НА ХОДУ (требование игрока).
-    //    Остальная техника (БА, БТР, САУ) может.
-    if (unit.type === 'tank_platoon' || /танк/i.test(unit.name || '') || /CL\/39/i.test(unit.name || '')) {
-        return;
-    }
+    // ⚡ v13.020: ВСЯ ТЕХНИКА (включая танки) ведёт автоогонь на ходу.
+    //    (в v13.020-rc танки пропускались — игрок вернул автоогонь для всех.)
     // ⚡ Техника: isVehicle (группы) ИЛИ тип/название обычного операционного юнита
     //    (раньше обычные танки/БА без isVehicle не стреляли на ходу)
     const isVeh = unit.isVehicle || unit.type === 'tank_platoon' ||
