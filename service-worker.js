@@ -1,4 +1,6 @@
-const CACHE_NAME = 'wargame-v13.001';
+// ⚡ v13.024: имя кэша обязательно обновлять с каждой версией —
+//    иначе старый (устаревший) кэш продолжает отдавать старые js/data.js
+const CACHE_NAME = 'wargame-v13.024';
 
 const ASSETS = [
       // ====== КОРНЕВЫЕ ФАЙЛЫ ======
@@ -281,12 +283,44 @@ self.addEventListener('install', (event) => {
       return cache.addAll(ASSETS);
     })
   );
+  // ⚡ v13.024: новый SW перехватывает управление сразу,
+  //    не дожидаясь закрытия всех вкладок (иначе старые файлы
+  //    продолжали отдаваться старым SW)
+  if ('skipWaiting' in self) self.skipWaiting();
+});
+
+// ⚡ v13.024: при активации удаляем ВСЕ старые кэши.
+//    Критично: caches.match() ищет по ВСЕМ кэшам, поэтому без этой
+//    очистки даже с новым именем кэша отдавались бы старые файлы
+//    из старого кэша (корневая причина «старого» data.js на устройствах).
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(
+        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+      )
+    ).then(() => {
+      if ('clients' in self) return self.clients.claim();
+    })
+  );
 });
 
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
   event.respondWith(
-    caches.match(event.request).then((response) => {
-      return response || fetch(event.request);
-    })
+    // ⚡ v13.024: ищем ответ ТОЛЬКО в текущем кэше (caches.open(CACHE_NAME)),
+    //    а не во всех кэшах (caches.match)
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.match(event.request).then((cached) => {
+        if (cached) return cached;
+        return fetch(event.request).then((response) => {
+          // обновляем кэш свежей версией из сети (если доступна)
+          if (response && response.status === 200 && response.type === 'basic') {
+            cache.put(event.request, response.clone());
+          }
+          return response;
+        });
+      })
+    )
   );
 });
