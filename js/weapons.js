@@ -17,6 +17,8 @@ const BEVE_CREW_WEAPONS  = [
 { "type": "at_gun", "name": "75-мм орудие SAU Brugge", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 2, "shotsReduced2": 1, "shotsReduced1": 1, "effectiveRange": 15, "penetration": {"1":65,"2":65,"3":65,"4":60,"5":60,"6":60,"7":57,"8":57,"9":57,"10":55,"11":55,"12":55,"13":55,"14":55,"15":55,"16":52,"17":52,"18":52,"19":50,"20":50,"21":50,"22":47,"23":47,"24":47,"25":45,"26":45,"27":45,"28":40,"29":40,"30":40}, "icon": "" },
 { "type": "at_gun", "name": "37-мм Bofors", "crewSize": 2, "shotRule": "fixed_per_crew", "shotsFull": 2, "shotsReduced2": 1, "shotsReduced1": 1, "effectiveRange": 15, "penetration": {"1":50,"2":50,"3":50,"4":45,"5":45,"6":45,"7":43,"8":43,"9":43,"10":42,"11":42,"12":42,"13":40,"14":40,"15":37,"16":35,"17":35,"18":35,"19":33,"20":33,"21":33,"22":33,"23":30,"24":30,"25":30,"26":30,"27":30,"28":30,"29":30,"30":28}, "icon": "" },
 { "type": "mg", "name": "Пулемёт SAU Brugge", "crewSize": 1, "shotRule": "sum_d6", "fullCrewDice": 1, "minCrewDice": 1, "effectiveRange": 5, "icon": "" }
+           ,
+{ "type": "mortar", "name": "Полковое орудие 75-мм", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 5, "shotsReduced2": 3, "shotsReduced1": 2, "effectiveRange": 15, "icon": "" }
             ];
 
 const BEVE_AWARDS = [
@@ -44,8 +46,8 @@ const AIRF_CREW_WEAPONS  = [
  { "type": "at_gun", "name": "45-мм 53К танковая", "crewSize": 2, "shotRule": "fixed_per_crew", "shotsFull": 2, "shotsReduced2": 1, "shotsReduced1": 1, "effectiveRange": 15, "penetration": {"1":60,"2":60,"3":60,"4":55,"5":55,"6":50,"7":50,"8":45,"9":45,"10":42,"11":42,"12":42,"13":40,"14":40,"15":40,"16":40,"17":40,"18":35,"19":33,"20":33,"21":33,"22":33,"23":30,"24":30,"25":30,"26":30,"27":30,"28":30,"29":30,"30":28}, "icon": "" },
  { "type": "mortar", "name": "Бутылкомет Цукермана", "crewSize": 2, "shotRule": "fixed_per_crew", "shotsFull": 3, "shotsReduced2": 2, "shotsReduced1": 1, "effectiveRange": 3, "splashDamageDice": 3, "isMolotov": true, "icon": "" },
  { "type": "mortar", "name": "Минометный расчёт 82мм", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 3, "shotsReduced2": 2, "shotsReduced1": 1, "effectiveRange": 15, "icon": "" },
- { "type": "mortar", "name": "Ампуломёт АМ-1", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 3, "shotsReduced2": 2, "shotsReduced1": 1, "effectiveRange": 8, "splashDamageDice": 1, "isAmpulomet": true, "damageType": "d4", "icon": "" }
-            ];
+ { "type": "mortar", "name": "Ампуломёт АМ-1", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 3, "shotsReduced2": 2, "shotsReduced1": 1, "effectiveRange": 8, "splashDamageDice": 1, "isAmpulomet": true, "damageType": "d4", "icon": "" },
+{ "type": "mortar", "name": "Полковое орудие 75-мм", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 5, "shotsReduced2": 3, "shotsReduced1": 2, "effectiveRange": 15, "icon": "" }];
 
   const AIRF_AWARDS = [
 { "id": "wound_airf", "name": "Нашивка за ранение", "icon": "images/Нашивка за ранение АИРФ.png", "iconWidth": "60px", "iconHeight": "40px", "bonus": "Один раз за бой восстановить 1 HP", "criteria": "Боец с 1 HP в конце боя, отряд не бежал" },
