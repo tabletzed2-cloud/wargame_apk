@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.021 — операция  </title>
+  <title>Боевой модуль v13.022 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.021</h1>
+    <h1>⚔️ Боевой модуль v13.022</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -38,7 +38,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.021 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.022 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -3879,6 +3879,14 @@ function checkIdleUnits() {
         //    Отступить / игнорировать — огонь не ведётся.
         const behavior = unit.behavior || 'hold';
         if (behavior !== 'engage' && behavior !== 'hold' && behavior !== 'assault') return;
+
+        // ⚡ v13.022: юнит с условием «штурм»: враг в 2 и менее гексов —
+        //    не стреляет, а СБЛИЖАЕТСЯ (до гекса врага — тактический бой)
+        if (behavior === 'assault' && checkEnemyEncounter(unit, 'assault', null)) {
+            saveData();
+            redrawOperationalMap();
+            return;
+        }
 
         // ⚡ v13.019: СНА — ближайший враг. Миномёт — 15 снарядов по
         //    правилам миномётов, ПТО — броня в приоритете, иначе пехота
@@ -10373,10 +10381,16 @@ function executeOrder(order) {
     //    открывать ли огонь или ждать.
     if (order.behavior) unit.behavior = order.behavior;
     
-    // Юнит уничтожен или в тактическом бою — приказ не выполняется
-    if (unit.isDestroyed || unit.isInBattle) {
+    // Юнит уничтожен — приказ отменяется
+    if (unit.isDestroyed) {
         order.status = 'cancelled';
-        log(`❌ Приказ отменён: юнит ${unit.name} ${unit.isDestroyed ? 'уничтожен' : 'в тактическом бою'}.`);
+        log(`❌ Приказ отменён: юнит ${unit.name} уничтожен.`);
+        return;
+    }
+    // ⚡ v13.022: юнит в тактическом бою НЕ выполняет приказ (и не ведёт
+    //    обстрел по карте кампании), но приказ НЕ отменяется —
+    //    он возобновится после боя (например, «огонь по готовности»).
+    if (unit.isInBattle) {
         return;
     }
     
@@ -11140,9 +11154,11 @@ function unitAutoFire(unit, maxDist) {
             executeLightArtilleryBarrage(unit, [nearest.unit], nearest.dist);
             return true;
         }
-        // Остальные: ближайший враг (приоритет бронетехника)
-        const armor = enemies.filter(e => isArmoredUnit(e));
-        const pool = armor.length > 0 ? armor : enemies;
+        // ⚡ v13.022: Остальные — ближайший враг (приоритет — БЛИЖЕСТВО).
+        //    Стрелковое оружие (MG) не бьёт по броне: если рядом только
+        //    бронетехника — выстрела нет (броню берут ПТО — блок выше).
+        const pool = enemies.filter(e => !isArmoredUnit(e));
+        if (pool.length === 0) return false;
         const nearest = getNearestOpUnit(pool, unit.col, unit.row);
         if (!nearest) return false;
         opShootingState.active = true;
@@ -11501,8 +11517,9 @@ function executeMoveOrder(unit, order) {
         return;
     }
     
- // ⚡ ШТУРМ: если враг уже рядом (в радиусе 3 гексов) — СНАЧАЛА сближаемся
- //    с ним, а не идём своей дорогой (отряд должен вступить в рукопашный бой)
+ // ⚡ v13.022 ШТУРМ: если враг уже рядом (в радиусе 2 ГЕКСОВ) — СНАЧАЛА
+ //    сближаемся с ним (до гекса врага — тактический бой), а не идём
+ //    своей дорогой
     if (order.behavior === 'assault' && unit.ap > 0) {
         const encountered = checkEnemyEncounter(unit, 'assault', order);
         if (encountered) {
@@ -13100,6 +13117,16 @@ function tryUnlockPlacement() {
         document.getElementById('mapInfo').innerHTML = '🔓 Размещение разблокировано!';
     }
 }
+// ⚡ v13.022: панель «Вид» + масштаб/смещение карты — сворачиваемая
+function toggleMapViewPanel() {
+    const panel = document.getElementById('mapViewPanel');
+    const btn = document.getElementById('mapViewPanelToggle');
+    if (!panel) return;
+    const show = (panel.style.display === 'none' || panel.style.display === '');
+    panel.style.display = show ? 'block' : 'none';
+    if (btn) btn.textContent = show ? '🗺️ Вид и настройки карты ▾' : '🗺️ Вид и настройки карты ▸';
+}
+
 function setOpMapMode(mode) {
     // Блокировка размещения
     if (mode === 'placePlayer' && placementLocked) {
@@ -14972,6 +14999,15 @@ function executeOpShoot(targets, distance) {
         return;
     }
     
+    // ⚡ v13.022: юнит в тактическом бою НЕ ведёт обстрел по карте кампании
+    if (shooter.isInBattle) {
+        log(`⚔️ [${shooter.name}] в тактическом бою — обстрел по карте кампании недоступен.`);
+        const mi = document.getElementById('mapInfo');
+        if (mi) mi.innerHTML = `⚔️ ${shooter.name} в тактическом бою — обстрел недоступен.`;
+        cancelOpShooting();
+        return;
+    }
+    
     // Для САУ обычный обстрел работает до 10 гексов
     const maxRange = (shooter.name && shooter.name.includes('САУ')) ? 10 : 3;
     if (distance > maxRange) {
@@ -15709,6 +15745,15 @@ function showWeaponChoiceDialog(targets, distance) {
 function executeOpShootAt(targets, distance) {
     const shooter = opShootingState.shooter;
     if (!shooter) {
+        cancelOpShooting();
+        return;
+    }
+    
+    // ⚡ v13.022: юнит в тактическом бою НЕ ведёт обстрел по карте кампании
+    if (shooter.isInBattle) {
+        log(`⚔️ [${shooter.name}] в тактическом бою — обстрел по карте кампании недоступен.`);
+        const mi = document.getElementById('mapInfo');
+        if (mi) mi.innerHTML = `⚔️ ${shooter.name} в тактическом бою — обстрел недоступен.`;
         cancelOpShooting();
         return;
     }
@@ -17722,12 +17767,18 @@ function checkMovingFire(unit) {
         return;
     }
     
-    // ======== ПРИОРИТЕТ: СНАЧАЛА БРОНЕТЕХНИКА ========
+    // ⚡ v13.022: ПРИОРИТЕТ ЦЕЛЕЙ:
+    //    ПТО/танки (орудия) — бронетехника в приоритете, иначе пехота;
+    //    стрелковое (MG) — только пехота (MG по броне не стреляет)
+    const hasAtGuns = hasAtGunWeapons(unit);
     const priorityTargets = enemies.filter(e => isArmoredUnit(e));
     const infantryTargets = enemies.filter(e => !isArmoredUnit(e));
-    const targets = priorityTargets.length > 0 ? priorityTargets : infantryTargets;
+    const targets = hasAtGuns
+        ? (priorityTargets.length > 0 ? priorityTargets : infantryTargets)
+        : infantryTargets;
+    if (!targets || targets.length === 0) return;
     
-    console.log(`   Приоритетных целей: ${targets.length}, из них бронетехника: ${priorityTargets.length}`);
+    console.log(`   Целей в пуле: ${targets.length}, из них бронетехника: ${priorityTargets.length}`);
     
     // Находим ближайшего врага
     let closestEnemy = null;
@@ -17742,7 +17793,6 @@ function checkMovingFire(unit) {
     
     if (!closestEnemy) return;
     
-    const hasAtGuns = hasAtGunWeapons(unit);
     const isArmor = isArmoredUnit(closestEnemy);
     
     console.log(`   Стреляем по: ${closestEnemy.name}, дистанция: ${minDist}, есть ПТО: ${hasAtGuns}, цель бронирована: ${isArmor}`);
@@ -18414,10 +18464,14 @@ function checkEnemyEncounter(unit, behavior, order) {
     // ⚡ Юнит, уже вступивший в тактический бой, НЕ ведёт автоматический
     //    обстрел соседних врагов (бой идёт в тактике)
     if (unit.isInBattle) return false;
-    // Ищем обнаруженных врагов в радиусе 3 гексов
+    // ⚡ v13.022: радиус обнаружения для ШТУРМА — 2 ГЕКСА
+    //    (юнит сближается и вступает в тактический бой, дойдя до гекса врага);
+    //    для остальных поведений — 3 гекса
+    const searchRadius = (behavior === 'assault') ? 2 : 3;
+    // Ищем обнаруженных врагов в радиусе
     const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
         e.col !== null && e.row !== null &&
-        getOpHexDistance(unit.col, unit.row, e.col, e.row) <= 3 &&
+        getOpHexDistance(unit.col, unit.row, e.col, e.row) <= searchRadius &&
         !e.isDestroyed
     );
     
@@ -18451,7 +18505,7 @@ function checkEnemyEncounter(unit, behavior, order) {
             
         case 'hold': // Закрепиться — остановиться и ждать
             log(`🛡️ ${unit.name} закрепился и ждёт приказа.`);
-            order.status = 'completed';
+            if (order) order.status = 'completed';
             return true;
             
         case 'retreat': // Отступить — отойти на 1 гекс от врага
@@ -18468,7 +18522,7 @@ function checkEnemyEncounter(unit, behavior, order) {
               } else {
                 log(`   Некуда отступать — остаётся на позиции.`);
             }
-            order.status = 'completed';
+            if (order) order.status = 'completed';
             return true;
             
         case 'ignore': // Игнорировать — продолжать путь
@@ -18490,7 +18544,7 @@ function checkEnemyEncounter(unit, behavior, order) {
             log(`⚡ ${unit.name} штурмует врага!`);
             if (dist === 0) {
                 startTacticalBattle([unit], [closestEnemy]);
-                order.status = 'completed';
+                if (order) order.status = 'completed';
                 return true;
             }
             // Сближаемся, пока хватает ОД: идём к врагу за весь ход.
@@ -18499,7 +18553,7 @@ function checkEnemyEncounter(unit, behavior, order) {
             while (unit.ap > 0 && guard++ < 30) {
                 if (unit.col === closestEnemy.col && unit.row === closestEnemy.row) {
                     startTacticalBattle([unit], [closestEnemy]);
-                    order.status = 'completed';
+                    if (order) order.status = 'completed';
                     return true;
                 }
                 const route = getRouteToTarget(unit.col, unit.row, closestEnemy.col, closestEnemy.row, unit);
@@ -18516,7 +18570,7 @@ function checkEnemyEncounter(unit, behavior, order) {
             // Если встали на гекс врага — тактический бой
             if (unit.col === closestEnemy.col && unit.row === closestEnemy.row && !closestEnemy.isDestroyed) {
                 startTacticalBattle([unit], [closestEnemy]);
-                order.status = 'completed';
+                if (order) order.status = 'completed';
                 return true;
             }
             // Боя не получилось — приказ остаётся активным:
@@ -18830,6 +18884,9 @@ function onOrderBehaviorChange() {
   </div>
 <div id="mapInfo" style="margin-top:6px; font-size:0.9rem; color:#aaa;"></div>
 <div id="opHexInfo" style="margin:4px 0; font-size:0.9rem; color:#aaa;"></div>
+      <!-- ⚡ v13.022: панель «Вид» + масштабирование карты — СВОРАЧИВАЕТСЯ (скрыта по умолчанию) -->
+      <button id="mapViewPanelToggle" onclick="toggleMapViewPanel()" style="margin:6px 0 2px 0; background:#555;">🗺️ Вид и настройки карты ▸</button>
+      <div id="mapViewPanel" style="display:none;">
       <div style="margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
   <strong>🗺️ Вид</strong>
   <button onclick="setOpMapMode('view')" style="background:#555;">🖱️ Просмотр</button>
@@ -18872,7 +18929,8 @@ function onOrderBehaviorChange() {
     <button onclick="adjustOpMapParam('opMapOffsetY', 5)">+</button>
     <button onclick="adjustOpMapParam('opMapOffsetY', -5)">−</button>
   </label>
-</div>      
+</div>
+      </div><!-- /mapViewPanel -->
 <div id="contactModal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#2c2c2c; border:2px solid #c0392b; border-radius:12px; padding:20px; z-index:1000; width:400px; color:#ddd;">
   <h3>⚔️ Контакт с противником!</h3>
   <p>Ваш юнит <strong id="contactPlayerName"></strong> столкнулся с вражеским <strong id="contactEnemyName"></strong>.</p>
