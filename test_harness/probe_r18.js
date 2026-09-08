@@ -10,7 +10,8 @@ const FNS = [
     'canIssueArtilleryStrike', 'submitArtilleryStrikeOrder', 'showOrderPanel',
     'getHqSupportAccuracyMod', 'getOpHexDistance', 'isStaticOpUnit',
     'selectTargetVehicle', 'processVehicleHit', 'getLocationName', 'getOpHexTypes',
-    'executeOpShoot', 'executeOpShootAt', 'executeArtilleryStrikeOrder'
+    'executeOpShoot', 'executeOpShootAt', 'executeArtilleryStrikeOrder',
+    'isHexInPlacementZone'
 ];
 
 let pass = 0, fail = 0;
@@ -289,6 +290,26 @@ console.log('\n== M. v13.030: иконки меток — без битых сс
     const nullIcons = ['detected', 'noise', 'artillery', 'ammoPoint', 'destroyedVehicle', 'destroyedSquadFriendly', 'destroyedSquadEnemy', 'dot'];
     const wrong = nullIcons.filter(k => map[k].icon !== null);
     ok(wrong.length === 0, 'M3: 8 сгенерированных иконок удалены (icon = null, метка = эмодзи)', JSON.stringify(wrong));
+}
+
+// ============================================================
+console.log('\n== N. v13.031: зоны расстановки (онлайн) ==');
+{
+    const ad = freshAppData();
+    const s = makeSandbox(ad);
+    const Z = s.evalCtx('SCENARIO_PLACEMENT_ZONES');
+    ok(Z && Z.valencia && Z.valencia.BeVe && Z.valencia['A.I.R.F.'], 'N1: SCENARIO_PLACEMENT_ZONES задан для Валенсии (обе фракции)');
+    const bz = Z.valencia.BeVe, az = Z.valencia['A.I.R.F.'];
+    ok(bz.maxCol < az.minCol, 'N2: зоны фракций не пересекаются', `BeVe 0-${bz.maxCol}, AIRF ${az.minCol}-19`);
+    const inB = s.evalCtx(`isHexInPlacementZone('valencia','BeVe',${bz.minCol},${bz.minRow})`);
+    ok(inB.ok === true, 'N3: BeVe — свой угол зоны внутри');
+    const outB = s.evalCtx(`isHexInPlacementZone('valencia','BeVe',${bz.maxCol + 1},5)`);
+    ok(outB.ok === false && outB.zone === bz, 'N4: BeVe за границей зоны — вне, зона возвращена');
+    const inA = s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',${az.maxCol},${az.maxRow})`);
+    ok(inA.ok === true, 'N5: AIRF — свой угол зоны внутри');
+    const outA = s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',${az.minCol - 1},5)`);
+    ok(outA.ok === false, 'N6: AIRF за границей зоны — вне');
+    ok(s.evalCtx(`isHexInPlacementZone('unknown_scenario','BeVe',3,3)`) .ok === true, 'N7: нет зон в сценарии — размещение свободно');
 }
 
 console.log('\n====================================');
