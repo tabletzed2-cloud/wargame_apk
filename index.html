@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.024 — операция  </title>
+  <title>Боевой модуль v13.027 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.024</h1>
+    <h1>⚔️ Боевой модуль v13.027</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -38,7 +38,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.024 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.027 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -458,6 +458,12 @@ case "hq":
   // Поддержка
   preset.supportOptions.forEach(opt => {
     if (supportIds.includes(opt.id)) {
+      // ⚡ v13.025: «приказная» поддержка — юниты не создаёт, только флаг
+      //    на батальоне (AIRF: артиллерия = приказ штаба «Арт. обстрел»)
+      if (opt.orderOnly) {
+        if (opt.id === 'artillery_support') battalion.artillerySupport = true;
+        return;
+      }
 if (opt.templates) {
   const squads = opt.templates.map(t => {
     const squad = cloneTemplate(faction, t.name, t.templateName, t.icon || opt.icon || null);
@@ -791,6 +797,11 @@ function buildOperationalUnits() {
             const suppOptions = (BATTALION_PRESETS[battalion.faction] || {}).supportOptions || [];
             supportIds = suppOptions.filter(o => (battalion.units || []).some(u => u && u.type === o.type)).map(o => o.id);
         }
+        // ⚡ v13.025: миграция старых AIRF-сейвов: полковая артиллерия
+        //    (2 пушки 75-мм) стала приказом штаба — id опции сменился
+        if (battalion.faction === 'A.I.R.F.') {
+            supportIds = supportIds.map(id => id === 'regimental_artillery' ? 'artillery_support' : id);
+        }
         // BeVe: ДОТы — основа обороны по сценарию; в старом сейве могли
         // отсутствовать, если игрок не успел их выбрать до обновления.
         const beveSupports = (BATTALION_PRESETS[battalion.faction] || {}).supportOptions || [];
@@ -971,6 +982,9 @@ function buildOperationalUnits() {
                             addOpUnit(squad.name, 'vehicle', [squad], squad.icon || unit.icon || null);
                         });
                     }
+                    break;
+                case 'artillery_support':
+                    // ⚡ v13.025: артподдержка AIRF — приказ штаба, юнитов нет
                     break;
                 case 'dots':
                 case 'sau_battery':
@@ -12504,6 +12518,10 @@ function showOrderPanel() {
     const typeEl = document.getElementById('orderType');
     if (typeEl) {
         isPlanningRoute = (typeEl.value === 'move' || typeEl.value === 'retreat');
+        // ⚡ v13.025: «Арт. обстрел» доступен, только если у батальона
+        //    есть артподдержка (у AIRF — выбранная опция)
+        const artOpt = Array.from(typeEl.options || []).find(o => o.value === 'artillery_strike');
+        if (artOpt) artOpt.disabled = !canIssueArtilleryStrike();
     }
     updateOrderWaypointsDisplay();
     renderActiveOrders();
@@ -12639,7 +12657,28 @@ function addOrderWaypoint(col, row) {
 // ⚡ v13.023: АРТОБСТРЕЛ — 4 выстрела кампанией по 20 снарядов (60% точность,
 //    3d6 за попадание), обстрел начинается в СЛЕДУЮЩЕМ ходу.
 //    Урон делится поровну на ВСЕ отряды на гексе (включая свои).
+// ⚡ v13.025: кто может издавать приказ «Арт. обстрел»:
+//    BeVe — всегда (свои полковые пушки + приказ штаба),
+//    AIRF — только если при формировании батальона выбрана опция
+//    «Поддержка полковой артиллерии (приказ штаба «Арт. обстрел»)».
+function canIssueArtilleryStrike() {
+    const faction = appData.campaign && appData.campaign.playerFaction;
+    if (faction === 'BeVe') return true;
+    if (faction === 'A.I.R.F.') {
+        const b = (appData.campaign.battalions || {}).player;
+        if (b && b.artillerySupport) return true;
+        if (b && (b.supportIds || []).includes('regimental_artillery')) return true; // старые сейвы
+        return false;
+    }
+    return true;
+}
+
 function submitArtilleryStrikeOrder() {
+    // ⚡ v13.025: без артподдержки обстрел недоступен
+    if (!canIssueArtilleryStrike()) {
+        alert('❌ Арт. обстрел недоступен: у батальона нет поддержки полковой артиллерии.\n\nВыберите «Поддержка полковой артиллерии» при формировании батальона.');
+        return;
+    }
     const targetHexInput = document.getElementById('orderTargetHex');
     const targetHex = targetHexInput ? targetHexInput.value.trim() : '';
     if (!targetHex) {
@@ -13240,7 +13279,7 @@ function renderOrderQueue() {
             'shoot': '💥 Обстрел',
             'dismount': '🚲 Спешиться',
             'remount': '🚲 Сесть на велосипеды',
-            'ambush': '🌳 Засада',
+            'ambush': '🥷 Засада',
             'disembark': '🚌 Высадка десанта'
         };
         const typeLabel = typeNames[o.type] || o.type;
@@ -13298,10 +13337,15 @@ function renderActiveOrders() {
     if (!container) return;
     
     // ⚡ v13.023: счётчик арт. обстрелов
+    // ⚡ v13.025: без артподдержки — обстрелы недоступны
     const strikeCountEl = document.getElementById('artilleryStrikeCount');
     if (strikeCountEl) {
-        const used = (appData.campaign && appData.campaign.artilleryStrikesUsed) || 0;
-        strikeCountEl.textContent = `💣 Арт. обстрелов осталось: ${4 - used}/4`;
+        if (!canIssueArtilleryStrike()) {
+            strikeCountEl.textContent = '💣 Арт. обстрел: недоступен (нет артподдержки)';
+        } else {
+            const used = (appData.campaign && appData.campaign.artilleryStrikesUsed) || 0;
+            strikeCountEl.textContent = `💣 Арт. обстрелов осталось: ${4 - used}/4`;
+        }
     }
     
     const allOrders = [...(hardMode.messengerQueue || []), ...hardMode.pendingOrders, ...hardMode.orders];
@@ -13319,7 +13363,7 @@ function renderActiveOrders() {
         'hold': '✋ Удержание',
         'retreat': '🏃 Отступление',
         'fire_at_will': '🎯 Огонь по готовности',
-        'ambush': '🌳 Засада',
+        'ambush': '🥷 Засада',
         'embark': '🚌 Посадка в БТР',
         'disembark': '🚶 Высадка',
         'dismount': '🚲 Спешивание',
@@ -15411,6 +15455,12 @@ function executeOpShoot(targets, distance) {
         return;
     }
     
+    // ⚡ v13.027: BeVe — +20% точности, если юнит в 2 гексах от штаба
+    const hqModMg = getHqSupportAccuracyMod(shooter);
+    if (hqModMg > 1) {
+        log(`🎖️ [${shooter.name}]: поддержка штаба (в радиусе 2 гексов) — точность +20%.`);
+    }
+    
     // Отфильтровываем только пехоту (не бронетехнику)
     let infantryTargets = targets;
     if (opShootingState.weaponType === 'mg') {
@@ -15441,7 +15491,8 @@ function executeOpShoot(targets, distance) {
                 (v.squads && v.squads[0] && v.squads[0].fighters && v.squads[0].fighters.some(f => f.hp > 0));
             if (!crewAlive) continue;
             const shots = 6;
-            const hc = distance === 1 ? 0.35 : (distance === 2 ? 0.25 : 0.15);
+            // ⚡ v13.027: бонус штаба BeVe (+20%)
+            const hc = Math.min(1, (distance === 1 ? 0.35 : (distance === 2 ? 0.25 : 0.15)) * hqModMg);
             let h = 0;
             for (let i = 0; i < shots; i++) {
                 if (Math.random() < hc) { h++; totalDamage += rollD6(); }
@@ -15507,6 +15558,8 @@ function executeOpShoot(targets, distance) {
                                 else if (distance === 2) hitChance = 0.25;
                                 else if (distance >= 3) hitChance = 0.15;
                                 else hitChance = 0.15;
+                                // ⚡ v13.027: бонус штаба BeVe (+20%)
+                                hitChance = Math.min(1, hitChance * hqModMg);
                                 
                                 const totalShots = 12;
                                 let hits = 0;
@@ -16137,6 +16190,27 @@ function showWeaponChoiceDialog(targets, distance) {
 }
 
 // Выполнить обстрел ПТО из диалога
+// ⚡ v13.027: бонус BeVe — подразделения в радиусе 2 гексов от штаба
+//    батальона получают +20% к точности (весь огонь по карте кампании:
+//    ПТО, пулемёты, огонь по готовности, огонь на ходу).
+function getHqSupportAccuracyMod(unit) {
+    if (!unit || unit.col === null || unit.row === null) return 1;
+    const isEnemySide = (appData.campaign.enemyOpUnits || []).includes(unit);
+    const faction = isEnemySide
+        ? (unit.faction || 'A.I.R.F.')
+        : (appData.campaign.playerFaction || 'BeVe');
+    if (faction !== 'BeVe') return 1;
+    const list = isEnemySide
+        ? (appData.campaign.enemyOpUnits || [])
+        : (appData.campaign.opUnits || []);
+    const hq = list.find(u => u && !u.isDestroyed && u.col !== null && u.row !== null &&
+        (u.type === 'battalion_hq' || u.type === 'hq' ||
+         (u.name && u.name.includes('Штаб') && u.name.includes('Батальон'))));
+    if (!hq || hq === unit) return 1;
+    if (getOpHexDistance(unit.col, unit.row, hq.col, hq.row) > 2) return 1;
+    return 1.2;
+}
+
 function executeOpShootAt(targets, distance) {
     const shooter = opShootingState.shooter;
     if (!shooter) {
@@ -16194,6 +16268,13 @@ function executeOpShootAt(targets, distance) {
     // ⚡ v13.020: таблицы пробития в data.js рассчитаны на дистанции 1–30 (мм).
     //    Ключи 35/38/40 в таблицах отсутствуют → пробитие было 0 уже с 4-го гекса.
     penetrationKey = Math.min(penetrationKey, 30);
+    
+    // ⚡ v13.027: BeVe — +20% точности, если юнит в 2 гексах от штаба
+    const hqModAt = getHqSupportAccuracyMod(shooter);
+    if (hqModAt > 1) {
+        hitChance = Math.min(1, hitChance * hqModAt);
+        log(`🎖️ [${shooter.name}]: поддержка штаба (в радиусе 2 гексов) — точность +20% (${Math.round(hitChance * 100)}%).`);
+    }
     
     // Определяем пробиваемость
     let penetration = 0;
