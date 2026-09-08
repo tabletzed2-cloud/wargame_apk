@@ -142,7 +142,10 @@ const BATTALION_PRESETS = {
     ],
         supportOptions: [
       { id: "dots", name: "Расчёты ДОТов и ДОТы (стационарные)", template: "ДОТ Bosh", icon: "images/BeVe/ДОТ Bosh.png" },
-      { id: "regimental_artillery", name: "Поддержка полковой артиллерии" },
+      { id: "regimental_artillery", name: "Поддержка полковой артиллерии (2 пушки 75-мм)", templates: [
+        { name: "Пушка 75-мм №1", templateName: "Полковой расчёт 75-мм №1", icon: "images/BeVe/мина 82 1.jpg" },
+        { name: "Пушка 75-мм №2", templateName: "Полковой расчёт 75-мм №2", icon: "images/BeVe/мина 82 2.jpg" }
+      ] },
       { id: "sau_battery", name: "Батарея САУ (3 САУ)", templates: [
         { name: "САУ Brugge №1", templateName: "САУ Brugge №1", icon: "images/BeVe/САУ Brugge №1.jpg"},
         { name: "САУ Brugge №2", templateName: "САУ Brugge №2", icon: "images/BeVe/САУ Brugge №2.jpg"},
@@ -286,6 +289,10 @@ const BATTALION_PRESETS = {
         { name: "Легкий танк CL/39 №3", templateName: "Легкий танк CL/39 №3", icon: "images/AIRF/лт аирф CL39 №3.png"},
         { name: "Легкий танк CL/39 №4", templateName: "Легкий танк CL/39 №4", icon: "images/AIRF/лт аирф CL39 №4.png"},
         { name: "Легкий танк CL/39 №5", templateName: "Легкий танк CL/39 №5", icon: "images/AIRF/лт аирф CL39 №5.png"}
+      ] },
+      { id: "regimental_artillery", name: "Поддержка полковой артиллерии (2 пушки 75-мм)", templates: [
+        { name: "Пушка 75-мм №1", templateName: "Полковой расчёт 75-мм №1" },
+        { name: "Пушка 75-мм №2", templateName: "Полковой расчёт 75-мм №2" }
       ] }
     ]
   }
