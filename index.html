@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.019 — операция  </title>
+  <title>Боевой модуль v13.020 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.019</h1>
+    <h1>⚔️ Боевой модуль v13.020</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
@@ -38,7 +38,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.019 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.020 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -351,10 +351,29 @@ function closeCampaign() {
   document.getElementById('btnReturnToCampaignMenu').style.display = 
   (appData.campaign.active && appData.campaign.scenario) ? 'inline-block' : 'none';
 }
+// ⚡ v13.020: «отпечаток» пресета батальона из data.js.
+//    Если он изменился (обновились SQUAD_TEMPLATES / BATTALION_PRESETS),
+//    старый сохранённый батальон пересобирается из актуальных шаблонов,
+//    иначе игрок видит юниты из устаревшей версии data.js.
+function getPresetSignature(faction) {
+  const preset = BATTALION_PRESETS[faction];
+  if (!preset) return 'none';
+  const std = (preset.standard || []).map(u =>
+    `${u.type}|${u.name}|${(u.squads || []).map(s => s.name + ':' + (s.templateName || '')).join(';')}`
+  ).join('§');
+  const sup = (preset.supportOptions || []).map(o => o.id).join(',');
+  return `${faction}::${std}::${sup}`;
+}
+
 function generateBattalion(faction, supportIds) {
   const preset = BATTALION_PRESETS[faction];
   if (!preset) return null;
-  const battalion = { faction, units: [] };
+  const battalion = {
+    faction,
+    units: [],
+    presetSig: getPresetSignature(faction),
+    supportIds: supportIds ? [...supportIds] : []
+  };
 
   // Вспомогательная функция клонирования шаблона
  function cloneTemplate(faction, name, templateName, icon = null) {
@@ -717,14 +736,66 @@ updateOperationalTimeDisplay();
 // ⚡ v13.019: сигнатура состава батальона (имя:тип по всем юнитам).
 //    Позволяет понять, что сохранившиеся операционные юниты построены
 //    из ДРУГОГО состава (старый сейв), и пересоздать их.
+// ⚡ v13.020: ВЕРСИЯ КАРТЫ «батальон → операционные юниты».
+//    Если меняется КАК юниты батальона выставляются на карту,
+//    версия поднимается — и старые сейвы пересобирают операционные юниты
+//    (позиции сохранившихся юнитов переносятся по имени).
+//    v3: расчёты ПТО снова отдельные юниты (не одна батарея).
 function getBattalionSignature(battalion) {
     if (!battalion || !battalion.units || battalion.units.length === 0) return '';
-    return battalion.units.map(u => (u.name || '') + ':' + (u.type || '')).sort().join('|');
+    const OP_LAYOUT_VERSION = 3;
+    return OP_LAYOUT_VERSION + '::' + battalion.units.map(u => (u.name || '') + ':' + (u.type || '')).sort().join('|');
 }
 
 function buildOperationalUnits() {
-    const battalion = appData.campaign.battalions.player;
+    let battalion = appData.campaign.battalions.player;
     if (!battalion) return;
+
+    // ⚡ v13.020: ПЕРЕСБОРКА БАТАЛЬОНА ИЗ data.js, ЕСЛИ ПРЕСЕТ МЕНЯЛСЯ.
+    //    Если сигнатура пресета в сейве не совпадает с текущей (или её нет в
+    //    старом сейве) — батальон собирается заново из актуальных шаблонов.
+    //    Позиции юнитов сохранятся ниже (перенос по имени).
+    const playerSigNow = getPresetSignature(battalion.faction);
+    if (battalion.presetSig !== playerSigNow) {
+        console.log(`⚡ Пресет «${battalion.faction}» изменился в data.js — пересобираем батальон из актуальных шаблонов`);
+        // Старые сейвы не имеют stamp'а supportIds — выводим состав поддержки
+        // из уже существующих юнитов батальона (чтобы не потерять артиллерию/ПТО).
+        let supportIds = Array.isArray(battalion.supportIds) ? battalion.supportIds.slice() : null;
+        if (!supportIds) {
+            const suppOptions = (BATTALION_PRESETS[battalion.faction] || {}).supportOptions || [];
+            supportIds = suppOptions.filter(o => (battalion.units || []).some(u => u && u.type === o.type)).map(o => o.id);
+        }
+        // BeVe: ДОТы — основа обороны по сценарию; в старом сейве могли
+        // отсутствовать, если игрок не успел их выбрать до обновления.
+        const beveSupports = (BATTALION_PRESETS[battalion.faction] || {}).supportOptions || [];
+        if (battalion.faction === 'BeVe' && beveSupports.some(o => o.id === 'dots') && !supportIds.includes('dots')) {
+            supportIds = [...supportIds, 'dots'];
+            console.log('   ➕ Добавляем поддержку «ДОT Bosh» (BeVe)');
+        }
+        const fresh = generateBattalion(battalion.faction, supportIds);
+        if (fresh) {
+            appData.campaign.battalions.player = fresh;
+            battalion = fresh;
+        }
+    }
+
+    // ⚡ v13.020: то же самое для ВРАЖЕСКОГО батальона — враг тоже берётся
+    //    из data.js. Пересобранному врагу очистим enemyOpUnits ниже.
+    let enemyBattalion = appData.campaign.battalions.enemy;
+    if (enemyBattalion) {
+        const enemySigNow = getPresetSignature(enemyBattalion.faction);
+        if (enemyBattalion.presetSig !== enemySigNow) {
+            console.log(`⚡ Пресет врага «${enemyBattalion.faction}» изменился в data.js — пересобираем вражеский батальон`);
+            const allSupport = (BATTALION_PRESETS[enemyBattalion.faction] || {}).supportOptions || [];
+            const freshEnemy = generateBattalion(enemyBattalion.faction, allSupport.map(o => o.id));
+            if (freshEnemy) {
+                appData.campaign.battalions.enemy = freshEnemy;
+                enemyBattalion = freshEnemy;
+                // Вражеские операционные юниты пересоздаются из нового состава
+                appData.campaign.enemyOpUnits = null;
+            }
+        }
+    }
 
     // ⚡ ПРОВЕРЯЕМ, ЕСТЬ ЛИ УЖЕ СВОИ ЮНИТЫ
     const oldUnits = appData.campaign.opUnits && appData.campaign.opUnits.length > 0 ? appData.campaign.opUnits : null;
@@ -765,6 +836,10 @@ function buildOperationalUnits() {
             } else if (type === 'battalion_hq' || type === 'company_hq' || type === 'infantry_platoon' || 
                        type === 'mortar_battery' || type === 'at_gun' || type === 'engineer_platoon' || 
                        type === 'recon_platoon') {
+                mobility = 'foot';
+                maxAp = 4;
+            } else if (type === 'at_battery') {
+                // ⚡ v13.020: батарея ПТО — буксируемая, как миномётная (пешая мобильность)
                 mobility = 'foot';
                 maxAp = 4;
             } else if (type === 'bicycle_platoon') {
@@ -810,11 +885,16 @@ function buildOperationalUnits() {
         battalion.units.forEach(unit => {
             switch (unit.type) {
                 case 'hq':
-                    // ⚡ ЕСЛИ У HQ ЕСТЬ squads — КЛОНИРУЕМ КАЖДЫЙ ОТРЯД
+                    // ⚡ v13.020: взвод (сапёрный/развед) выставляется ОДНИМ юнитом
+                    //    со ВСЕМИ отделениями в составе, а не отдельными отделениями.
+                    //    Штаб батальона — один юнит типа battalion_hq.
                     if (unit.squads && unit.squads.length > 0) {
-                        unit.squads.forEach(squad => {
-                            addOpUnit(squad.name || unit.name, 'hq', [squad], squad.icon || unit.icon || null);
-                        });
+                        let hqType;
+                        if (unit.name && unit.name.includes('Батальон')) hqType = 'battalion_hq';
+                        else if (unit.name && /сап/i.test(unit.name)) hqType = 'engineer_platoon';
+                        else if (unit.name && /развед/i.test(unit.name)) hqType = 'recon_platoon';
+                        else hqType = 'hq';
+                        addOpUnit(unit.name, hqType, unit.squads, unit.icon || null);
                     } else {
                         addOpUnit(unit.name, 'battalion_hq', unit.squads, unit.icon || null);
                     }
@@ -823,6 +903,8 @@ function buildOperationalUnits() {
                     addOpUnit(unit.name, 'mortar_battery', unit.squads, unit.icon || null);
                     break;
                 case 'at_battery':
+                    // ⚡ v13.020: расчёты ПТО выставляются на карту КАЖДЫЙ ОТДЕЛЬНО
+                    //    (требование игрока: ПТО остаётся отдельными расчётами).
                     unit.squads.forEach(squad => {
                         addOpUnit(squad.name, 'at_gun', [squad], squad.icon || unit.icon || null);
                     });
@@ -923,9 +1005,47 @@ function buildOperationalUnits() {
     }
     
     // ⚡ СОЗДАЁМ ВРАЖЕСКИХ ЮНИТОВ (если их ещё нет)
+    //    ИЛИ ПЕРЕСОЗДАЁМ, ЕСЛИ СОСТАВ/ВЕРСИЯ КАРТЫ ИЗМЕНИЛАСЬ (сигнатура).
     const hasEnemyUnits = appData.campaign.enemyOpUnits && appData.campaign.enemyOpUnits.length > 0;
-    if (!hasEnemyUnits) {
+    const enemyBattalionRef = appData.campaign.battalions.enemy;
+    let enemySigChanged = false;
+    if (hasEnemyUnits && enemyBattalionRef) {
+        const enemySigNow = getBattalionSignature(enemyBattalionRef);
+        enemySigChanged = appData.campaign.enemyOpUnitsSignature !== enemySigNow;
+    }
+    if (!hasEnemyUnits || enemySigChanged) {
+        if (enemySigChanged) {
+            console.log('⚠️ Состав/карта вражеского батальона изменилась — пересоздаём вражеские юниты');
+        }
+        const oldEnemy = hasEnemyUnits ? appData.campaign.enemyOpUnits : null;
+        const preserveEnemyByName = {};
+        if (enemySigChanged && oldEnemy) {
+            oldEnemy.forEach(u => { if (u && u.name) preserveEnemyByName[u.name] = u; });
+        }
         createEnemyOperationalUnits();
+        if (preserveEnemyByName && Object.keys(preserveEnemyByName).length > 0) {
+            let restored = 0;
+            appData.campaign.enemyOpUnits.forEach(u => {
+                const old = preserveEnemyByName[u.name];
+                if (!old) return;
+                if (old.col !== null && old.col !== undefined && old.row !== null && old.row !== undefined) {
+                    u.col = old.col;
+                    u.row = old.row;
+                    restored++;
+                }
+                ['ap', 'maxAp', 'isDefending', 'orders', 'messengerState', 'isDestroyed',
+                 'isAmbush', 'hidden', 'detected', 'noiseMarker', 'suppressed',
+                 'behavior', 'hasPhone'].forEach(k => {
+                    if (old[k] !== undefined) {
+                        try { u[k] = JSON.parse(JSON.stringify(old[k])); } catch (e) { u[k] = old[k]; }
+                    }
+                });
+            });
+            log(`⚔️ Состав врага изменился — юниты пересозданы, позиций сохранено: ${restored}`);
+        }
+        if (enemyBattalionRef) {
+            appData.campaign.enemyOpUnitsSignature = getBattalionSignature(enemyBattalionRef);
+        }
     }
     
     saveData();
@@ -999,6 +1119,7 @@ function createEnemyOperationalUnits() {
                 addEnemyOpUnitLocal(unit.name, 'mortar_battery', unit.squads, unit.icon || null);
                 break;
             case 'at_battery':
+                // ⚡ v13.020: расчёты ПТО — КАЖДЫЙ ОТДЕЛЬНЫЙ ЮНИТ (требование игрока).
                 unit.squads.forEach(squad => {
                     addEnemyOpUnitLocal(squad.name, 'at_gun', [squad], squad.icon || unit.icon || null);
                 });
@@ -1026,6 +1147,9 @@ function createEnemyOperationalUnits() {
             case 'btr_platoon':
             case 'tank_platoon':
             case 'regimental_artillery':
+            case 'armored_vehicle_platoon':
+                // ⚡ v13.020: БА (Landsverk 183) — по одному ОПУНУ на КАЖДУЮ МАШИНУ,
+                //    имя/иконка берутся из data.js (SQUAD_TEMPLATES).
                 if (unit.squads && unit.squads.length > 0) {
                     unit.squads.forEach((squad) => {
                         addEnemyOpUnitLocal(squad.name || unit.name, unit.type, [squad], squad.icon || unit.icon || null);
@@ -2545,24 +2669,36 @@ function hasMgWeapons(unit) {
 
 // Подсчёт количества ПТО орудий в юните
 function countAtGuns(unit) {
-    if (!unit || !unit.squads) return 0;
+    if (!unit) return 0;
     let count = 0;
-    
-    for (let squad of unit.squads) {
-        if (!squad.crewInstances) continue;
-        for (let ci of squad.crewInstances) {
-            if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') continue;
-            const cw = getFactionCrewWeapons(squad.faction).find(w => w.name === ci.weaponName);
-            if (cw && (cw.type === 'at_gun' || cw.type === 'tank_gun')) {
-                // Если это группа техники, считаем количество машин
-                if (unit.isGroup && unit.groupSize) {
-                    count += unit.groupSize;
-                } else {
-                    count += 1;
-                }
+    const countCrewGuns = (squads, faction) => {
+        for (let squad of (squads || [])) {
+            if (!squad.crewInstances) continue;
+            for (let ci of squad.crewInstances) {
+                if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') continue;
+                const cw = getFactionCrewWeapons(squad.faction || faction).find(w => w.name === ci.weaponName);
+                if (cw && (cw.type === 'at_gun' || cw.type === 'tank_gun')) count += 1;
             }
         }
+    };
+    
+    // ⚡ v13.020: группа техники — squads пустые, орудия живут в vehicleList.
+    //    Без этого у групп ПТО/танков countAtGuns=0: «огонь по готовности» и
+    //    «огонь по бронетехнике» молча никуда не стреляли.
+    if (unit.isGroup && unit.vehicleList && unit.vehicleList.length > 0) {
+        for (let v of unit.vehicleList) {
+            if (v.isDestroyed || v.destroyed) continue;
+            if (v.squads && v.squads.length > 0) {
+                countCrewGuns(v.squads, v.faction || unit.faction);
+            } else if (v.crewInstances && v.crewInstances.length > 0) {
+                countCrewGuns([{ crewInstances: v.crewInstances, faction: v.faction || unit.faction }], v.faction || unit.faction);
+            }
+        }
+        return count;
     }
+    
+    if (!unit.squads) return 0;
+    countCrewGuns(unit.squads, unit.faction);
     return count;
 }
 
@@ -3178,17 +3314,19 @@ function initHardMode() {
             if (!alreadyAssigned) {
                 // ⚡ Помечаем конкретную машину с рацией — чтобы при её потере
                 //    рация у отряда (группы) перестала действовать
+                let radioVehicleName = null;
                 if (vehicle.isGroup && vehicle.vehicleList) {
-                    vehicle.vehicleList.forEach(v => {
-                        if (v.name && v.name.includes('№1')) v.hasRadio = true;
-                    });
+                    const num1 = vehicle.vehicleList.find(v => v.name && v.name.includes('№1'));
+                    if (num1) { num1.hasRadio = true; radioVehicleName = num1.name; }
                 } else {
                     vehicle.hasRadio = true;
+                    radioVehicleName = vehicle.name;
                 }
                 hardMode.signalPlatoon.radios.assigned.push({
                     unitId: unitId,
                     isVehicleRadio: true,
-                    hasNumber1: true
+                    hasNumber1: true,
+                    radioVehicleName: radioVehicleName
                 });
                 console.log(`📻 Рация выдана: ${vehicle.name}`);
             }
@@ -3248,7 +3386,9 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         // ⚡ ВАЖНО: сохраняем подчинённые взводы и реальный тип приказа
         // (для company_order — штаб роты передаёт их взводам)
         subUnitIds: options.subUnitIds || [],
-        orderType: options.orderType || null
+        orderType: options.orderType || null,
+        // ⚡ v13.020: «не штурмовать бронетехнику» — состояние галочки на момент приказа
+        ignoreArmor: typeof options.ignoreArmor === 'boolean' ? options.ignoreArmor : true
     };
     
     const fromUnit = appData.campaign.opUnits ? appData.campaign.opUnits[fromUnitId] : null;
@@ -3337,14 +3477,35 @@ function hasRadio(unit) {
     // ⚡ ГРУППА ТЕХНИКИ: рация действует, пока в строю (не подбита)
     //    машина, на которой она установлена (машина №1 или v.hasRadio)
     if (unit.isGroup && unit.vehicleList) {
-        const radioVehicleAlive = unit.vehicleList.some(v =>
-            v && !v.destroyed &&
-            (v.hasRadio || (entry.hasNumber1 && v.name && v.name.includes('№1')))
+        const aliveVehicles = unit.vehicleList.filter(v => v && !v.destroyed && !v.isDestroyed);
+        const markedAlive = aliveVehicles.some(v =>
+            v.hasRadio === true ||
+            v.name === entry.radioVehicleName ||
+            (entry.hasNumber1 && v.name && v.name.includes('№1'))
         );
-        if (!radioVehicleAlive) {
-            entry.isDestroyed = true; // рация утрачена — больше по ней связь невозможна
+        if (!markedAlive) {
+            // ⚡ v13.020: если рация УЖЕ БЫЛА УСТАНОВЛЕНА (отметка на машине /
+            //    radioVehicleName / hasNumber1) — её машина потеряна, и рация
+            //    утрачена легитимно. Самоисправление — только для старых сейвов,
+            //    где отметка о машине с рацией отсутствует совсем.
+            const wasMarkedBefore = !!entry.radioVehicleName || !!entry.hasNumber1 ||
+                unit.vehicleList.some(v => v && v.hasRadio === true);
+            if (wasMarkedBefore || aliveVehicles.length === 0) {
+                entry.isDestroyed = true; // рация утрачена — больше по ней связь невозможна
+                try { saveData(); } catch (e) {}
+                return false;
+            }
+            // САМОЛЕЧЕНИЕ — где установлена рация не записано (старый сейв),
+            //    и потери машины с рацией не было: ставим рацию на машину №1
+            //    (или первую живую) — значок и связь возвращаются.
+            const target = aliveVehicles.find(v => v.name && v.name.includes('№1')) || aliveVehicles[0];
+            target.hasRadio = true;
+            entry.hasNumber1 = (target.name || '').includes('№1');
+            entry.isVehicleRadio = true;
+            entry.radioVehicleName = target.name;
             try { saveData(); } catch (e) {}
-            return false;
+            console.log(`📻 Самоисправление: рация группы «${unit.name}» установлена на «${target.name}»`);
+            return true;
         }
     }
     return true;
@@ -3737,58 +3898,88 @@ function startTacticalBattle(playerUnits, enemyUnits) {
         return s;
     };
     
-    // Собираем все отряды игрока
-    let playerSquads = [];
-    playerUnits.forEach(u => {
-        if (u.squads && u.squads.length > 0) {
-            u.squads.forEach(s => {
-                // Проверяем, что у отряда есть живые бойцы
-                const hasAlive = s.fighters && s.fighters.some(f => f.hp > 0);
-                if (hasAlive) {
-                    const exists = playerSquads.some(ps => ps.name === s.name);
-                    if (!exists) playerSquads.push(normalizeSquadForBattle(JSON.parse(JSON.stringify(s))));
-                }
-            });
+    // ⚡ v13.020: СБОР ОТРЯДОВ ДЛЯ ТАКТИЧЕСКОГО БОЯ.
+    //    Группа техники (isGroup + vehicleList) выставляется КАЖДОЙ МАШИНОЙ:
+    //    каждая машина — отдельный отряд в бою, в меню боя и на карте боя.
+    const makeVehicleBattleSquad = (v, u, side) => {
+        const squadSource = (v.squads && v.squads.length > 0) ? v.squads[0] : null;
+        let fighters = null;
+        let armor = v.armor || (squadSource && squadSource.armor) || null;
+        if (v.fighters && v.fighters.length > 0) {
+            fighters = JSON.parse(JSON.stringify(v.fighters));
+        } else if (squadSource && squadSource.fighters && squadSource.fighters.length > 0) {
+            fighters = JSON.parse(JSON.stringify(squadSource.fighters));
         } else {
-            // ⚡ Если у юнита нет squads, но он должен быть в бою - создаем временный отряд
+            // Вражеская машина из группы без состава — восстанавливаем из data.js
+            const tmpl = (appData.templates || []).find(t => t && t.name === v.name) ||
+                         (appData.templates || []).find(t => t && v.name && v.name.includes(t.name));
+            if (tmpl && tmpl.fighters && tmpl.fighters.length > 0) {
+                fighters = JSON.parse(JSON.stringify(tmpl.fighters));
+                if (!armor) armor = tmpl.armor || null;
+            } else {
+                fighters = [{ name: 'Экипаж', weapon: 'Винтовка', hp: 3, maxHp: 3 }];
+            }
+        }
+        const faction = v.faction || u.faction ||
+            (side === 'player'
+                ? ((appData.campaign.battalions.player || {}).faction || 'BeVe')
+                : ((appData.campaign.battalions.enemy || {}).faction || 'A.I.R.F.'));
+        return normalizeSquadForBattle({
+            name: v.name,
+            faction: faction,
+            fighters: fighters,
+            armor: armor,
+            crewInstances: v.crewInstances || (squadSource && squadSource.crewInstances) || [],
+            currentMorale: 5,
+            baseMorale: 5,
+            isVehicle: true,
+            vehicleIcon: v.icon || u.icon || null,
+            opUnitName: u.name
+        });
+    };
+    
+    const collectBattleSquads = (units, side) => {
+        const out = [];
+        units.forEach(u => {
+            // ⚡ Группа техники — каждая машина отдельно
+            if (u.isGroup && u.vehicleList && u.vehicleList.length > 0) {
+                u.vehicleList.forEach(v => {
+                    if (v.isDestroyed || v.destroyed) return;
+                    const bs = makeVehicleBattleSquad(v, u, side);
+                    const exists = out.some(ps => ps.name === bs.name && ps.opUnitName === u.name);
+                    if (!exists) out.push(bs);
+                });
+                return;
+            }
+            if (u.squads && u.squads.length > 0) {
+                u.squads.forEach(s => {
+                    // Проверяем, что у отряда есть живые бойцы
+                    const hasAlive = s.fighters && s.fighters.some(f => f.hp > 0);
+                    if (!hasAlive) return;
+                    const exists = out.some(ps => ps.name === s.name);
+                    if (!exists) out.push(normalizeSquadForBattle(JSON.parse(JSON.stringify(s))));
+                });
+                return;
+            }
+            // ⚡ Если у юнита нет squads - создаем временный отряд
             console.warn(`Юнит ${u.name} не имеет отрядов (squads), создаем временный.`);
-            const tempSquad = {
+            out.push({
                 name: u.name,
-                faction: u.faction || 'A.I.R.F.',
-                fighters: [{ name: 'Боец', weapon: 'Винтовка', hp: 3, maxHp: 3 }],
+                faction: u.faction || (side === 'player' ? 'BeVe' : 'A.I.R.F.'),
+                fighters: [{ name: side === 'enemy' ? 'Враг' : 'Боец', weapon: 'Винтовка', hp: 3, maxHp: 3 }],
                 currentMorale: 5,
                 baseMorale: 5,
                 embarkedSquadIndex: null
-            };
-            playerSquads.push(tempSquad);
-        }
-    });
+            });
+        });
+        return out;
+    };
+    
+    // Собираем все отряды игрока
+    let playerSquads = collectBattleSquads(playerUnits, 'player');
     
     // Собираем все отряды врага
-    let enemySquads = [];
-    enemyUnits.forEach(u => {
-        if (u.squads && u.squads.length > 0) {
-            u.squads.forEach(s => {
-                const hasAlive = s.fighters && s.fighters.some(f => f.hp > 0);
-                if (hasAlive) {
-                    const exists = enemySquads.some(es => es.name === s.name);
-                    if (!exists) enemySquads.push(normalizeSquadForBattle(JSON.parse(JSON.stringify(s))));
-                }
-            });
-        } else {
-            // ⚡ Если у врага нет squads - создаем временный
-            console.warn(`Враг ${u.name} не имеет отрядов (squads), создаем временный.`);
-            const tempSquad = {
-                name: u.name,
-                faction: u.faction || 'A.I.R.F.',
-                fighters: [{ name: 'Враг', weapon: 'Винтовка', hp: 3, maxHp: 3 }],
-                currentMorale: 5,
-                baseMorale: 5,
-                embarkedSquadIndex: null
-            };
-            enemySquads.push(tempSquad);
-        }
-    });
+    let enemySquads = collectBattleSquads(enemyUnits, 'enemy');
     
     // ⚡ ПРОВЕРКА: если нет отрядов для боя - создаем минимальные
     if (playerSquads.length === 0) {
@@ -4081,7 +4272,48 @@ function syncBattleLossesToCampaign(battleId) {
     
     // ====== ОБРАБОТКА СВОИХ ОТРЯДОВ ======
     if (appData.campaign.opUnits) {
+        // ⚡ v13.020: ПОХОТОВЫЕ ОТРЯДЫ (группы техники) — синхронизируем ПО МАШИНАМ.
+        //    В бою каждая машина группы — отдельный отряд (isVehicle + opUnitName).
         battle.playerSquads.forEach(battleSquad => {
+            if (!battleSquad.isVehicle || !battleSquad.opUnitName) return;
+            const unit = appData.campaign.opUnits.find(u => u.name === battleSquad.opUnitName);
+            if (!unit || !unit.isGroup || !unit.vehicleList) return;
+            const v = unit.vehicleList.find(vv => vv.name === battleSquad.name);
+            if (!v) return;
+            if (battleSquad.fighters) v.fighters = battleSquad.fighters.map(f => ({ ...f }));
+            if (v.squads && v.squads[0] && battleSquad.fighters) {
+                v.squads[0].fighters = battleSquad.fighters.map(f => ({ ...f }));
+            }
+            if (battleSquad.currentMorale !== undefined) v.currentMorale = battleSquad.currentMorale;
+            const allDead = (v.fighters || []).length > 0 && v.fighters.every(f => f.hp <= 0);
+            if (allDead || battleSquad.isDestroyed) {
+                v.isDestroyed = true;
+                v.destroyed = true;
+                log(`💀 Машина "${v.name}" (юнит "${unit.name}") уничтожена в тактическом бою!`);
+                if (typeof checkVehicleRadioAfterLoss === 'function') checkVehicleRadioAfterLoss(unit);
+            }
+        });
+        // Удаляем уничтоженные машины из групп (обновляем groupSize)
+        appData.campaign.opUnits.forEach(unit => {
+            if (!unit.isGroup || !unit.vehicleList) return;
+            let removed = 0;
+            unit.vehicleList = unit.vehicleList.filter(v => {
+                if (v.isDestroyed || v.destroyed) { removed++; return false; }
+                return true;
+            });
+            if (removed > 0) {
+                unit.groupSize = unit.vehicleList.length;
+                if (unit.groupSize === 0) {
+                    unit.isDestroyed = true;
+                    log(`💀 Юнит "${unit.name}" полностью уничтожен в тактическом бою!`);
+                } else {
+                    log(`📉 Юнит "${unit.name}": потеряно машин: ${removed}, осталось: ${unit.groupSize}`);
+                }
+            }
+        });
+
+        battle.playerSquads.forEach(battleSquad => {
+            if (battleSquad.isVehicle) return; // машины обработаны выше
             for (let unit of appData.campaign.opUnits) {
                 const targetSquad = unit.squads.find(s => s.name === battleSquad.name);
                 if (targetSquad) {
@@ -4131,7 +4363,46 @@ function syncBattleLossesToCampaign(battleId) {
     
     // ====== ОБРАБОТКА ВРАЖЕСКИХ ОТРЯДОВ ======
     if (appData.campaign.enemyOpUnits) {
+        // ⚡ v13.020: машиные отряды вражеских групп — синхронизируем по машинам
         battle.enemySquads.forEach(enemySquad => {
+            if (!enemySquad.isVehicle || !enemySquad.opUnitName) return;
+            const unit = appData.campaign.enemyOpUnits.find(u => u.name === enemySquad.opUnitName);
+            if (!unit || !unit.isGroup || !unit.vehicleList) return;
+            const v = unit.vehicleList.find(vv => vv.name === enemySquad.name);
+            if (!v) return;
+            if (enemySquad.fighters) v.fighters = enemySquad.fighters.map(f => ({ ...f }));
+            if (v.squads && v.squads[0] && enemySquad.fighters) {
+                v.squads[0].fighters = enemySquad.fighters.map(f => ({ ...f }));
+            }
+            if (enemySquad.currentMorale !== undefined) v.currentMorale = enemySquad.currentMorale;
+            const allDead = (v.fighters || []).length > 0 && v.fighters.every(f => f.hp <= 0);
+            if (allDead || enemySquad.isDestroyed) {
+                v.isDestroyed = true;
+                v.destroyed = true;
+                log(`💀 Вражеская машина "${v.name}" (юнит "${unit.name}") уничтожена!`);
+            }
+        });
+        // Удаляем уничтоженные вражеские машины из групп
+        appData.campaign.enemyOpUnits.forEach(unit => {
+            if (!unit.isGroup || !unit.vehicleList) return;
+            let removed = 0;
+            unit.vehicleList = unit.vehicleList.filter(v => {
+                if (v.isDestroyed || v.destroyed) { removed++; return false; }
+                return true;
+            });
+            if (removed > 0) {
+                unit.groupSize = unit.vehicleList.length;
+                if (unit.groupSize === 0) {
+                    unit.isDestroyed = true;
+                    log(`💀 Вражеский юнит "${unit.name}" полностью уничтожен!`);
+                } else {
+                    log(`📉 Вражеский юнит "${unit.name}": потеряно машин: ${removed}, осталось: ${unit.groupSize}`);
+                }
+            }
+        });
+
+        battle.enemySquads.forEach(enemySquad => {
+            if (enemySquad.isVehicle) return; // машины обработаны выше
             for (let unit of appData.campaign.enemyOpUnits) {
                 const targetSquad = unit.squads.find(s => s.name === enemySquad.name);
                 if (targetSquad) {
@@ -9847,6 +10118,8 @@ function processOrders() {
     repairMessengerPools();
     // ⚡ v13.019: лечение назначений раций из старых сейвов
     repairRadioAssignments();
+    // ⚡ v13.020: снятие остаточного статуса «в тактическом бою»
+    healBattleFlags();
     dispatchQueuedOrders();
     
     // ⚡ ЗОНА РАЗВЕДКИ (v13.018): показывается ТОЛЬКО в ход reconActiveTurn
@@ -9994,7 +10267,8 @@ function executeOrder(order) {
         'shoot': '💥 Обстрел',
         'ambush': '🥷 Засада',
         'dismount': '🚲 Спешивание',
-        'remount': '🚲 Посадка'
+        'remount': '🚲 Посадка',
+        'disembark': '🚌 Высадка десанта'
     };
     
     const unit = appData.campaign.opUnits[order.toUnitId];
@@ -10034,6 +10308,9 @@ function executeOrder(order) {
             break;
         case 'remount':
             executeRemountOrder(unit, order);
+            break;
+        case 'disembark':
+            executeDisembarkOrder(unit, order);
             break;
         case 'attack':
             executeAttackOrder(unit, order);
@@ -10138,7 +10415,8 @@ function executeSeriesOrder(unit, order) {
         'shoot': '💥 Обстрел',
         'dismount': '🚲 Спешиться',
         'remount': '🚲 Сесть на велосипеды',
-        'ambush': '🥷 Засада'
+        'ambush': '🥷 Засада',
+        'disembark': '🚌 Высадка десанта'
     };
     log(`📋 [${unit.name}] Выполняется приказ: ${typeNames[currentAction.type] || currentAction.type}`);
     
@@ -10940,6 +11218,67 @@ function executeDismountOrder(unit, order) {
     }
 }
 
+// ⚡ v13.020: Приказ «Высадить десант» — для БТР, в котором едет десант.
+//    Десант появляется на гексе БТР, БТР освобождается.
+function executeDisembarkOrder(unit, order) {
+    const isBtr = unit.type === 'btr_platoon' || /БТР/i.test(unit.name || '');
+    if (!isBtr) {
+        order.status = 'cancelled';
+        log(`❌ [${unit.name}] «Высадить десант»: юнит не является БТР.`);
+        return;
+    }
+    if (unit.col === null || unit.row === null) {
+        order.status = 'cancelled';
+        log(`❌ [${unit.name}] «Высадить десант»: БТР не размещён на карте.`);
+        return;
+    }
+    
+    let disembarkedNames = [];
+    const disembarkUnit = (embarked) => {
+        if (!embarked || embarked.isDestroyed) return;
+        embarked.embarkedInBtr = false;
+        embarked.btrIds = [];
+        embarked.hidden = false;
+        embarked.mobility = 'foot';
+        embarked.col = unit.col;
+        embarked.row = unit.row;
+        if (embarked.embarkedCol !== undefined) delete embarked.embarkedCol;
+        if (embarked.embarkedRow !== undefined) delete embarked.embarkedRow;
+        disembarkedNames.push(embarked.name);
+    };
+    
+    // Случай 1: одиночный БТР с десантом (embarkedUnit)
+    if (unit.embarkedUnit) {
+        const embarked = (appData.campaign.opUnits || []).find(u => u.name === unit.embarkedUnit);
+        disembarkUnit(embarked);
+        unit.embarkedUnit = null;
+        unit.embarkedUnitId = null;
+    }
+    
+    // Случай 2: группа БТР — десант у машин в vehicleList
+    if (unit.isGroup && unit.vehicleList) {
+        unit.vehicleList.forEach(v => {
+            if (!v.embarkedUnit) return;
+            const embarked = (appData.campaign.opUnits || []).find(u => u.name === v.embarkedUnit);
+            disembarkUnit(embarked);
+            v.embarkedUnit = null;
+            v.embarkedUnitId = null;
+        });
+    }
+    
+    if (disembarkedNames.length === 0) {
+        order.status = 'cancelled';
+        log(`❌ [${unit.name}] «Высадить десант»: в БТР не везётся десант.`);
+        return;
+    }
+    
+    order.status = 'completed';
+    log(`🚌 [${unit.name}] Десант высажен: ${disembarkedNames.join(', ')}`);
+    saveData();
+    redrawOperationalMap();
+    if (typeof updateBtrPanel === 'function') updateBtrPanel();
+}
+
 function executeRemountOrder(unit, order) {
     if (unit.dismounted && unit.col !== null && unit.row !== null) {
         const key = `${unit.col},${unit.row}`;
@@ -11515,6 +11854,7 @@ function assignRadioToSelected() {
             radioVehicle.hasRadio = true;
             radioEntry.isVehicleRadio = true;
             radioEntry.hasNumber1 = (radioVehicle.name || '').includes('№1');
+            radioEntry.radioVehicleName = radioVehicle.name;
         }
     }
     hardMode.signalPlatoon.radios.assigned.push(radioEntry);
@@ -11537,9 +11877,11 @@ function repairRadioAssignments() {
         if (!entry || !entry.isDestroyed) return;
         const unit = appData.campaign.opUnits ? appData.campaign.opUnits[entry.unitId] : null;
         if (!unit || !unit.isGroup || !unit.vehicleList) return;
-        // Рация была установлена (есть/была отметка на машине) — это
-        // легитимная потеря, не чиним.
-        const everMarked = unit.vehicleList.some(v => v && v.hasRadio === true);
+        // ⚡ v13.020: рация БЫЛА УСТАНОВЛЕНА (отметка на машине / radioVehicleName /
+        //    hasNumber1) — машина с ней потеряна, это ЛЕГИТИМНАЯ потеря, не чиним.
+        //    Лечим только старые сейвы, где отметки о машине с рацией нет совсем.
+        const everMarked = unit.vehicleList.some(v => v && v.hasRadio === true) ||
+            !!entry.radioVehicleName || !!entry.hasNumber1;
         if (everMarked) return;
         const alive = unit.vehicleList.find(v => v && !v.destroyed);
         if (alive) {
@@ -11547,6 +11889,7 @@ function repairRadioAssignments() {
             entry.isDestroyed = false;
             entry.isVehicleRadio = true;
             entry.hasNumber1 = (alive.name || '').includes('№1');
+            entry.radioVehicleName = alive.name;
             fixed++;
         }
     });
@@ -11909,6 +12252,9 @@ function submitOrder()   {
     // Исполнители приказов сами проверяют ОД и ждут следующего хода, если их нет.
     
     // === ПРОВЕРКА 4: Проверка, не в бою ли отряд ===
+    // ⚡ v13.020: сначала самоисправление — если активного боя на гексе нет,
+    //    остаточный флаг снимается и приказ отдаётся.
+    if (unit.isInBattle) healBattleFlags();
     if (unit.isInBattle) {
         alert(`❌ Отряд "${unit.name}" находится в тактическом бою и не может выполнять операционные приказы!`);
         return;
@@ -12100,6 +12446,20 @@ function submitOrder()   {
         }
     }
     
+    // === Проверка: высадка десанта (только БТР с десантом) ===
+    if (orderType === 'disembark') {
+        const isBtr = unit.type === 'btr_platoon' || /БТР/i.test(unit.name || '');
+        if (!isBtr) {
+            alert(`❌ Отряд "${unit.name}" не является БТР!`);
+            return;
+        }
+        const hasTroops = unit.embarkedUnit || (unit.isGroup && unit.vehicleList && unit.vehicleList.some(v => v.embarkedUnit));
+        if (!hasTroops) {
+            alert(`❌ БТР "${unit.name}" не везёт десант!`);
+            return;
+        }
+    }
+    
     // === ПРОВЕРКА 10: Проверка для засады ===
     if (orderType === 'ambush') {
         if (!canUnitShoot(unit)) {
@@ -12140,6 +12500,10 @@ function submitOrder()   {
         waypoints: [...orderWaypoints],
         targetHex: targetHexValue,
         targetDistance: fireDistanceValue,
+        // ⚡ v13.020: галочка «не штурмовать бронетехнику» фиксируется В ПРИКАЗЕ
+        //    в момент отдачи — иначе к моменту исполнения (конец хода) DOM-галочка
+        //    могла сброситься, и штурм брони никогда не срабатывал.
+        ignoreArmor: (document.getElementById('assaultIgnoreArmor') ? document.getElementById('assaultIgnoreArmor').checked : true),
         // Стартовая позиция юнита (для отслеживания прогресса маршрута)
         startHex: (unit.col !== null && unit.row !== null) ? `${unit.col},${unit.row}` : null
     };
@@ -12387,7 +12751,8 @@ function renderOrderQueue() {
             'shoot': '💥 Обстрел',
             'dismount': '🚲 Спешиться',
             'remount': '🚲 Сесть на велосипеды',
-            'ambush': '🥷 Засада'
+            'ambush': '🥷 Засада',
+            'disembark': '🚌 Высадка десанта'
         };
         const typeLabel = typeNames[o.type] || o.type;
         
@@ -13109,6 +13474,35 @@ function addEnemyReinforcementsToBattle(battleId, enemyUnit, playerUnits) {
     }
 }
 
+// ⚡ v13.020: САМОЛЕЧЕНИЕ статуса «в тактическом бою».
+//    Если у юнита висит isInBattle, а активного боя на его гексе (или любого,
+//    где он участник) нет — флаг остаточный (отступление, баг, старый сейв)
+//    и снимается. Иначе юнит «числится в бою» и отказывается от всех приказов.
+function healBattleFlags() {
+    let healed = 0;
+    const healList = (units) => {
+        (units || []).forEach(u => {
+            if (!u || !u.isInBattle) return;
+            const stillInBattle = (appData.campaign.activeBattles || []).some(b => {
+                if (!b || !b.hexKey) return false;
+                const [bc, br] = b.hexKey.split(',').map(Number);
+                return bc === u.col && br === u.row;
+            });
+            if (!stillInBattle) {
+                u.isInBattle = false;
+                u.inBattleId = null;
+                healed++;
+            }
+        });
+    };
+    healList(appData.campaign.opUnits);
+    healList(appData.campaign.enemyOpUnits);
+    if (healed > 0) {
+        log(`⚕️ Самоисправление: снят остаточный статус «в тактическом бою» с ${healed} юнитов.`);
+    }
+    return healed;
+}
+
 function retreatFromBattle() {
     const battleId = appData.currentBattleId;
     if (!battleId) return;
@@ -13147,6 +13541,16 @@ function retreatFromBattle() {
     const battleIndex = appData.campaign.activeBattles.findIndex(b => b.id === battleId);
     if (battleIndex !== -1) {
         appData.campaign.activeBattles.splice(battleIndex, 1);
+    }
+
+    // ⚡ v13.020: БОЙ ОКОНЧЕН — СНИМАЕМ ОТМЕТКУ "В БОЮ" СО ВСЕХ ЮНИТОВ.
+    //    Без этого отступившие танки/отряды навсегда оставались "в тактическом
+    //    бою" и отказывались принимать приказы.
+    if (appData.campaign.opUnits) {
+        appData.campaign.opUnits.forEach(u => { u.isInBattle = false; u.inBattleId = null; });
+    }
+    if (appData.campaign.enemyOpUnits) {
+        appData.campaign.enemyOpUnits.forEach(u => { u.isInBattle = false; u.inBattleId = null; });
     }
 
     // Очищаем тактические данные
@@ -13827,6 +14231,16 @@ function createVehicleGroup(vehicles) {
         radioEntry.unitId = newGroupIndex;
         radioEntry.isVehicleRadio = true;
         radioEntry.hasNumber1 = true;
+        // ⚡ v13.020: фиксируем конкретную машину с рацией (из v.hasRadio,
+        //    при отсутствии — машина №1) — для самоисправления и учёта потерь
+        const vl = groupUnit.vehicleList || [];
+        let markedVeh = vl.find(v => v && v.hasRadio === true);
+        if (!markedVeh) {
+            markedVeh = vl.find(v => v && v.name && v.name.includes('№1'));
+            if (markedVeh) markedVeh.hasRadio = true;
+        }
+        radioEntry.hasNumber1 = markedVeh ? (markedVeh.name || '').includes('№1') : true;
+        radioEntry.radioVehicleName = markedVeh ? markedVeh.name : null;
     }
     
     // Корректируем остальные рации
@@ -14427,9 +14841,51 @@ function executeOpShoot(targets, distance) {
     // ⚡ Собираем урон от пулемётов/стрелкового оружия
     let totalDamage = 0;
     let weaponDetails = [];
+    let btrMgFire = false;
     
+    // ⚡ v13.020: ГРУППА ТЕХНИКИ — стрелки живут в vehicleList (squads пустые).
+    //    БТР с десантом на ходу: 6 выстрелов пулемётом на КАЖДЫЙ БТР
+    //    (шанс попадания по дистанции 1: 0.35, 2: 0.25, ≥3: 0.15, урон 1d6).
+    if (shooter.type === 'btr_platoon' || /БТР/i.test(shooter.name || '')) {
+        // ⚡ БТР (с десантом или без): 6 выстрелов пулемётом на КАЖДЫЙ БТР
+        btrMgFire = true;
+        const btrVehicles = (shooter.isGroup && shooter.vehicleList)
+            ? shooter.vehicleList.filter(v => !v.isDestroyed && !v.destroyed)
+            : [{ name: shooter.name, fighters: shooter.squads && shooter.squads[0] ? shooter.squads[0].fighters : [], squads: shooter.squads || [] }];
+        for (let v of btrVehicles) {
+            const crewAlive = (v.fighters || []).some(f => f.hp > 0) ||
+                (v.squads && v.squads[0] && v.squads[0].fighters && v.squads[0].fighters.some(f => f.hp > 0));
+            if (!crewAlive) continue;
+            const shots = 6;
+            const hc = distance === 1 ? 0.35 : (distance === 2 ? 0.25 : 0.15);
+            let h = 0;
+            for (let i = 0; i < shots; i++) {
+                if (Math.random() < hc) { h++; totalDamage += rollD6(); }
+            }
+            weaponDetails.push(`${v.name} (6 выстр., попаданий ${h})`);
+        }
+    } else if (shooter.isGroup && shooter.vehicleList && shooter.vehicleList.length > 0) {
+        // Прочая техника в группе — пулемёты каждой машины
+        const aliveVehicles = shooter.vehicleList.filter(v => !v.isDestroyed && !v.destroyed);
+        for (let v of aliveVehicles) {
+            const squadsToCheck = (v.squads && v.squads.length > 0) ? v.squads :
+                (v.crewInstances && v.crewInstances.length > 0 ? [{ name: v.name, faction: v.faction, crewInstances: v.crewInstances, fighters: v.fighters || [] }] : []);
+            for (let squad of squadsToCheck) {
+                if (!squad.crewInstances) continue;
+                for (let ci of squad.crewInstances) {
+                    if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') continue;
+                    const cw = getFactionCrewWeapons(squad.faction || v.faction).find(w => w.name === ci.weaponName);
+                    if (!cw || cw.type !== 'mg') continue;
+                    const alive = (ci.fighterIndices || []).filter(idx => squad.fighters && squad.fighters[idx] && squad.fighters[idx].hp > 0).length;
+                    if (alive > 0) {
+                        totalDamage += 10;
+                        weaponDetails.push(`${cw.name} — ${v.name} (10 ед.)`);
+                    }
+                }
+            }
+        }
+    } else if (shooter.squads) {
     // Проходим по всем отрядам стрелка
-    if (shooter.squads) {
         for (let squad of shooter.squads) {
             if (!squad.fighters) continue;
             
@@ -14571,9 +15027,14 @@ function executeOpShoot(targets, distance) {
         }
     }
     // ⚡ ИТОГОВЫЙ УРОН - ОБЪЯВЛЯЕМ ПЕРЕД ИСПОЛЬЗОВАНИЕМ
-    let finalDamage = Math.ceil(totalDamage * distanceMod * terrainMod);
-    const randomFactor = 0.8 + (Math.random() * 0.4);
-    finalDamage = Math.max(1, Math.round(finalDamage * randomFactor));
+    // (у БТР-огня на ходу шанс попадания уже учтён дистанцией — без distanceMod)
+    let finalDamage = btrMgFire ? totalDamage : Math.ceil(totalDamage * distanceMod * terrainMod);
+    if (!btrMgFire) {
+        const randomFactor = 0.8 + (Math.random() * 0.4);
+        finalDamage = Math.max(1, Math.round(finalDamage * randomFactor));
+    } else if (totalDamage > 0) {
+        finalDamage = Math.max(1, totalDamage);
+    }
     // ⚡ НОЧНОЙ МОДИФИКАТОР
     const nightMod = getNightModifier();
     if (nightMod < 1) {
@@ -15116,6 +15577,7 @@ function executeOpShootAt(targets, distance) {
     const gunCount = countAtGuns(shooter);
     if (gunCount === 0) {
         document.getElementById('mapInfo').innerHTML = '❌ У юнита нет ПТО/орудий!';
+        log(`⚠️ «${shooter.name}» не открыл огонь: у юнита нет активных ПТО/орудий.`);
         cancelOpShooting();
         return;
     }
@@ -15136,14 +15598,23 @@ function executeOpShootAt(targets, distance) {
         case 8: case 9: case 10: hitChance = 0.04; penetrationKey = 40; break;
         default: hitChance = 0.03; penetrationKey = 40;
     }
+    // ⚡ v13.020: таблицы пробития в data.js рассчитаны на дистанции 1–30 (мм).
+    //    Ключи 35/38/40 в таблицах отсутствуют → пробитие было 0 уже с 4-го гекса.
+    penetrationKey = Math.min(penetrationKey, 30);
     
     // Определяем пробиваемость
     let penetration = 0;
-    for (let squad of (shooter.squads || [])) {
+    // ⚡ v13.020: у группы техники орудия живут в vehicleList (squads пустые)
+    const shooterWeaponSquads = (shooter.isGroup && shooter.vehicleList && shooter.vehicleList.length > 0)
+        ? shooter.vehicleList
+            .filter(v => !v.isDestroyed && !v.destroyed)
+            .reduce((acc, v) => acc.concat(v.squads && v.squads.length > 0 ? v.squads : (v.crewInstances ? [{ crewInstances: v.crewInstances, faction: v.faction }] : [])), [])
+        : (shooter.squads || []);
+    for (let squad of shooterWeaponSquads) {
         if (!squad.crewInstances) continue;
         for (let ci of squad.crewInstances) {
             if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') continue;
-            const cw = getFactionCrewWeapons(squad.faction).find(w => w.name === ci.weaponName);
+            const cw = getFactionCrewWeapons(squad.faction || shooter.faction).find(w => w.name === ci.weaponName);
             if (cw && (cw.type === 'at_gun' || cw.type === 'tank_gun') && cw.penetration) {
                 penetration = cw.penetration[String(penetrationKey)] || 0;
                 break;
@@ -15199,6 +15670,11 @@ function executeOpShootAt(targets, distance) {
                     case 5: location = 'engine'; break;
                     case 6: location = 'ammo'; break;
                 }
+                
+                // ⚡ v13.020: у БТР НЕТ боеукладки — «попадание в аммо-модуль»
+                //    засчитывается как попадание в корпус.
+                const isBtrVehicle = targetVehicle.type === 'btr_platoon' || /БТР/i.test(targetVehicle.name || '');
+                if (location === 'ammo' && isBtrVehicle) location = 'hull';
                 
                 console.log(`   Выстрел #${i+1}: d6=${locRoll} → ${location}`);
                 
@@ -16196,20 +16672,23 @@ function checkVehicleRadioAfterLoss(unit) {
     if (!unit || !unit.isGroup) return;
     
     const radioEntry = hardMode.signalPlatoon.radios.assigned.find(r => 
-        r.unitId === appData.campaign.opUnits.indexOf(unit) && r.hasNumber1
+        r.unitId === appData.campaign.opUnits.indexOf(unit)
     );
     
-    if (!radioEntry) return;
+    if (!radioEntry || radioEntry.isDestroyed) return;
     
-    // Проверяем, есть ли ещё машина №1 в составе
-    const hasNumber1 = unit.vehicleList && unit.vehicleList.some(v => 
-        v.name && v.name.includes('№1') && !v.destroyed
+    // ⚡ v13.020: проверяем, жива ли МАШИНА С РАЦИЕЙ (отмеченная v.hasRadio /
+    //    radioVehicleName), а не просто «машина №1»
+    const radioAlive = unit.vehicleList && unit.vehicleList.some(v => 
+        !v.destroyed && !v.isDestroyed &&
+        (v.hasRadio === true || v.name === radioEntry.radioVehicleName ||
+         (radioEntry.hasNumber1 && v.name && v.name.includes('№1')))
     );
     
-    if (!hasNumber1) {
-        // Машина №1 уничтожена - рация перестаёт действовать
+    if (!radioAlive) {
+        // Машина с рацией уничтожена - рация перестаёт действовать
         radioEntry.isDestroyed = true;
-        log(`📻 Рация в отряде "${unit.name}" перестала действовать (машина №1 уничтожена).`);
+        log(`📻 Рация в отряде "${unit.name}" перестала действовать (машина с рацией уничтожена).`);
     }
 }
 // Удержание позиции: юнит закрепляется на месте, приказ выполняется за ход
@@ -17028,18 +17507,21 @@ function checkVehicleRadioAfterLoss(unit) {
     if (!unit || !unit.isGroup) return;
     
     const radioEntry = hardMode.signalPlatoon.radios.assigned.find(r => 
-        r.unitId === appData.campaign.opUnits.indexOf(unit) && r.hasNumber1
+        r.unitId === appData.campaign.opUnits.indexOf(unit)
     );
     
-    if (!radioEntry) return;
+    if (!radioEntry || radioEntry.isDestroyed) return;
     
-    // Проверяем, есть ли ещё машина №1 в составе
-    const hasNumber1 = unit.vehicleList && unit.vehicleList.some(v => 
-        v.name && v.name.includes('№1') && !v.destroyed
+    // ⚡ v13.020: проверяем, жива ли МАШИНА С РАЦИЕЙ (отмеченная v.hasRadio /
+    //    radioVehicleName), а не просто «машина №1»
+    const radioAlive = unit.vehicleList && unit.vehicleList.some(v => 
+        !v.destroyed && !v.isDestroyed &&
+        (v.hasRadio === true || v.name === radioEntry.radioVehicleName ||
+         (radioEntry.hasNumber1 && v.name && v.name.includes('№1')))
     );
     
-    if (!hasNumber1) {
-        // Машина №1 уничтожена - рация перестаёт действовать
+    if (!radioAlive) {
+        // Машина с рацией уничтожена - рация перестаёт действовать
         radioEntry.isDestroyed = true;
         // Удаляем из assigned
         const idx = hardMode.signalPlatoon.radios.assigned.indexOf(radioEntry);
@@ -17047,12 +17529,14 @@ function checkVehicleRadioAfterLoss(unit) {
             hardMode.signalPlatoon.radios.assigned.splice(idx, 1);
             hardMode.signalPlatoon.radios.available++;
         }
-        log(`📻 Рация в отряде "${unit.name}" перестала действовать (машина №1 уничтожена).`);
+        log(`📻 Рация в отряде "${unit.name}" перестала действовать (машина с рацией уничтожена).`);
     }
 }
 // ⚡ РЕЖИМ "ОГОНЬ НА ХОДУ" ДЛЯ ТЕХНИКИ
 function checkMovingFire(unit) {
     if (!unit) return;
+    // ⚡ v13.020: ВСЯ ТЕХНИКА (включая танки) ведёт автоогонь на ходу.
+    //    (в v13.020-rc танки пропускались — игрок вернул автоогонь для всех.)
     // ⚡ Техника: isVehicle (группы) ИЛИ тип/название обычного операционного юнита
     //    (раньше обычные танки/БА без isVehicle не стреляли на ходу)
     const isVeh = unit.isVehicle || unit.type === 'tank_platoon' ||
@@ -17839,7 +18323,11 @@ function checkEnemyEncounter(unit, behavior, order) {
             return false;
             
         case 'assault': // Штурмовать — сближаться для тактического боя
-            const ignoreArmor = document.getElementById('assaultIgnoreArmor')?.checked ?? true;
+            // ⚡ v13.020: берём из приказа (зафиксировано в момент отдачи),
+            //    DOM-галочка — только как запасной вариант для старых приказов.
+            const ignoreArmor = (order && typeof order.ignoreArmor === 'boolean')
+                ? order.ignoreArmor
+                : (document.getElementById('assaultIgnoreArmor')?.checked ?? true);
             
             if (ignoreArmor && isArmoredUnit(closestEnemy)) {
                 log(`🚫 ${unit.name} не штурмует бронетехнику.`);
@@ -18063,6 +18551,7 @@ function onOrderBehaviorChange() {
       <option value="shoot">💥 Обстрелять точку</option>
       <option value="dismount">🚲 Спешиться</option>
       <option value="remount">🚲 Сесть на велосипеды</option>
+      <option value="disembark">🚌 Высадить десант</option>
       <option value="ambush">🥷 Засада</option>
     </select>
   </div>
