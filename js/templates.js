@@ -342,4 +342,30 @@ const SQUAD_TEMPLATES = [
             {"weaponName": "Танковый пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
           ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
-        ];
+        
+        // ⚡ v13.023: полковая артиллерия (поддержка — обе фракции)
+        {"name":"Полковой расчёт 75-мм №1","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/мина 82 1.jpg",
+         "fighters":[{"name":"Наводчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},
+                     {"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},
+                     {"name":"Водитель","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],
+         "crewInstances":[{"weaponName":"Полковое орудие 75-мм","fighterIndices":[0,1,2],"active":true}],
+         "ammoSmall":32,"ammoOrdnance":12,"grenades":6},
+        {"name":"Полковой расчёт 75-мм №2","faction":"BeVe","baseMorale":3,"currentMorale":3,"icon":"images/BeVe/мина 82 2.jpg",
+         "fighters":[{"name":"Наводчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},
+                     {"name":"Заряжающий","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},
+                     {"name":"Водитель","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],
+         "crewInstances":[{"weaponName":"Полковое орудие 75-мм","fighterIndices":[0,1,2],"active":true}],
+         "ammoSmall":32,"ammoOrdnance":12,"grenades":6},
+        {"name":"Полковой расчёт 75-мм №1","faction":"A.I.R.F.","baseMorale":3,"currentMorale":3,"icon":null,
+         "fighters":[{"name":"Наводчик","weapon":"Винтовка Vz.24","hp":3,"maxHp":3,"isCommander":true},
+                     {"name":"Заряжающий","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},
+                     {"name":"Водитель","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],
+         "crewInstances":[{"weaponName":"Полковое орудие 75-мм","fighterIndices":[0,1,2],"active":true}],
+         "ammoSmall":32,"ammoOrdnance":12,"grenades":6},
+        {"name":"Полковой расчёт 75-мм №2","faction":"A.I.R.F.","baseMorale":3,"currentMorale":3,"icon":null,
+         "fighters":[{"name":"Наводчик","weapon":"Винтовка Vz.24","hp":3,"maxHp":3,"isCommander":true},
+                     {"name":"Заряжающий","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},
+                     {"name":"Водитель","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],
+         "crewInstances":[{"weaponName":"Полковое орудие 75-мм","fighterIndices":[0,1,2],"active":true}],
+         "ammoSmall":32,"ammoOrdnance":12,"grenades":6}
+];
