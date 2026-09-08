@@ -168,6 +168,21 @@ const SQUAD_TEMPLATES = [
             {"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[6,7,8],"active":true},
             {"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[9],"active":true}
           ]},
+          // ⚡ v13.026: ДОТ Van Hees — 1 ПТО-пушка + 1 пулемёт, обслуга 7 человек
+          //    (Лейтенант, Заместитель, расчёт ПТО 3 человека, расчёт пулемёта 2 человека)
+          {"name":"ДОТ Van Hees","faction":"BeVe","baseMorale":10,"currentMorale":10,"icon":"images/BeVe/ДОТ Bosh.png","ammoSmall":120,"ammoOrdnance":50,"grenades":0,"fighters":[
+            {"name":"Лейтенант","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3,"isCommander":true},
+            {"name":"Заместитель","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},
+            {"name":"Сержант (ПТО)","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},
+            {"name":"Наводчик (ПТО)","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},
+            {"name":"Заряжающий (ПТО)","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},
+            {"name":"Пулеметчик","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3},
+            {"name":"Второй номер","weapon":"Винтовка FN model 24/30","hp":3,"maxHp":3}
+          ],
+          "crewInstances":[
+            {"weaponName":"Расчёт ПТО Bohler M37","fighterIndices":[2,3,4],"active":true},
+            {"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[5,6],"active":true}
+          ]},
           {"name":"САУ Brugge №1","faction":"BeVe","baseMorale":8,"currentMorale":8,"icon":"images/BeVe/САУ Brugge №1.jpg","ammoSmall":50,"ammoOrdnance":40,"grenades":0,"fighters":[
             {"name":"Механик-водитель","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},
             {"name":"Стрелок-радист","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},
