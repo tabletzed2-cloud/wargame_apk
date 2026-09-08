@@ -141,7 +141,13 @@ const BATTALION_PRESETS = {
       }
     ],
         supportOptions: [
-      { id: "dots", name: "Расчёты ДОТов и ДОТы (стационарные)", template: "ДОТ Bosh", icon: "images/BeVe/ДОТ Bosh.png" },
+      // ⚡ v13.026: опция ДОТов даёт ДВА стационарных ДОТа:
+      //    «ДОТ Bosh» (1 ПТО + 2 пулемёта) и «ДОТ Van Hees» (1 ПТО + 1 пулемёт,
+      //    обслуга 7 человек)
+      { id: "dots", name: "Расчёты ДОТов и ДОТы (стационарные)", templates: [
+        { name: "ДОТ Bosh", templateName: "ДОТ Bosh", icon: "images/BeVe/ДОТ Bosh.png" },
+        { name: "ДОТ Van Hees", templateName: "ДОТ Van Hees", icon: "images/BeVe/ДОТ Bosh.png" }
+      ] },
       { id: "regimental_artillery", name: "Поддержка полковой артиллерии (2 пушки 75-мм)", templates: [
         { name: "Пушка 75-мм №1", templateName: "Полковой расчёт 75-мм №1", icon: "images/BeVe/мина 82 1.jpg" },
         { name: "Пушка 75-мм №2", templateName: "Полковой расчёт 75-мм №2", icon: "images/BeVe/мина 82 2.jpg" }
