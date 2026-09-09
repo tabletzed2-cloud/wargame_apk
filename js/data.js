@@ -24,6 +24,19 @@ const SCENARIO_OP_MAP_SETTINGS = {
   }
 };
 
+// ⚡ v13.031: ЗОНЫ РАССТАНОВКИ для онлайн-матча (по фракциям).
+//    Формат: { minCol, maxCol, minRow, maxRow } — прямоугольник гексов,
+//    где фракция может размещать свои юниты в фазе подготовки.
+//    TODO: точные границы для Валенсии предоставит игрок — заменить значения.
+//    Пока: условно левая треть (BeVe) и правая треть (A.I.R.F.) карты 20×15.
+//    Если сценария/фракции нет в списке — зон нет (размещение свободно).
+const SCENARIO_PLACEMENT_ZONES = {
+  valencia: {
+    'BeVe': { minCol: 0, maxCol: 6, minRow: 0, maxRow: 14 },
+    'A.I.R.F.': { minCol: 13, maxCol: 19, minRow: 0, maxRow: 14 }
+  }
+};
+
 // ========== СТРУКТУРА БАТАЛЬОНОВ ==========
 const BATTALION_PRESETS = {
   "BeVe": {
@@ -146,12 +159,13 @@ const BATTALION_PRESETS = {
       //    обслуга 7 человек)
       { id: "dots", name: "Расчёты ДОТов и ДОТы (стационарные)", templates: [
         { name: "ДОТ Bosh", templateName: "ДОТ Bosh", icon: "images/BeVe/ДОТ Bosh.png" },
+        // ⚡ v13.030: свой файл иконки (если в репозитории его нет — на карте
+        //    автоматически подставляется иконка «ДОТ Bosh.png»)
         { name: "ДОТ Van Hees", templateName: "ДОТ Van Hees", icon: "images/BeVe/ДОТ Van Hees.png" }
       ] },
-      { id: "regimental_artillery", name: "Поддержка полковой артиллерии (2 пушки 75-мм)", templates: [
-        { name: "Пушка 75-мм №1", templateName: "Полковой расчёт 75-мм №1", icon: "images/BeVe/мина 82 1.jpg" },
-        { name: "Пушка 75-мм №2", templateName: "Полковой расчёт 75-мм №2", icon: "images/BeVe/мина 82 2.jpg" }
-      ] },
+      // ⚡ v13.028: у BeVe (как и у AIRF с v13.025) НЕТ полковых пушек
+      //    как юнитов — артиллерийская поддержка = приказ штаба «Арт. обстрел»
+      { id: "artillery_support", name: "Поддержка полковой артиллерии (приказ штаба «Арт. обстрел»)", orderOnly: true },
       { id: "sau_battery", name: "Батарея САУ (3 САУ)", templates: [
         { name: "САУ Brugge №1", templateName: "САУ Brugge №1", icon: "images/BeVe/САУ Brugge №1.jpg"},
         { name: "САУ Brugge №2", templateName: "САУ Brugge №2", icon: "images/BeVe/САУ Brugge №2.jpg"},
@@ -314,7 +328,7 @@ const BTR_REQUIREMENTS = {
     'company_hq': 2,            // штаб роты
     'battalion_hq': 3,          // штаб батальона
     'mortar_battery': 3,        // минометная батарея
-    'at_gun': 2,                // ПТО
+    'at_gun': 1,                // ПТО
     'at_battery': 4,            // батарея ПТО
     'hq': 3,                    // штаб (общий)
     'default': 4                // по умолчанию
@@ -348,22 +362,25 @@ const GROUP_ICONS = {
     'default_5': 'images/groups/default_5.png',
 };
 // Иконки меток
+// ⚡ v13.030: сгенерированные иконки удалены (по запросу) — метки рисуются
+//    эмодзи-fallback'ами (как окопы/здания/лес); если появится свой PNG —
+//    достаточно заполнить поле icon у нужной метки.
 const markerIconMap = {
-  'detected': { icon: 'images/marker_detected.png', fallback: '???', width: 30, height: 30 },
-  'noise': { icon: 'images/marker_noise.png', fallback: '??', width: 30, height: 30 },
-  'artillery': { icon: 'images/marker_artillery.png', fallback: '??', width: 30, height: 30 },
-  'fireField': { icon: 'images/BeVe/горящее поле.png', fallback: '??', width: 30, height: 30 },
-  'bicyclePark': { icon: 'images/BeVe/велостоянка метка.png', fallback: '??', width: 30, height: 30 },
-  'ammoPoint': { icon: 'images/marker_ammo.png', fallback: '??', width: 30, height: 30 },
-  'destroyedVehicle': { icon: 'images/marker_destroyed_vehicle.png', fallback: '??', width: 30, height: 30 },
-  'destroyedSquadFriendly': { icon: 'images/marker_destroyed_squad_friendly.png', fallback: '??', width: 30, height: 30 },
-  'destroyedSquadEnemy': { icon: 'images/marker_destroyed_squad_enemy.png', fallback: '??', width: 30, height: 30 },
-  'dot': { icon: 'images/marker_dot.png', fallback: '??', width: 30, height: 30 },
-  'trenches': { icon: 'images/окоп оп.png', fallback: '🕳️', width: 30, height: 30 },
+  'detected': { icon: null, fallback: '👁️', width: 30, height: 30 },
+  'noise': { icon: null, fallback: '🔊', width: 30, height: 30 },
+  'artillery': { icon: null, fallback: '💥', width: 30, height: 30 },
+  'fireField': { icon: 'images/BeVe/горящее поле.png', fallback: '🔥', width: 30, height: 30 },
+  'bicyclePark': { icon: 'images/BeVe/велостоянка метка.png', fallback: '🚲', width: 30, height: 30 },
+  'ammoPoint': { icon: null, fallback: '📦', width: 30, height: 30 },
+  'destroyedVehicle': { icon: null, fallback: '🔥', width: 30, height: 30 },
+  'destroyedSquadFriendly': { icon: null, fallback: '💀', width: 30, height: 30 },
+  'destroyedSquadEnemy': { icon: null, fallback: '☠️', width: 30, height: 30 },
+  'dot': { icon: null, fallback: '🏰', width: 30, height: 30 },
+  'trenches': { icon: null, fallback: '🕳️', width: 30, height: 30 },
   'building': { icon: null, fallback: '🏠', width: 30, height: 30 },
   'forest': { icon: null, fallback: '🌲', width: 30, height: 30 },
   'bushes': { icon: null, fallback: '🌳', width: 30, height: 30 },
-  'rocks': { icon: 'images/валуны.png', fallback: '🪨', width: 30, height: 30 }
+  'rocks': { icon: null, fallback: '🪨', width: 30, height: 30 }
 };
 
 // Функции доступа к данным
