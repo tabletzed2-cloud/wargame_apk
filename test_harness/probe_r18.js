@@ -13,7 +13,8 @@ const FNS = [
     'executeOpShoot', 'executeOpShootAt', 'executeArtilleryStrikeOrder',
     'pointInPolygon', 'isHexInPlacementZone',
     'openOnlineMenu', 'onlineDiagnostics', 'onlineFirebaseReady', 'onlineCreateRoom', 'onlineJoinRoom',
-    'onlineBody', 'onlineGoToCampaign', 'closeOnlineModal', 'onlineShowJoin'
+    'onlineBody', 'onlineGoToCampaign', 'closeOnlineModal', 'onlineShowJoin',
+    'onlineSelfTest', 'onlineSelfTestMeaning'
 ];
 
 let pass = 0, fail = 0;
