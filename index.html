@@ -19228,16 +19228,17 @@ function onOrderBehaviorChange() {
      Внутрь firebase: { ... } — только строки «ключ: значение» из консоли
      Firebase, БЕЗ строки `const firebaseConfig = {` и лишнего `};`. -->
 <script>
+  // ⚡ v13.034: конфиг проекта cold-flame (закоммичен — вставлять руками не надо)
   window.ONLINE_CONFIG = {
-firebase: {
-apiKey: "AIzaSyDSRBWmEQ4LM4_2PWjuIb7kcZv8IvF7lEM",
-  authDomain: "cold-flame.firebaseapp.com",
-  projectId: "cold-flame",
-  storageBucket: "cold-flame.firebasestorage.app",
-  messagingSenderId: "69518993916",
-  appId: "1:69518993916:web:b7c660996bd1d15945aa79",
-  measurementId: "G-B67L91XD2E"
-};
+    firebase: {
+      apiKey: "AIzaSyDSRBWmEQ4LM4_2PWjuIb7kcZv8IvF7lEM",
+      authDomain: "cold-flame.firebaseapp.com",
+      projectId: "cold-flame",
+      storageBucket: "cold-flame.firebasestorage.app",
+      messagingSenderId: "69518993916",
+      appId: "1:69518993916:web:b7c660996bd1d15945aa79",
+      measurementId: "G-B67L91XD2E"
+    }
   };
 </script>
 <script>
@@ -19356,6 +19357,8 @@ function openOnlineMenu() {
             <button class="menu-btn" style="flex:1;" onclick="onlineCreateRoom()">➕ Создать комнату</button>
             <button class="menu-btn" style="flex:1;" onclick="onlineShowJoin()">🔑 Войти по коду</button>
           </div>
+          <button class="menu-btn" style="margin-top:10px; width:100%; background:#2c3e50;" onclick="onlineSelfTest()">🔍 Проверить подключение к Firebase</button>
+          <div id="onlineSelfTestBox" style="margin-top:8px;"></div>
           <div id="onlineJoinBox" style="display:none; margin-top:12px; align-items:center; gap:8px;">
             <label>Код:</label>
             <input type="text" id="onlineJoinCode" maxlength="4" style="width:110px; font-size:1.3rem; letter-spacing:0.25em; text-transform:uppercase; text-align:center; background:#444; color:#fff; border-radius:6px; padding:4px;">
@@ -19386,6 +19389,42 @@ function onlineShowJoin() {
     const b = document.getElementById('onlineJoinBox');
     if (!b) return;
     b.style.display = b.style.display === 'block' ? 'none' : 'flex';
+}
+
+// ⚡ v13.034: живой тест подключения — пишет/читает/удаляет тестовый
+// документ в Firestore и расшифровывает ошибку по коду
+function onlineSelfTestMeaning(code) {
+    const M = {
+        'permission-denied': 'правила Firestore закрыты — откройте Rules → «Publish» (режим Test), либо база в production-режиме',
+        'not-found': 'база данных Firestore не создана (Console → Firestore Database → Create Database)',
+        'failed-precondition': 'Cloud Firestore API не включён в проекте (Console → APIs & Services)',
+        'unavailable': 'нет сети до серверов Google (проверьте интернет; на телефоне — включён ли Wi-Fi/мобильные данные)',
+        'deadline-exceeded': 'сервер Google не отвечает — сеть/прокси/адблок',
+        'invalid-argument': 'неверный конфиг (projectId не совпадает с базой)',
+        'unauthenticated': 'нужна аутентификация — правила базы требует login'
+    };
+    return M[code] || '—';
+}
+
+function onlineSelfTest() {
+    if (!ONLINE.db) { openOnlineMenu(); return; }
+    const box = document.getElementById('onlineSelfTestBox');
+    if (!box) return;
+    box.innerHTML = '<span style="color:#aaa;">Проверка: запись → чтение → удаление тестового документа…</span>';
+    const ref = ONLINE.db.collection('matches').doc('SELFTEST');
+    ref.set({ code: 'SELFTEST', status: 'selftest', ts: Date.now() }, { merge: true })
+        .then(() => ref.get())
+        .then(snap => ref.delete().then(() => snap))
+        .then(snap => {
+            if (!snap.exists) throw new Error('документ не прочитан (exists=false)');
+            box.innerHTML = '<span style="color:#2ecc71;"><b>✅ Соединение с Firebase работает</b> (запись/чтение/удаление — ок). Если комната не создаётся — напишите, что именно видите.</span>';
+        })
+        .catch(e => {
+            console.error('onlineSelfTest error:', e);
+            box.innerHTML = '<span style="color:#e74c3c;"><b>❌ Ошибка: [' + (e.code || '?') + ']</b> ' + (e.message || '') +
+                '<br>Что это значит: ' + onlineSelfTestMeaning(e.code) +
+                '<br><span style="color:#999;">Пришлите эту строку целиком разработчику.</span></span>';
+        });
 }
 
 function onlineGenCode() {
