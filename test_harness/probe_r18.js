@@ -11,7 +11,7 @@ const FNS = [
     'getHqSupportAccuracyMod', 'getOpHexDistance', 'isStaticOpUnit',
     'selectTargetVehicle', 'processVehicleHit', 'getLocationName', 'getOpHexTypes',
     'executeOpShoot', 'executeOpShootAt', 'executeArtilleryStrikeOrder',
-    'isHexInPlacementZone'
+    'pointInPolygon', 'isHexInPlacementZone'
 ];
 
 let pass = 0, fail = 0;
@@ -293,23 +293,33 @@ console.log('\n== M. v13.030: иконки меток — без битых сс
 }
 
 // ============================================================
-console.log('\n== N. v13.031: зоны расстановки (онлайн) ==');
+console.log('\n== N. v13.032: зоны расстановки — полигоны (онлайн) ==');
 {
     const ad = freshAppData();
     const s = makeSandbox(ad);
     const Z = s.evalCtx('SCENARIO_PLACEMENT_ZONES');
-    ok(Z && Z.valencia && Z.valencia.BeVe && Z.valencia['A.I.R.F.'], 'N1: SCENARIO_PLACEMENT_ZONES задан для Валенсии (обе фракции)');
-    const bz = Z.valencia.BeVe, az = Z.valencia['A.I.R.F.'];
-    ok(bz.maxCol < az.minCol, 'N2: зоны фракций не пересекаются', `BeVe 0-${bz.maxCol}, AIRF ${az.minCol}-19`);
-    const inB = s.evalCtx(`isHexInPlacementZone('valencia','BeVe',${bz.minCol},${bz.minRow})`);
-    ok(inB.ok === true, 'N3: BeVe — свой угол зоны внутри');
-    const outB = s.evalCtx(`isHexInPlacementZone('valencia','BeVe',${bz.maxCol + 1},5)`);
-    ok(outB.ok === false && outB.zone === bz, 'N4: BeVe за границей зоны — вне, зона возвращена');
-    const inA = s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',${az.maxCol},${az.maxRow})`);
-    ok(inA.ok === true, 'N5: AIRF — свой угол зоны внутри');
-    const outA = s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',${az.minCol - 1},5)`);
-    ok(outA.ok === false, 'N6: AIRF за границей зоны — вне');
-    ok(s.evalCtx(`isHexInPlacementZone('unknown_scenario','BeVe',3,3)`) .ok === true, 'N7: нет зон в сценарии — размещение свободно');
+    const be = Z && Z.valencia && Z.valencia.BeVe;
+    const ai = Z && Z.valencia && Z.valencia['A.I.R.F.'];
+    ok(Array.isArray(be) && be.length >= 5 && Array.isArray(ai) && ai.length >= 5,
+        'N1: полигоны зон заданы для обеих фракций (Валенсия)');
+    const nBe = s.evalCtx(`SCENARIO_PLACEMENT_ZONES.valencia.BeVe.length`);
+    const nAi = s.evalCtx(`SCENARIO_PLACEMENT_ZONES.valencia['A.I.R.F.'].length`);
+    ok(nBe === 43 && nAi === 14, `N2: вершин: BeVe=${nBe} (ожид. 43), AIRF=${nAi} (ожид. 14)`);
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',4,2)`) .ok === true, 'N3: BeVe — точка (4,2) внутри зоны');
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',10,12)`) .ok === true, 'N4: BeVe — точка (10,12) внутри (юг)');
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',2,12)`) .ok === true, 'N5: AIRF — точка (2,12) внутри зоны');
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',1,11)`) .ok === true, 'N6: AIRF — точка (1,11) внутри');
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',19,14)`) .ok === false, 'N7: BeVe — (19,14) вне (правый низ)');
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',6,12)`) .ok === false, 'N8: AIRF — (6,12) вне зоны');
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',0,9)`) .ok === false, 'N9: AIRF — (0,9) вне зоны (верхнее соседство)');
+    ok(s.evalCtx(`isHexInPlacementZone('unknown_scenario','BeVe',3,3)`) .ok === true, 'N10: нет зон в сценарии — свободно');
+    // Пересечение зон по ВСЕЙ карте 20×15 — должно быть пусто
+    let overlap = 0;
+    for (let r = 0; r < 15; r++) for (let c = 0; c < 20; c++) {
+        if (s.evalCtx(`isHexInPlacementZone('valencia','BeVe',${c},${r})`).ok &&
+            s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',${c},${r})`).ok) overlap++;
+    }
+    ok(overlap === 0, 'N11: зоны фракций не пересекаются (вся карта 20×15)');
 }
 
 console.log('\n====================================');
