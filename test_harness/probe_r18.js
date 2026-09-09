@@ -16,7 +16,8 @@ const FNS = [
     'onlineBody', 'onlineGoToCampaign', 'closeOnlineModal', 'onlineShowJoin',
     'onlineSelfTest', 'onlineSelfTestMeaning',
     'onlineAutoEnterPlacement', 'onlineFirstTurnRole',
-    'showOperationalMap', 'setOpMapMode'
+    'showOperationalMap', 'setOpMapMode',
+    'updateAssemblySupportCheck', 'orderShouldExecuteNow', 'executeOrder', 'executeDigInOrder', 'rollD12'
 ];
 
 let pass = 0, fail = 0;
@@ -265,8 +266,8 @@ console.log('\n== F. Regression v13.023/24: арт. обстрел + ворон�
     setRandom(s.sandbox, Array(400).fill(0).map((_, i) => (i % 4 === 0 ? 0.3 : 0.5)));
     s.evalCtx('executeArtilleryStrikeOrder(' + JSON.stringify(order) + ')');
     ok(s.logs.some(l => l.includes('АРТОБСТРЕЛ') && l.includes('(8,8)')), 'F1: обстрел гекса (8,8) выполнен');
-    const hitLine = s.logs.find(l => l.includes('Попаданий:'));
-    ok(!!hitLine, 'F2: итог «Попаданий: H/20» в логе', hitLine);
+    const hitLine = s.logs.find(l => l.includes('Каждый отряд на гексе получает урон 1d12'));
+    ok(!!hitLine, 'F2: в логе новая модель «каждый отряд — 1d12» (v13.037)', hitLine);
     const cell = ad.campaign.opMapGrid['8,8'];
     const markers = Array.isArray(cell) ? null : (cell && cell.markers);
     ok(!!markers && markers.includes('crater'), 'F3: метка «воронка» (crater) на гексе обстрела');
@@ -375,6 +376,78 @@ console.log('\n== P. v13.036: первый ход — у A.I.R.F. ==');
     try { s.evalCtx('onlineAutoEnterPlacement()'); } catch (e) { threw = true; }
     ok(!threw, 'P5: onlineAutoEnterPlacement — не падает (карта + режим расстановки)');
     ok(s.evalCtx('appData.campaign.opMapMode') === 'placePlayer', 'P6: opMapMode == placePlayer после автостарта');
+}
+
+// ============================================================
+console.log('\n== S. v13.037: бонусы, 3-из-4, приказ на время, арт d12 ==');
+{
+    const ad = freshAppData();
+    const s = makeSandbox(ad);
+    // S1: BeVe «dots» — оба ДОТа (Bosh и Van Hees)
+    const bevDots = s.evalCtx('generateBattalion("BeVe", ["dots"])');
+    const dotsUnit = (bevDots.units || []).find(u => u.type === 'dots');
+    const dotsNames = dotsUnit ? (dotsUnit.squads || []).map(q => q.name) : [];
+    ok(!!dotsUnit && dotsNames.includes('ДОТ Bosh') && dotsNames.includes('ДОТ Van Hees'),
+        'S1: BeVe «dots» — ДОТ Bosh и ДОТ Van Hees', JSON.stringify(dotsNames));
+    // S2: глобальные бонусы фракций (data.js) — с иконками
+    const beB = s.evalCtx('(FRACTION_GLOBAL_BONUSES || {}).BeVe');
+    const airB = s.evalCtx('(FRACTION_GLOBAL_BONUSES || {})["A.I.R.F."]');
+    ok(Array.isArray(beB) && beB.length === 3 && beB.every(b => b.name && b.desc && b.icon),
+        'S2a: у BeVe 3 глобальных бонуса (УО/Phillips/Мотогонец) с иконками');
+    ok(Array.isArray(airB) && airB.length === 2 && airB.every(b => b.name && b.desc && b.icon),
+        'S2b: у A.I.R.F. 2 бонуса (Сиеста/Часки) с иконками');
+    ok(/УО|управлени/i.test((beB[0] || {}).name || '') && /Phillips/i.test((beB[1] || {}).name || '') &&
+       /Мотогонец/i.test((beB[2] || {}).name || '') && /Сиеста/i.test((airB[0] || {}).name || '') &&
+       /Часки/i.test((airB[1] || {}).name || ''),
+        'S2c: названия бонусов корректны');
+    // S3: приказ на время — гейт по времени
+    ad.campaign.currentTime = 860;
+    ok(s.evalCtx('orderShouldExecuteNow({ startTimeMin: null })') === true, 'S3a: без времени — исполняется сразу');
+    ok(s.evalCtx('orderShouldExecuteNow({ startTimeMin: 870 })') === false, 'S3b: 14:20 < 14:30 — ждём');
+    ad.campaign.currentTime = 870;
+    ok(s.evalCtx('orderShouldExecuteNow({ startTimeMin: 870 })') === true, 'S3c: 14:30 >= 14:30 — исполняется');
+    // S4: сиеста AIRF — >3 гексов от врага, 80% шанс (14:00–15:00)
+    ad.campaign.playerFaction = 'A.I.R.F.';
+    ad.campaign.currentTime = 850; // 14:10
+    ad.campaign.opUnits = [{ name: 'AIRF-1', type: 'infantry_platoon', col: 0, row: 0, ap: 4, maxAp: 4, isDestroyed: false }];
+    ad.campaign.enemyOpUnits = [{ name: 'Враг', type: 'infantry_platoon', col: 4, row: 0, ap: 4, maxAp: 4, isDestroyed: false }];
+    s.run('redrawOperationalMap = function(){}; renderActiveOrders = function(){};'); // отрисовка/панели в песочнице не нужны
+    let order1 = { id: 1, type: 'dig_in', fromUnitId: 0, toUnitId: 0, status: 'active', waypoints: [], subUnitIds: [] };
+    setRandom(s, [0.1]); // < 0.8 → сиеста срабатывает
+    s.evalCtx('executeOrder(' + JSON.stringify(order1) + ')');
+    ok(s.evalCtx('appData.campaign.opUnits[0].ap') === 4,
+        'S4a: сиеста (0.1<0.8, 4 гекса > 3) — приказ не выполнен (ОД не потрачены)');
+    ad.campaign.opUnits[0].siestaRolledThisTurn = false;
+    const order2 = { id: 2, type: 'dig_in', fromUnitId: 0, toUnitId: 0, status: 'active', waypoints: [], subUnitIds: [] };
+    s.sandbox.__order2 = order2;
+    setRandom(s, [0.9]); // > 0.8 → не спит
+    s.evalCtx('executeOrder(__order2)');
+    ok(order2.digProgress === 1 && s.evalCtx('appData.campaign.opUnits[0].ap') === 0,
+        'S4b: сиеста не сработала (0.9>0.8) — приказ выполнен (прокапывание начато)');
+    // S5: арт. обстрел онлайн — вражеский отряд РЕАЛЬНО получает d12
+    ad.campaign.online = { code: 'TEST', role: 'p1', playerId: 'x' };
+    ad.campaign.currentTurn = 2;
+    ad.campaign.opUnits = [{ name: 'Штаб', type: 'battalion_hq', col: 0, row: 0, ap: 4, maxAp: 4, isDestroyed: false, squads: [] }];
+    ad.campaign.enemyOpUnits = [{
+        name: 'Враг-Взвод', type: 'infantry_platoon', col: 5, row: 5, ap: 4, maxAp: 4, isDestroyed: false,
+        squads: [{ name: 'Отряд', fighters: [1, 2, 3, 4, 5, 6].map(i => ({ name: 'Б' + i, hp: 3, maxHp: 3 })) }]
+    }];
+    const hpBefore = s.evalCtx('appData.campaign.enemyOpUnits[0].squads[0].fighters.reduce((a,f)=>a+f.hp,0)');
+    // d12 = floor(0.99*12)+1 = 12, затем 12 выборов «случайный боец»
+    setRandom(s, [0.99, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.15, 0.25, 0.35, 0.45]);
+    s.evalCtx('executeArtilleryStrikeOrder({ issueTurn: 1, targetHex: "5,5", status: "active" })');
+    const hpAfter = s.evalCtx('appData.campaign.enemyOpUnits[0].squads[0].fighters.reduce((a,f)=>a+f.hp,0)');
+    ok(hpBefore - hpAfter === 12, 'S5a: онлайн — враг на гексе получил d12=12 (реальный урон)', hpBefore + '->' + hpAfter);
+    // S6: арт. обстрел одиночной игры — враг «в лог» (урон не наносится)
+    ad.campaign.online = null;
+    ad.campaign.enemyOpUnits = [{
+        name: 'Враг-Взвод2', type: 'infantry_platoon', col: 6, row: 6, ap: 4, maxAp: 4, isDestroyed: false,
+        squads: [{ name: 'Отряд', fighters: [1, 2, 3].map(i => ({ name: 'Б' + i, hp: 3, maxHp: 3 })) }]
+    }];
+    setRandom(s, [0.99, 0.1]);
+    s.evalCtx('executeArtilleryStrikeOrder({ issueTurn: 1, targetHex: "6,6", status: "active" })');
+    ok(s.evalCtx('appData.campaign.enemyOpUnits[0].squads[0].fighters.every(f=>f.hp===3)') === true,
+        'S6: одиночная игра — враг неуязвим (урон только в лог)');
 }
 
 console.log('\n====================================');

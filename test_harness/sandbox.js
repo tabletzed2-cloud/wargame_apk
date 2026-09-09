@@ -146,6 +146,10 @@ function createSandbox(appData) {
     sandbox.globalThis = sandbox;
     // Math — подменяемый (deterministic sequences)
     sandbox.Math = Object.create(Math);
+    // ⚡ v13.037: ссылка на контекст на самом объекте песочницы —
+    //    setRandom работает и с wrapper'ом, и с «сырой» sandbox
+    //    (старые тесты вызывают setRandom(ss.sandbox, seq))
+    sandbox.__ctx = null; // заполняется после vm.createContext
 
     const ctx = vm.createContext(sandbox);
     // ⚠️ rollD6/rollD10 ОБЯЗАТЕЛЬНО внутри контекста — замыкание на
@@ -160,6 +164,7 @@ function createSandbox(appData) {
     if (fs.existsSync('/tmp/wg_part.js')) {
         vm.runInContext(fs.readFileSync('/tmp/wg_part.js', 'utf8'), ctx, { filename: 'wg_part.js' });
     }
+    sandbox.__ctx = ctx;
     return {
         sandbox,
         ctx,
@@ -171,14 +176,25 @@ function createSandbox(appData) {
     };
 }
 
-function setRandom(sandbox, values) {
+// ⚡ v13.037: фикс — присваивание Math ДОЛЖНО быть внутри контекста:
+//    `sandbox.Math = M` после vm.createContext контекст не видит
+//    (Math остаётся встроенным, случайность «утекает» в Node-Math).
+function setRandom(wrapper, values) {
     let i = 0;
     const M = Object.create(Math);
     M.random = () => {
         if (i >= values.length) throw new Error('random exhausted');
         return values[i++];
     };
-    sandbox.Math = M;
+    const vm = require('vm');
+    const sandbox = wrapper && wrapper.sandbox ? wrapper.sandbox : wrapper;
+    const ctx = (wrapper && wrapper.ctx) || sandbox.__ctx;
+    if (ctx) {
+        sandbox.__M = M; // хост→sandbox видно из контекста (проверено)
+        vm.runInContext('Math = __M;', ctx);
+    } else {
+        sandbox.Math = M; // без контекста — хотя бы на хосте
+    }
     return M;
 }
 
