@@ -14,7 +14,9 @@ const FNS = [
     'pointInPolygon', 'isHexInPlacementZone',
     'openOnlineMenu', 'onlineDiagnostics', 'onlineFirebaseReady', 'onlineCreateRoom', 'onlineJoinRoom',
     'onlineBody', 'onlineGoToCampaign', 'closeOnlineModal', 'onlineShowJoin',
-    'onlineSelfTest', 'onlineSelfTestMeaning'
+    'onlineSelfTest', 'onlineSelfTestMeaning',
+    'onlineAutoEnterPlacement', 'onlineFirstTurnRole',
+    'showOperationalMap', 'setOpMapMode'
 ];
 
 let pass = 0, fail = 0;
@@ -349,6 +351,30 @@ console.log('\n== O. v13.033: онлайн-модуль живёт без кон
     try { s.evalCtx('openOnlineMenu()'); } catch (e) { threw = true; }
     ok(!threw, 'O5: openOnlineMenu без Firebase — не падает (диагностика в модалке)');
     ok(s.sandbox.document.getElementById('onlineModal').style.display === 'block', 'O6: модалка открылась');
+}
+
+// ============================================================
+console.log('\n== P. v13.036: первый ход — у A.I.R.F. ==');
+{
+    const ad = freshAppData();
+    const s = makeSandbox(ad);
+    ok(s.evalCtx('typeof onlineFirstTurnRole') === 'function', 'P0: onlineFirstTurnRole определена');
+    ok(s.evalCtx(`onlineFirstTurnRole({ p1: { faction: 'A.I.R.F.' }, p2: { faction: 'BeVe' } })`) === 'p1', 'P1: A.I.R.F. = p1 → первый ход p1');
+    ok(s.evalCtx(`onlineFirstTurnRole({ p1: { faction: 'BeVe' }, p2: { faction: 'A.I.R.F.' } })`) === 'p2', 'P2: A.I.R.F. = p2 → первый ход p2');
+    ok(s.evalCtx(`onlineFirstTurnRole({ p1: { faction: 'BeVe' }, p2: { faction: 'BeVe' } })`) === 'p1', 'P3: без A.I.R.F. → p1 (запасной)');
+    ok(s.evalCtx(`onlineFirstTurnRole(null)`) === 'p1', 'P4: players=null → p1');
+    // режим расстановки включается автоматически: onlineAutoEnterPlacement существует и не падает
+    s.run('window.ONLINE_CONFIG = undefined; var ONLINE = { db: null, match: null, role: "p1", docRef: null, listener: null, code: null, playerId: null, pendingStart: null, started: false };');
+    s.run(HTML.split('\n').find(l => l.includes('const ONLINE_CONFIG = (typeof window')));
+    ad.campaign.opUnits = [{ name: 'тест', col: null, row: null }];
+    // placementLocked/placementUnlockCount — top-level `let` главного скрипта
+    s.run('if (typeof placementLocked === "undefined") { var placementLocked = false; var placementUnlockCount = 0; }');
+    // отрисовочную цепочку заглушаем: P-тест проверяет переключение режима, не канвас
+    s.run('buildOperationalUnits = function(){}; initOperationalMap = function(){}; renderActiveBattlesList = function(){}; updateOpPlaceSelect = function(){}; redrawOperationalMap = function(){};');
+    let threw = false;
+    try { s.evalCtx('onlineAutoEnterPlacement()'); } catch (e) { threw = true; }
+    ok(!threw, 'P5: onlineAutoEnterPlacement — не падает (карта + режим расстановки)');
+    ok(s.evalCtx('appData.campaign.opMapMode') === 'placePlayer', 'P6: opMapMode == placePlayer после автостарта');
 }
 
 console.log('\n====================================');

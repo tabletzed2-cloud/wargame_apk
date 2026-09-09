@@ -558,6 +558,8 @@ function selectScenario(scenarioId) {
           const ps = ONLINE.pendingStart;
           ONLINE.pendingStart = null;
           confirmBattalion(ps.faction, ps.supportIds);
+          // ⚡ v13.036: сразу на карту в режиме расстановки
+          if (typeof onlineAutoEnterPlacement === 'function') onlineAutoEnterPlacement();
         } else {
           showScenarioDetails(scenarioId);
         }
@@ -572,6 +574,8 @@ function selectScenario(scenarioId) {
           const ps = ONLINE.pendingStart;
           ONLINE.pendingStart = null;
           confirmBattalion(ps.faction, ps.supportIds);
+          // ⚡ v13.036: сразу на карту в режиме расстановки
+          if (typeof onlineAutoEnterPlacement === 'function') onlineAutoEnterPlacement();
         } else {
           showScenarioDetails(scenarioId);
         }
@@ -19303,7 +19307,7 @@ function onlineDiagnostics() {
     const sdkOk = (typeof firebase !== 'undefined');
     let s = '<div style="margin-top:12px; padding:8px; background:#1a1a1a; border-radius:6px; font-size:0.78rem; color:#999;">';
     s += 'Диагностика:<br>';
-    s += '· Страница: <b style="color:#ddd;">v13.035</b><br>';
+    s += '· Страница: <b style="color:#ddd;">v13.036</b><br>';
     s += '· Конфиг: ' + (cfgOk ? '<b style="color:#2ecc71;">✅ задан</b> (проект ' + ONLINE_CONFIG.firebase.projectId + ')'
                                 : '<b style="color:#e74c3c;">❌ пуст/неполный</b> — вставьте apiKey и projectId в ONLINE_CONFIG');
     s += '<br>· Firebase SDK: ' + (sdkOk ? '<b style="color:#2ecc71;">✅ загружен</b>'
@@ -19564,18 +19568,25 @@ function renderOnlineLobby() {
         }
         const myPlaced = (me && me.placed) ? '✅ готово' : '⏳ идёт';
         const oppPlaced = (opp && opp.placed) ? '✅ готово' : '⏳ идёт';
+        const firstTurnRole = onlineFirstTurnRole(m.players);
+        const firstTurnWho = (firstTurnRole === ONLINE.role) ? 'вы' : 'оппонент';
         box.innerHTML = `
-          <p>📍 <b>Фаза расстановки.</b> На карте кампании: «📌 Размещение» → расставьте юниты <b>только в своей зоне</b> → «✅ Завершить размещение».</p>
+          <p>📍 <b>Фаза расстановки.</b> Вы уже на карте — режим расстановки включён автоматически. Расставьте юниты <b>только в своей зоне</b>, затем «✅ Завершить размещение» (это = «я готов»).</p>
           <p>Вы: ${myPlaced}<br>Оппонент: ${oppPlaced}</p>
-          <p style="color:#777; font-size:0.8rem;">Когда оба завершат — кампания начнётся.</p>
+          <p style="color:#777; font-size:0.8rem;">Первый ход: <b>A.I.R.F.</b> — ${firstTurnWho}. Когда оба завершат — кампания начнётся.</p>
         `;
         onlineCheckMatchProgress();
         return;
     }
 
     if (m.status === 'playing') {
+        // ⚡ v13.036: показать, у кого ход (первый — у A.I.R.F.)
+        const ftRole = m.whoseTurn || onlineFirstTurnRole(m.players);
+        const ftP = (m.players && m.players[ftRole]) || null;
+        const ftWho = (ftRole === ONLINE.role) ? 'вы' : 'оппонент';
         box.innerHTML = `
-          <p style="color:#2ecc71;">🎖️ Кампания идёт! (Синхронизация ходов, туман войны и урон по бойцам — фаза 2.)</p>
+          <p style="color:#2ecc71;">🎖️ Кампания идёт! Ход: <b>${ftP && ftP.faction ? ftP.faction : ftRole}</b> (${ftWho}).</p>
+          <p style="color:#777; font-size:0.8rem;">Синхронизация ходов, туман войны и урон по бойцам — фаза 2.</p>
           <button class="menu-btn" onclick="onlineGoToCampaign()">Перейти к кампании</button>
         `;
         return;
@@ -19597,7 +19608,8 @@ function onlineCheckMatchProgress() {
     if (m.status === 'lobby' && me.faction && me.ready && opp.faction && opp.ready && me.faction !== opp.faction) {
         ONLINE.docRef.update({ status: 'placing' }).catch(() => {});
     } else if (m.status === 'placing' && me.placed && opp.placed) {
-        ONLINE.docRef.update({ status: 'playing', whoseTurn: 'p1' }).catch(() => {});
+        // ⚡ v13.036: первый ход — у игрока за A.I.R.F.
+        ONLINE.docRef.update({ status: 'playing', whoseTurn: onlineFirstTurnRole(m.players) }).catch(() => {});
     }
 }
 
@@ -19654,9 +19666,40 @@ function onlineStartLocalCampaign() {
     selectScenario(m.scenario || 'valencia');
 }
 
+// ⚡ v13.036: онлайн-матч — сразу после лобби: на карту, режим расстановки
+// включён (без промежуточного экрана «Батальон сформирован»)
+function onlineAutoEnterPlacement() {
+    try {
+        const units = appData.campaign.opUnits || [];
+        // новый матч: все юниты неразмещены — снимаем блокировку предыдущей расстановки
+        if (units.length && units.every(u => u.col === null || u.col === undefined)) {
+            placementLocked = false;
+            placementUnlockCount = 0;
+        }
+        showOperationalMap();
+        setOpMapMode('placePlayer');
+        const mi = document.getElementById('mapInfo');
+        if (mi) {
+            mi.innerHTML = '📍 Онлайн-матч: режим расстановки. Разместите юнитов в своей зоне (зелёная), затем «✅ Завершить размещение» — это значит, что вы готовы.';
+            mi.style.color = '#27ae60';
+        }
+    } catch (e) {
+        console.error('onlineAutoEnterPlacement error:', e);
+    }
+}
+
+// ⚡ v13.036: первый ход — у A.I.R.F. (по правилам матча)
+function onlineFirstTurnRole(players) {
+    if (players) {
+        for (const r of ['p1', 'p2']) {
+            if (players[r] && players[r].faction === 'A.I.R.F.') return r;
+        }
+    }
+    return 'p1';
+}
+
 // «Завершить размещение» (закрепляется за finishPlacement)
-function onlineMarkPlaced() {
-    if (!ONLINE.docRef) return;
+function onlineMarkPlaced() {    if (!ONLINE.docRef) return;
     const units = appData.campaign.opUnits || [];
     const unplaced = units.filter(u => u.col === null || u.col === undefined);
     if (unplaced.length > 0) {
