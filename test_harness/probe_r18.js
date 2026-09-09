@@ -11,7 +11,9 @@ const FNS = [
     'getHqSupportAccuracyMod', 'getOpHexDistance', 'isStaticOpUnit',
     'selectTargetVehicle', 'processVehicleHit', 'getLocationName', 'getOpHexTypes',
     'executeOpShoot', 'executeOpShootAt', 'executeArtilleryStrikeOrder',
-    'pointInPolygon', 'isHexInPlacementZone'
+    'pointInPolygon', 'isHexInPlacementZone',
+    'openOnlineMenu', 'onlineDiagnostics', 'onlineFirebaseReady', 'onlineCreateRoom', 'onlineJoinRoom',
+    'onlineBody', 'onlineGoToCampaign', 'closeOnlineModal', 'onlineShowJoin'
 ];
 
 let pass = 0, fail = 0;
@@ -320,6 +322,32 @@ console.log('\n== N. v13.032: зоны расстановки — полигон
             s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',${c},${r})`).ok) overlap++;
     }
     ok(overlap === 0, 'N11: зоны фракций не пересекаются (вся карта 20×15)');
+}
+
+// ============================================================
+console.log('\n== O. v13.033: онлайн-модуль живёт без конфига ==');
+{
+    const ad = freshAppData();
+    const s = makeSandbox(ad);
+    const cfgLine = HTML.split('\n').find(l => l.includes('const ONLINE_CONFIG = (typeof window'));
+    ok(!!cfgLine, 'O1: конфиг — в отдельном блоке window.ONLINE_CONFIG (строка найдена в index.html)');
+    // сценарий «сломанный блок конфига»: window.ONLINE_CONFIG не задан
+    s.run('window.ONLINE_CONFIG = undefined;');
+    s.run(cfgLine);
+    ok(s.evalCtx('ONLINE_CONFIG.firebase') === null, 'O2: конфиг пуст/сломан → fallback {firebase:null}, модуль не падает');
+    ok(s.evalCtx('typeof openOnlineMenu') === 'function' && s.evalCtx('typeof onlineDiagnostics') === 'function', 'O3: openOnlineMenu/onlineDiagnostics определены');
+    // валидный конфиг подхватывается (отдельная песочница — const не переобъявляется)
+    const s2 = makeSandbox(freshAppData());
+    s2.run('window.ONLINE_CONFIG = { firebase: { apiKey: "a", projectId: "prj" } };');
+    s2.run(cfgLine);
+    ok(s2.evalCtx('ONLINE_CONFIG.firebase.projectId') === 'prj', 'O4: валидный конфиг window.ONLINE_CONFIG подхвачен');
+    // openOnlineMenu не бросает исключение без Firebase (показывает диагностику)
+    // ONLINE — top-level `let` модуля (не функция), экстрактору его нет — инъектим
+    s.run('if (typeof ONLINE === "undefined") var ONLINE = { db: null, match: null, role: null, docRef: null, listener: null, code: null, playerId: null, pendingStart: null, started: false };');
+    let threw = false;
+    try { s.evalCtx('openOnlineMenu()'); } catch (e) { threw = true; }
+    ok(!threw, 'O5: openOnlineMenu без Firebase — не падает (диагностика в модалке)');
+    ok(s.sandbox.document.getElementById('onlineModal').style.display === 'block', 'O6: модалка открылась');
 }
 
 console.log('\n====================================');

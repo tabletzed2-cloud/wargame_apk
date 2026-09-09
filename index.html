@@ -19222,6 +19222,24 @@ function onOrderBehaviorChange() {
     <button onclick="closeTargetModal()" style="background:#555;">Отмена</button>
   </div>
 </div>
+<!-- ⚡ v13.033: КОНФИГ FIREBASE — вставляйте ТОЛЬКО сюда.
+     Блок отдельный: опечатка в конфиге не сломает весь онлайн-модуль,
+     кнопка «Играть онлайн» откроет диагностику.
+     Внутрь firebase: { ... } — только строки «ключ: значение» из консоли
+     Firebase, БЕЗ строки `const firebaseConfig = {` и лишнего `};`. -->
+<script>
+  window.ONLINE_CONFIG = {
+    firebase: null
+    // firebase: {
+    //   apiKey: "AIzaSy...",
+    //   authDomain: "имя-проекта.firebaseapp.com",
+    //   projectId: "имя-проекта",
+    //   storageBucket: "имя-проекта.appspot.com",
+    //   messagingSenderId: "1234567890",
+    //   appId: "1:1234567890:web:abc123"
+    // }
+  };
+</script>
 <script>
 // ============================================================
 // ⚡ v13.031: ОНЛАЙН-МАТЧИ (Firebase Firestore)
@@ -19231,11 +19249,10 @@ function onOrderBehaviorChange() {
 // Фаза 2 (следующий этап): синхронизация ходов, туман войны,
 //           урон по бойцам, видимый оппоненту.
 // ============================================================
-const ONLINE_CONFIG = {
-  // Вставьте сюда конфиг Firebase (README-ONLINE.md, 5 шагов):
-  // firebase: { apiKey: 'AIza...', authDomain: '...firebaseapp.com', projectId: '...' }
-  firebase: null
-};
+// ⚡ v13.033: конфиг Firebase живёт в ОТДЕЛЬНОМ <script>-блоке выше
+//    (window.ONLINE_CONFIG). Если там опечатка — она ломает только тот блок,
+//    а модуль продолжит работать и покажет в диагностике «конфиг пуст/неполный».
+const ONLINE_CONFIG = (typeof window !== 'undefined' && window.ONLINE_CONFIG) ? window.ONLINE_CONFIG : { firebase: null };
 
 let ONLINE = {
     db: null, docRef: null, listener: null,
@@ -19279,36 +19296,83 @@ function onlineGoToCampaign() {
     showOperationalMap();
 }
 
+// ⚡ v13.033: диагностика — показывает на экране, на каком шаге затык
+function onlineDiagnostics() {
+    const cfgOk = ONLINE_CONFIG.firebase && ONLINE_CONFIG.firebase.apiKey && ONLINE_CONFIG.firebase.projectId;
+    const sdkOk = (typeof firebase !== 'undefined');
+    let s = '<div style="margin-top:12px; padding:8px; background:#1a1a1a; border-radius:6px; font-size:0.78rem; color:#999;">';
+    s += 'Диагностика:<br>';
+    s += '· Страница: <b style="color:#ddd;">v13.033</b><br>';
+    s += '· Конфиг: ' + (cfgOk ? '<b style="color:#2ecc71;">✅ задан</b> (проект ' + ONLINE_CONFIG.firebase.projectId + ')'
+                                : '<b style="color:#e74c3c;">❌ пуст/неполный</b> — вставьте apiKey и projectId в ONLINE_CONFIG');
+    s += '<br>· Firebase SDK: ' + (sdkOk ? '<b style="color:#2ecc71;">✅ загружен</b>'
+                                         : '<b style="color:#e74c3c;">❌ не загрузился</b> (проверьте интернет / доступность www.gstatic.com)');
+    s += '<br>· Firestore: ' + (ONLINE.db ? '<b style="color:#2ecc71;">✅ подключён</b>' : (sdkOk && cfgOk ? '⏳ не подключался' : '—'));
+    s += '</div>';
+    return s;
+}
+
 function openOnlineMenu() {
-    // Уже в онлайн-кампании — сразу на карту
-    if (appData.campaign && appData.campaign.active && appData.campaign.online) {
-        onlineGoToCampaign();
-        return;
-    }
-    document.getElementById('mainMenu').style.display = 'none';
-    document.getElementById('onlineModal').style.display = 'block';
-    if (!onlineFirebaseReady()) {
+    // ⚡ v13.033: кнопка больше не может «молча умереть» — любая ошибка
+    //    показывается прямо в модалке, а не только в консоли
+    try {
+        // Уже в онлайн-кампании — сразу на карту
+        if (appData.campaign && appData.campaign.active && appData.campaign.online) {
+            onlineGoToCampaign();
+            return;
+        }
+        document.getElementById('mainMenu').style.display = 'none';
+        document.getElementById('onlineModal').style.display = 'block';
+
+        const cfgOk = ONLINE_CONFIG.firebase && ONLINE_CONFIG.firebase.apiKey && ONLINE_CONFIG.firebase.projectId;
+        if (!cfgOk) {
+            onlineBody(`
+              <p style="color:#e74c3c;"><b>❌ Firebase не настроен.</b></p>
+              <p>Для онлайн-режима нужен бесплатный Firebase-проект — инструкция в <b>README-ONLINE.md</b> (корень репозитория), 5 шагов.</p>
+              <p>Конфиг вставляется в отдельный блок <b>window.ONLINE_CONFIG</b> (в конце index.html, перед онлайн-модулем). Важно: внутрь — только строки «ключ: значение», <b>без</b> строки <code>const firebaseConfig</code>.</p>
+              ${onlineDiagnostics()}
+            `);
+            return;
+        }
+        if (typeof firebase === 'undefined') {
+            onlineBody(`
+              <p style="color:#e74c3c;"><b>❌ Firebase SDK не загрузился.</b></p>
+              <p>Скрипты firebase подключаются с <b>www.gstatic.com</b> — проверьте интернет. Если сайт открывается с файловой системы (file://) или без сети — SDK не загрузится.</p>
+              ${onlineDiagnostics()}
+            `);
+            return;
+        }
+        if (!onlineFirebaseReady()) {
+            onlineBody(`
+              <p style="color:#e74c3c;"><b>❌ Не удалось инициализировать Firebase.</b> Проверьте конфиг (проект существует, не удалён).</p>
+              ${onlineDiagnostics()}
+            `);
+            return;
+        }
         onlineBody(`
-          <p style="color:#e74c3c;"><b>❌ Firebase не настроен.</b></p>
-          <p>Для онлайн-режима нужен бесплатный Firebase-проект — инструкция в <b>README-ONLINE.md</b> (корень репозитория), 5 шагов.</p>
-          <p>После создания проекта вставьте конфиг в блок <b>ONLINE_CONFIG</b> (в конце index.html) и перезагрузите страницу.</p>
+          <p>Кампания вдвоём: каждый на своём устройстве, общий сценарий, зоны расстановки, туман войны.*</p>
+          <p style="color:#777; font-size:0.8rem;">* туман войны и синхронизация ходов — фаза 2 (следующий этап); сейчас — комната, лобби и размещение.</p>
+          <div style="display:flex; gap:10px;">
+            <button class="menu-btn" style="flex:1;" onclick="onlineCreateRoom()">➕ Создать комнату</button>
+            <button class="menu-btn" style="flex:1;" onclick="onlineShowJoin()">🔑 Войти по коду</button>
+          </div>
+          <div id="onlineJoinBox" style="display:none; margin-top:12px; align-items:center; gap:8px;">
+            <label>Код:</label>
+            <input type="text" id="onlineJoinCode" maxlength="4" style="width:110px; font-size:1.3rem; letter-spacing:0.25em; text-transform:uppercase; text-align:center; background:#444; color:#fff; border-radius:6px; padding:4px;">
+            <button class="menu-btn" onclick="onlineJoinRoom()">Подключиться</button>
+          </div>
+          <div id="onlineLobbyBox" style="margin-top:14px;"></div>
+          ${onlineDiagnostics()}
         `);
-        return;
+    } catch (e) {
+        console.error('openOnlineMenu error:', e);
+        document.getElementById('onlineModal').style.display = 'block';
+        onlineBody(`
+          <p style="color:#e74c3c;"><b>❌ Ошибка онлайн-модуля:</b> ${e.message}</p>
+          <p style="font-size:0.8rem; color:#999;">Текст ошибки — отправьте разработчику. Часто причина: опечатка в конфиге Firebase (ONLINE_CONFIG) или старый кэш — обновите страницу дважды.</p>
+          ${onlineDiagnostics()}
+        `);
     }
-    onlineBody(`
-      <p>Кампания вдвоём: каждый на своём устройстве, общий сценарий, зоны расстановки, туман войны.*</p>
-      <p style="color:#777; font-size:0.8rem;">* туман войны и синхронизация ходов — фаза 2 (следующий этап); сейчас — комната, лобби и размещение.</p>
-      <div style="display:flex; gap:10px;">
-        <button class="menu-btn" style="flex:1;" onclick="onlineCreateRoom()">➕ Создать комнату</button>
-        <button class="menu-btn" style="flex:1;" onclick="onlineShowJoin()">🔑 Войти по коду</button>
-      </div>
-      <div id="onlineJoinBox" style="display:none; margin-top:12px; align-items:center; gap:8px; display:none;">
-        <label>Код:</label>
-        <input type="text" id="onlineJoinCode" maxlength="4" style="width:110px; font-size:1.3rem; letter-spacing:0.25em; text-transform:uppercase; text-align:center; background:#444; color:#fff; border-radius:6px; padding:4px;">
-        <button class="menu-btn" onclick="onlineJoinRoom()">Подключиться</button>
-      </div>
-      <div id="onlineLobbyBox" style="margin-top:14px;"></div>
-    `);
 }
 
 function closeOnlineModal() {
@@ -19332,6 +19396,8 @@ function onlineGenCode() {
 }
 
 function onlineCreateRoom() {
+    // ⚡ v13.033: защита — если Firebase не поднялся, показываем диагностику
+    if (!ONLINE.db) { openOnlineMenu(); return; }
     const code = onlineGenCode();
     ONLINE.code = code;
     ONLINE.role = 'p1';
@@ -19359,6 +19425,8 @@ function onlineCreateRoom() {
 }
 
 function onlineJoinRoom() {
+    // ⚡ v13.033: защита — если Firebase не поднялся, показываем диагностику
+    if (!ONLINE.db) { openOnlineMenu(); return; }
     const code = (document.getElementById('onlineJoinCode').value || '').trim().toUpperCase();
     if (code.length !== 4) { alert('Введите код комнаты (4 символа).'); return; }
     ONLINE.code = code;
