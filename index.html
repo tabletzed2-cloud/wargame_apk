@@ -1696,6 +1696,29 @@ function redrawOperationalMap() {
         }
     }
 
+    // ⚡ v13.032: подсветка зоны расстановки фракции (онлайн-матч, фаза подготовки)
+    if (appData.campaign.online && appData.campaign.opUnits &&
+        appData.campaign.opUnits.some(u => u.col === null || u.col === undefined)) {
+        ctx.fillStyle = 'rgba(39, 174, 96, 0.32)';
+        for (let zRow = 0; zRow < OP_MAP_ROWS; zRow++) {
+            for (let zCol = 0; zCol < OP_MAP_COLS; zCol++) {
+                if (!isHexInPlacementZone(appData.campaign.scenario, appData.campaign.playerFaction, zCol, zRow).ok) continue;
+                const zx = zCol * Math.sqrt(3) * size + (zRow % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+                const zy = zRow * 1.5 * size + size;
+                ctx.beginPath();
+                for (let i = 0; i < 6; i++) {
+                    const angle = Math.PI / 180 * (60 * i - 30);
+                    const xi = zx + size * Math.cos(angle);
+                    const yi = zy + size * Math.sin(angle);
+                    if (i === 0) ctx.moveTo(xi, yi);
+                    else ctx.lineTo(xi, yi);
+                }
+                ctx.closePath();
+                ctx.fill();
+            }
+        }
+    }
+
     // Подсветка доступных гексов (если есть выбранный юнит)
     const selectedUnit = appData.campaign.selectedOpUnit;
     if (selectedUnit && selectedUnit.availableHexes) {
@@ -2470,13 +2493,12 @@ function handleOpMapClick(e) {
     }
     const [col, row] = closestKey.split(',').map(Number);
 
-    // ⚡ v13.031: онлайн-матч — размещение ТОЛЬКО в зоне своей фракции
+    // ⚡ v13.031/v13.032: онлайн-матч — размещение ТОЛЬКО в зоне своей фракции
     if (appData.campaign.online) {
         const zc = isHexInPlacementZone(appData.campaign.scenario, appData.campaign.playerFaction, col, row);
         if (!zc.ok) {
-            const z = zc.zone;
             document.getElementById('mapInfo').innerHTML =
-                `❌ Вне вашей зоны расстановки. Разрешено: колонки ${z.minCol + 1}–${z.maxCol + 1}, строки ${z.minRow + 1}–${z.maxRow + 1}.`;
+                '❌ Вне вашей зоны расстановки — размещайте юнитов в зелёной области на карте.';
             return;
         }
     }
@@ -13783,14 +13805,27 @@ function getOpDetectionModifier(unit) {
     } 
   return bestMod;
 }
-// ⚡ v13.031: гекс в зоне расстановки фракции для сценария (онлайн-матчи).
-//    Чистая функция (для тестов): возвращает {ok:true} или {ok:false, zone}.
-//    Зон в SCENARIO_PLACEMENT_ZONES нет (сценарий/фракция) — размещение свободно.
+// ⚡ v13.032: точка внутри полигона (ray casting). Чистая функция для тестов.
+function pointInPolygon(x, y, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const xi = poly[i][0], yi = poly[i][1];
+        const xj = poly[j][0], yj = poly[j][1];
+        if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+// ⚡ v13.031/v13.032: гекс в зоне расстановки фракции (полигон из
+//    SCENARIO_PLACEMENT_ZONES). Чистая функция: {ok:true} | {ok:false, zone}.
+//    Зон нет (сценарий/фракция) — размещение свободно.
 function isHexInPlacementZone(scenario, faction, col, row) {
     const zones = (typeof SCENARIO_PLACEMENT_ZONES !== 'undefined' ? SCENARIO_PLACEMENT_ZONES : {})[scenario] || null;
     const z = zones ? zones[faction] : null;
-    if (!z) return { ok: true };
-    if (col >= z.minCol && col <= z.maxCol && row >= z.minRow && row <= z.maxRow) return { ok: true };
+    if (!z || !z.length) return { ok: true };
+    if (pointInPolygon(col, row, z)) return { ok: true };
     return { ok: false, zone: z };
 }
 
@@ -19197,15 +19232,8 @@ function onOrderBehaviorChange() {
 //           урон по бойцам, видимый оппоненту.
 // ============================================================
 const ONLINE_CONFIG = {
-  const firebaseConfig = {
-  apiKey: "AIzaSyDSRBWmEQ4LM4_2PWjuIb7kcZv8IvF7lEM",
-  authDomain: "cold-flame.firebaseapp.com",
-  projectId: "cold-flame",
-  storageBucket: "cold-flame.firebasestorage.app",
-  messagingSenderId: "69518993916",
-  appId: "1:69518993916:web:b7c660996bd1d15945aa79",
-  measurementId: "G-B67L91XD2E"
-};
+  // Вставьте сюда конфиг Firebase (README-ONLINE.md, 5 шагов):
+  // firebase: { apiKey: 'AIza...', authDomain: '...firebaseapp.com', projectId: '...' }
   firebase: null
 };
 
