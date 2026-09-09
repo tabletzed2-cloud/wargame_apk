@@ -3,16 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.027 — операция  </title>
+  <title>Боевой модуль v13.031 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
+  <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.027</h1>
+    <h1>⚔️ Боевой модуль v13.031</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
+    <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
      <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
         🎯 Hard Mode: ВЫКЛ
     </button>
@@ -24,6 +28,17 @@
   </div>
 <div id="factionModal" class="faction-modal">
   <div class="faction-modal-content" id="factionModalContent"></div>
+</div>
+
+<!-- ⚡ v13.031: ОНЛАЙН-ЛОББИ (Firebase) -->
+<div id="onlineModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.75); z-index:2000;">
+  <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:#2c2c2c; border:2px solid #16a085; border-radius:12px; padding:20px; width:min(94vw, 460px); max-height:90vh; overflow-y:auto; color:#ddd;">
+    <h3 style="margin-top:0;">⚔️ Игра вдвоём по сети</h3>
+    <div id="onlineModalBody"></div>
+    <div style="text-align:right; margin-top:14px;">
+      <button onclick="closeOnlineModal()" style="background:#555;">✖ Закрыть</button>
+    </div>
+  </div>
 </div>
   <!-- Приложение (бой) – изначально скрыто -->
   <div id="battleApp" style="display:none;">
@@ -38,7 +53,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.027 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.031 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -156,7 +171,7 @@
         <option value="destroyedVehicle">🚗 Сгоревшая техника</option>
         <option value="destroyedSquadFriendly">💀 Уничтоженный свой</option>
         <option value="destroyedSquadEnemy">☠️ Уничтоженный враг</option>
-        <option value="dot">?? ДОТ</option>
+        <option value="dot">🏰 ДОТ</option>
       </select>
 
       <button onclick="zoomMap(1.2)">➕</button>
@@ -361,7 +376,12 @@ function getPresetSignature(faction) {
   const std = (preset.standard || []).map(u =>
     `${u.type}|${u.name}|${(u.squads || []).map(s => s.name + ':' + (s.templateName || '')).join(';')}`
   ).join('§');
-  const sup = (preset.supportOptions || []).map(o => o.id).join(',');
+  // ⚡ v13.028: в сигнатуру поддержки входят имена шаблонов опции —
+  //    добавление нового юнита (например, «ДОТ Van Hees» в v13.026)
+  //    автоматически пересобирает старые сейвы.
+  const sup = (preset.supportOptions || []).map(o =>
+    o.id + ((o.templates || []).length ? ':' + o.templates.map(t => t.name).join('+') : '')
+  ).join(',');
   return `${faction}::${std}::${sup}`;
 }
 
@@ -533,7 +553,14 @@ function selectScenario(scenarioId) {
         appData.campaign.opMapGrid = data;
         saveData();
         initOperationalMap(); // перерисовываем
-        showScenarioDetails('valencia');
+        // ⚡ v13.031: онлайн-матч — батальон формируется из лобби (без выбора вручную)
+        if (typeof ONLINE !== 'undefined' && ONLINE.pendingStart) {
+          const ps = ONLINE.pendingStart;
+          ONLINE.pendingStart = null;
+          confirmBattalion(ps.faction, ps.supportIds);
+        } else {
+          showScenarioDetails(scenarioId);
+        }
       })
       .catch(() => {
         // Если файл не загрузился – создаём пустую сетку (все траву)
@@ -541,7 +568,13 @@ function selectScenario(scenarioId) {
         appData.campaign.opMapGrid = null;
         saveData();
         initOperationalMap();
-        showScenarioDetails('valencia');
+        if (typeof ONLINE !== 'undefined' && ONLINE.pendingStart) {
+          const ps = ONLINE.pendingStart;
+          ONLINE.pendingStart = null;
+          confirmBattalion(ps.faction, ps.supportIds);
+        } else {
+          showScenarioDetails(scenarioId);
+        }
       });
     
     // Сохраняем данные
@@ -705,9 +738,16 @@ function refreshSquadToPlaceDropdown() {
   activateBattleTab();
   document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
 }     
-function confirmBattalion(faction) {
-  const checks = document.querySelectorAll('.support-check:checked');
-  const supportIds = Array.from(checks).map(cb => cb.value);
+// ⚡ v13.031: fixedSupportIds — для онлайн-матча (поддержка берётся из лобби,
+//    не из чекбоксов)
+function confirmBattalion(faction, fixedSupportIds) {
+  let supportIds;
+  if (Array.isArray(fixedSupportIds)) {
+    supportIds = fixedSupportIds.slice();
+  } else {
+    const checks = document.querySelectorAll('.support-check:checked');
+    supportIds = Array.from(checks).map(cb => cb.value);
+  }
   const battalion = generateBattalion(faction, supportIds);
   if (!battalion) {
     alert('Ошибка формирования батальона');
@@ -797,11 +837,10 @@ function buildOperationalUnits() {
             const suppOptions = (BATTALION_PRESETS[battalion.faction] || {}).supportOptions || [];
             supportIds = suppOptions.filter(o => (battalion.units || []).some(u => u && u.type === o.type)).map(o => o.id);
         }
-        // ⚡ v13.025: миграция старых AIRF-сейвов: полковая артиллерия
-        //    (2 пушки 75-мм) стала приказом штаба — id опции сменился
-        if (battalion.faction === 'A.I.R.F.') {
-            supportIds = supportIds.map(id => id === 'regimental_artillery' ? 'artillery_support' : id);
-        }
+        // ⚡ v13.025/v13.028: миграция старых сейвов (обе фракции):
+        //    полковая артиллерия (2 пушки 75-мм) стала приказом штаба —
+        //    id опции сменился на artillery_support
+        supportIds = supportIds.map(id => id === 'regimental_artillery' ? 'artillery_support' : id);
         // BeVe: ДОТы — основа обороны по сценарию; в старом сейве могли
         // отсутствовать, если игрок не успел их выбрать до обновления.
         const beveSupports = (BATTALION_PRESETS[battalion.faction] || {}).supportOptions || [];
@@ -1799,11 +1838,11 @@ if (appData.campaign.opUnits) {
                 
                 let icon = '📌';
                 switch(type) {
-                    case 'trenches': icon = 'images/окоп оп.png'; break;
+                    case 'trenches': icon = '🕳️'; break;
                     case 'building': icon = '🏠'; break;
                     case 'forest': icon = '🌲'; break;
                     case 'bushes': icon = '🌳'; break;
-                    case 'rocks': icon = 'images/валуны.png'; break;
+                    case 'rocks': icon = '🪨'; break;
                     case 'crater': icon = '💥'; break; // ⚡ v13.024: воронка от арт. обстрела
                     case 'destroyedVehicle': icon = '☠️'; break;
                     default: icon = '📌';
@@ -2430,7 +2469,18 @@ function handleOpMapClick(e) {
       return;
     }
     const [col, row] = closestKey.split(',').map(Number);
-    
+
+    // ⚡ v13.031: онлайн-матч — размещение ТОЛЬКО в зоне своей фракции
+    if (appData.campaign.online) {
+        const zc = isHexInPlacementZone(appData.campaign.scenario, appData.campaign.playerFaction, col, row);
+        if (!zc.ok) {
+            const z = zc.zone;
+            document.getElementById('mapInfo').innerHTML =
+                `❌ Вне вашей зоны расстановки. Разрешено: колонки ${z.minCol + 1}–${z.maxCol + 1}, строки ${z.minRow + 1}–${z.maxRow + 1}.`;
+            return;
+        }
+    }
+
     targetUnit.col = col;
     targetUnit.row = row;
     saveData();
@@ -12657,20 +12707,18 @@ function addOrderWaypoint(col, row) {
 // ⚡ v13.023: АРТОБСТРЕЛ — 4 выстрела кампанией по 20 снарядов (60% точность,
 //    3d6 за попадание), обстрел начинается в СЛЕДУЮЩЕМ ходу.
 //    Урон делится поровну на ВСЕ отряды на гексе (включая свои).
-// ⚡ v13.025: кто может издавать приказ «Арт. обстрел»:
-//    BeVe — всегда (свои полковые пушки + приказ штаба),
-//    AIRF — только если при формировании батальона выбрана опция
+// ⚡ v13.025/v13.028: кто может издавать приказ «Арт. обстрел» (обе фракции):
+//    только если при формировании батальона выбрана опция
 //    «Поддержка полковой артиллерии (приказ штаба «Арт. обстрел»)».
+//    Старые сейвы с regimental_artillery (пушки 75-мм) — обстрел доступен.
 function canIssueArtilleryStrike() {
     const faction = appData.campaign && appData.campaign.playerFaction;
-    if (faction === 'BeVe') return true;
-    if (faction === 'A.I.R.F.') {
-        const b = (appData.campaign.battalions || {}).player;
-        if (b && b.artillerySupport) return true;
-        if (b && (b.supportIds || []).includes('regimental_artillery')) return true; // старые сейвы
-        return false;
-    }
-    return true;
+    if (faction !== 'BeVe' && faction !== 'A.I.R.F.') return true;
+    const b = (appData.campaign.battalions || {}).player;
+    if (b && b.artillerySupport) return true;
+    if (b && (b.supportIds || []).includes('regimental_artillery')) return true; // старые сейвы
+    if (b && (b.supportIds || []).includes('artillery_support')) return true;
+    return false;
 }
 
 function submitArtilleryStrikeOrder() {
@@ -13521,6 +13569,11 @@ function finishPlacement() {
     
     // Блокируем кнопки
     updateHardModeButtons();
+
+    // ⚡ v13.031: онлайн-матч — сообщаем оппоненту, что мы готовы
+    if (appData.campaign.online && typeof onlineMarkPlaced === 'function') {
+        onlineMarkPlaced();
+    }
   }
  function updateHardModeButtons() {
     const placeBtns = document.querySelectorAll('button');
@@ -13730,6 +13783,17 @@ function getOpDetectionModifier(unit) {
     } 
   return bestMod;
 }
+// ⚡ v13.031: гекс в зоне расстановки фракции для сценария (онлайн-матчи).
+//    Чистая функция (для тестов): возвращает {ok:true} или {ok:false, zone}.
+//    Зон в SCENARIO_PLACEMENT_ZONES нет (сценарий/фракция) — размещение свободно.
+function isHexInPlacementZone(scenario, faction, col, row) {
+    const zones = (typeof SCENARIO_PLACEMENT_ZONES !== 'undefined' ? SCENARIO_PLACEMENT_ZONES : {})[scenario] || null;
+    const z = zones ? zones[faction] : null;
+    if (!z) return { ok: true };
+    if (col >= z.minCol && col <= z.maxCol && row >= z.minRow && row <= z.maxRow) return { ok: true };
+    return { ok: false, zone: z };
+}
+
 function checkOpDetection() {
   const unit = appData.campaign.selectedOpUnit;
   if (!unit) {
@@ -17973,12 +18037,21 @@ function drawOperationalUnits(ctx) {
         }
 
         // Если есть иконка, рисуем её поверх фигуры
-        if (unit.icon) {
-            let img = loadedOpUnitIcons[unit.icon];
+        // ⚡ v13.030: если файл иконки ДОТа не найден (например, «ДОТ Van Hees.png»
+        //    не установлен) — подставляем «ДОТ Bosh.png», чтобы метка не была пустой
+        let opIconSrc = unit.icon;
+        if (opIconSrc && unit.type === 'dots') {
+            const ico = loadedOpUnitIcons[opIconSrc];
+            if (ico && ico.complete && ico.naturalWidth === 0) {
+                opIconSrc = 'images/BeVe/ДОТ Bosh.png';
+            }
+        }
+        if (opIconSrc) {
+            let img = loadedOpUnitIcons[opIconSrc];
             if (!img) {
                 img = new Image();
-                img.src = unit.icon;
-                loadedOpUnitIcons[unit.icon] = img;
+                img.src = opIconSrc;
+                loadedOpUnitIcons[opIconSrc] = img;
             }
             if (img.complete && img.naturalWidth > 0) {
                 ctx.drawImage(img, drawX - radius, drawY - radius, radius * 2, radius * 2);
@@ -19114,6 +19187,348 @@ function onOrderBehaviorChange() {
     <button onclick="closeTargetModal()" style="background:#555;">Отмена</button>
   </div>
 </div>
+<script>
+// ============================================================
+// ⚡ v13.031: ОНЛАЙН-МАТЧИ (Firebase Firestore)
+// Фаза 0+1: комната по коду, лобби (сценарий/фракции/поддержка/готовность),
+//           автоматическое формирование батальона из лобби, размещение
+//           в зоне фракции (SCENARIO_PLACEMENT_ZONES), «размещение готово».
+// Фаза 2 (следующий этап): синхронизация ходов, туман войны,
+//           урон по бойцам, видимый оппоненту.
+// ============================================================
+const ONLINE_CONFIG = {
+  // Вставьте сюда конфиг Firebase (README-ONLINE.md, 5 шагов):
+  // firebase: { apiKey: 'AIza...', authDomain: '...firebaseapp.com', projectId: '...' }
+  firebase: null
+};
+
+let ONLINE = {
+    db: null, docRef: null, listener: null,
+    code: null, role: null, playerId: null,
+    match: null, pendingStart: null, started: false
+};
+
+function onlineGetPlayerId() {
+    let id = null;
+    try { id = localStorage.getItem('wg_player_id'); } catch (e) {}
+    if (!id) {
+        id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        try { localStorage.setItem('wg_player_id', id); } catch (e) {}
+    }
+    return id;
+}
+
+function onlineFirebaseReady() {
+    if (ONLINE.db) return true;
+    if (!ONLINE_CONFIG.firebase || !ONLINE_CONFIG.firebase.projectId) return false;
+    try {
+        if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(ONLINE_CONFIG.firebase);
+        ONLINE.db = firebase.firestore();
+        return true;
+    } catch (e) {
+        console.error('Firebase init failed', e);
+        return false;
+    }
+}
+
+function onlineBody(html) {
+    const b = document.getElementById('onlineModalBody');
+    if (b) b.innerHTML = html;
+}
+
+// Перейти из модалки в онлайн-кампанию (показываем campaignApp, прячем меню)
+function onlineGoToCampaign() {
+    document.getElementById('onlineModal').style.display = 'none';
+    document.getElementById('mainMenu').style.display = 'none';
+    document.getElementById('campaignApp').style.display = 'block';
+    showOperationalMap();
+}
+
+function openOnlineMenu() {
+    // Уже в онлайн-кампании — сразу на карту
+    if (appData.campaign && appData.campaign.active && appData.campaign.online) {
+        onlineGoToCampaign();
+        return;
+    }
+    document.getElementById('mainMenu').style.display = 'none';
+    document.getElementById('onlineModal').style.display = 'block';
+    if (!onlineFirebaseReady()) {
+        onlineBody(`
+          <p style="color:#e74c3c;"><b>❌ Firebase не настроен.</b></p>
+          <p>Для онлайн-режима нужен бесплатный Firebase-проект — инструкция в <b>README-ONLINE.md</b> (корень репозитория), 5 шагов.</p>
+          <p>После создания проекта вставьте конфиг в блок <b>ONLINE_CONFIG</b> (в конце index.html) и перезагрузите страницу.</p>
+        `);
+        return;
+    }
+    onlineBody(`
+      <p>Кампания вдвоём: каждый на своём устройстве, общий сценарий, зоны расстановки, туман войны.*</p>
+      <p style="color:#777; font-size:0.8rem;">* туман войны и синхронизация ходов — фаза 2 (следующий этап); сейчас — комната, лобби и размещение.</p>
+      <div style="display:flex; gap:10px;">
+        <button class="menu-btn" style="flex:1;" onclick="onlineCreateRoom()">➕ Создать комнату</button>
+        <button class="menu-btn" style="flex:1;" onclick="onlineShowJoin()">🔑 Войти по коду</button>
+      </div>
+      <div id="onlineJoinBox" style="display:none; margin-top:12px; align-items:center; gap:8px; display:none;">
+        <label>Код:</label>
+        <input type="text" id="onlineJoinCode" maxlength="4" style="width:110px; font-size:1.3rem; letter-spacing:0.25em; text-transform:uppercase; text-align:center; background:#444; color:#fff; border-radius:6px; padding:4px;">
+        <button class="menu-btn" onclick="onlineJoinRoom()">Подключиться</button>
+      </div>
+      <div id="onlineLobbyBox" style="margin-top:14px;"></div>
+    `);
+}
+
+function closeOnlineModal() {
+    if (ONLINE.listener) { try { ONLINE.listener(); } catch (e) {} ONLINE.listener = null; }
+    ONLINE.match = null;
+    document.getElementById('onlineModal').style.display = 'none';
+    document.getElementById('mainMenu').style.display = 'block';
+}
+
+function onlineShowJoin() {
+    const b = document.getElementById('onlineJoinBox');
+    if (!b) return;
+    b.style.display = b.style.display === 'block' ? 'none' : 'flex';
+}
+
+function onlineGenCode() {
+    const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    let c = '';
+    for (let i = 0; i < 4; i++) c += A[Math.floor(Math.random() * A.length)];
+    return c;
+}
+
+function onlineCreateRoom() {
+    const code = onlineGenCode();
+    ONLINE.code = code;
+    ONLINE.role = 'p1';
+    ONLINE.playerId = onlineGetPlayerId();
+    ONLINE.docRef = ONLINE.db.collection('matches').doc(code);
+    ONLINE.docRef.set({
+        code: code,
+        status: 'lobby',
+        scenario: 'valencia',
+        currentTurn: 1,
+        whoseTurn: null,
+        players: {
+            p1: { id: ONLINE.playerId, name: 'Игрок 1', faction: null, supportIds: [], ready: false, placed: false },
+            p2: null
+        },
+        state: null,
+        events: []
+    }, { merge: true }).catch(e => {
+        alert('❌ Ошибка создания комнаты: ' + e.message);
+        onlineBody('');
+    });
+    onlineListen();
+    onlineBody('<p style="color:#aaa;">Создание комнаты…</p><div id="onlineLobbyBox" style="margin-top:14px;"></div>');
+    renderOnlineLobbySoon();
+}
+
+function onlineJoinRoom() {
+    const code = (document.getElementById('onlineJoinCode').value || '').trim().toUpperCase();
+    if (code.length !== 4) { alert('Введите код комнаты (4 символа).'); return; }
+    ONLINE.code = code;
+    ONLINE.playerId = onlineGetPlayerId();
+    ONLINE.docRef = ONLINE.db.collection('matches').doc(code);
+    onlineBody('<p style="color:#aaa;">Подключение к комнате ' + code + '…</p><div id="onlineLobbyBox" style="margin-top:14px;"></div>');
+    ONLINE.docRef.get().then(snap => {
+        if (!snap.exists) { alert('❌ Комната ' + code + ' не найдена.'); onlineBody(''); return; }
+        const m = snap.data();
+        const p2 = m.players ? m.players.p2 : null;
+        if (p2 && p2.id !== ONLINE.playerId) { alert('❌ Комната занята двумя игроками.'); onlineBody(''); return; }
+        if (m.status === 'playing') { alert('❌ Матч уже идёт, подключиться поздно.'); onlineBody(''); return; }
+        ONLINE.role = 'p2';
+        return ONLINE.docRef.update({
+            'players.p2': { id: ONLINE.playerId, name: 'Игрок 2', faction: null, supportIds: [], ready: false, placed: false }
+        });
+    }).then(() => onlineListen()).catch(e => alert('❌ ' + e.message));
+}
+
+function onlineListen() {
+    if (ONLINE.listener) { try { ONLINE.listener(); } catch (e) {} }
+    ONLINE.listener = ONLINE.docRef.onSnapshot(snap => {
+        ONLINE.match = snap.data();
+        renderOnlineLobby();
+    }, err => {
+        console.error('online listener error', err);
+        onlineBody(`
+          <p style="color:#e74c3c;">❌ Ошибка соединения с комнатой: ${err.message}</p>
+          <button class="menu-btn" onclick="openOnlineMenu()">Назад</button>
+        `);
+    });
+}
+
+function renderOnlineLobbySoon() {
+    // снапшот придёт сам; если комнаты ещё нет в кэше — дожидаемся
+    let tries = 0;
+    const t = setInterval(() => {
+        tries++;
+        if (ONLINE.match || tries > 20) { clearInterval(t); if (ONLINE.match) renderOnlineLobby(); }
+    }, 250);
+}
+
+function onlineMe() { return ONLINE.match && ONLINE.match.players ? (ONLINE.match.players[ONLINE.role] || null) : null; }
+function onlineOppData() {
+    if (!ONLINE.match || !ONLINE.match.players) return null;
+    return ONLINE.match.players[ONLINE.role === 'p1' ? 'p2' : 'p1'] || null;
+}
+
+function renderOnlineLobby() {
+    const m = ONLINE.match;
+    if (!m) return;
+    const box = document.getElementById('onlineLobbyBox');
+    if (!box) return;
+    const me = m.players[ONLINE.role];
+    const opp = onlineOppData();
+    const isHost = (ONLINE.role === 'p1');
+
+    if (m.status === 'lobby') {
+        const scenOpts = Object.keys(SCENARIO_OP_MAP_SETTINGS || { valencia: {} }).map(id =>
+            `<option value="${id}" ${m.scenario === id ? 'selected' : ''}>${id === 'valencia' ? 'Валенсия (озеро)' : id}</option>`).join('');
+        const factionOpts = ['BeVe', 'A.I.R.F.'].map(f =>
+            `<option value="${f}" ${(me && me.faction === f) ? 'selected' : ''}>${f === 'BeVe' ? 'BeVe (Бенелюкс)' : 'A.I.R.F. (Революционный фронт)'}</option>`).join('');
+        const supports = (me && me.faction) ? ((BATTALION_PRESETS[me.faction] || {}).supportOptions || []) : [];
+        const supHtml = supports.length
+            ? supports.map(o => `<label style="display:block; margin:4px 0;"><input type="checkbox" class="online-supp" value="${o.id}" ${((me.supportIds || []).includes(o.id)) ? 'checked' : ''}> ${o.name}</label>`).join('')
+            : '<span style="color:#777;">Сначала выберите фракцию</span>';
+        const conflict = me && opp && me.faction && opp.faction && me.faction === opp.faction;
+        const oppInfo = opp
+            ? `👥 Оппонент: ${opp.faction || 'фракция не выбрана'} — ${opp.ready ? '✅ готов' : '⏳ не готов'}${((opp.supportIds || []).length ? ' (' + opp.supportIds.length + ' поддержки)' : '')}`
+            : '👥 Ожидание оппонента… (перешлите ему код комнаты)';
+        box.innerHTML = `
+          <div style="text-align:center; margin:8px 0;">
+            <div style="color:#aaa; font-size:0.85rem;">Код комнаты — отправьте оппоненту:</div>
+            <div style="font-size:2.4rem; letter-spacing:0.45em; color:#f1c40f; font-weight:bold;">${m.code}</div>
+          </div>
+          <label style="color:#aaa;">Сценарий ${isHost ? '' : '(выбирает создатель комнаты)'}:</label>
+          <select id="onlineScenario" ${isHost ? '' : 'disabled'} onchange="onlineSetScenario(this.value)" style="width:100%; background:#444; color:#fff; border-radius:6px; padding:6px;">${scenOpts}</select>
+          <label style="display:block; margin-top:10px; color:#aaa;">Ваша фракция:</label>
+          <select id="onlineFaction" onchange="onlineSetFaction(this.value)" style="width:100%; background:#444; color:#fff; border-radius:6px; padding:6px;">${factionOpts}</select>
+          <p style="margin:10px 0 2px; color:#aaa;">Ваша поддержка:</p>
+          <div style="background:#222; border-radius:6px; padding:8px; min-height:26px;">${supHtml}</div>
+          ${conflict ? '<p style="color:#e74c3c;">⚠️ Вы оба выбрали одну фракцию! Фракции должны быть разные.</p>' : ''}
+          <label style="display:block; margin-top:12px; font-size:1.05rem;"><input type="checkbox" id="onlineReady" ${(me && me.ready) ? 'checked' : ''} onchange="onlineSetReady(this.checked)"> Я готов</label>
+          <p style="margin-top:10px; color:#aaa;">${oppInfo}</p>
+          <p style="color:#777; font-size:0.8rem;">Старт: у обоих разные фракции + «Я готов».</p>
+        `;
+        onlineCheckMatchProgress();
+        return;
+    }
+
+    if (m.status === 'placing') {
+        if (!ONLINE.started) {
+            box.innerHTML = '<p style="color:#2ecc71;">⚔️ Матч начат! Формируем батальон и загружаем карту…</p>';
+            onlineStartLocalCampaign();
+            return;
+        }
+        const myPlaced = (me && me.placed) ? '✅ готово' : '⏳ идёт';
+        const oppPlaced = (opp && opp.placed) ? '✅ готово' : '⏳ идёт';
+        box.innerHTML = `
+          <p>📍 <b>Фаза расстановки.</b> На карте кампании: «📌 Размещение» → расставьте юниты <b>только в своей зоне</b> → «✅ Завершить размещение».</p>
+          <p>Вы: ${myPlaced}<br>Оппонент: ${oppPlaced}</p>
+          <p style="color:#777; font-size:0.8rem;">Когда оба завершат — кампания начнётся.</p>
+        `;
+        onlineCheckMatchProgress();
+        return;
+    }
+
+    if (m.status === 'playing') {
+        box.innerHTML = `
+          <p style="color:#2ecc71;">🎖️ Кампания идёт! (Синхронизация ходов, туман войны и урон по бойцам — фаза 2.)</p>
+          <button class="menu-btn" onclick="onlineGoToCampaign()">Перейти к кампании</button>
+        `;
+        return;
+    }
+
+    box.innerHTML = `
+      <p>Статус матча: ${m.status}</p>
+      <button class="menu-btn" onclick="onlineGoToCampaign()">Перейти к кампании</button>
+    `;
+}
+
+// Переходы статусов: lobby→placing (оба готовы, фракции разные), placing→playing (оба разместились)
+function onlineCheckMatchProgress() {
+    const m = ONLINE.match;
+    if (!m || !ONLINE.docRef) return;
+    const me = m.players[ONLINE.role];
+    const opp = onlineOppData();
+    if (!me || !opp) return;
+    if (m.status === 'lobby' && me.faction && me.ready && opp.faction && opp.ready && me.faction !== opp.faction) {
+        ONLINE.docRef.update({ status: 'placing' }).catch(() => {});
+    } else if (m.status === 'placing' && me.placed && opp.placed) {
+        ONLINE.docRef.update({ status: 'playing', whoseTurn: 'p1' }).catch(() => {});
+    }
+}
+
+function onlineSetScenario(v) {
+    if (ONLINE.role !== 'p1' || !ONLINE.docRef) return;
+    ONLINE.docRef.update({ scenario: v }).catch(e => alert(e.message));
+}
+
+function onlineSetFaction(v) {
+    if (!ONLINE.docRef) return;
+    ONLINE.docRef.update({
+        ['players.' + ONLINE.role + '.faction']: v,
+        ['players.' + ONLINE.role + '.supportIds']: [],
+        ['players.' + ONLINE.role + '.ready']: false
+    }).catch(e => alert(e.message));
+}
+
+function onlineSetReady(v) {
+    if (!ONLINE.docRef) return;
+    const me = onlineMe();
+    if (v && me && !me.faction) { alert('Сначала выберите фракцию.'); return; }
+    ONLINE.docRef.update({ ['players.' + ONLINE.role + '.ready']: !!v }).catch(e => alert(e.message));
+}
+
+// Чекбоксы поддержки лобби (делегирование — список перерисовывается снапшотами)
+document.addEventListener('change', (e) => {
+    if (!e.target || !e.target.classList || !e.target.classList.contains('online-supp')) return;
+    if (!ONLINE.docRef) return;
+    const ids = Array.from(document.querySelectorAll('.online-supp:checked')).map(c => c.value);
+    ONLINE.docRef.update({
+        ['players.' + ONLINE.role + '.supportIds']: ids,
+        ['players.' + ONLINE.role + '.ready']: false
+    }).catch(err => alert(err.message));
+});
+
+// Старт кампании на устройстве: батальон из лобби, сцена из матча
+function onlineStartLocalCampaign() {
+    const m = ONLINE.match;
+    const me = m.players[ONLINE.role];
+    const opp = onlineOppData();
+    if (!me || !me.faction) {
+        onlineBody('<p style="color:#e74c3c;">❌ Фракция не выбрана в лобби.</p>');
+        return;
+    }
+    ONLINE.started = true;
+    appData.campaign.online = { code: m.code, role: ONLINE.role, playerId: ONLINE.playerId };
+    appData.campaign.onlineOpponent = { faction: opp ? opp.faction : null, supportIds: (opp && opp.supportIds) || [] };
+    ONLINE.pendingStart = { faction: me.faction, supportIds: me.supportIds || [] };
+    document.getElementById('onlineModal').style.display = 'none';
+    document.getElementById('mainMenu').style.display = 'none';
+    document.getElementById('campaignApp').style.display = 'block';
+    document.getElementById('campaignMapScreen').style.display = 'none';
+    document.getElementById('battalionRosterScreen').style.display = 'none';
+    selectScenario(m.scenario || 'valencia');
+}
+
+// «Завершить размещение» (закрепляется за finishPlacement)
+function onlineMarkPlaced() {
+    if (!ONLINE.docRef) return;
+    const units = appData.campaign.opUnits || [];
+    const unplaced = units.filter(u => u.col === null || u.col === undefined);
+    if (unplaced.length > 0) {
+        alert('⚠️ Не размещено юнитов: ' + unplaced.length + '. Разместите всех, затем «✅ Завершить размещение».');
+        return;
+    }
+    ONLINE.docRef.update({ ['players.' + ONLINE.role + '.placed']: true })
+        .then(() => { if (ONLINE.match) onlineCheckMatchProgress(); })
+        .catch(e => alert(e.message));
+    const mi = document.getElementById('mapInfo');
+    if (mi) { mi.innerHTML = '✅ Ваше размещение отправлено. Ожидание оппонента…'; mi.style.color = '#27ae60'; }
+}
+</script>
+
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
