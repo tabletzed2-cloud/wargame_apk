@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.039 — операция  </title>
+  <title>Боевой модуль v13.041 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -13,7 +13,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.039</h1>
+    <h1>⚔️ Боевой модуль v13.041</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -26,6 +26,9 @@
     <!-- ⚡ v13.038: кнопка сброса данных — в главном меню (была во вкладке «Бой») -->
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
+    <!-- ⚡ v13.041: версия + принудительное обновление (старый кэш сервис-воркера) -->
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.041</p>
+    <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
   </div>
 <div id="factionModal" class="faction-modal">
@@ -55,7 +58,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.039 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.041 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -99,7 +102,7 @@
   <label>Укрытие: <input type="number" id="coverTarget" value="6" min="2" max="10"></label>
   </div>
   <div id="activeCardsBattle" style="margin:6px 0; padding:6px; background:#2a2a2a; border-radius:4px;">
-  <strong>Активные карты:</strong> <span id="activeCardsListBattle">Нет</span>
+  <strong>🃏 Карты (библиотека фракции):</strong> <span id="activeCardsListBattle">—</span>
 </div>
     <div id="shootingPanel" style="margin:6px 0; padding:6px; background:#2a2a2a; border-radius:4px;"></div>
 <div id="movementPanel" style="margin:6px 0; padding:6px; background:#2a2a2a; border-radius:4px;"></div>
@@ -249,6 +252,10 @@ function safeLocalStorage(method, ...args) {
       try { return window.localStorage[method](...args); }
       catch(e) { console.warn('localStorage недоступен, работаем без сохранения'); return null; }
     }    
+// ⚡ v13.041: текущая версия — отображается в меню/шапке/диагностике,
+//    чтобы игрок видел, свежая ли версия на его устройстве
+var APP_VERSION = 'v13.041';
+
 let selectedFaction = null;
 let selectedSubFaction = null; // 'belgian', 'dutch' или null
     // === Модальное окно выбора фракции ===
@@ -3193,6 +3200,28 @@ let hardMode = {
     orderQueue: [],
     messengerQueue: []
 };
+// ⚡ v13.041 (R26#5): синхронизация статических каталогов фракций
+//    (карты/награды из cards.js и weapons.js) — если в сохранении пусто,
+//    берём из getDefaultData(). Никогда НЕ затираем пользовательские
+//    данные (редактор карточек) — только заполняем пустые/отсутствующие.
+function syncFactionCatalogs() {
+    try {
+        if (!appData || !appData.factions) return;
+        const d = getDefaultData();
+        Object.keys(d.factions).forEach(f => {
+            if (!appData.factions[f]) { appData.factions[f] = d.factions[f]; return; }
+            const df = d.factions[f], sf = appData.factions[f];
+            if ((!sf.cardLibrary || sf.cardLibrary.length === 0) && df.cardLibrary && df.cardLibrary.length) {
+                sf.cardLibrary = df.cardLibrary.slice();
+            }
+            if ((!sf.awards || sf.awards.length === 0) && df.awards && df.awards.length) {
+                sf.awards = df.awards.slice();
+            }
+            if (!sf.icon && df.icon) sf.icon = df.icon;
+        });
+    } catch (e) { console.warn('syncFactionCatalogs:', e.message); }
+}
+
 let appData;
 try {
   const saved = safeLocalStorage('getItem', STORAGE_KEY);
@@ -3231,6 +3260,13 @@ try {
     // Автоматически удаляем устаревший глобальный модификатор «Плохой порох»
     if (appData.modifiers) appData.modifiers = appData.modifiers.filter(m => m.name !== 'Плохой порох');
     if (!appData.factions || !appData.templates || !appData.squads) throw new Error('Структура повреждена');
+
+    // ⚡ v13.041 (R26#5): СТАТИЧЕСКИЕ КАТАЛОГИ (карты — js/cards.js,
+    //    награды — js/weapons.js) в сохранении могли быть ПУСТЫМИ (старый
+    //    сейв, созданный до заполнения каталогов). Обновляем их из
+    //    значений по умолчанию, если в сейве пусто/нет — иначе вкладки
+    //    «🃏 Карточки» и «🏅 Награды» пустые.
+    syncFactionCatalogs();
     
     if (!appData.campaign) {
       appData.campaign = {
@@ -3269,6 +3305,20 @@ try {
   safeLocalStorage('removeItem', STORAGE_KEY);
   appData = getDefaultData();
 }
+
+// ⚡ v13.041: показываем ТЕКУЩУЮ ВЕРСИЮ в меню и шапке — игрок сразу видит,
+//    актуальна ли версия на его устройстве (если видно старую — нажать
+//    «🔄 Обновить игру» или переустановить приложение)
+try {
+  document.title = '⚔️ Боевой модуль ' + APP_VERSION;
+  const h1m = document.querySelector('#mainMenu h1');
+  if (h1m) h1m.innerHTML = '⚔️ Боевой модуль <b style="color:#f1c40f;">' + APP_VERSION + '</b>';
+  const h2b = document.getElementById('battleModuleTitle');
+  if (h2b) h2b.textContent = '⚔️ Боевой модуль ' + APP_VERSION + ' — операция';
+  const vBadge = document.getElementById('appVersionBadge');
+  if (vBadge) vBadge.textContent = APP_VERSION;
+} catch (e) {}
+
     appData.squads = appData.squads || [];
     appData.squads.forEach(s => { if (!s.appliedCards) s.appliedCards = []; });
     appData.templates = appData.templates || [];
@@ -5350,20 +5400,30 @@ currentSquad.fighters.forEach((f, index) => {
         html += `<div style="margin-top:8px; padding:6px; background:#2a2a2a; border-radius:4px;"><strong>🚌 Десант: ${emb.name} (${emb.fighters.filter(f=>f.hp>0).length} живых)</strong></div>`;
       }
 
-      // ⚡ v13.038: блок «Награды» во вкладке «Бой» — виден ВСЕГДА
+      // ⚡ v13.040 (R25#5): блок «Награды» во вкладке «Бой» — ВЕСЬ КАТАЛОГ
+      //    наград фракции (js/weapons.js: BEVE_AWARDS / AIRF_AWARDS),
+      //    выданные бойцам отряда — отмечены
       {
-        let awardsBlock = '<div style="margin-top:8px; padding:6px; background:#2a2a2a; border-radius:4px;"><strong>🏅 Награды отряда:</strong> ';
-        const withAwards = (currentSquad.fighters || []).filter(f => f.awards && f.awards.length > 0);
-        if (withAwards.length === 0) {
-          awardsBlock += '<span style="color:#777;">наград нет (выдайте бойцу наградой кнопкой 🏅 у его карточки)</span>';
-        } else {
-          withAwards.forEach(f => {
-            f.awards.forEach(awardId => {
-              const ad2 = factionAwards.find(a => a.id === awardId);
-              if (!ad2) return;
-              awardsBlock += `<span style="display:inline-block; margin:2px 4px; padding:2px 6px; background:#222; border:1px solid #444; border-radius:4px;" title="${ad2.criteria || ''}\nБонус: ${ad2.bonus || ''}">${ad2.icon ? `<img src="${ad2.icon}" style="height:24px; vertical-align:middle;"> ` : ''}${f.name}: <b>${ad2.name}</b></span>`;
-            });
+        let awardsBlock = '<div style="margin-top:8px; padding:6px; background:#2a2a2a; border-radius:4px;"><strong>🏅 Награды:</strong> ';
+        const awardedByFighter = {}; // awardId -> [имена бойцов]
+        (currentSquad.fighters || []).forEach(f => {
+          (f.awards || []).forEach(awardId => {
+            (awardedByFighter[awardId] = awardedByFighter[awardId] || []).push(f.name);
           });
+        });
+        if (!(factionAwards && factionAwards.length)) {
+          awardsBlock += '<span style="color:#777;">у фракции нет описанных наград</span>';
+        } else {
+          awardsBlock += '<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;">';
+          factionAwards.forEach(ad2 => {
+            const owners = awardedByFighter[ad2.id] || [];
+            const got = owners.length > 0;
+            awardsBlock += `<span style="display:inline-flex; align-items:center; gap:4px; margin:2px; padding:2px 6px; background:${got ? '#1e3a2a' : '#222'}; border:${got ? '1px solid #2ecc71' : '1px solid #444'}; border-radius:4px;" title="${ad2.criteria || ''}\nБонус: ${ad2.bonus || ''}">${ad2.icon ? `<img src="${ad2.icon}" style="height:24px; vertical-align:middle;" onerror="this.style.display='none'">` : ''}<span style="font-size:0.78rem;">${ad2.name}${got ? ' <b style="color:#2ecc71;">✓ ' + owners.join(', ') + '</b>' : ''}</span></span>`;
+          });
+          awardsBlock += '</div>';
+          const awardedCount = Object.keys(awardedByFighter).length;
+          awardsBlock += '<div style="color:#777; font-size:0.72rem; margin-top:4px;">Каталог фракции: ' + factionAwards.length +
+              ' наград' + (awardedCount ? ' · выдано отряду: ' + awardedCount : ' · выдано нет (кнопка 🏅 у карточки бойца)') + '.</div>';
         }
         awardsBlock += '</div>';
         html += awardsBlock;
@@ -6287,24 +6347,32 @@ function activateFlemishFury() {
 function updateActiveCardsBattle() {
   const container = document.getElementById('activeCardsListBattle');
   if (!container || !currentSquad) return;
+  // ⚡ v13.040 (R25#5): показываем ВСЮ библиотеку карт фракции (js/cards.js)
+  //    — не только применённые. Применённые к отряду подсвечены.
+  const factionDef = appData.factions[currentSquad.faction] || appData.factions._global || {};
+  const library = factionDef.cardLibrary || [];
   const squadCardNames = currentSquad.appliedCards || [];
-  const active = appData.activeCards.filter(c => c.active && squadCardNames.includes(c.name));
-  if (active.length === 0) {
-    // ⚡ v13.038: понятная подпись, а не просто «Нет»
-    container.innerHTML = squadCardNames.length > 0
-      ? '<span style="color:#777;">нет активных (карты отряда: ' + squadCardNames.join(', ') + ')</span>'
-      : '<span style="color:#777;">нет — выберите и активируйте карты во вкладке «🃏 Карты»</span>';
+  if (!library.length) {
+    container.innerHTML = '<span style="color:#777;">нет карт (библиотека пуста)</span>';
     return;
   }
   let html = '<div style="display:flex; flex-wrap:wrap; gap:4px;">';
-  active.forEach(c => {
-    const imgSrc = c.icon || '';
-    html += `<div style="background:#2a2a2a; border-radius:6px; padding:4px; display:flex; align-items:center; gap:4px;" title="${c.effect || ''}">
-      ${imgSrc ? `<img src="${imgSrc}" style="width:48px; height:48px; object-fit:cover; border-radius:4px;">` : ''}
-      <span style="font-size:0.8rem;">${c.name}</span>
+  library.forEach(c => {
+    const applied = squadCardNames.includes(c.name);
+    const isActive = !!(appData.activeCards || []).find(ac => ac.active && ac.name === c.name);
+    const border = applied ? '1px solid #2ecc71' : '1px solid #444';
+    const bg = applied ? '#1e3a2a' : '#2a2a2a';
+    const tag = applied ? (isActive ? ' <b style="color:#2ecc71;">✓ активна</b>' : ' <b style="color:#2ecc71;">✓ у отряда</b>') : '';
+    const tip = (c.desc || '') + '\n' + (c.effect || '') + (applied ? '' : '\n— применяйте карту во вкладке «🃏 Карты»');
+    html += `<div style="background:${bg}; border:${border}; border-radius:6px; padding:4px; display:flex; align-items:center; gap:4px; max-width:220px;" title="${tip}">
+      ${(c.icon || '') ? `<img src="${c.icon}" style="width:40px; height:40px; object-fit:cover; border-radius:4px; flex-shrink:0;" onerror="this.style.display='none'">` : ''}
+      <span style="font-size:0.75rem;">${c.name}${tag}</span>
     </div>`;
   });
   html += '</div>';
+  html += '<div style="color:#777; font-size:0.72rem; margin-top:4px;">Библиотека фракции: ' + library.length +
+          ' карт' + (squadCardNames.length ? ' · у отряда: ' + squadCardNames.length : '') +
+          '. Применяйте — во вкладке «🃏 Карты».</div>';
   container.innerHTML = html;
 }
     function adjustHP(index, delta) {
@@ -8083,8 +8151,16 @@ function renderCardSelectionForBattle() {
     });
   });
 
+  // ⚡ v13.041 (R26#5): если у выбранной фракции пусто — показываем ВСЕ
+  //    каталоги (страховка от рассинхрона имени фракции в старых сейвах)
   if (allCards.length === 0) {
-    container.innerHTML = '<p>Нет карт в библиотеке.</p>';
+    Object.entries(appData.factions).forEach(([faction, data]) => {
+      (data.cardLibrary || []).forEach(card => allCards.push({ ...card, faction }));
+    });
+  }
+
+  if (allCards.length === 0) {
+    container.innerHTML = '<p>Нет карт в библиотеке. Установите последнюю версию игры — каталог карт (cards.js) подтягивается при обновлении. Также можно «🗑️ Сбросить данные» в главном меню.</p>';
     return;
   }
 
@@ -8900,12 +8976,17 @@ function editCard(faction, idx) {
     function renderAwardsReference() {
   const container = document.getElementById('awardsReference');
   if (!container) return;
-  
+
   let html = '';
-  const factionsToShow = (selectedFaction === 'test') 
-    ? Object.keys(appData.factions) 
+  let factionsToShow = (selectedFaction === 'test')
+    ? Object.keys(appData.factions)
     : [selectedFaction];
-  
+  // ⚡ v13.041 (R26#5): если у выбранной фракции наград нет — показываем
+  //    все фракции, у которых каталог наград (weapons.js) заполнен
+  if (!factionsToShow.some(f => (appData.factions[f] && appData.factions[f].awards && appData.factions[f].awards.length > 0))) {
+    factionsToShow = Object.keys(appData.factions);
+  }
+
   factionsToShow.forEach(faction => {
     const factionAwards = appData.factions[faction]?.awards;
     if (!factionAwards || factionAwards.length === 0) return;
@@ -10478,6 +10559,23 @@ function endOperationalTurn() {
         if (miW) { miW.innerHTML = (typeof onlineWaitBanner === 'function') ? onlineWaitBanner() : '⏳ Ход оппонента — ждём…'; miW.style.color = '#999'; }
         return;
     }
+    // ⚡ v13.040 (R25#2): онлайн — пока статус матча 'placing' (кто-то ещё не
+    //    подтвердил размещение), ходов НЕТ: не даём сдвигать локальное время
+    //    — оно не передаётся оппоненту и игра не начнётся
+    if (appData.campaign && appData.campaign.online &&
+        typeof ONLINE !== 'undefined' && ONLINE.started &&
+        ONLINE.match && ONLINE.match.status === 'placing') {
+        const me = ONLINE.match.players && ONLINE.match.players[ONLINE.role];
+        const opp = ONLINE.match.players && ONLINE.match.players[ONLINE.role === 'p1' ? 'p2' : 'p1'];
+        const msg = '⚠️ Матч ещё не начался — идёт размещение.' +
+            ((me && me.placed) ? ' Вы готовы ✅, оппонент: ' + ((opp && opp.placed) ? '✅' : '⏳ ещё размещается') : ' Нажмите «✅ Завершить размещение», когда выставите всех юнитов.') +
+            ' Ходы начнутся, когда ОБА подтвердят размещение.';
+        try { alert(msg); } catch (e) {}
+        log(msg);
+        const miW = document.getElementById('mapInfo');
+        if (miW) { miW.innerHTML = msg; miW.style.color = '#e67e22'; }
+        return;
+    }
     // ⚡ ИНИЦИАЛИЗАЦИЯ, если не задано (v13.018)
     if (appData.campaign.opTurnStartTime === undefined) {
         appData.campaign.opTurnStartTime = appData.campaign.currentTime || 0;
@@ -10853,8 +10951,8 @@ function executeArtilleryStrikeOrder(order) {
     //    становятся видимы (эффект удара не спрячешь)
     if (isOnlineMatch && typeof ONLINE !== 'undefined' && ONLINE) {
         targets.filter(t => t.isEnemy).forEach(t => {
-            if (t.unit && t.unit.id) ONLINE.fogSeen[t.unit.id] = true;
-            if (t.unit && t.unit.name) ONLINE.fogSeen[t.unit.name] = true;
+            if (t.unit && t.unit.id) ONLINE.fogVisible[t.unit.id] = true;
+            if (t.unit && t.unit.name) ONLINE.fogVisible[t.unit.name] = true;
         });
     }
 
@@ -13795,6 +13893,22 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
     }
 }
 function finishPlacement() {
+    // ⚡ v13.040 (R25#3): если есть неразмещённые юниты — НЕ блокируем
+    //    кнопку «Разместить» и не подтверждаем готовность: просто сообщаем
+    //    и даём продолжить размещение
+    {
+        const unplacedNow = (appData.campaign.opUnits || []).filter(u => u.col === null || u.col === undefined);
+        if (unplacedNow.length > 0) {
+            const msg = '⚠️ Не размещено юнитов: ' + unplacedNow.length +
+                ((unplacedNow[0] && unplacedNow[0].name) ? ' (например: ' + unplacedNow[0].name + '...)' : '') +
+                '. Разместите всех, затем «✅ Завершить размещение». Кнопки не заблокированы.';
+            try { alert(msg); } catch (e) {}
+            log(msg);
+            const miW = document.getElementById('mapInfo');
+            if (miW) { miW.innerHTML = msg; miW.style.color = '#e67e22'; }
+            return;
+        }
+    }
     // ⚡ v13.038: подтверждение — готов ли игрок завершить размещение и вступить в бой
     if (!confirm('Завершить размещение? Юниты будут зафиксированы, и игра начнётся.')) return;
     placementLocked = true;
@@ -19507,7 +19621,15 @@ let ONLINE = {
     // ⚡ v13.039: синхронизация — дедупликация пушей, переходы хода, туман
     lastPushedJson: null,
     prevWhoseTurn: null,
-    fogSeen: {}   // { id|name: true } — юниты оппонента, ставшие мне видимыми
+    // ⚡ v13.041 (R26#1): туман войны:
+    //   fogVisible — юниты оппонента, уже ставшие мне видимыми (ЛЕПЯЩИЙСЯ:
+    //    раз видели — остаются видимыми):
+    //      • юнит НЕ смог скрыться в конце хода СВОЕГО владельца (detected=true)
+    //      • моя активная зона разведки (R20)
+    //      • прямое попадание арт. обстрела
+    //   Юнит с detected=false/undefined (незамечен) — СКРЫТ, в т.ч. в фазе
+    //   размещения (публичного размещения нет).
+    fogVisible: {}
 };
 
 function onlineGetPlayerId() {
@@ -19566,7 +19688,7 @@ function onlineDiagnostics() {
     const sdkOk = (typeof firebase !== 'undefined');
     let s = '<div style="margin-top:12px; padding:8px; background:#1a1a1a; border-radius:6px; font-size:0.78rem; color:#999;">';
     s += 'Диагностика:<br>';
-    s += '· Страница: <b style="color:#ddd;">v13.039</b><br>';
+    s += '· Страница: <b style="color:#ddd;">' + APP_VERSION + '</b><br>';
     s += '· Конфиг: ' + (cfgOk ? '<b style="color:#2ecc71;">✅ задан</b> (проект ' + ONLINE_CONFIG.firebase.projectId + ')'
                                 : '<b style="color:#e74c3c;">❌ пуст/неполный</b> — вставьте apiKey и projectId в ONLINE_CONFIG');
     s += '<br>· Firebase SDK: ' + (sdkOk ? '<b style="color:#2ecc71;">✅ загружен</b>'
@@ -20093,15 +20215,20 @@ function onlineApplyCloudState() {
             return nu;
         });
         appData.campaign.enemyOpUnits = newEnemy;
-        // ⚡ v13.039 туман: в НАЧАЛЕ ХОДА ОППОНЕНТА все его юниты становятся
-        //    мне видны (R22#5: «проваливший проверку на обнаружение появляется
-        //    в начале хода оппонента»)
-        if (m.status === 'playing' && m.whoseTurn === oppRole) {
-            newEnemy.forEach(u => {
-                if (u && u.id) ONLINE.fogSeen[u.id] = true;
-                if (u && u.name) ONLINE.fogSeen[u.name] = true;
-            });
-        }
+        // ⚡ v13.041 (R26#1) туман войны — правильная семантика (как в игре):
+        //    detected=true  — юнит НЕ смог скрыться (🔴 ОБНАРУЖЕН) → видим мне
+        //    detected=false — юнит НЕ обнаружен (🟢 Скрыт)           → скрыт туманом
+        //    (нет поля — ещё не размещён / проверка ещё не делалась)  → скрыт
+        //    Проверка делается в конце хода владельца юнита, поэтому результат
+        //    доходит ко мне с передачей хода — юнит появляется в НАЧАЛЕ МОЕГО хода (R22#5).
+        newEnemy.forEach(u => {
+            if (!u || u.isDestroyed) return;
+            if (u.col === null || u.col === undefined) return; // ещё не размещён
+            if (u.detected === true) {
+                if (u.id) ONLINE.fogVisible[u.id] = true;   // ЛЕПЯЩИЙСЯ
+                if (u.name) ONLINE.fogVisible[u.name] = true;
+            }
+        });
     }
 
     // --- (b) урон моим юнитам (из state.p<me>, который пушит оппонент) ---
@@ -20171,39 +20298,58 @@ function onlineApplyCloudState() {
     saveData();
 }
 
-// ⚡ v13.039: туман войны — виден ли мне юнит оппонента?
-//    • фаза расстановки — всё видно (публичное размещение)
-//    • обнаруженный (detected=true после проверки оппонента) — виден
-//    • уже «услышанный» (fogSeen: видел в ход оппонента / разведка / обстрел)
-//    • в активной зоне моей разведки (R20)
+// ⚡ v13.041 (R26#1): туман войны — виден ли мне юнит оппонента?
+//    Видим, ТОЛЬКО если:
+//    • юнит не смог скрыться в конце хода своего владельца (detected=true) —
+//      результат доходит с передачей хода, т.е. юнит появляется в НАЧАЛЕ
+//      МОЕГО хода (R22#5)
+//    • уже в fogVisible (ЛЕПЯЩИЙСЯ: раз видели — остаётся видимым)
+//    • в активной зоне моей разведки (R20) — виден сразу
+//    • уничтожен — известен
+//    Всё остальное (включая фазу размещения и detected=false) — СКРЫТО
+//    туманом войны.
 function onlineEnemyVisible(u) {
     if (!appData.campaign || !appData.campaign.online) return true;
-    const m = ONLINE.match;
-    if (!m || m.status !== 'playing') return true;
-    if (u && u.isDestroyed) return true; // убитые — известны
-    if (u && u.detected) return true;
-    if (u && ((u.id && ONLINE.fogSeen[u.id]) || (u.name && ONLINE.fogSeen[u.name]))) return true;
-    // моя активная зона разведки
+    if (typeof ONLINE === 'undefined' || !ONLINE.match) return true;
+    if (!u) return false;
+    if (u.isDestroyed) return true;
+    if (u.id && ONLINE.fogVisible[u.id]) return true;
+    if (u.name && ONLINE.fogVisible[u.name]) return true;
+    if (u.detected === true) return true; // 🔴 ОБНАРУЖЕН в конце хода владельца
+    // моя активная зона разведки (R20)
     const t = appData.campaign.currentTurn || 1;
     (appData.campaign.opUnits || []).forEach(mu => {
         if (!mu || !Array.isArray(mu.reconZoneHexes) || mu.reconZoneHexes.length === 0) return;
         if (mu.reconActiveTurn !== undefined && mu.reconActiveTurn !== t) return;
         mu.reconZoneHexes.forEach(h => {
             if (h && h.col === u.col && h.row === u.row) {
-                if (u && u.id) ONLINE.fogSeen[u.id] = true;
-                if (u && u.name) ONLINE.fogSeen[u.name] = true;
+                if (u.id) ONLINE.fogVisible[u.id] = true;
+                if (u.name) ONLINE.fogVisible[u.name] = true;
             }
         });
     });
-    if (u && ((u.id && ONLINE.fogSeen[u.id]) || (u.name && ONLINE.fogSeen[u.name]))) return true;
+    if (u.id && ONLINE.fogVisible[u.id]) return true;
+    if (u.name && ONLINE.fogVisible[u.name]) return true;
     return false;
 }
 
-// ⚡ v13.039: передача хода оппоненту в облако (из endOperationalTurn)
+// ⚡ v13.039/v13.040: передача хода оппоненту в облако (из endOperationalTurn)
 function onlineHandTurn() {
-    if (!ONLINE.docRef || !ONLINE.match) return;
+    if (!ONLINE.docRef || !ONLINE.match) {
+        console.warn('onlineHandTurn: нет комнаты');
+        return;
+    }
     const m = ONLINE.match;
-    if (m.status !== 'playing' || m.whoseTurn !== ONLINE.role) return;
+    // ⚡ v13.040 (R25#2): НИКОГДА не молча. Если ход — не «официально» мой
+    //    (рассинхрон whoseTurn), всё равно передаём: действие игрока (кнопка
+    //    «Завершить ход») — главный источник истины.
+    if (m.whoseTurn && m.whoseTurn !== ONLINE.role) {
+        console.warn('onlineHandTurn: рассинхрон whoseTurn (' + m.whoseTurn + ' != ' + ONLINE.role + ') — передаём по действию игрока');
+    }
+    if (m.status !== 'playing') {
+        console.warn('onlineHandTurn: статус матча = ' + m.status + ' (не playing) — передача невозможна');
+        return;
+    }
     // проверка обнаружения МОИХ юнитов — до отправки состояния
     // (в одиночной игре она живёт внутри processOrders; в онлайне — явно)
     if (typeof checkAllUnitsDetection === 'function') {
@@ -20211,16 +20357,22 @@ function onlineHandTurn() {
     }
     onlinePushMyUnits();
     const baseTime = (typeof m.time === 'number') ? m.time : (appData.campaign.opTurnStartTime || 0);
+    const newTurn = (typeof m.turn === 'number') ? m.turn : (appData.campaign.currentTurn || 1);
     ONLINE.docRef.update({
         whoseTurn: onlineOppRole(),
-        turn: (typeof m.turn === 'number' ? m.turn : 1) + 1,
+        turn: newTurn + 1,
         time: (baseTime + 10) % 1440
     }).catch(e => {
-        try { alert('❌ Ошибка передачи хода: ' + e.message); } catch (_) {}
+        try { alert('❌ Ошибка передачи хода: ' + e.message + '. Проверьте интернет и нажмите «Завершить ход» ещё раз.'); } catch (_) {}
+        log('❌ Ошибка передачи хода: ' + e.message);
     });
 }
 
-// ⚡ v13.039: реакция на смену хода (вызывается из onlineOnSnapshotSync)
+// ⚡ v13.039/v13.040: реакция на смену хода (вызывается из onlineOnSnapshotSync).
+//    При ЛЮБОМ начале нового хода — уведомление в отдельном окне (alert)
+//    с номером хода и временем:
+//      • «Ваш ход!» — когда ход становится моим (после хода оппонента)
+//      • «Ход оппонента — ждём» — подтверждение, что моя передача хода дошла
 function onlineOnTurnChanged() {
     const m = ONLINE.match;
     if (!m || m.status !== 'playing') return;
@@ -20228,6 +20380,17 @@ function onlineOnTurnChanged() {
     const now = m.whoseTurn;
     if (prev === now) return;
     ONLINE.prevWhoseTurn = now;
+
+    // ⚡ v13.041 (R26#1): раскрытие обнаруженных юнитов оппонента
+    //    (detected=true → fogVisible) делает onlineApplyCloudState — она
+    //    выполняется ПЕРЕД этой функцией в onlineOnSnapshotSync, так что
+    //    к началу МОЕГО хода обнаруженные юниты уже на карте (R22#5).
+
+    // общее время берём из облака (m.time) — это синхронные часы матча
+    const clockMin = (typeof m.time === 'number') ? m.time : (appData.campaign.currentTime || 0);
+    const tStr = (typeof formatTime === 'function') ? formatTime(clockMin)
+        : (String(Math.floor(clockMin / 60)).padStart(2, '0') + ':' + String(clockMin % 60).padStart(2, '0'));
+    const turnNo = (typeof m.turn === 'number') ? m.turn : (appData.campaign.currentTurn || '?');
 
     if (now === ONLINE.role) {
         // ⚡ v13.039: МОЙ ход — восстанавливаем ОД, исполняем свои приказы
@@ -20241,11 +20404,7 @@ function onlineOnTurnChanged() {
         if (typeof hardMode !== 'undefined' && hardMode && hardMode.enabled && typeof processOrders === 'function') {
             try { processOrders(); } catch (e) { console.warn('processOrders:', e.message); }
         }
-        const tStr = (typeof formatTime === 'function') ? formatTime(appData.campaign.currentTime)
-            : (String(Math.floor((appData.campaign.currentTime || 0) / 60)).padStart(2, '0') + ':' + String((appData.campaign.currentTime || 0) % 60).padStart(2, '0'));
-        // ⚡ v13.039 (R24#2): уведомление о начале хода — ТОЛЬКО когда ход
-        //    становится МОИМ (после завершения хода оппонента)
-        const msg = '⏱️ Начался ход ' + (appData.campaign.currentTurn || '?') + ' — время ' + tStr + '. Ваш ход!';
+        const msg = '⏱️ Начался ход ' + turnNo + ' — время ' + tStr + '. Ваш ход!';
         try { alert(msg); } catch (e) { /* WebView без alert */ }
         log(msg);
         const mi = document.getElementById('mapInfo');
@@ -20253,6 +20412,11 @@ function onlineOnTurnChanged() {
         onlineSetTurnLockUI(false);
     } else {
         // ход оппонента — ждём
+        const oppP = (m.players && m.players[now]) || null;
+        const msg = '⏱️ Начался ход ' + turnNo + ' — время ' + tStr + '. Ход оппонента' +
+            ((oppP && oppP.faction) ? ' (' + oppP.faction + ')' : '') + ' — ждём, пока он завершит ход.';
+        try { alert(msg); } catch (e) { /* WebView без alert */ }
+        log(msg);
         const mi = document.getElementById('mapInfo');
         if (mi) { mi.innerHTML = onlineWaitBanner(); mi.style.color = '#999'; }
         onlineSetTurnLockUI(true);
@@ -20273,8 +20437,20 @@ function onlineOnSnapshotSync() {
     if (m.status === 'playing') {
         onlineOnTurnChanged();
     } else if (m.status === 'placing') {
-        // фаза расстановки: юниты видимы, блокировок нет
+        // фаза расстановки: блокировок хода нет
         onlineSetTurnLockUI(false);
+        // ⚡ v13.040 (R25#2): на карте — статус готовности обоих, чтобы было
+        //    видно, чего именно не хватает до старта матча
+        const screen = document.getElementById('campaignMapScreen');
+        const mi = document.getElementById('mapInfo');
+        if (screen && screen.style.display === 'block' && mi) {
+            const me = (m.players && m.players[ONLINE.role]) || {};
+            const opp = (m.players && m.players[onlineOppRole()]) || {};
+            mi.innerHTML = '📍 Расстановка: вы ' + (me.placed ? '✅ готовы' : '⏳ ещё не завершили') +
+                ' · оппонент ' + (opp.placed ? '✅ готов' : '⏳ ещё размещается') +
+                '. Матч начнётся, когда оба нажмут «✅ Завершить размещение».';
+            mi.style.color = '#f1c40f';
+        }
     }
     if (m.status === 'playing' && m.whoseTurn !== ONLINE.role) {
         onlineSetTurnLockUI(true);
@@ -20290,7 +20466,15 @@ function onlineOnSnapshotSync() {
 
 <script>
   if ('serviceWorker' in navigator) {
+    // ⚡ v13.041: если появился НОВЫЙ сервис-воркер (новая версия файлов),
+    //    подхватываем его и перезагружаем страницу ОДИН раз — иначе страница
+    //    продолжала бы работать на старом кэше, пока пользователь не
+    //    перезагрузит сам.
     window.addEventListener('load', () => {
+      let didReload = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!didReload) { didReload = true; location.reload(); }
+      });
       navigator.serviceWorker.register('./service-worker.js')
         .then(reg => console.log('Service Worker registered'))
         .catch(err => console.error('Service Worker failed', err));
@@ -20627,6 +20811,21 @@ function onlineOnSnapshotSync() {
       <span id="mapCodeStatus" style="color:#9ccc65; font-size:0.85rem;"></span>
     </div>
     <p style="font-size:0.75rem; color:#777; margin-bottom:0;">Если копирование кнопкой не сработало (на телефоне) — выделите код в окне и скопируйте вручную (Ctrl+C / долгий тап).</p>
+  </div>
+</div>
+  <div id="battalionRosterScreen" style="display:none; padding:20px;">
+  <h2>👥 Личный состав батальона</h2>
+  <button onclick="backToOperationalMapFromRoster()" style="background:#555;">← Назад к карте</button>
+  <div id="battalionRosterSummary" style="margin:10px 0; font-weight:bold;"></div>
+  <div id="battalionRosterList"></div>
+  <div id="battalionUnitDetails" style="display:none; margin-top:10px; padding:10px; background:#2a2a2a; border-radius:6px;"></div>
+<button id="btnBackToRosterList" style="display:none; margin-top:6px;" onclick="backToRosterList()">← Назад к списку</button>
+</div>
+</div>
+    
+</body>
+</html>
+size:0.75rem; color:#777; margin-bottom:0;">Если копирование кнопкой не сработало (на телефоне) — выделите код в окне и скопируйте вручную (Ctrl+C / долгий тап).</p>
   </div>
 </div>
   <div id="battalionRosterScreen" style="display:none; padding:20px;">
