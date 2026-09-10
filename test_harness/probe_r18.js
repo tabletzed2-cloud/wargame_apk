@@ -23,7 +23,7 @@ const FNS = [
     'onlineBody', 'onlineGoToCampaign', 'closeOnlineModal', 'onlineShowJoin',
     'onlineSelfTest', 'onlineSelfTestMeaning',
     'onlineAutoEnterPlacement', 'onlineFirstTurnRole',
-    'showOperationalMap', 'setOpMapMode',
+    'showOperationalMap', 'setOpMapMode', 'renderTemplateSelection', 'selectFaction',
     'updateAssemblySupportCheck', 'orderShouldExecuteNow', 'executeOrder', 'executeDigInOrder', 'rollD12'
 ];
 
@@ -765,7 +765,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.043'"), 'U9q: константа версии v13.043');
+    ok(HTML.includes("var APP_VERSION = 'v13.044'"), 'U9q: константа версии v13.044');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -794,6 +794,24 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U11c: онлайн — снимок потерь отправлен защитнику (state.p1.inflictedOnOpponent, батч)');
     // v13.043 (R28#2): САУ — 1d10 (было 2d6); миномётная батарея — 1d6
     ok(HTML.includes("isSau ? '1d10' : '1d6'"), 'U11d: приказ «обстрел» — САУ бьёт 1d10 (было 2d6)');
+
+    // U12: v13.044 (R29) — BeVe без подфракции: ВЕСЬ список юнитов
+    const totalBeve = s.evalCtx('appData.templates.filter(t => t.faction === "BeVe").length');
+    s.run('appData.templates = SQUAD_TEMPLATES;');
+    // даже если selectedSubFaction почему-то установлен (старая сессия) — список полный
+    s.run('selectedFaction = "BeVe"; selectedSubFaction = "belgian"; renderTemplateSelection();');
+    const listCount = s.elements.templateSelection.innerHTML.split('template-check').length - 1;
+    ok(listCount === totalBeve, 'U12a: BeVe — показывается ВЕСЬ список юнитов (без фильтра подфракции), ' + listCount + ' из ' + totalBeve);
+    s.run('selectedSubFaction = null; renderTemplateSelection();');
+    const listCount2 = s.elements.templateSelection.innerHTML.split('template-check').length - 1;
+    ok(listCount2 === totalBeve, 'U12b: BeVe без подфракции — тот же полный список');
+    // выбор BeVe — без окна подфракции
+    s.run('selectedFaction = null;');
+    s.run('startBattleModule = function() { __startCalled = true; }; var __startCalled = false; safeLocalStorage = function() {}; closeFactionModal = function() {};');
+    s.run('selectFaction("BeVe");');
+    ok(s.evalCtx('__startCalled') === true && s.evalCtx('selectedFaction') === 'BeVe' && s.evalCtx('selectedSubFaction') === null,
+        'U12c: выбор BeVe — сразу в бой, подфракция не запрашивается');
+    ok(!HTML.includes("selectSubFaction"), 'U12d: код выбора подфракции удалён из index.html');
     ok(HTML.includes("dmgPerHit === '1d10' ? rollD10()"), 'U11e: executeMortarSalvo умеет 1d10');
     ok(HTML.includes("executeMortarSalvo(unit, [nearest.unit], nearest.dist, 15, '1d6')"),
         'U11f: автоогонь миномётной батареи — по-прежнему 1d6/попадание');
