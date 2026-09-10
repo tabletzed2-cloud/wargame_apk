@@ -35,12 +35,27 @@ const SCENARIO_OP_MAP_SETTINGS = {
 //    границе полигона, и ray casting исключал их из зоны).
 // ⚡ v13.040: A.I.R.F. — расширение зоны на гексы 0,13 / 1,13 / 2,13 / 4,13
 //    (тот же случай — центры на границе полигона).
+// ⚡ v13.042 (R27#8): A.I.R.F. — добавлен гекс 3,13.
 const SCENARIO_PLACEMENT_ZONE_EXTRA_HEXES = {
   valencia: {
     'BeVe': [[2,7],[3,7],[4,7]],
-    'A.I.R.F.': [[0,13],[1,13],[2,13],[4,13]]
+    'A.I.R.F.': [[0,13],[1,13],[2,13],[3,13],[4,13]]
   }
 };
+
+// ⚡ v13.042 (R27#9): ИГРОВОЕ ПОЛЕ сценария — гексы вне области недоступны
+//    (нельзя ходить/стрелять/размещать/ставить приказы).
+//    «Валенсия» — квадрат (col,row): 0,0 – 12,0 – 12,14 – 0,14
+//    (столбцы 0..12, ряды 0..14).
+const SCENARIO_PLAYABLE_AREA = {
+  valencia: { minCol: 0, maxCol: 12, minRow: 0, maxRow: 14 }
+};
+
+function isHexInPlayableArea(scenario, col, row) {
+  const area = SCENARIO_PLAYABLE_AREA[scenario];
+  if (!area) return true; // сценарий без ограничений
+  return col >= area.minCol && col <= area.maxCol && row >= area.minRow && row <= area.maxRow;
+}
 
 // ========== ГЛОБАЛЬНЫЕ БОНУСЫ ФРАКЦИЙ (v13.037) ==========
 // Показываются при формировании батальона и в лобби онлайн-матча.
