@@ -23,7 +23,8 @@ const FNS = [
     'onlineBody', 'onlineGoToCampaign', 'closeOnlineModal', 'onlineShowJoin',
     'onlineSelfTest', 'onlineSelfTestMeaning',
     'onlineAutoEnterPlacement', 'onlineFirstTurnRole',
-    'showOperationalMap', 'setOpMapMode', 'renderTemplateSelection', 'selectFaction',
+    'showOperationalMap', 'setOpMapMode', 'renderTemplateSelection', 'selectFaction', 'selectSubFaction',
+    'computeSubFactionFromSquads', 'getBattleCardContext', 'renderCardSelectionForBattle',
     'updateAssemblySupportCheck', 'orderShouldExecuteNow', 'executeOrder', 'executeDigInOrder', 'rollD12'
 ];
 
@@ -765,7 +766,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.044'"), 'U9q: константа версии v13.044');
+    ok(HTML.includes("var APP_VERSION = 'v13.045'"), 'U9q: константа версии v13.045');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -778,7 +779,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     s.run(realAdmSrc);
     // let __inflictedPushScheduled живёт в ТОПЕ index.html (вне функции) —
     // в песочнице объявляем явно
-    s.run('var __inflictedPushScheduled = false;');
+    s.run('var __inflictedPushScheduled = false; var inStandaloneBattle = false;');
     s.run('appData.campaign.enemyOpUnits = [{ id: "eX", name: "Враг-X", col: 5, row: 5, isDestroyed: false, ' +
           'squads: [{ name: "Отр", fighters: [{ name: "В1", hp: 3, maxHp: 3 }, { name: "В2", hp: 3, maxHp: 3 }] }] }];');
     // одиночная игра — враг неуязвим (урон только в лог)
@@ -795,23 +796,73 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     // v13.043 (R28#2): САУ — 1d10 (было 2d6); миномётная батарея — 1d6
     ok(HTML.includes("isSau ? '1d10' : '1d6'"), 'U11d: приказ «обстрел» — САУ бьёт 1d10 (было 2d6)');
 
-    // U12: v13.044 (R29) — BeVe без подфракции: ВЕСЬ список юнитов
+    // U12: v13.044/v13.045 (R29/R30) — BeVe: ВЕСЬ список юнитов + подфракция для карт
     const totalBeve = s.evalCtx('appData.templates.filter(t => t.faction === "BeVe").length');
     s.run('appData.templates = SQUAD_TEMPLATES;');
-    // даже если selectedSubFaction почему-то установлен (старая сессия) — список полный
+    // список юнитов не фильтруется подфракцией (v13.044)
     s.run('selectedFaction = "BeVe"; selectedSubFaction = "belgian"; renderTemplateSelection();');
     const listCount = s.elements.templateSelection.innerHTML.split('template-check').length - 1;
-    ok(listCount === totalBeve, 'U12a: BeVe — показывается ВЕСЬ список юнитов (без фильтра подфракции), ' + listCount + ' из ' + totalBeve);
+    ok(listCount === totalBeve, 'U12a: BeVe — показывается ВЕСЬ список юнитов (подфракция юнитов не фильтрует), ' + listCount + ' из ' + totalBeve);
     s.run('selectedSubFaction = null; renderTemplateSelection();');
     const listCount2 = s.elements.templateSelection.innerHTML.split('template-check').length - 1;
     ok(listCount2 === totalBeve, 'U12b: BeVe без подфракции — тот же полный список');
-    // выбор BeVe — без окна подфракции
-    s.run('selectedFaction = null;');
+    // выбор BeVe — окно подфракции (Бельгийцы/Голландцы), затем в бой
+    s.run('selectedFaction = null; selectedSubFaction = null; appData.currentBattleId = null;');
     s.run('startBattleModule = function() { __startCalled = true; }; var __startCalled = false; safeLocalStorage = function() {}; closeFactionModal = function() {};');
     s.run('selectFaction("BeVe");');
-    ok(s.evalCtx('__startCalled') === true && s.evalCtx('selectedFaction') === 'BeVe' && s.evalCtx('selectedSubFaction') === null,
-        'U12c: выбор BeVe — сразу в бой, подфракция не запрашивается');
-    ok(!HTML.includes("selectSubFaction"), 'U12d: код выбора подфракции удалён из index.html');
+    ok(s.evalCtx('__startCalled') === false, 'U12c: выбор BeVe — не сразу в бой: открывается окно подфракции');
+    const modalHtml = s.elements.factionModalContent.innerHTML;
+    ok(modalHtml.includes("selectSubFaction('belgian')") && modalHtml.includes("selectSubFaction('dutch')"),
+        'U12d: окно подфракции — Бельгийцы и Голландцы');
+    s.run('selectSubFaction("dutch");');
+    ok(s.evalCtx('__startCalled') === true && s.evalCtx('selectedFaction') === 'BeVe' && s.evalCtx('selectedSubFaction') === 'dutch',
+        'U12e: выбор подфракции — в бой, selectedSubFaction запомнен');
+    s.run('inStandaloneBattle = true;'); // реальный startBattleModule ставит его; здесь — стаб
+
+    // U13: v13.045 (R30) — бонусные/штрафные карты зависят от подфракции
+    s.run('appData.factions.BeVe.cardLibrary = []; appData.factions._global = { icon: "", cardLibrary: [], awards: [] }; syncFactionCatalogs();'); // каталог из cards.js
+    const dutList = s.evalCtx('JSON.stringify([...(appData.factions.BeVe.cardLibrary || []), ...(appData.factions._global.cardLibrary || [])].filter(c => c.subfaction === "dutch").map(c => c.name))');
+    const belList = s.evalCtx('JSON.stringify([...(appData.factions.BeVe.cardLibrary || []), ...(appData.factions._global.cardLibrary || [])].filter(c => c.subfaction === "belgian").map(c => c.name))');
+    const dutNames = JSON.parse(dutList), belNames = JSON.parse(belList);
+    ok(dutNames.length >= 3 && belNames.length >= 3,
+        'U13a: в каталоге есть карты обеих подфракций (dutch: ' + dutNames.length + ', belgian: ' + belNames.length + ')');
+    // одиночный бой: бельгийцы — нет карт голландцев
+    s.run('appData.currentBattleId = null; selectedFaction = "BeVe"; selectedSubFaction = "belgian"; renderCardSelectionForBattle();');
+    let cardsHtmlR30 = s.elements.cardSelectionForBattle.innerHTML;
+    const leakBel = dutNames.filter(n => cardsHtmlR30.includes('data-name="' + n + '"')).length;
+    ok(leakBel === 0, 'U13b: одиночный бой, бельгийцы — карт голландцев НЕТ');
+    ok(cardsHtmlR30.includes('Подфракция: Бельгийцы'), 'U13c: одиночный бой, бельгийцы — пометка подфракции');
+    // одиночный бой: голландцы — нет карт бельгийцев
+    s.run('selectedSubFaction = "dutch"; renderCardSelectionForBattle();');
+    cardsHtmlR30 = s.elements.cardSelectionForBattle.innerHTML;
+    const leakDut = belNames.filter(n => cardsHtmlR30.includes('data-name="' + n + '"')).length;
+    ok(leakDut === 0 && cardsHtmlR30.includes('Подфракция: Голландцы'), 'U13d: одиночный бой, голландцы — карт бельгийцев НЕТ');
+    // кампания: тактический бой — подфракция по отрядам (бельгийцы 2:1)
+    s.run('inStandaloneBattle = false;');
+    s.run('appData.currentBattleId = 77; selectedFaction = null; appData.campaign.online = null; ' +
+          'appData.campaign.activeBattles = [{ id: 77, playerSquads: ' +
+          '[{ name: "С1", faction: "BeVe", subfaction: "belgian" }, { name: "С2", faction: "BeVe", subfaction: "belgian" }, { name: "С3", faction: "BeVe", subfaction: "dutch" }], enemySquads: [] }]; ' +
+          'renderCardSelectionForBattle();');
+    cardsHtmlR30 = s.elements.cardSelectionForBattle.innerHTML;
+    const leak3 = dutNames.filter(n => cardsHtmlR30.includes('data-name="' + n + '"')).length;
+    const pres3 = belNames.filter(n => cardsHtmlR30.includes('data-name="' + n + '"')).length;
+    ok(leak3 === 0 && pres3 === belNames.length && cardsHtmlR30.includes('Подфракция: Бельгийцы'),
+        'U13e: кампания — бельгийские взводы (2:1) в бою → карт голландцев НЕТ');
+    // ничья 1:1 — без ограничения
+    s.run('appData.campaign.activeBattles[0].playerSquads = [{ name: "С1", faction: "BeVe", subfaction: "belgian" }, { name: "С3", faction: "BeVe", subfaction: "dutch" }]; renderCardSelectionForBattle();');
+    cardsHtmlR30 = s.elements.cardSelectionForBattle.innerHTML;
+    const pres4 = dutNames.filter(n => cardsHtmlR30.includes('data-name="' + n + '"')).length +
+                  belNames.filter(n => cardsHtmlR30.includes('data-name="' + n + '"')).length;
+    ok(pres4 === dutNames.length + belNames.length && !cardsHtmlR30.includes('Подфракция:'),
+        'U13f: ничья бельгийцы/голландцы — карты обеих подфракций доступны');
+    // computeSubFactionFromSquads
+    ok(s.evalCtx('computeSubFactionFromSquads([{subfaction:"belgian"},{subfaction:"dutch"}])') === null,
+        'U13g: ничья → null (без ограничения)');
+    ok(s.evalCtx('computeSubFactionFromSquads([{subfaction:"dutch"},{subfaction:"dutch"},{subfaction:"belgian"},null])') === 'dutch',
+        'U13h: большинство → подфракция большинства');
+    ok(HTML.includes('subFaction: computeSubFactionFromSquads(playerSquads)'),
+        'U13i: запись тактического боя сохраняет subFaction');
+
     ok(HTML.includes("dmgPerHit === '1d10' ? rollD10()"), 'U11e: executeMortarSalvo умеет 1d10');
     ok(HTML.includes("executeMortarSalvo(unit, [nearest.unit], nearest.dist, 15, '1d6')"),
         'U11f: автоогонь миномётной батареи — по-прежнему 1d6/попадание');

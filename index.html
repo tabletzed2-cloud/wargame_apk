@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.044 — операция</title>
+  <title>Боевой модуль v13.045 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -13,7 +13,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.044</h1>
+    <h1>⚔️ Боевой модуль v13.045</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -27,7 +27,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041: версия + принудительное обновление (старый кэш сервис-воркера) -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.044</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.045</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
   </div>
@@ -58,7 +58,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.044 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.045 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -269,10 +269,11 @@ function safeLocalStorage(method, ...args) {
     }    
 // ⚡ v13.041: текущая версия — отображается в меню/шапке/диагностике,
 //    чтобы игрок видел, свежая ли версия на его устройстве
-var APP_VERSION = 'v13.044';
+var APP_VERSION = 'v13.045';
 
 let selectedFaction = null;
-let selectedSubFaction = null; // ⚡ v13.044: подфракция BeVe упразднена — всегда null
+let selectedSubFaction = null; // 'belgian' | 'dutch' | null — ⚡ v13.045 (R30): влияет на выбор карт в бою
+let inStandaloneBattle = false; // ⚡ v13.045 (R30): открыт одиночный бой (меню «Бой»)
     // === Модальное окно выбора фракции ===
 function showFactionModal() {
   console.log('showFactionModal вызвана');
@@ -304,11 +305,35 @@ factions.forEach(f => {
 
 function selectFaction(factionKey) {
    console.log('selectFaction вызвана с', factionKey);
-  // ⚡ v13.044 (R29): выбор ПОДФРАКЦИИ BeVe убран — BeVe выбирается
-  //    целиком, в бой выдаётся ВЕСЬ список юнитов фракции
-  selectedFaction = factionKey;
-  selectedSubFaction = null;
-  safeLocalStorage('setItem', 'wargame_choice', JSON.stringify({faction: selectedFaction, sub: null}));
+  // ⚡ v13.045 (R30): выбор ПОДФРАКЦИИ BeVe ВОССТАНОВЛЕН — от неё зависят
+  //    бонусные/штрафные карточки (карты голландцев недоступны бельгийцу,
+  //    и наоборот). Список юнитов — ВСЕ юниты фракции (как в v13.044).
+if (factionKey === 'BeVe') {
+  document.getElementById('factionModalContent').innerHTML = `
+    <div style="text-align:center;color:#fff;font-size:1.8rem;margin-bottom:20px;">Выберите подфракцию (BeVe)</div>
+    <div style="display:flex;flex-wrap:wrap;justify-content:center;">
+      <div class="faction-card" onclick="selectSubFaction('belgian')">
+        <img src="images/Belgian Beve.png" alt="Бельгийцы"><div class="faction-name">Бельгийцы</div>
+      </div>
+      <div class="faction-card" onclick="selectSubFaction('dutch')">
+        <img src="images/BeVe/BeVe.png" alt="Голландцы"><div class="faction-name">Голландцы</div>
+      </div>
+    </div>`;
+}
+  else {
+    selectedFaction = factionKey;
+    selectedSubFaction = null;
+    safeLocalStorage('setItem', 'wargame_choice', JSON.stringify({faction: selectedFaction, sub: null}));
+    closeFactionModal();
+    startBattleModule(); // вместо location.reload()
+  }
+}
+
+function selectSubFaction(sub) {
+  console.log('selectSubFaction вызвана с', sub);
+  selectedFaction = 'BeVe';
+  selectedSubFaction = sub;
+  safeLocalStorage('setItem', 'wargame_choice', JSON.stringify({faction: 'BeVe', sub: sub}));
   closeFactionModal();
   startBattleModule(); // вместо location.reload()
 }
@@ -318,6 +343,7 @@ function closeFactionModal() {
 
 function startBattleModule() {
   console.log('startBattleModule вызвана');
+  inStandaloneBattle = true; // ⚡ v13.045 (R30): контекст карт — одиночный бой
     try {
         document.getElementById('mainMenu').style.display = 'none';
         document.getElementById('battleApp').style.display = 'block';
@@ -350,6 +376,7 @@ updateUI();
 // ========== РЕЖИМ КАМПАНИИ ==========
 function openCampaign() {
   console.log('openCampaign вызвана');
+  inStandaloneBattle = false; // ⚡ v13.045 (R30): контекст карт — кампания
   document.getElementById('mainMenu').style.display = 'none';
   document.getElementById('campaignApp').style.display = 'block';
   
@@ -4321,6 +4348,7 @@ function checkIdleUnits() {
       // ======== ПРИОРИТЕТ: СНА
 function startTacticalBattle(playerUnits, enemyUnits) {
     console.log('startTacticalBattle вызван', playerUnits, enemyUnits);
+    inStandaloneBattle = false; // ⚡ v13.045 (R30): контекст карт — кампания
     
     // Если передан один юнит - превращаем в массив
     if (!Array.isArray(playerUnits)) {
@@ -4594,7 +4622,10 @@ function startTacticalBattle(playerUnits, enemyUnits) {
         enemySquads: enemySquads.map(s => JSON.parse(JSON.stringify(s))),
         tacticalMap: JSON.parse(JSON.stringify(tacticalMap)),
         currentTurn: 1,
-        hexKey: hexKey
+        hexKey: hexKey,
+        // ⚡ v13.045 (R30): подфракция по отрядам, вступившим в бой —
+        //    определяет доступные бонусные/штрафные карточки
+        subFaction: computeSubFactionFromSquads(playerSquads)
     };
     appData.campaign.activeBattles.push(newBattle);
     
@@ -5621,10 +5652,10 @@ function renderFactionInfo() {
     return;
   }
   const iconUrl = faction.icon || '';
-  // ⚡ v13.044 (R29): подфракция не отображается (упразднена)
+  const subText = selectedSubFaction ? ` (${selectedSubFaction === 'belgian' ? 'Бельгийцы' : 'Голландцы'})` : '';
   container.innerHTML = `
     ${iconUrl ? `<img src="${iconUrl}" style="height:40px; border-radius:4px;" alt="${selectedFaction}">` : ''}
-    <span style="font-weight:bold; font-size:1.1rem;">Выбрана фракция: ${selectedFaction}</span>
+    <span style="font-weight:bold; font-size:1.1rem;">Выбрана фракция: ${selectedFaction}${subText}</span>
   `;
 }
     
@@ -8213,7 +8244,10 @@ function renderCardLibraryEditor() {
   const faction = document.getElementById('cardsEditorFactionSelect').value; 
   let cards = getFactionCards(faction);
   cards = cards.filter(c => !c.informational);
-  // ⚡ v13.044 (R29): фильтр по подфракции BeVe убран — все карты фракции
+  // ⚡ v13.045 (R30): подфракция BeVe учитывается (как в v13.043)
+  if (selectedFaction === 'BeVe' && selectedSubFaction) {
+    cards = cards.filter(c => !c.subfaction || c.subfaction === selectedSubFaction || c.subfaction === 'common');
+  }
   const container = document.getElementById('cardLibraryContainer');
   if (cards.length === 0) {
     container.innerHTML = '<p>Нет карт для этой фракции.</p>';
@@ -8245,9 +8279,55 @@ function checkNightTime() {
   updateUI();
 }
       
+// ⚡ v13.045 (R30): подфракция по отрядам — по большинству belgian/dutch
+//    (техника/отряды без подфракции не учитываются; ничья — без ограничения)
+function computeSubFactionFromSquads(squads) {
+    let bel = 0, dut = 0;
+    (squads || []).forEach(s => {
+        if (!s) return;
+        if (s.subfaction === 'belgian') bel++;
+        else if (s.subfaction === 'dutch') dut++;
+    });
+    if (bel > dut) return 'belgian';
+    if (dut > bel) return 'dutch';
+    return null;
+}
+// ⚡ v13.045 (R30): контекст для выбора карт: { faction, subFaction }.
+//    Тактический бой — по отрядам, вступившим в бой (бонусные/штрафные
+//    карточки зависят от подфракции); вне боя в кампании — фракция
+//    батальона; одиночный бой — выбранная игроком фракция/подфракция.
+function getBattleCardContext() {
+    const camp = (appData && appData.campaign) || {};
+    if (appData.currentBattleId && camp.activeBattles) {
+        const b = camp.activeBattles.find(x => x.id === appData.currentBattleId);
+        if (b) {
+            const faction = (b.playerSquads && b.playerSquads[0] && b.playerSquads[0].faction) ||
+                            (camp.battalions && camp.battalions.player && camp.battalions.player.faction) ||
+                            selectedFaction;
+            return {
+                faction: faction,
+                subFaction: b.subFaction || computeSubFactionFromSquads(b.playerSquads)
+            };
+        }
+    }
+    // ⚡ v13.045 (R30): одиночный бой — фракция/подфракция, выбранные в меню
+    //    (проверяем ДО ветки кампании: campaign.active остаётся true и после
+    //    закрытия кампании, и затмевал бы одиночный выбор)
+    if (inStandaloneBattle && selectedFaction) {
+        return { faction: selectedFaction, subFaction: selectedFaction === 'BeVe' ? selectedSubFaction : null };
+    }
+    if (camp.active && camp.battalions && camp.battalions.player && camp.battalions.player.faction) {
+        return { faction: camp.battalions.player.faction, subFaction: null };
+    }
+    return { faction: selectedFaction, subFaction: selectedFaction === 'BeVe' ? selectedSubFaction : null };
+}
+
 function renderCardSelectionForBattle() {
   const container = document.getElementById('cardSelectionForBattle');
   if (!container) return;
+
+  // ⚡ v13.045 (R30): контекст боя — фракция и подфракция игрока
+  const ctx = getBattleCardContext();
 
   // ⚡ v13.042 (R27#5): показываем ТОЛЬКО карты фракции игрока + ОБЩИЕ
   //    карты (фракция «_global»). Карты других фракций не показываем.
@@ -8255,20 +8335,33 @@ function renderCardSelectionForBattle() {
   const isCommonFaction = (f) => f === '_global';
   Object.entries(appData.factions).forEach(([faction, data]) => {
     (data.cardLibrary || []).forEach(card => {
+      if (ctx.faction === 'test') {
+        allCards.push({ ...card, faction });
+        return;
+      }
+      // ⚡ v13.045 (R30): карты другой подфракции BeVe недоступны
+      //    (бельгийцы — без карт голландцев, и наоборот; «common» — всем).
+      //    Срабатывает и на общих (_global) картах — часть «голландских»/
+      //    «бельгийских» карт лежит именно в _global-библиотеке.
+      if (ctx.subFaction && card.subfaction &&
+          card.subfaction !== ctx.subFaction && card.subfaction !== 'common') return;
       if (isCommonFaction(faction)) {
-        // общие карты — всем
+        // общие карты — всем (кроме чужих подфракций BeVe)
         allCards.push({ ...card, faction });
         return;
       }
-      if (selectedFaction === 'test') {
-        allCards.push({ ...card, faction });
-        return;
-      }
-      if (faction !== selectedFaction) return;
-      // ⚡ v13.044 (R29): подфракция BeVe не учитывается — все карты фракции
+      if (!ctx.faction || faction !== ctx.faction) return;
       allCards.push({ ...card, faction });
     });
   });
+
+  // ⚡ v13.045 (R30): пометка активной подфракции
+  let subInfoHtml = '';
+  if (ctx.faction === 'BeVe' && ctx.subFaction) {
+    const subName = ctx.subFaction === 'belgian' ? 'Бельгийцы' : 'Голландцы';
+    const otherName = ctx.subFaction === 'belgian' ? 'Голландцы' : 'Бельгийцы';
+    subInfoHtml = `<p style="color:#f1c40f;">ℹ️ Подфракция: ${subName}. Карты подфракции «${otherName}» недоступны.</p>`;
+  }
 
   if (allCards.length === 0) {
     container.innerHTML = '<p>Нет карт в библиотеке. Установите последнюю версию игры — каталог карт (cards.js) подтягивается при обновлении. Также можно «🗑️ Сбросить данные» в главном меню.</p>';
@@ -8294,7 +8387,7 @@ function renderCardSelectionForBattle() {
         </div>
       </div>`;
   });
-  container.innerHTML = html;
+  container.innerHTML = subInfoHtml + html;
 }
 
 function activateSelectedCards() {
@@ -9206,8 +9299,8 @@ function editCard(faction, idx) {
 
     // =================== ВКЛАДКА ШАБЛОНЫ ===================
     function renderTemplateSelection() { const container = document.getElementById('templateSelection'); const filterFaction = document.getElementById('battleFactionFilter')?.value || ''; const filterSelect = document.getElementById('battleFactionFilter'); if (filterSelect && filterSelect.options.length <= 1) { const currentVal = filterSelect.value; filterSelect.innerHTML = '<option value="">Все фракции</option>' + Object.keys(appData.factions).map(f => `<option value="${f}" ${f === currentVal ? 'selected' : ''}>${f}</option>`).join(''); } let filteredTemplates = filterFaction ? appData.templates.filter(t => t.faction === filterFaction) : appData.templates;
-    // ⚡ v13.044 (R29): фильтр по подфракции BeVe УБРАН — показываем
-  //    ВЕСЬ список юнитов выбранной фракции (подфракция неактуальна)
+    // ⚡ v13.044 (R29): весь список юнитов выбранной фракции (подфракция
+  //    НЕ фильтрует юнитов; ⚡ v13.045 (R30): подфракция влияет только на карты)
 if (selectedFaction !== 'test' && selectedFaction) {
   filteredTemplates = filteredTemplates.filter(t => t.faction === selectedFaction);
 }
