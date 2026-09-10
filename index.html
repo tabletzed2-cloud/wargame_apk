@@ -824,10 +824,15 @@ appData.campaign.enemyOpUnits = null;
        initHardMode();
     }
 // Генерируем вражеский батальон 
-const enemyFaction = faction === 'BeVe' ? 'A.I.R.F.' : 'BeVe';
+// ⚡ v13.039: онлайн — фракция и поддержки врага берутся из ЛОББИ
+//    (оппонент выбрал их в комнате), а не «зеркально»
+const oppOnline = (appData.campaign.online && appData.campaign.onlineOpponent) ? appData.campaign.onlineOpponent : null;
+const enemyFaction = (oppOnline && oppOnline.faction) ? oppOnline.faction : (faction === 'BeVe' ? 'A.I.R.F.' : 'BeVe');
 // Получаем все id поддержки для вражеской фракции
 const enemyPreset = BATTALION_PRESETS[enemyFaction];
-const enemySupportIds = enemyPreset ? enemyPreset.supportOptions.map(opt => opt.id) : [];
+const enemySupportIds = (oppOnline && Array.isArray(oppOnline.supportIds))
+    ? oppOnline.supportIds
+    : (enemyPreset ? enemyPreset.supportOptions.map(opt => opt.id) : []);
 const enemyBattalion = generateBattalion(enemyFaction, enemySupportIds);
   console.log('=== Генерация вражеского батальона ===');
   console.log('Вражеская фракция:', enemyFaction);
@@ -1154,6 +1159,12 @@ function buildOperationalUnits() {
         });
     }
     
+    // ⚡ v13.039: онлайн — вражеские юниты НЕ создаются локально: они
+    //    приходят от оппонента через облако (onlineApplyCloudState).
+    if (appData.campaign.online) {
+        if (!appData.campaign.enemyOpUnits) appData.campaign.enemyOpUnits = [];
+    }
+    
     // ⚡ СОЗДАЁМ ВРАЖЕСКИХ ЮНИТОВ (если их ещё нет)
     //    ИЛИ ПЕРЕСОЗДАЁМ, ЕСЛИ СОСТАВ/ВЕРСИЯ КАРТЫ ИЗМЕНИЛАСЬ (сигнатура).
     const hasEnemyUnits = appData.campaign.enemyOpUnits && appData.campaign.enemyOpUnits.length > 0;
@@ -1163,7 +1174,7 @@ function buildOperationalUnits() {
         const enemySigNow = getBattalionSignature(enemyBattalionRef);
         enemySigChanged = appData.campaign.enemyOpUnitsSignature !== enemySigNow;
     }
-    if (!hasEnemyUnits || enemySigChanged) {
+    if (!appData.campaign.online && (!hasEnemyUnits || enemySigChanged)) {
         if (enemySigChanged) {
             console.log('⚠️ Состав/карта вражеского батальона изменилась — пересоздаём вражеские юниты');
         }
@@ -1197,6 +1208,12 @@ function buildOperationalUnits() {
             appData.campaign.enemyOpUnitsSignature = getBattalionSignature(enemyBattalionRef);
         }
     }
+    
+    // ⚡ v13.039: стабильные ID юнитов (для зеркалирования в облако и
+    //    схлопывания урона/состояния по юниту, а не по индексу)
+    (appData.campaign.opUnits || []).forEach(u => {
+        if (u && !u.id) u.id = 'u' + Math.random().toString(36).slice(2, 10);
+    });
     
     saveData();
 }
@@ -2165,6 +2182,12 @@ if (pickingTargetHex) {
     updateBtrPanel();
     updateVehiclePanel();
     updateVehicleGroupInfo();
+    
+    // ⚡ v13.039: онлайн — после каждого перерисовывания синхронизируем
+    //    свои юниты с облаком (дедупликация по JSON — дублей не будет)
+    if (appData.campaign && appData.campaign.online && typeof onlinePushMyUnits === 'function') {
+        try { onlinePushMyUnits(); } catch (e) { /* оффлайн/ещё нет комнаты */ }
+    }
 }
 // ⚡ v13.024: перемещение выбранного юнита кликом по подсвеченному
 //    гексу. Выносится в отдельную функцию, чтобы работать и в режиме
@@ -2276,6 +2299,19 @@ function tryMoveSelectedOpUnitToHex(clickX, clickY) {
 function handleOpMapClick(e) {
   const canvas = document.getElementById('opMapCanvas');
   if (!canvas) return;
+
+  // ⚡ v13.039 (R24#2): онлайн — во время хода оппонента карта толь
+  //    для чтения (никаких действий до завершения его хода)
+  if (appData.campaign && appData.campaign.online &&
+      typeof ONLINE !== 'undefined' && ONLINE.started &&
+      typeof onlineMyTurnActive === 'function' && !onlineMyTurnActive()) {
+      const miW = document.getElementById('mapInfo');
+      if (miW) {
+        miW.innerHTML = (typeof onlineWaitBanner === 'function') ? onlineWaitBanner() : '⏳ Ход оппонента — ждём…';
+        miW.style.color = '#999';
+      }
+      return;
+  }
 
   const rect = canvas.getBoundingClientRect();
   // ⚡ v13.021: канвас масштабирован на devicePixelRatio — переводим
@@ -2421,6 +2457,12 @@ function handleOpMapClick(e) {
 
     // Стрелок выбран - выбираем цель
       let targetUnits = getEnemyUnitsAtHex(closestKey);
+    
+    // ⚡ v13.039 туман войны: целиться можно только в ВИДИМЫХ врагов
+    //    (арт. обстрел по гексу — исключение: бьёт и по невидимым, R22#10)
+    if (appData.campaign.online && targetUnits && typeof onlineEnemyVisible === 'function') {
+      targetUnits = targetUnits.filter(onlineEnemyVisible);
+    }
     
     // Если на гексе нет врагов, но есть активный бой - ищем врагов в этом бою
     if (!targetUnits || targetUnits.length === 0) {
@@ -10428,6 +10470,14 @@ function backToBattalionAssembly() {
   startBattalionAssembly(appData.campaign.playerFaction);
 }
 function endOperationalTurn() {
+    // ⚡ v13.039 (R24#2): онлайн — завершить ход можно ТОЛЬКО в свой ход
+    if (appData.campaign && appData.campaign.online &&
+        typeof ONLINE !== 'undefined' && ONLINE.started &&
+        typeof onlineMyTurnActive === 'function' && !onlineMyTurnActive()) {
+        const miW = document.getElementById('mapInfo');
+        if (miW) { miW.innerHTML = (typeof onlineWaitBanner === 'function') ? onlineWaitBanner() : '⏳ Ход оппонента — ждём…'; miW.style.color = '#999'; }
+        return;
+    }
     // ⚡ ИНИЦИАЛИЗАЦИЯ, если не задано (v13.018)
     if (appData.campaign.opTurnStartTime === undefined) {
         appData.campaign.opTurnStartTime = appData.campaign.currentTime || 0;
@@ -10442,18 +10492,24 @@ function endOperationalTurn() {
     appData.campaign.currentTurn++;
 
     // ⚡ v13.037: уведомление о начале нового хода (номер хода + время)
-    {
-        const tStr = (typeof formatTime === 'function') ? formatTime(appData.campaign.currentTime)
-            : (String(Math.floor(appData.campaign.currentTime / 60)).padStart(2, '0') + ':' + String(appData.campaign.currentTime % 60).padStart(2, '0'));
-        let turnWho = '';
-        if (appData.campaign.online && typeof ONLINE !== 'undefined' && ONLINE.match && ONLINE.match.whoseTurn) {
-            turnWho = ' Ход: ' + (ONLINE.match.whoseTurn === ONLINE.role ? 'ваш' : 'оппонента') + '.';
+    // ⚡ v13.039 (R24#2): в ОНЛАЙНЕ локальный алерт НЕ показываем —
+    //    уведомление о начале хода приходит, когда ход снова СТАНОВИТСЯ
+    //    МОИМ (после завершения хода оппонента) — в onlineOnTurnChanged
+    if (!(appData.campaign.online && typeof ONLINE !== 'undefined' && ONLINE.started)) {
+        {
+            const tStr = (typeof formatTime === 'function') ? formatTime(appData.campaign.currentTime)
+                : (String(Math.floor(appData.campaign.currentTime / 60)).padStart(2, '0') + ':' + String(appData.campaign.currentTime % 60).padStart(2, '0'));
+            const msg = `⏱️ Начался ход ${appData.campaign.currentTurn} — время ${tStr}.`;
+            try { alert(msg); } catch (e) { /* WebView без alert */ }
+            log(msg);
+            const miTurn = document.getElementById('mapInfo');
+            if (miTurn) { miTurn.innerHTML = msg; miTurn.style.color = '#f1c40f'; }
         }
-        const msg = `⏱️ Начался ход ${appData.campaign.currentTurn} — время ${tStr}.${turnWho}`;
-        try { alert(msg); } catch (e) { /* WebView без alert */ }
-        log(msg);
-        const miTurn = document.getElementById('mapInfo');
-        if (miTurn) { miTurn.innerHTML = msg; miTurn.style.color = '#f1c40f'; }
+    } else {
+        // онлайн: покажу «ждём оппонента» (обновится снапшотом)
+        log(`⏳ Ход ${appData.campaign.currentTurn} завершён — передаём ход оппоненту.`);
+        const miTurn2 = document.getElementById('mapInfo');
+        if (miTurn2) { miTurn2.innerHTML = '⏳ Ход завершён — ждём оппонента…'; miTurn2.style.color = '#999'; }
     }
 
     // Восстанавливаем ОД ВСЕМ юнитам
@@ -10487,7 +10543,9 @@ function endOperationalTurn() {
     const opPosBefore = (appData.campaign.opUnits || []).map(u => ({ col: u.col, row: u.row }));
     
     // Обрабатываем приказы (Hard Mode)
-    if (hardMode.enabled) {
+    // ⚡ v13.039: онлайн — СВОИ приказы исполняются в НАЧАЛЕ СВОЕГО хода
+    //    (onlineOnTurnChanged), а не во время хода оппонента
+    if (hardMode.enabled && !(appData.campaign.online && typeof ONLINE !== 'undefined' && ONLINE.started)) {
         processOrders();
     }
     
@@ -10520,6 +10578,13 @@ function endOperationalTurn() {
     const timeDisplay = document.getElementById('opTimeDisplay');
     if (timeDisplay) {
         timeDisplay.textContent = `Время: ${timeStr} | Ход: ${appData.campaign.currentTurn}`;
+    }
+    
+    // ⚡ v13.039 (R24#2): онлайн — передача хода оппоненту в облако
+    //    (who's turn / номер хода / время); локально вход заблокируется
+    //    снапшотом (onlineOnSnapshotSync → onlineOnTurnChanged)
+    if (appData.campaign.online && typeof onlineHandTurn === 'function') {
+        onlineHandTurn();
     }
 }
 function processOrders() {
@@ -10783,6 +10848,15 @@ function executeArtilleryStrikeOrder(order) {
     };
 
     targets.forEach(applySquadStrike);
+
+    // ⚡ v13.039 туман войны: вражеские юниты, по которым попал арт. обстрел,
+    //    становятся видимы (эффект удара не спрячешь)
+    if (isOnlineMatch && typeof ONLINE !== 'undefined' && ONLINE) {
+        targets.filter(t => t.isEnemy).forEach(t => {
+            if (t.unit && t.unit.id) ONLINE.fogSeen[t.unit.id] = true;
+            if (t.unit && t.unit.name) ONLINE.fogSeen[t.unit.name] = true;
+        });
+    }
 
     // Итог по юнитам
     const resultLines = Object.keys(unitTotals).map(nm => {
@@ -18405,6 +18479,11 @@ function drawOperationalUnits(ctx) {
     // Функция для группировки юнитов на одном гексе
     function drawGroupedUnits(units, isEnemy) {
         if (!units) return;
+        // ⚡ v13.039 туман войны: вражеские юниты рисуются только если
+        //    они видны мне (обнаружены / были в ходе оппонента / разведка)
+        if (isEnemy && typeof onlineEnemyVisible === 'function') {
+            units = units.filter(onlineEnemyVisible);
+        }
         
         // ⚡ Анимируемые юниты рисуем ОТДЕЛЬНО (в их текущей пиксельной
         //    позиции), чтобы они «проскакивали» по маршруту, а не
@@ -19424,7 +19503,11 @@ const ONLINE_CONFIG = (typeof window !== 'undefined' && window.ONLINE_CONFIG) ? 
 let ONLINE = {
     db: null, docRef: null, listener: null,
     code: null, role: null, playerId: null,
-    match: null, pendingStart: null, started: false
+    match: null, pendingStart: null, started: false,
+    // ⚡ v13.039: синхронизация — дедупликация пушей, переходы хода, туман
+    lastPushedJson: null,
+    prevWhoseTurn: null,
+    fogSeen: {}   // { id|name: true } — юниты оппонента, ставшие мне видимыми
 };
 
 function onlineGetPlayerId() {
@@ -19457,6 +19540,20 @@ function onlineBody(html) {
 
 // Перейти из модалки в онлайн-кампанию (показываем campaignApp, прячем меню)
 function onlineGoToCampaign() {
+    // ⚡ v13.039: ре-джойн после перезагрузки страницы — снова подписываемся
+    //    на комнату (код/роль/игрок — из сохранённого appData.campaign.online)
+    if (appData.campaign && appData.campaign.online && !ONLINE.docRef &&
+        typeof onlineFirebaseReady === 'function' && onlineFirebaseReady()) {
+        const o = appData.campaign.online;
+        ONLINE.code = o.code;
+        ONLINE.role = o.role;
+        ONLINE.playerId = o.playerId || onlineGetPlayerId();
+        ONLINE.docRef = ONLINE.db.collection('matches').doc(o.code);
+        ONLINE.started = true;
+        ONLINE.lastPushedJson = null;
+        ONLINE.prevWhoseTurn = null;
+        onlineListen();
+    }
     document.getElementById('onlineModal').style.display = 'none';
     document.getElementById('mainMenu').style.display = 'none';
     document.getElementById('campaignApp').style.display = 'block';
@@ -19469,7 +19566,7 @@ function onlineDiagnostics() {
     const sdkOk = (typeof firebase !== 'undefined');
     let s = '<div style="margin-top:12px; padding:8px; background:#1a1a1a; border-radius:6px; font-size:0.78rem; color:#999;">';
     s += 'Диагностика:<br>';
-    s += '· Страница: <b style="color:#ddd;">v13.038</b><br>';
+    s += '· Страница: <b style="color:#ddd;">v13.039</b><br>';
     s += '· Конфиг: ' + (cfgOk ? '<b style="color:#2ecc71;">✅ задан</b> (проект ' + ONLINE_CONFIG.firebase.projectId + ')'
                                 : '<b style="color:#e74c3c;">❌ пуст/неполный</b> — вставьте apiKey и projectId в ONLINE_CONFIG');
     s += '<br>· Firebase SDK: ' + (sdkOk ? '<b style="color:#2ecc71;">✅ загружен</b>'
@@ -19517,8 +19614,8 @@ function openOnlineMenu() {
             return;
         }
         onlineBody(`
-          <p>Кампания вдвоём: каждый на своём устройстве, общий сценарий, зоны расстановки, туман войны.*</p>
-          <p style="color:#777; font-size:0.8rem;">* туман войны и синхронизация ходов — фаза 2 (следующий этап); сейчас — комната, лобби и размещение.</p>
+          <p>Кампания вдвоём: каждый на своём устройстве, общий сценарий, зоны расстановки, туман войны.</p>
+          <p style="color:#777; font-size:0.8rem;">Ходы строго по очереди (10 минут/ход), юниты оппонента на карте, урон по бойцам — синхронизировано через облако.</p>
           <div style="display:flex; gap:10px;">
             <button class="menu-btn" style="flex:1;" onclick="onlineCreateRoom()">➕ Создать комнату</button>
             <button class="menu-btn" style="flex:1;" onclick="onlineShowJoin()">🔑 Войти по коду</button>
@@ -19656,6 +19753,10 @@ function onlineListen() {
     ONLINE.listener = ONLINE.docRef.onSnapshot(snap => {
         ONLINE.match = snap.data();
         renderOnlineLobby();
+        // ⚡ v13.039: синхронизация карты/ходов по снапшоту
+        if (typeof onlineOnSnapshotSync === 'function') {
+            try { onlineOnSnapshotSync(); } catch (e) { console.warn('onlineOnSnapshotSync:', e.message); }
+        }
     }, err => {
         console.error('online listener error', err);
         onlineBody(`
@@ -19760,8 +19861,8 @@ function renderOnlineLobby() {
         const ftP = (m.players && m.players[ftRole]) || null;
         const ftWho = (ftRole === ONLINE.role) ? 'вы' : 'оппонент';
         box.innerHTML = `
-          <p style="color:#2ecc71;">🎖️ Кампания идёт! Ход: <b>${ftP && ftP.faction ? ftP.faction : ftRole}</b> (${ftWho}).</p>
-          <p style="color:#777; font-size:0.8rem;">Синхронизация ходов, туман войны и урон по бойцам — фаза 2.</p>
+          <p style="color:#2ecc71;">🎖️ Кампания идёт! Ход ${m.turn || 1} — время ${(typeof formatTime === 'function') ? formatTime(m.time || 0) : m.time}. Ход: <b>${ftP && ftP.faction ? ftP.faction : ftRole}</b> (${ftWho}).</p>
+          <p style="color:#777; font-size:0.8rem;">Ходы по очереди: если ${ftWho === 'вы' ? 'вы завершите ход — начнётся ход оппонента' : 'ход оппонента — он завершится и начнётся ваш (придёт уведомление)'}. Юниты и урон синхронизированы.</p>
           <button class="menu-btn" onclick="onlineGoToCampaign()">Перейти к кампании</button>
         `;
         return;
@@ -19784,7 +19885,13 @@ function onlineCheckMatchProgress() {
         ONLINE.docRef.update({ status: 'placing' }).catch(() => {});
     } else if (m.status === 'placing' && me.placed && opp.placed) {
         // ⚡ v13.036: первый ход — у игрока за A.I.R.F.
-        ONLINE.docRef.update({ status: 'playing', whoseTurn: onlineFirstTurnRole(m.players) }).catch(() => {});
+        // ⚡ v13.039: общий счётчик хода и времени (10 мин/ход, старт 00:00)
+        ONLINE.docRef.update({
+            status: 'playing',
+            whoseTurn: onlineFirstTurnRole(m.players),
+            turn: 1,
+            time: 0
+        }).catch(() => {});
     }
 }
 
@@ -19891,6 +19998,293 @@ function onlineMarkPlaced() {    if (!ONLINE.docRef) return;
         .catch(e => alert(e.message));
     const mi = document.getElementById('mapInfo');
     if (mi) { mi.innerHTML = '✅ Ваше размещение отправлено. Ожидание оппонента…'; mi.style.color = '#27ae60'; }
+}
+
+// ============================================================
+// ⚡ v13.039: СИНХРОНИЗАЦИЯ ОНЛАЙН-МАТЧА
+//   1) Мое состояние (юниты) → облако: state.p<p>.units
+//      (оппонент видит моих юнитов по правилам тумана войны)
+//   2) Состояние оппонента из облака → enemyOpUnits на моей карте
+//      + урон, нанесённый им МОИМ юнитам (схлопывание по id)
+//   3) Ходы строго по очереди: кто завершил ход — передаёт
+//      whoseTurn/turn/time в облако; другой игрок ждёт, и уведомление
+//      «Начался ход N» появляется только когда ХОД СТАНОВИТСЯ МОИМ.
+// ============================================================
+
+function onlineOppRole() { return ONLINE.role === 'p1' ? 'p2' : 'p1'; }
+
+// ⚡ v13.039: сейчас МОЙ ход? (расстановка — оба действуют одновременно)
+function onlineMyTurnActive() {
+    if (!appData.campaign || !appData.campaign.online) return true;
+    if (typeof ONLINE === 'undefined' || !ONLINE.started) return true;
+    const m = ONLINE.match;
+    if (!m) return true;
+    if (m.status === 'placing') return true;
+    if (m.status !== 'playing') return true;
+    return m.whoseTurn === ONLINE.role;
+}
+
+function onlineWaitBanner() {
+    const m = ONLINE.match;
+    let who = 'Оппонент';
+    if (m && m.players && m.players[m.whoseTurn] && m.players[m.whoseTurn].faction) who = m.players[m.whoseTurn].faction;
+    return '⏳ Ход ' + who + ' — ждём, пока оппонент завершит ход…';
+}
+
+// ⚡ v13.039: блокировка/разблокировка кнопки «Завершить ход»
+function onlineSetTurnLockUI(locked) {
+    const btn = document.getElementById('opEndTurnBtn');
+    if (btn) {
+        btn.disabled = !!locked;
+        btn.style.opacity = locked ? '0.5' : '1';
+        btn.style.cursor = locked ? 'not-allowed' : 'pointer';
+    }
+}
+
+// ⚡ v13.039: снимок юнита для облака (без локальных UI-полей)
+function onlineUnitSnapshot(u) {
+    if (!u) return null;
+    const c = JSON.parse(JSON.stringify(u));
+    delete c.availableHexes;        // локальная подсветка маршрута
+    delete c.reconHighlightHexes;   // локальная подсветка зоны разведки
+    return c;
+}
+
+// ⚡ v13.039: МОИ юниты → облако (дедупликация: пишем только при изменении)
+function onlinePushMyUnits() {
+    if (!ONLINE.docRef || !appData.campaign || !appData.campaign.online) return;
+    const m = ONLINE.match;
+    if (!m || (m.status !== 'placing' && m.status !== 'playing')) return;
+    const units = (appData.campaign.opUnits || []).map(onlineUnitSnapshot);
+    const json = JSON.stringify(units);
+    if (json === ONLINE.lastPushedJson) return;
+    ONLINE.lastPushedJson = json;
+    ONLINE.docRef.update({ ['state.' + ONLINE.role + '.units']: units })
+        .catch(e => console.warn('onlinePushMyUnits:', e.message));
+}
+
+// ⚡ v13.039: облако → моя карта:
+//    a) юниты оппонента → enemyOpUnits (авторитетный источник — облако)
+//    b) урон оппонента моим юнитам (fighters/сquad-боец hp, isDestroyed,
+//       modules, digProgress) — Позиции своих юнитов НЕ перезаписываем
+//       (я — источник истины о своём перемещении)
+//    c) общее время: номер хода и минуты
+function onlineApplyCloudState() {
+    if (!appData.campaign || !appData.campaign.online) return;
+    if (typeof ONLINE === 'undefined' || !ONLINE.started) return;
+    const m = ONLINE.match;
+    if (!m || (m.status !== 'placing' && m.status !== 'playing')) return;
+    const oppRole = onlineOppRole();
+    const state = m.state || {};
+
+    // --- (a) юниты оппонента ---
+    const oppUnits = (state[oppRole] && state[oppRole].units) || null;
+    if (Array.isArray(oppUnits)) {
+        const oppFaction = (m.players[oppRole] && m.players[oppRole].faction) || null;
+        const newEnemy = oppUnits.map(cu => {
+            if (!cu) return cu;
+            const old = (appData.campaign.enemyOpUnits || []).find(e =>
+                (cu.id && e.id === cu.id) || (cu.name && e.name === cu.name));
+            const nu = Object.assign({}, old || {}, cu);
+            nu.side = 'enemy';
+            if (!nu.faction) nu.faction = oppFaction || 'A.I.R.F.';
+            if (nu.col === undefined) nu.col = (old && old.col !== undefined) ? old.col : null;
+            if (nu.row === undefined) nu.row = (old && old.row !== undefined) ? old.row : null;
+            return nu;
+        });
+        appData.campaign.enemyOpUnits = newEnemy;
+        // ⚡ v13.039 туман: в НАЧАЛЕ ХОДА ОППОНЕНТА все его юниты становятся
+        //    мне видны (R22#5: «проваливший проверку на обнаружение появляется
+        //    в начале хода оппонента»)
+        if (m.status === 'playing' && m.whoseTurn === oppRole) {
+            newEnemy.forEach(u => {
+                if (u && u.id) ONLINE.fogSeen[u.id] = true;
+                if (u && u.name) ONLINE.fogSeen[u.name] = true;
+            });
+        }
+    }
+
+    // --- (b) урон моим юнитам (из state.p<me>, который пушит оппонент) ---
+    const myCloud = state[ONLINE.role] && state[ONLINE.role].units;
+    if (Array.isArray(myCloud) && appData.campaign.opUnits) {
+        appData.campaign.opUnits.forEach(u => {
+            const c = myCloud.find(x => x && ((x.id && u.id === x.id) || (x.name && u.name === x.name)));
+            if (!c) return;
+            const mergeFighters = (localList, cloudList) => {
+                (localList || []).forEach((f, i) => {
+                    const cf = cloudList[i];
+                    if (cf && typeof cf.hp === 'number' && f && cf.hp < (f.hp === undefined ? Infinity : f.hp)) f.hp = cf.hp;
+                });
+            };
+            if (Array.isArray(c.fighters)) mergeFighters(u.fighters, c.fighters);
+            if (Array.isArray(c.squads)) {
+                (u.squads || []).forEach((sq, i) => {
+                    const cs = c.squads[i];
+                    if (cs && Array.isArray(cs.fighters)) mergeFighters(sq.fighters, cs.fighters);
+                });
+            }
+            // машины группы
+            if (Array.isArray(c.vehicleList)) {
+                (u.vehicleList || []).forEach((v, i) => {
+                    const cv = c.vehicleList[i];
+                    if (cv) {
+                        if (cv.isDestroyed) { v.isDestroyed = true; v.destroyed = true; }
+                        if (Array.isArray(cv.fighters)) mergeFighters(v.fighters, cv.fighters);
+                        if (cv.squads) {
+                            (v.squads || []).forEach((sq, j) => {
+                                const csq = cv.squads[j];
+                                if (csq && Array.isArray(csq.fighters)) mergeFighters(sq.fighters, csq.fighters);
+                            });
+                        }
+                    }
+                });
+            }
+            if (c.modules && u.modules) {
+                ['turret', 'hull', 'suspension'].forEach(part => {
+                    if (c.modules[part] && c.modules[part].status && c.modules[part].status !== 'ok' &&
+                        u.modules[part] && u.modules[part].status === 'ok') {
+                        u.modules[part].status = c.modules[part].status;
+                    }
+                });
+            }
+            if (c.isDestroyed && !u.isDestroyed) {
+                u.isDestroyed = true;
+                log('💀 Оппонент уничтожил ваш юнит: ' + (u.name || '?'));
+            }
+            if (typeof c.digProgress === 'number' && (u.digProgress || 0) < c.digProgress) {
+                u.digProgress = c.digProgress;
+            }
+        });
+    }
+
+    // --- (c) общее время (ход и минуты) ---
+    if (m.status === 'playing' && typeof m.time === 'number' && typeof m.turn === 'number') {
+        if (appData.campaign.currentTime !== m.time) {
+            appData.campaign.currentTime = m.time;
+            appData.campaign.opTurnStartTime = m.time;
+            appData.currentTime = m.time;
+        }
+        if (appData.campaign.currentTurn !== m.turn) {
+            appData.campaign.currentTurn = m.turn;
+        }
+    }
+    saveData();
+}
+
+// ⚡ v13.039: туман войны — виден ли мне юнит оппонента?
+//    • фаза расстановки — всё видно (публичное размещение)
+//    • обнаруженный (detected=true после проверки оппонента) — виден
+//    • уже «услышанный» (fogSeen: видел в ход оппонента / разведка / обстрел)
+//    • в активной зоне моей разведки (R20)
+function onlineEnemyVisible(u) {
+    if (!appData.campaign || !appData.campaign.online) return true;
+    const m = ONLINE.match;
+    if (!m || m.status !== 'playing') return true;
+    if (u && u.isDestroyed) return true; // убитые — известны
+    if (u && u.detected) return true;
+    if (u && ((u.id && ONLINE.fogSeen[u.id]) || (u.name && ONLINE.fogSeen[u.name]))) return true;
+    // моя активная зона разведки
+    const t = appData.campaign.currentTurn || 1;
+    (appData.campaign.opUnits || []).forEach(mu => {
+        if (!mu || !Array.isArray(mu.reconZoneHexes) || mu.reconZoneHexes.length === 0) return;
+        if (mu.reconActiveTurn !== undefined && mu.reconActiveTurn !== t) return;
+        mu.reconZoneHexes.forEach(h => {
+            if (h && h.col === u.col && h.row === u.row) {
+                if (u && u.id) ONLINE.fogSeen[u.id] = true;
+                if (u && u.name) ONLINE.fogSeen[u.name] = true;
+            }
+        });
+    });
+    if (u && ((u.id && ONLINE.fogSeen[u.id]) || (u.name && ONLINE.fogSeen[u.name]))) return true;
+    return false;
+}
+
+// ⚡ v13.039: передача хода оппоненту в облако (из endOperationalTurn)
+function onlineHandTurn() {
+    if (!ONLINE.docRef || !ONLINE.match) return;
+    const m = ONLINE.match;
+    if (m.status !== 'playing' || m.whoseTurn !== ONLINE.role) return;
+    // проверка обнаружения МОИХ юнитов — до отправки состояния
+    // (в одиночной игре она живёт внутри processOrders; в онлайне — явно)
+    if (typeof checkAllUnitsDetection === 'function') {
+        try { checkAllUnitsDetection(); } catch (e) { console.warn('checkAllUnitsDetection:', e.message); }
+    }
+    onlinePushMyUnits();
+    const baseTime = (typeof m.time === 'number') ? m.time : (appData.campaign.opTurnStartTime || 0);
+    ONLINE.docRef.update({
+        whoseTurn: onlineOppRole(),
+        turn: (typeof m.turn === 'number' ? m.turn : 1) + 1,
+        time: (baseTime + 10) % 1440
+    }).catch(e => {
+        try { alert('❌ Ошибка передачи хода: ' + e.message); } catch (_) {}
+    });
+}
+
+// ⚡ v13.039: реакция на смену хода (вызывается из onlineOnSnapshotSync)
+function onlineOnTurnChanged() {
+    const m = ONLINE.match;
+    if (!m || m.status !== 'playing') return;
+    const prev = ONLINE.prevWhoseTurn;
+    const now = m.whoseTurn;
+    if (prev === now) return;
+    ONLINE.prevWhoseTurn = now;
+
+    if (now === ONLINE.role) {
+        // ⚡ v13.039: МОЙ ход — восстанавливаем ОД, исполняем свои приказы
+        (appData.campaign.opUnits || []).forEach(u => {
+            if (!u || u.isDestroyed) return;
+            u.ap = (typeof isStaticOpUnit === 'function' && isStaticOpUnit(u)) ? 0 : (u.maxAp !== undefined ? u.maxAp : u.ap);
+            u.movedThisTurn = false;
+            u.siestaRolledThisTurn = false;
+            if (u.availableHexes) delete u.availableHexes;
+        });
+        if (typeof hardMode !== 'undefined' && hardMode && hardMode.enabled && typeof processOrders === 'function') {
+            try { processOrders(); } catch (e) { console.warn('processOrders:', e.message); }
+        }
+        const tStr = (typeof formatTime === 'function') ? formatTime(appData.campaign.currentTime)
+            : (String(Math.floor((appData.campaign.currentTime || 0) / 60)).padStart(2, '0') + ':' + String((appData.campaign.currentTime || 0) % 60).padStart(2, '0'));
+        // ⚡ v13.039 (R24#2): уведомление о начале хода — ТОЛЬКО когда ход
+        //    становится МОИМ (после завершения хода оппонента)
+        const msg = '⏱️ Начался ход ' + (appData.campaign.currentTurn || '?') + ' — время ' + tStr + '. Ваш ход!';
+        try { alert(msg); } catch (e) { /* WebView без alert */ }
+        log(msg);
+        const mi = document.getElementById('mapInfo');
+        if (mi) { mi.innerHTML = msg; mi.style.color = '#f1c40f'; }
+        onlineSetTurnLockUI(false);
+    } else {
+        // ход оппонента — ждём
+        const mi = document.getElementById('mapInfo');
+        if (mi) { mi.innerHTML = onlineWaitBanner(); mi.style.color = '#999'; }
+        onlineSetTurnLockUI(true);
+    }
+    if (typeof redrawOperationalMap === 'function') redrawOperationalMap();
+    if (typeof updateOperationalTimeDisplay === 'function') updateOperationalTimeDisplay();
+    if (typeof renderActiveBattlesList === 'function') renderActiveBattlesList();
+    if (typeof updateOpPlaceSelect === 'function') updateOpPlaceSelect();
+}
+
+// ⚡ v13.039: главный обработчик снапшота комнаты
+function onlineOnSnapshotSync() {
+    if (!appData.campaign || !appData.campaign.online) return;
+    if (typeof ONLINE === 'undefined' || !ONLINE.started) return;
+    const m = ONLINE.match;
+    if (!m) return;
+    onlineApplyCloudState();
+    if (m.status === 'playing') {
+        onlineOnTurnChanged();
+    } else if (m.status === 'placing') {
+        // фаза расстановки: юниты видимы, блокировок нет
+        onlineSetTurnLockUI(false);
+    }
+    if (m.status === 'playing' && m.whoseTurn !== ONLINE.role) {
+        onlineSetTurnLockUI(true);
+    }
+    // перерисовка, если карта открыта (не трогаем лобби/меню)
+    const screen = document.getElementById('campaignMapScreen');
+    if (screen && screen.style.display === 'block' && typeof redrawOperationalMap === 'function') {
+        redrawOperationalMap();
+    }
+    if (typeof updateOperationalTimeDisplay === 'function') updateOperationalTimeDisplay();
 }
 </script>
 
@@ -20113,7 +20507,7 @@ function onlineMarkPlaced() {    if (!ONLINE.docRef) return;
     <button onclick="showBtrDisembarkDialog()" id="btrDisembarkBtn" style="background:#e67e22; display:none;">🚶 Высадить из БТР</button>
 </div>
   <button onclick="checkOpDetection()" style="background:#8e44ad;">🔍 Проверить обнаружение</button>
-  <button onclick="endOperationalTurn()" style="background:#2980b9;">⏭️ Завершить ход</button>
+  <button id="opEndTurnBtn" onclick="endOperationalTurn()" style="background:#2980b9;">⏭️ Завершить ход</button>
 </div>
      <div id="vehiclePanel" style="display:none; margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
     <strong>🚗 Техника</strong>

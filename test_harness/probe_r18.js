@@ -13,6 +13,11 @@ const FNS = [
     'executeOpShoot', 'executeOpShootAt', 'executeArtilleryStrikeOrder',
     'pointInPolygon', 'isHexInPlacementZone', 'zoneExtraHexes',
     'finishPlacement', 'showBonusInfo', 'updateHardModeButtons',
+    // ⚡ v13.039: онлайн-синхронизация (R24)
+    'onlineOppRole', 'onlineMyTurnActive', 'onlineWaitBanner', 'onlineSetTurnLockUI',
+    'onlineUnitSnapshot', 'onlinePushMyUnits', 'onlineApplyCloudState',
+    'onlineEnemyVisible', 'onlineHandTurn', 'onlineOnTurnChanged', 'onlineOnSnapshotSync',
+    'endOperationalTurn',
     'openOnlineMenu', 'onlineDiagnostics', 'onlineFirebaseReady', 'onlineCreateRoom', 'onlineJoinRoom',
     'onlineBody', 'onlineGoToCampaign', 'closeOnlineModal', 'onlineShowJoin',
     'onlineSelfTest', 'onlineSelfTestMeaning',
@@ -491,6 +496,120 @@ console.log('\n== S. v13.037: бонусы, 3-из-4, приказ на врем
     s.evalCtx('executeArtilleryStrikeOrder({ issueTurn: 1, targetHex: "6,6", status: "active" })');
     ok(s.evalCtx('appData.campaign.enemyOpUnits[0].squads[0].fighters.every(f=>f.hp===3)') === true,
         'S6: одиночная игра — враг неуязвим (урон только в лог)');
+}
+
+// ============================================================
+console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==');
+{
+    // песочница + ONLINE-объект (как в index.html) + docRef-строб
+    const ad = freshAppData();
+    const s = makeSandbox(ad);
+    const updates = [];
+    s.run('var ONLINE = { db: null, docRef: null, listener: null, code: "ABCD", role: "p1", ' +
+          'playerId: "t", match: null, pendingStart: null, started: false, ' +
+          'lastPushedJson: null, prevWhoseTurn: null, fogSeen: {} };');
+    s.run('ONLINE.docRef = { update: function(o) { __updates.push(o); return Promise.resolve(); } };');
+    s.run('var __updates = [];');
+
+    ad.campaign.online = { code: 'ABCD', role: 'p1', playerId: 't' };
+    s.run('ONLINE.started = true;');
+    s.run('ONLINE.match = { status: "placing", scenario: "valencia", whoseTurn: null, turn: 1, time: 0, ' +
+          'players: { p1: { id: "t", faction: "BeVe", ready: true, placed: false }, ' +
+          'p2: { id: "o", faction: "A.I.R.F.", ready: true, placed: false } } };');
+
+    // U1: onlineMyTurnActive — расстановка (оба действуют) / свой ход / чужой ход
+    ok(s.evalCtx('onlineMyTurnActive()') === true, 'U1a: фаза расстановки — действия разрешены');
+    s.run('ONLINE.match.status = "playing"; ONLINE.match.whoseTurn = "p1";');
+    ok(s.evalCtx('onlineMyTurnActive()') === true, 'U1b: whoseTurn=я — действия разрешены');
+    s.run('ONLINE.match.whoseTurn = "p2";');
+    ok(s.evalCtx('onlineMyTurnActive()') === false, 'U1c: whoseTurn=оппонент — действия ЗАБЛОКИРОВАНЫ');
+
+    // U2: endOperationalTurn в чужой ход — ничего не происходит
+    ad.campaign.currentTime = 0;
+    ad.campaign.opTurnStartTime = 0;
+    ad.campaign.currentTurn = 1;
+    s.run('endOperationalTurn();');
+    ok(s.evalCtx('appData.campaign.currentTime') === 0 && s.evalCtx('appData.campaign.currentTurn') === 1,
+        'U2: чужой ход — «Завершить ход» игнорируется (время/ход не меняются)');
+
+    // U3: передача хода (onlineHandTurn) — облако: whoseTurn/turn/time
+    s.run('ONLINE.match.whoseTurn = "p1"; ONLINE.match.turn = 1; ONLINE.match.time = 0;');
+    s.run('__updates.length = 0; onlineHandTurn();');
+    const handoff = s.evalCtx('__updates[__updates.length - 1]');
+    ok(handoff && handoff.whoseTurn === 'p2' && handoff.turn === 2 && handoff.time === 10,
+        'U3: передача хода — облако: whoseTurn=p2, turn=2, time=+10');
+
+    // U4: пуш своих юнитов в облако + дедупликация
+    ad.campaign.opUnits = [{ id: 'u1', name: 'Свой-Взвод', col: 1, row: 1, ap: 4, maxAp: 4,
+        fighters: [{ name: 'Б1', hp: 3, maxHp: 3 }] }];
+    s.run('ONLINE.match.status = "playing"; ONLINE.match.whoseTurn = "p1"; ONLINE.lastPushedJson = null;');
+    s.run('__updates.length = 0; onlinePushMyUnits();');
+    let n = s.evalCtx('__updates.length');
+    ok(n === 1 && s.evalCtx('__updates[0]["state.p1.units"].length') === 1 &&
+       s.evalCtx('__updates[0]["state.p1.units"][0].id') === 'u1', 'U4a: пуш своих юнитов — state.p1.units');
+    s.run('onlinePushMyUnits();');
+    ok(s.evalCtx('__updates.length') === 1, 'U4b: дедупликация — повторный пуш без изменений не пишется');
+
+    // U5: облако → моя карта (юниты оппонента + урон моим + общее время)
+    s.run('appData.campaign.enemyOpUnits = [{ id: "e9", name: "Старый", col: 9, row: 9, side: "enemy" }];');
+    s.run('ONLINE.match.state = { ' +
+          'p2: { units: [ { id: "e1", name: "Враг-Взвод", col: 5, row: 5, ap: 4, maxAp: 4, ' +
+          '   detected: false, squads: [{ name: "Отряд", fighters: [{ name: "В1", hp: 3, maxHp: 3 }] }] } ] }, ' +
+          'p1: { units: [ { id: "u1", name: "Свой-Взвод", col: 1, row: 2, ' +
+          '   fighters: [{ name: "Б1", hp: 1, maxHp: 3 }] } ] } };');
+    s.run('appData.campaign.opUnits[0].fighters[0].hp = 3;');
+    s.run('appData.campaign.currentTime = 0; appData.campaign.currentTurn = 1;');
+    s.run('ONLINE.match.turn = 2; ONLINE.match.time = 10; ONLINE.match.whoseTurn = "p1";');
+    s.run('onlineApplyCloudState();');
+    ok(s.evalCtx('appData.campaign.enemyOpUnits.length') === 1 &&
+       s.evalCtx('appData.campaign.enemyOpUnits[0].id') === 'e1' &&
+       s.evalCtx('appData.campaign.enemyOpUnits[0].col') === 5 &&
+       s.evalCtx('appData.campaign.enemyOpUnits[0].side') === 'enemy',
+        'U5a: юниты оппонента из облака → enemyOpUnits (side=enemy)');
+    ok(s.evalCtx('appData.campaign.opUnits[0].fighters[0].hp') === 1,
+        'U5b: урон оппонента моему бойцу применён (hp 3→1)');
+    ok(s.evalCtx('appData.campaign.currentTime') === 10 && s.evalCtx('appData.campaign.currentTurn') === 2,
+        'U5c: общее время из облака (time=10, ход=2)');
+
+    // U6: туман войны — видимость вражеских юнитов
+    s.run('ONLINE.fogSeen = {};');
+    s.run('appData.campaign.opUnits[0].reconZoneHexes = null;');
+    const eVis = 'onlineEnemyVisible(appData.campaign.enemyOpUnits[0])';
+    s.run('ONLINE.match.whoseTurn = "p2";');  // ход оппонента — все его юниты видны
+    // (перенос видимости делает onlineApplyCloudState; эмулируем его эффект)
+    s.run('onlineApplyCloudState();');
+    ok(s.evalCtx(eVis) === true, 'U6a: в начале хода оппонентских юнитов все становятся мне видимы (fogSeen)');
+    s.run('ONLINE.match.whoseTurn = "p1";');
+    s.run('appData.campaign.enemyOpUnits[0].detected = false; ONLINE.fogSeen = {};');
+    ok(s.evalCtx(eVis) === false, 'U6b: мой ход, враг неуслышан и не обнаружен — НЕ виден (туман)');
+    s.run('appData.campaign.enemyOpUnits[0].detected = true;');
+    ok(s.evalCtx(eVis) === true, 'U6c: враг обнаружен (detected=true) — виден');
+    s.run('appData.campaign.enemyOpUnits[0].detected = false; ONLINE.fogSeen["e1"] = true;');
+    ok(s.evalCtx(eVis) === true, 'U6d: враг в fogSeen (разведка/обстрел) — виден');
+    // зона разведки
+    s.run('ONLINE.fogSeen = {}; appData.campaign.currentTurn = 5; ' +
+          'appData.campaign.opUnits[0].reconZoneHexes = [{col:5,row:5}]; appData.campaign.opUnits[0].reconActiveTurn = 5;');
+    ok(s.evalCtx(eVis) === true, 'U6e: враг в активной зоне моей разведки — виден');
+
+    // U7: смена хода на МОЙ — уведомление + восстановление ОД
+    s.run('ONLINE.match.whoseTurn = "p1"; ONLINE.match.turn = 3; ONLINE.match.time = 20; ' +
+          'ONLINE.prevWhoseTurn = "p2"; ' +
+          'appData.campaign.opUnits[0].ap = 0; appData.campaign.opUnits[0].maxAp = 4; ' +
+          'onlineApplyCloudState(); // синхронизируем общее время (ход=3)');
+    s.run('alerts.length = 0; onlineOnTurnChanged();');
+    ok(s.alerts.some(a => a.indexOf('Ваш ход') !== -1 && a.indexOf('ход 3') !== -1),
+        'U7a: уведомление «Ваш ход» приходит при смене хода на МОЙ (после хода оппонента)');
+    ok(s.evalCtx('appData.campaign.opUnits[0].ap') === 4, 'U7b: ОД своих юнитов восстановлены в начале своего хода');
+    // и наоборот: на чужой ход — алерта нет, только «ждём»
+    s.run('ONLINE.prevWhoseTurn = "p1"; ONLINE.match.whoseTurn = "p2"; alerts.length = 0; onlineOnTurnChanged();');
+    ok(!s.alerts.some(a => a.indexOf('Ваш ход') !== -1), 'U7c: на ход оппонента уведомлений «Ваш ход» нет');
+
+    // U8: HTML-хуки на месте
+    ok(HTML.includes('id="opEndTurnBtn"'), 'U8a: кнопка «Завершить ход» имеет id для блокировки');
+    ok(HTML.includes('drawGroupedUnits(appData.campaign.opUnits, false);'), 'U8b: отрисовка юнитов сохранена');
+    ok(HTML.includes('units.filter(onlineEnemyVisible)'), 'U8c: туман в отрисовке врагов');
+    ok(HTML.includes('onlineHandTurn()'), 'U8d: передача хода из endOperationalTurn');
+    ok(HTML.includes('turn: 1,') && HTML.includes('time: 0'), 'U8e: старт матча — turn=1, time=0');
 }
 
 console.log('\n====================================');
