@@ -23,6 +23,8 @@
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
     <button class="menu-btn" onclick="openInfo('history')">📜 История</button>
+    <!-- ⚡ v13.038: кнопка сброса данных — в главном меню (была во вкладке «Бой») -->
+    <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
   </div>
@@ -77,7 +79,7 @@
       <div id="templateSelection"></div>
       <button onclick="addSelectedTemplatesToBattle()">Добавить выбранные в бой</button>
       <button onclick="clearAllSquads()">Очистить все отряды</button>
-      <button onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
+      <!-- ⚡ v13.038: кнопка «Сбросить данные» перенесена в главное меню -->
     </div>
     <hr>
     <div id="activeSquadArea"></div>
@@ -660,7 +662,9 @@ function startBattalionAssembly(faction) {
     <h3>Глобальные бонусы фракции:</h3>
     <div style="display:flex; flex-wrap:wrap; gap:8px;">
       ${bonuses.map(b => `
-        <div style="display:flex; align-items:center; gap:8px; background:#222; border:1px solid #444; border-radius:6px; padding:6px 10px; min-width:230px;">
+        <div onclick="showBonusInfo('${b.name.replace(/'/g, "\\'")}', '${b.desc.replace(/'/g, "\\'")}')"
+             title="Нажмите, чтобы посмотреть эффект"
+             style="display:flex; align-items:center; gap:8px; background:#222; border:1px solid #444; border-radius:6px; padding:6px 10px; min-width:230px; cursor:pointer;">
           <img src="${b.icon}" alt="${b.name}" style="width:36px; height:36px; object-fit:contain; background:#333; border-radius:4px; flex-shrink:0;">
           <div><b style="font-size:0.85rem; color:#f1c40f;">${b.name}</b><br><span style="color:#999; font-size:0.72rem;">${b.desc}</span></div>
         </div>`).join('')}
@@ -679,6 +683,12 @@ function startBattalionAssembly(faction) {
     <button onclick="selectCampaignFaction('${faction}')" style="background:#555;">Назад</button>
   `;
   if (need3of4) updateAssemblySupportCheck();
+}
+
+// ⚡ v13.038: клик по карточке бонуса — показываем полный эффект
+function showBonusInfo(name, desc) {
+    alert('🎖️ ' + name + '\n\n' + desc +
+        '\n\n(клик по картинке — повторное показ эффекта)');
 }
 
 // ⚡ v13.037: BeVe — ровно 3 поддержки из 4 (кнопка активна только при 3)
@@ -5298,6 +5308,25 @@ currentSquad.fighters.forEach((f, index) => {
         html += `<div style="margin-top:8px; padding:6px; background:#2a2a2a; border-radius:4px;"><strong>🚌 Десант: ${emb.name} (${emb.fighters.filter(f=>f.hp>0).length} живых)</strong></div>`;
       }
 
+      // ⚡ v13.038: блок «Награды» во вкладке «Бой» — виден ВСЕГДА
+      {
+        let awardsBlock = '<div style="margin-top:8px; padding:6px; background:#2a2a2a; border-radius:4px;"><strong>🏅 Награды отряда:</strong> ';
+        const withAwards = (currentSquad.fighters || []).filter(f => f.awards && f.awards.length > 0);
+        if (withAwards.length === 0) {
+          awardsBlock += '<span style="color:#777;">наград нет (выдайте бойцу наградой кнопкой 🏅 у его карточки)</span>';
+        } else {
+          withAwards.forEach(f => {
+            f.awards.forEach(awardId => {
+              const ad2 = factionAwards.find(a => a.id === awardId);
+              if (!ad2) return;
+              awardsBlock += `<span style="display:inline-block; margin:2px 4px; padding:2px 6px; background:#222; border:1px solid #444; border-radius:4px;" title="${ad2.criteria || ''}\nБонус: ${ad2.bonus || ''}">${ad2.icon ? `<img src="${ad2.icon}" style="height:24px; vertical-align:middle;"> ` : ''}${f.name}: <b>${ad2.name}</b></span>`;
+            });
+          });
+        }
+        awardsBlock += '</div>';
+        html += awardsBlock;
+      }
+
       // Состояние орудий ДОТ/САУ
       if (currentSquad.crewInstances && (currentSquad.name.includes('ДОТ') || currentSquad.name.includes('САУ'))) {
         let crewHtml = '<div style="margin-top:8px;"><strong>Состояние вооружения:</strong><br>';
@@ -6219,7 +6248,10 @@ function updateActiveCardsBattle() {
   const squadCardNames = currentSquad.appliedCards || [];
   const active = appData.activeCards.filter(c => c.active && squadCardNames.includes(c.name));
   if (active.length === 0) {
-    container.innerHTML = 'Нет';
+    // ⚡ v13.038: понятная подпись, а не просто «Нет»
+    container.innerHTML = squadCardNames.length > 0
+      ? '<span style="color:#777;">нет активных (карты отряда: ' + squadCardNames.join(', ') + ')</span>'
+      : '<span style="color:#777;">нет — выберите и активируйте карты во вкладке «🃏 Карты»</span>';
     return;
   }
   let html = '<div style="display:flex; flex-wrap:wrap; gap:4px;">';
@@ -13689,6 +13721,8 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
     }
 }
 function finishPlacement() {
+    // ⚡ v13.038: подтверждение — готов ли игрок завершить размещение и вступить в бой
+    if (!confirm('Завершить размещение? Юниты будут зафиксированы, и игра начнётся.')) return;
     placementLocked = true;
     placementUnlockCount = 0;
     document.getElementById('mapInfo').innerHTML = '✅ Размещение завершено! Кнопки размещения и перемещения заблокированы.';
@@ -13938,9 +13972,27 @@ function pointInPolygon(x, y, poly) {
 function isHexInPlacementZone(scenario, faction, col, row) {
     const zones = (typeof SCENARIO_PLACEMENT_ZONES !== 'undefined' ? SCENARIO_PLACEMENT_ZONES : {})[scenario] || null;
     const z = zones ? zones[faction] : null;
-    if (!z || !z.length) return { ok: true };
+    if (!z || !z.length) {
+        // ⚡ v13.038: даже без полигона могут быть явно добавленные гексы
+        const extras = zoneExtraHexes(scenario, faction);
+        if (extras.length === 0) return { ok: true };
+        return { ok: extras.some(h => h[0] === col && h[1] === row), zone: extras };
+    }
     if (pointInPolygon(col, row, z)) return { ok: true };
+    // ⚡ v13.038: явно добавленные гексы (центр на границе полигона —
+    //    например 2,7 / 3,7 / 4,7 у BeVe — ray casting их исключал)
+    const extras = zoneExtraHexes(scenario, faction);
+    if (extras.some(h => h[0] === col && h[1] === row)) return { ok: true };
     return { ok: false, zone: z };
+}
+
+// ⚡ v13.038: дополнительные гексы зоны, не попадающие в полигон
+//    (гекс считается в зоне, если его центр внутри полигона ИЛИ он
+//    указан здесь явно)
+function zoneExtraHexes(scenario, faction) {
+    const map = (typeof SCENARIO_PLACEMENT_ZONE_EXTRA_HEXES !== 'undefined' ? SCENARIO_PLACEMENT_ZONE_EXTRA_HEXES : {})[scenario] || null;
+    if (!map) return [];
+    return map[faction] || [];
 }
 
 function checkOpDetection() {
@@ -19417,7 +19469,7 @@ function onlineDiagnostics() {
     const sdkOk = (typeof firebase !== 'undefined');
     let s = '<div style="margin-top:12px; padding:8px; background:#1a1a1a; border-radius:6px; font-size:0.78rem; color:#999;">';
     s += 'Диагностика:<br>';
-    s += '· Страница: <b style="color:#ddd;">v13.037</b><br>';
+    s += '· Страница: <b style="color:#ddd;">v13.038</b><br>';
     s += '· Конфиг: ' + (cfgOk ? '<b style="color:#2ecc71;">✅ задан</b> (проект ' + ONLINE_CONFIG.firebase.projectId + ')'
                                 : '<b style="color:#e74c3c;">❌ пуст/неполный</b> — вставьте apiKey и projectId в ONLINE_CONFIG');
     s += '<br>· Firebase SDK: ' + (sdkOk ? '<b style="color:#2ecc71;">✅ загружен</b>'
@@ -19652,11 +19704,12 @@ function renderOnlineLobby() {
         const supCount = isBeVe ? ` — выбрано ${(me.supportIds || []).length} из 4 (нужно ровно 3)` : '';
         const myBonuses = (typeof FRACTION_GLOBAL_BONUSES !== 'undefined' && FRACTION_GLOBAL_BONUSES[me && me.faction]) || [];
         const bonusHtml2 = (me && me.faction && myBonuses.length)
-            ? `<p style="margin:8px 0 2px; color:#f1c40f;">Глобальные бонусы ${me.faction}:</p>
+            ? `<p style="margin:8px 0 2px; color:#f1c40f;">Глобальные бонусы ${me.faction} <span style="color:#777; font-size:0.7rem;">(нажмите на бонус — покажет эффект)</span>:</p>
                <div style="display:flex; flex-wrap:wrap; gap:6px;">
-                 ${myBonuses.map(b => `<div style="display:flex; align-items:center; gap:6px; background:#222; border:1px solid #444; border-radius:6px; padding:4px 8px;">
+                 ${myBonuses.map(b => `<div onclick="showBonusInfo('${b.name.replace(/'/g, "\\'")}', '${b.desc.replace(/'/g, "\\'")}')"
+                   style="display:flex; align-items:center; gap:6px; background:#222; border:1px solid #444; border-radius:6px; padding:4px 8px; cursor:pointer;" title="Нажмите, чтобы посмотреть эффект">
                    <img src="${b.icon}" alt="" style="width:28px; height:28px; object-fit:contain; background:#333; border-radius:4px;">
-                   <span style="font-size:0.75rem; color:#ccc;" title="${b.desc}">${b.name}</span></div>`).join('')}
+                   <span style="font-size:0.75rem; color:#ccc;">${b.name}</span></div>`).join('')}
                </div>` : '';
         const oppInfo = opp
             ? `👥 Оппонент: ${opp.faction || 'фракция не выбрана'} — ${opp.ready ? '✅ готов' : '⏳ не готов'}${((opp.supportIds || []).length ? ' (' + opp.supportIds.length + ' поддержки)' : '')}`
@@ -20077,6 +20130,9 @@ function onlineMarkPlaced() {    if (!ONLINE.docRef) return;
     <div id="vehicleStatusContent" style="margin-top:6px;"></div>
 </div>
       <!-- ⚡ v13.037: id для скрытия в онлайн-матче (врага размещает оппонент) -->
+      <!-- ⚡ v13.038: ИСПРАВЛЕНИЕ — селектор «Юнит:» вынесен из этой панели,
+           иначе в онлайне вместе с кнопками врага скрывался и выбор юнита
+           для размещения (размещение было невозможно). -->
       <div id="opEnemyPanel" style="margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
   <strong>☠️ Противник</strong>
   <button onclick="setOpMapMode('placeEnemy')" style="background:#c0392b;">📌 Разместить</button>
@@ -20084,12 +20140,15 @@ function onlineMarkPlaced() {    if (!ONLINE.docRef) return;
   <button onclick="removeSelectedEnemyOpUnit()" style="background:#555;">🗑️ Удалить выбранного</button>
   <button onclick="showEnemyGroupDialog()" style="background:#8e44ad;">📦 Группировать технику</button>
   <button onclick="showEnemySplitDialog()" style="background:#e67e22;">✂️ Разбить отряд</button>
-  <label>Фракция врага: 
+  <label>Фракция врага:
     <select id="opEnemyFactionSelect" onchange="updateOpPlaceSelect()">
       <option value="BeVe">BeVe</option>
       <option value="A.I.R.F.">A.I.R.F.</option>
     </select>
   </label>
+</div>
+      <!-- ⚡ v13.038: селектор юнита — ВНЕ панели противника (видим всегда) -->
+      <div style="margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
   <label>Юнит: <select id="opPlaceSelect"></select></label>
 </div>
       <div id="activeBattlesPanel" style="margin:10px 0; padding:10px; background:#2a2a2a; border-radius:8px;">

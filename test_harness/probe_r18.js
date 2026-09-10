@@ -11,7 +11,8 @@ const FNS = [
     'getHqSupportAccuracyMod', 'getOpHexDistance', 'isStaticOpUnit',
     'selectTargetVehicle', 'processVehicleHit', 'getLocationName', 'getOpHexTypes',
     'executeOpShoot', 'executeOpShootAt', 'executeArtilleryStrikeOrder',
-    'pointInPolygon', 'isHexInPlacementZone',
+    'pointInPolygon', 'isHexInPlacementZone', 'zoneExtraHexes',
+    'finishPlacement', 'showBonusInfo', 'updateHardModeButtons',
     'openOnlineMenu', 'onlineDiagnostics', 'onlineFirebaseReady', 'onlineCreateRoom', 'onlineJoinRoom',
     'onlineBody', 'onlineGoToCampaign', 'closeOnlineModal', 'onlineShowJoin',
     'onlineSelfTest', 'onlineSelfTestMeaning',
@@ -310,7 +311,8 @@ console.log('\n== N. v13.032: зоны расстановки — полигон
         'N1: полигоны зон заданы для обеих фракций (Валенсия)');
     const nBe = s.evalCtx(`SCENARIO_PLACEMENT_ZONES.valencia.BeVe.length`);
     const nAi = s.evalCtx(`SCENARIO_PLACEMENT_ZONES.valencia['A.I.R.F.'].length`);
-    ok(nBe === 43 && nAi === 14, `N2: вершин: BeVe=${nBe} (ожид. 43), AIRF=${nAi} (ожид. 14)`);
+    // ⚡ v13.038: BeVe 44 вершины (добавлена [4,7]) + явные гексы 2,7/3,7/4,7
+    ok(nBe === 44 && nAi === 14, `N2: вершин: BeVe=${nBe} (ожид. 44), AIRF=${nAi} (ожид. 14)`);
     ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',4,2)`) .ok === true, 'N3: BeVe — точка (4,2) внутри зоны');
     ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',10,12)`) .ok === true, 'N4: BeVe — точка (10,12) внутри (юг)');
     ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',2,12)`) .ok === true, 'N5: AIRF — точка (2,12) внутри зоны');
@@ -326,6 +328,47 @@ console.log('\n== N. v13.032: зоны расстановки — полигон
             s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',${c},${r})`).ok) overlap++;
     }
     ok(overlap === 0, 'N11: зоны фракций не пересекаются (вся карта 20×15)');
+    // ⚡ v13.038: расширение зоны BeVe на гексы 2,7 / 3,7 / 4,7
+    //    (центры этих гексов лежат НА границе полигона — ray casting их исключал)
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',2,7)`) .ok === true, 'N12a: BeVe — (2,7) в зоне (явное добавление)');
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',3,7)`) .ok === true, 'N12b: BeVe — (3,7) в зоне');
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',4,7)`) .ok === true, 'N12c: BeVe — (4,7) в зоне');
+    let cntBe = 0;
+    for (let r = 0; r < 15; r++) for (let c = 0; c < 20; c++) {
+        if (s.evalCtx(`isHexInPlacementZone('valencia','BeVe',${c},${r})`).ok) cntBe++;
+    }
+    ok(cntBe === 72, `N13: BeVe — 72 гекса в зоне (69 + 3 добавленных), реально: ${cntBe}`);
+}
+
+// ============================================================
+console.log('\n== T. v13.038: селектор юнита, подтверждение, бонусы ==');
+{
+    // T1: селектор «Юнит:» (#opPlaceSelect) НЕ внутри панели противника
+    //     (v13.037-баг: онлайн скрывал всю панель и размещение было невозможно)
+    const enemyPanelHtml = HTML.slice(HTML.indexOf('<div id="opEnemyPanel"'), HTML.indexOf('<!-- ⚡ v13.038: селектор юнита'));
+    ok(HTML.includes('<div id="opEnemyPanel"') && HTML.includes('id="opPlaceSelect"'), 'T0: opEnemyPanel и opPlaceSelect существуют');
+    ok(!enemyPanelHtml.includes('opPlaceSelect'), 'T1: #opPlaceSelect вынесен из #opEnemyPanel (визиден в онлайн-режиме)');
+    const selectBlock = HTML.slice(HTML.indexOf('<!-- ⚡ v13.038: селектор юнита'), HTML.indexOf('<!-- ⚡ v13.038: селектор юнита') + 400);
+    ok(selectBlock.includes('id="opPlaceSelect"'), 'T1b: блок селектора юнита существует после панели противника');
+
+    const ad = freshAppData();
+    const s = makeSandbox(ad);
+    // T2: finishPlacement — подтверждение
+    ad.campaign.opUnits = [{ name: 'А', col: 1, row: 1 }];
+    s.run('confirm = () => false;');
+    s.run('placementLocked = false;');
+    s.evalCtx('finishPlacement()');
+    ok(s.evalCtx('placementLocked') === false, 'T2a: confirm=Нет — размещение НЕ завершено');
+    s.run('confirm = () => true;');
+    s.evalCtx('finishPlacement()');
+    ok(s.evalCtx('placementLocked') === true, 'T2b: confirm=Да — размещение завершено, блокировка установлена');
+
+    // T3: showBonusInfo — карточки бонусов кликабельны (функция существует, HTML-хук на месте)
+    ok(s.evalCtx('typeof showBonusInfo') === 'function', 'T3a: showBonusInfo определена');
+    ok(HTML.includes("onclick=\"showBonusInfo("), 'T3b: карточки бонусов кликабельны (onclick в HTML)');
+
+    // T4: блок «Награды отряда» во вкладке «Бой» (генерация HTML в updateUI)
+    ok(HTML.includes('🏅 Награды отряда:'), 'T4: блок «Награды отряда» есть в коде вкладки «Бой»');
 }
 
 // ============================================================

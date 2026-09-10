@@ -89,6 +89,8 @@ function createSandbox(appData) {
         logs,
         alerts,
         alert: (m) => { alerts.push(String(m)); },
+        // ⚡ v13.038: confirm-строб (тесты переопределяют: s.run('confirm = () => false;'))
+        confirm: () => true,
         setTimeout: (fn) => { try { fn(); } catch (e) {} return 0; },
         clearTimeout: () => {},
         setInterval: () => 0,
