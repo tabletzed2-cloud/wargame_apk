@@ -17,7 +17,7 @@ const FNS = [
     'onlineOppRole', 'onlineMyTurnActive', 'onlineWaitBanner', 'onlineSetTurnLockUI',
     'onlineUnitSnapshot', 'onlinePushMyUnits', 'onlineApplyCloudState',
     'onlineEnemyVisible', 'onlineHandTurn', 'onlineOnTurnChanged', 'onlineOnSnapshotSync',
-    'endOperationalTurn',
+    'endOperationalTurn', 'updateActiveCardsBattle',
     'openOnlineMenu', 'onlineDiagnostics', 'onlineFirebaseReady', 'onlineCreateRoom', 'onlineJoinRoom',
     'onlineBody', 'onlineGoToCampaign', 'closeOnlineModal', 'onlineShowJoin',
     'onlineSelfTest', 'onlineSelfTestMeaning',
@@ -338,11 +338,18 @@ console.log('\n== N. v13.032: зоны расстановки — полигон
     ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',2,7)`) .ok === true, 'N12a: BeVe — (2,7) в зоне (явное добавление)');
     ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',3,7)`) .ok === true, 'N12b: BeVe — (3,7) в зоне');
     ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',4,7)`) .ok === true, 'N12c: BeVe — (4,7) в зоне');
-    let cntBe = 0;
+    let cntBe = 0, cntAi = 0;
     for (let r = 0; r < 15; r++) for (let c = 0; c < 20; c++) {
         if (s.evalCtx(`isHexInPlacementZone('valencia','BeVe',${c},${r})`).ok) cntBe++;
+        if (s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',${c},${r})`).ok) cntAi++;
     }
     ok(cntBe === 72, `N13: BeVe — 72 гекса в зоне (69 + 3 добавленных), реально: ${cntBe}`);
+    // ⚡ v13.040 (R25#4): расширение зоны AIRF на гексы 0,13 / 1,13 / 2,13 / 4,13
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',0,13)`) .ok === true, 'N14a: AIRF — (0,13) в зоне');
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',1,13)`) .ok === true, 'N14b: AIRF — (1,13) в зоне');
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',2,13)`) .ok === true, 'N14c: AIRF — (2,13) в зоне');
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',4,13)`) .ok === true, 'N14d: AIRF — (4,13) в зоне');
+    ok(cntAi === 14, `N15: AIRF — 14 гексов в зоне (10 + 4 добавленных), реально: ${cntAi}`);
 }
 
 // ============================================================
@@ -373,7 +380,7 @@ console.log('\n== T. v13.038: селектор юнита, подтвержде�
     ok(HTML.includes("onclick=\"showBonusInfo("), 'T3b: карточки бонусов кликабельны (onclick в HTML)');
 
     // T4: блок «Награды отряда» во вкладке «Бой» (генерация HTML в updateUI)
-    ok(HTML.includes('🏅 Награды отряда:'), 'T4: блок «Награды отряда» есть в коде вкладки «Бой»');
+    ok(HTML.includes('🏅 Награды:') && HTML.includes('Каталог фракции'), 'T4: блок «Награды» (каталог фракции) есть в коде вкладки «Бой»');
 }
 
 // ============================================================
@@ -507,7 +514,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     const updates = [];
     s.run('var ONLINE = { db: null, docRef: null, listener: null, code: "ABCD", role: "p1", ' +
           'playerId: "t", match: null, pendingStart: null, started: false, ' +
-          'lastPushedJson: null, prevWhoseTurn: null, fogSeen: {} };');
+          'lastPushedJson: null, prevWhoseTurn: null, fogPending: {}, fogVisible: {} };');
     s.run('ONLINE.docRef = { update: function(o) { __updates.push(o); return Promise.resolve(); } };');
     s.run('var __updates = [];');
 
@@ -571,25 +578,39 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     ok(s.evalCtx('appData.campaign.currentTime') === 10 && s.evalCtx('appData.campaign.currentTurn') === 2,
         'U5c: общее время из облака (time=10, ход=2)');
 
-    // U6: туман войны — видимость вражеских юнитов
-    s.run('ONLINE.fogSeen = {};');
+    // U6: туман войны (R25#1) — юнит СКРЫТ, пока не провалена проверка обнаружения
+    s.run('ONLINE.fogPending = {}; ONLINE.fogVisible = {};');
     s.run('appData.campaign.opUnits[0].reconZoneHexes = null;');
     const eVis = 'onlineEnemyVisible(appData.campaign.enemyOpUnits[0])';
-    s.run('ONLINE.match.whoseTurn = "p2";');  // ход оппонента — все его юниты видны
-    // (перенос видимости делает onlineApplyCloudState; эмулируем его эффект)
+    // фаза размещения — тоже туман (R25#1: «я вижу отряды, выставленные противником»)
+    s.run('ONLINE.match.status = "placing"; ONLINE.match.whoseTurn = null;');
+    ok(s.evalCtx(eVis) === false, 'U6a: фаза размещения — юниты противника СКРЫТЫ (туман)');
+    // playing: проваливший проверку (detected=false) — в fogPending, ещё скрыт в мой ход
+    s.run('ONLINE.match.status = "playing"; ONLINE.match.whoseTurn = "p1";');
+    s.run('appData.campaign.enemyOpUnits[0].detected = false;');
     s.run('onlineApplyCloudState();');
-    ok(s.evalCtx(eVis) === true, 'U6a: в начале хода оппонентских юнитов все становятся мне видимы (fogSeen)');
-    s.run('ONLINE.match.whoseTurn = "p1";');
-    s.run('appData.campaign.enemyOpUnits[0].detected = false; ONLINE.fogSeen = {};');
-    ok(s.evalCtx(eVis) === false, 'U6b: мой ход, враг неуслышан и не обнаружен — НЕ виден (туман)');
-    s.run('appData.campaign.enemyOpUnits[0].detected = true;');
-    ok(s.evalCtx(eVis) === true, 'U6c: враг обнаружен (detected=true) — виден');
-    s.run('appData.campaign.enemyOpUnits[0].detected = false; ONLINE.fogSeen["e1"] = true;');
-    ok(s.evalCtx(eVis) === true, 'U6d: враг в fogSeen (разведка/обстрел) — виден');
+    ok(s.evalCtx('ONLINE.fogPending["e1"]') === true, 'U6b: проваливший проверку юнит — в fogPending');
+    ok(s.evalCtx(eVis) === false, 'U6c: в МОЙ ход проваливший проверку юнит ещё скрыт (R22#5)');
+    // в НАЧАЛЕ ХОДА ОППОНЕНТА — становится видимым
+    s.run('ONLINE.prevWhoseTurn = "p1"; ONLINE.match.whoseTurn = "p2"; onlineOnTurnChanged();');
+    ok(s.evalCtx('ONLINE.fogVisible["e1"]') === true, 'U6d: в начале хода оппонента проваливший проверку юнит СТАЛ видим');
+    ok(s.evalCtx(eVis) === true, 'U6e: юнит виден на моей карте');
+    // обнаруженный (detected=true) — в тумане (видимость только по провалу/разведке/обстрелу)
+    s.run('ONLINE.match.state.p2.units[0].detected = true;'); // в облаке (источник)
+    s.run('ONLINE.fogVisible = {}; ONLINE.fogPending = {};');
+    s.run('onlineApplyCloudState();');
+    ok(s.evalCtx(eVis) === false, 'U6f: detected=true — юнит НЕ появляется (видимость только по провалу)');
+    // fogVisible (разведка/обстрел) — виден
+    s.run('ONLINE.fogVisible["e1"] = true;');
+    ok(s.evalCtx(eVis) === true, 'U6g: юнит в fogVisible (разведка/обстрел) — виден');
     // зона разведки
-    s.run('ONLINE.fogSeen = {}; appData.campaign.currentTurn = 5; ' +
+    s.run('ONLINE.fogVisible = {}; ONLINE.fogPending = {}; appData.campaign.currentTurn = 5; ' +
           'appData.campaign.opUnits[0].reconZoneHexes = [{col:5,row:5}]; appData.campaign.opUnits[0].reconActiveTurn = 5;');
-    ok(s.evalCtx(eVis) === true, 'U6e: враг в активной зоне моей разведки — виден');
+    ok(s.evalCtx(eVis) === true, 'U6h: враг в активной зоне моей разведки — виден');
+    // уничтоженный — известен
+    s.run('ONLINE.fogVisible = {}; appData.campaign.enemyOpUnits[0].isDestroyed = true;');
+    ok(s.evalCtx(eVis) === true, 'U6i: уничтоженный юнит — виден');
+    s.run('appData.campaign.enemyOpUnits[0].isDestroyed = false; appData.campaign.opUnits[0].reconZoneHexes = null;');
 
     // U7: смена хода на МОЙ — уведомление + восстановление ОД
     s.run('ONLINE.match.whoseTurn = "p1"; ONLINE.match.turn = 3; ONLINE.match.time = 20; ' +
@@ -610,6 +631,58 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     ok(HTML.includes('units.filter(onlineEnemyVisible)'), 'U8c: туман в отрисовке врагов');
     ok(HTML.includes('onlineHandTurn()'), 'U8d: передача хода из endOperationalTurn');
     ok(HTML.includes('turn: 1,') && HTML.includes('time: 0'), 'U8e: старт матча — turn=1, time=0');
+
+    // U9: R25 — placing-гвард, finishPlacement, каталоги карт/наград, уведомления
+    // U9a: в статусе 'placing' «Завершить ход» НЕ сдвигает время (R25#2)
+    s.run('ONLINE.match.status = "playing"; ONLINE.match.whoseTurn = "p1"; ONLINE.match.turn = 5; ONLINE.match.time = 40;');
+    s.run('appData.campaign.currentTime = 40; appData.campaign.opTurnStartTime = 40; appData.campaign.currentTurn = 5;');
+    s.run('ONLINE.match.status = "placing";');
+    s.run('alerts.length = 0; endOperationalTurn();');
+    ok(s.evalCtx('appData.campaign.currentTime') === 40 && s.evalCtx('appData.campaign.currentTurn') === 5,
+        'U9a: в статусе placing «Завершить ход» не сдвигает время/ход');
+    ok(s.alerts.some(a => a.includes('ещё не начался')), 'U9b: понятное предупреждение «матч ещё не начался»');
+    s.run('ONLINE.match.status = "playing"; ONLINE.match.whoseTurn = "p1";');
+
+    // U9c: finishPlacement с неразмещёнными юнитами — НЕ блокирует «Разместить» (R25#3)
+    s.run('var placementLocked = false; var placementUnlockCount = 0;');
+    s.run('appData.campaign.opUnits = [{ id: "x1", name: "Поставлен", col: 1, row: 1 }, ' +
+          '{ id: "x2", name: "Не размещён", col: null, row: null }];');
+    s.run('alerts.length = 0; finishPlacement();');
+    ok(s.evalCtx('placementLocked') === false, 'U9c: есть неразмещённые — «Разместить» НЕ блокируется');
+    ok(s.alerts.some(a => a.includes('Не размещено')), 'U9d: подсказка «не размещено юнитов»');
+    s.run('appData.campaign.opUnits = [{ id: "x1", name: "Поставлен", col: 1, row: 1 }, ' +
+          '{ id: "x2", name: "Поставлен2", col: 2, row: 2 }];');
+    s.run('finishPlacement();');
+    ok(s.evalCtx('placementLocked') === true, 'U9e: все размещены — блокировка установлена');
+
+    // U9f: уведомления на ОБОИХ переходах хода (R25#2 — отдельное окно с номером хода и временем)
+    s.run('ONLINE.match.turn = 7; ONLINE.match.time = 60; ONLINE.prevWhoseTurn = "p2"; ONLINE.match.whoseTurn = "p1";');
+    s.run('alerts.length = 0; onlineOnTurnChanged();');
+    ok(s.alerts.some(a => a.includes('ход 7') && a.includes('01:00') && a.includes('Ваш ход')),
+        'U9f: свой ход — алерт с номером хода и временем');
+    s.run('ONLINE.prevWhoseTurn = "p1"; ONLINE.match.whoseTurn = "p2"; ONLINE.match.turn = 8; ONLINE.match.time = 70;');
+    s.run('alerts.length = 0; onlineOnTurnChanged();');
+    ok(s.alerts.some(a => a.includes('ход 8') && a.includes('01:10') && a.includes('Ход оппонента')),
+        'U9g: ход оппонента — алерт с номером хода и временем (подтверждение передачи)');
+
+    // U9h: каталог карт фракции во вкладке «Бой» (R25#5 — cards.js)
+    s.run('var currentSquad = { faction: "BeVe", appliedCards: ["Дополнительный паек"], ' +
+          'fighters: [{ name: "Боец1", hp: 3, maxHp: 3, awards: ["wound_award"] }] };');
+    s.run('appData.factions = { BeVe: { cardLibrary: [ { name: "Дополнительный паек", desc: "паек", icon: "" }, ' +
+          '{ name: "Бюрократия", desc: "бумаги", icon: "" } ] } }; appData.activeCards = [];');
+    s.evalCtx('updateActiveCardsBattle()');
+    const cardsHtml = s.elements.activeCardsListBattle.innerHTML;
+    ok(cardsHtml.includes('Дополнительный паек') && cardsHtml.includes('Бюрократия'),
+        'U9h: вкладка «Бой» показывает ВСЮ библиотеку карт фракции (cards.js)');
+    ok(cardsHtml.includes('✓'), 'U9i: карта, применённая к отряду, подсвечена');
+
+    // U9j: каталог наград фракции (R25#5 — weapons.js)
+    ok(s.evalCtx('typeof BEVE_AWARDS !== "undefined" && BEVE_AWARDS.length > 0') === true,
+        'U9j: BEVE_AWARDS из weapons.js доступен');
+    ok(s.evalCtx('typeof AIRF_AWARDS !== "undefined" && AIRF_AWARDS.length > 0') === true,
+        'U9k: AIRF_AWARDS из weapons.js доступен');
+    ok(HTML.includes('Каталог фракции'), 'U9l: блок наград показывает каталог фракции');
+    ok(HTML.includes('🃏 Карты (библиотека фракции):'), 'U9m: заголовок блока карт — библиотека фракции');
 }
 
 console.log('\n====================================');
