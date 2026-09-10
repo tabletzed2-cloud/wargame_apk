@@ -16,7 +16,8 @@ const FNS = [
     // ⚡ v13.039: онлайн-синхронизация (R24)
     'onlineOppRole', 'onlineMyTurnActive', 'onlineWaitBanner', 'onlineSetTurnLockUI',
     'onlineUnitSnapshot', 'onlinePushMyUnits', 'onlineApplyCloudState',
-    'onlineEnemyVisible', 'onlineHandTurn', 'onlineOnTurnChanged', 'onlineOnSnapshotSync',
+    'onlineEnemyVisible', 'onlineFinishTurn', 'onlineOnTurnChanged', 'onlineOnTurnStatusChanged',
+          'onlineMergeUnitDamage', 'onlinePushInflictedDamage', 'onlineOnSnapshotSync',
     'endOperationalTurn', 'updateActiveCardsBattle', 'syncFactionCatalogs', 'getDefaultData',
     'openOnlineMenu', 'onlineDiagnostics', 'onlineFirebaseReady', 'onlineCreateRoom', 'onlineJoinRoom',
     'onlineBody', 'onlineGoToCampaign', 'closeOnlineModal', 'onlineShowJoin',
@@ -349,7 +350,7 @@ console.log('\n== N. v13.032: зоны расстановки — полигон
     ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',1,13)`) .ok === true, 'N14b: AIRF — (1,13) в зоне');
     ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',2,13)`) .ok === true, 'N14c: AIRF — (2,13) в зоне');
     ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',4,13)`) .ok === true, 'N14d: AIRF — (4,13) в зоне');
-    ok(cntAi === 14, `N15: AIRF — 14 гексов в зоне (10 + 4 добавленных), реально: ${cntAi}`);
+    ok(cntAi === 15, `N15: AIRF — 15 гексов в зоне (10 + 5 добавленных, R27#8: +(3,13)), реально: ${cntAi}`);
 }
 
 // ============================================================
@@ -380,7 +381,7 @@ console.log('\n== T. v13.038: селектор юнита, подтвержде�
     ok(HTML.includes("onclick=\"showBonusInfo("), 'T3b: карточки бонусов кликабельны (onclick в HTML)');
 
     // T4: блок «Награды отряда» во вкладке «Бой» (генерация HTML в updateUI)
-    ok(HTML.includes('🏅 Награды:') && HTML.includes('Каталог фракции'), 'T4: блок «Награды» (каталог фракции) есть в коде вкладки «Бой»');
+    ok(HTML.includes('🏅 Награды подразделения:'), 'T4: блок «Награды подразделения» (R27#4 — только награды бойцов) есть в коде вкладки «Бой»');
 }
 
 // ============================================================
@@ -514,7 +515,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     const updates = [];
     s.run('var ONLINE = { db: null, docRef: null, listener: null, code: "ABCD", role: "p1", ' +
           'playerId: "t", match: null, pendingStart: null, started: false, ' +
-          'lastPushedJson: null, prevWhoseTurn: null, fogVisible: {} };');
+          'lastPushedJson: null, prevTurn: null, advancedTurn: null, announcedWait: false, announcedOppDone: false, fogVisible: {} };');
     s.run('ONLINE.docRef = { update: function(o) { __updates.push(o); return Promise.resolve(); } };');
     s.run('var __updates = [];');
 
@@ -524,14 +525,14 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
           'players: { p1: { id: "t", faction: "BeVe", ready: true, placed: false }, ' +
           'p2: { id: "o", faction: "A.I.R.F.", ready: true, placed: false } } };');
 
-    // U1: onlineMyTurnActive — расстановка (оба действуют) / свой ход / чужой ход
+    // U1: onlineMyTurnActive — расстановка / мой ход идёт / мой ход завершён
     ok(s.evalCtx('onlineMyTurnActive()') === true, 'U1a: фаза расстановки — действия разрешены');
-    s.run('ONLINE.match.status = "playing"; ONLINE.match.whoseTurn = "p1";');
-    ok(s.evalCtx('onlineMyTurnActive()') === true, 'U1b: whoseTurn=я — действия разрешены');
-    s.run('ONLINE.match.whoseTurn = "p2";');
-    ok(s.evalCtx('onlineMyTurnActive()') === false, 'U1c: whoseTurn=оппонент — действия ЗАБЛОКИРОВАНЫ');
+    s.run('ONLINE.match.status = "playing"; ONLINE.match.players.p1.turnDone = false;');
+    ok(s.evalCtx('onlineMyTurnActive()') === true, 'U1b: playing, мой ход ещё не завершён — действия разрешены');
+    s.run('ONLINE.match.players.p1.turnDone = true;');
+    ok(s.evalCtx('onlineMyTurnActive()') === false, 'U1c: свой ход завершён (ждём оппонента) — действия ЗАБЛОКИРОВАНЫ');
 
-    // U2: endOperationalTurn в чужой ход — ничего не происходит
+    // U2: endOperationalTurn, когда ход уже завершён — ничего не происходит
     ad.campaign.currentTime = 0;
     ad.campaign.opTurnStartTime = 0;
     ad.campaign.currentTurn = 1;
@@ -539,17 +540,24 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     ok(s.evalCtx('appData.campaign.currentTime') === 0 && s.evalCtx('appData.campaign.currentTurn') === 1,
         'U2: чужой ход — «Завершить ход» игнорируется (время/ход не меняются)');
 
-    // U3: передача хода (onlineHandTurn) — облако: whoseTurn/turn/time
-    s.run('ONLINE.match.whoseTurn = "p1"; ONLINE.match.turn = 1; ONLINE.match.time = 0;');
-    s.run('__updates.length = 0; onlineHandTurn();');
-    const handoff = s.evalCtx('__updates[__updates.length - 1]');
-    ok(handoff && handoff.whoseTurn === 'p2' && handoff.turn === 2 && handoff.time === 10,
-        'U3: передача хода — облако: whoseTurn=p2, turn=2, time=+10');
+    // U3: завершение хода (onlineFinishTurn) — облако: players.p1.turnDone=true
+    s.run('ONLINE.match.players.p1.turnDone = false; ONLINE.match.turn = 1; ONLINE.match.time = 0;');
+    s.run('__updates.length = 0; onlineFinishTurn();');
+    const fin = s.evalCtx('__updates[__updates.length - 1]');
+    ok(fin && fin['players.p1.turnDone'] === true,
+        'U3: завершение хода — облако: players.p1.turnDone=true (параллельные ходы)');
+    ok(s.evalCtx('appData.campaign.currentTime') === 0 && s.evalCtx('appData.campaign.currentTurn') === 1,
+        'U3b: завершение хода НЕ сдвигает локальное время (сдвинет продвижение хода)');
+    // повторное завершение — предупреждение, без доп. записи
+    // (в реальном приложении ONLINE.match обновился снапшотом — эмулируем)
+    s.run('ONLINE.match.players.p1.turnDone = true; __updates.length = 0; onlineFinishTurn();');
+    ok(s.evalCtx('__updates.length') === 0 && s.alerts.some(a => a.includes('уже завершили ход')),
+        'U3c: повторное завершение — предупреждение, в облако не пишется');
 
     // U4: пуш своих юнитов в облако + дедупликация
     ad.campaign.opUnits = [{ id: 'u1', name: 'Свой-Взвод', col: 1, row: 1, ap: 4, maxAp: 4,
         fighters: [{ name: 'Б1', hp: 3, maxHp: 3 }] }];
-    s.run('ONLINE.match.status = "playing"; ONLINE.match.whoseTurn = "p1"; ONLINE.lastPushedJson = null;');
+    s.run('ONLINE.match.status = "playing"; ONLINE.match.players.p1.turnDone = false; ONLINE.lastPushedJson = null;');
     s.run('__updates.length = 0; onlinePushMyUnits();');
     let n = s.evalCtx('__updates.length');
     ok(n === 1 && s.evalCtx('__updates[0]["state.p1.units"].length') === 1 &&
@@ -566,7 +574,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
           '   fighters: [{ name: "Б1", hp: 1, maxHp: 3 }] } ] } };');
     s.run('appData.campaign.opUnits[0].fighters[0].hp = 3;');
     s.run('appData.campaign.currentTime = 0; appData.campaign.currentTurn = 1;');
-    s.run('ONLINE.match.turn = 2; ONLINE.match.time = 10; ONLINE.match.whoseTurn = "p1";');
+    s.run('ONLINE.match.turn = 2; ONLINE.match.time = 10;');
     s.run('onlineApplyCloudState();');
     ok(s.evalCtx('appData.campaign.enemyOpUnits.length') === 1 &&
        s.evalCtx('appData.campaign.enemyOpUnits[0].id') === 'e1' &&
@@ -577,6 +585,16 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U5b: урон оппонента моему бойцу применён (hp 3→1)');
     ok(s.evalCtx('appData.campaign.currentTime') === 10 && s.evalCtx('appData.campaign.currentTurn') === 2,
         'U5c: общее время из облака (time=10, ход=2)');
+    // U5d: v13.042 (R27#1) — inflictedOnOpponent: урон от арт. обстрела оппонента
+    s.run('appData.campaign.opUnits[0].fighters[0].hp = 3;');
+    s.run('ONLINE.match.state.p1.units = [];');
+    s.run('ONLINE.match.state.p2 = { units: [{ id: "e1", name: "Враг-Взвод", col: 5, row: 5, ' +
+          '   detected: false, squads: [{ name: "Отряд", fighters: [{ name: "В1", hp: 3, maxHp: 3 }] }] }], ' +
+          '   inflictedOnOpponent: [ { id: "u1", name: "Свой-Взвод", ' +
+          '   fighters: [{ name: "Б1", hp: 2, maxHp: 3 }] } ] };');
+    s.run('onlineApplyCloudState();');
+    ok(s.evalCtx('appData.campaign.opUnits[0].fighters[0].hp') === 2,
+        'U5d: урон обстрела (inflictedOnOpponent) применён «вниз» (hp 3→2)');
 
     // U6: туман войны (R26#1) — правильная семантика:
     //    detected=true  → юнит не смог скрыться (🔴 ОБНАРУЖЕН) → ВИДЕН
@@ -586,12 +604,12 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     s.run('appData.campaign.opUnits[0].reconZoneHexes = null;');
     const eVis = 'onlineEnemyVisible(appData.campaign.enemyOpUnits[0])';
     // фаза размещения — туман (R26#1: «я вижу отряды, выставленные противником»)
-    s.run('ONLINE.match.status = "placing"; ONLINE.match.whoseTurn = null;');
+    s.run('ONLINE.match.status = "placing";');
     s.run('ONLINE.match.state.p2.units[0].detected = false;');
     s.run('onlineApplyCloudState();');
     ok(s.evalCtx(eVis) === false, 'U6a: фаза размещения — юниты противника СКРЫТЫ (туман)');
     // playing: detected=false (не обнаружен) — скрыт
-    s.run('ONLINE.match.status = "playing"; ONLINE.match.whoseTurn = "p1";');
+    s.run('ONLINE.match.status = "playing";');
     s.run('ONLINE.fogVisible = {};');
     s.run('onlineApplyCloudState();');
     ok(s.evalCtx(eVis) === false, 'U6b: detected=false (🟢 Скрыт) — юнит НЕ виден');
@@ -619,36 +637,73 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     ok(s.evalCtx(eVis) === true, 'U6h: уничтоженный юнит — виден');
     s.run('appData.campaign.enemyOpUnits[0].isDestroyed = false;');
 
-    // U7: смена хода на МОЙ — уведомление + восстановление ОД
-    s.run('ONLINE.match.whoseTurn = "p1"; ONLINE.match.turn = 3; ONLINE.match.time = 20; ' +
-          'ONLINE.prevWhoseTurn = "p2"; ' +
+    // U7: продвижение хода (m.turn вырос) — уведомление ОБОИМ + восстановление ОД
+    s.run('ONLINE.match.turn = 3; ONLINE.match.time = 20; ONLINE.prevTurn = 2; ' +
           'appData.campaign.opUnits[0].ap = 0; appData.campaign.opUnits[0].maxAp = 4; ' +
-          'onlineApplyCloudState(); // синхронизируем общее время (ход=3)');
+          'appData.campaign.currentTime = 20; appData.campaign.currentTurn = 3;');
     s.run('alerts.length = 0; onlineOnTurnChanged();');
-    ok(s.alerts.some(a => a.indexOf('Ваш ход') !== -1 && a.indexOf('ход 3') !== -1),
-        'U7a: уведомление «Ваш ход» приходит при смене хода на МОЙ (после хода оппонента)');
-    ok(s.evalCtx('appData.campaign.opUnits[0].ap') === 4, 'U7b: ОД своих юнитов восстановлены в начале своего хода');
-    // и наоборот: на чужой ход — алерта нет, только «ждём»
-    s.run('ONLINE.prevWhoseTurn = "p1"; ONLINE.match.whoseTurn = "p2"; alerts.length = 0; onlineOnTurnChanged();');
-    ok(!s.alerts.some(a => a.indexOf('Ваш ход') !== -1), 'U7c: на ход оппонента уведомлений «Ваш ход» нет');
+    ok(s.alerts.some(a => a.indexOf('Начался ход 3') !== -1 && a.indexOf('00:20') !== -1 && a.indexOf('Ваш ход') !== -1),
+        'U7a: продвижение хода — уведомление «Начался ход 3 — 00:20. Ваш ход!» (оба игрока)');
+    ok(s.evalCtx('appData.campaign.opUnits[0].ap') === 4, 'U7b: ОД своих юнитов восстановлены в начале нового хода');
+    // тот же номер хода — повторных алертов нет (dedup по prevTurn)
+    s.run('alerts.length = 0; onlineOnTurnChanged();');
+    ok(s.alerts.length === 0, 'U7c: тот же номер хода — алертов «Начался ход» нет');
+
+    // U10: v13.042 — продвижение хода пишется ОДНИМ (p1), когда завершили ОБА
+    s.run('ONLINE.role = "p1"; ONLINE.match.turn = 3; ONLINE.match.time = 20; ' +
+          'ONLINE.match.players.p1.turnDone = true; ONLINE.match.players.p2.turnDone = true; ' +
+          'ONLINE.prevTurn = 3; ONLINE.advancedTurn = null; ONLINE.announcedWait = false; ONLINE.announcedOppDone = false; ' +
+          'ONLINE.fogVisible = {};');
+    s.run('__updates.length = 0; onlineOnSnapshotSync();');
+    let adv = null;
+    for (let i = s.evalCtx('__updates.length') - 1; i >= 0; i--) {
+        const u = s.evalCtx('__updates[' + i + ']');
+        if (typeof u.turn === 'number') { adv = u; break; }
+    }
+    ok(adv && adv.turn === 4 && adv.time === 30 && adv['players.p1.turnDone'] === false && adv['players.p2.turnDone'] === false,
+        'U10a: завершили ОБА (я=p1) — в облако turn=4, time=30, turnDone сброшены');
+    // p2 пишет ТО ЖЕ самое продвижение (idempotent) — двойного инкремента нет
+    s.run('ONLINE.role = "p2"; ONLINE.match.turn = 3; ' +
+          'ONLINE.match.players.p1.turnDone = true; ONLINE.match.players.p2.turnDone = true; ' +
+          'ONLINE.prevTurn = 3; ONLINE.advancedTurn = null;');
+    s.run('__updates.length = 0; onlineOnSnapshotSync();');
+    let adv2 = null;
+    for (let i = s.evalCtx('__updates.length') - 1; i >= 0; i--) {
+        const u = s.evalCtx('__updates[' + i + ']');
+        if (typeof u.turn === 'number') { adv2 = u; break; }
+    }
+    ok(adv2 && adv2.turn === 4 && adv2.time === 30,
+        'U10b: я=p2 — пишу ОДНОВРЕМЕННО ОДИНАКОВОЕ продвижение (turn=4, time=30), двойного инкремента нет');
+    // после того как turn=4 отражён в снапшоте — повторных записей нет
+    s.run('ONLINE.match.turn = 4; ONLINE.match.time = 30; ' +
+          'ONLINE.match.players.p1.turnDone = false; ONLINE.match.players.p2.turnDone = false; ' +
+          'ONLINE.prevTurn = 4; ONLINE.advancedTurn = 3;');
+    s.run('__updates.length = 0; onlineOnSnapshotSync();');
+    let adv3 = null;
+    for (let i = s.evalCtx('__updates.length') - 1; i >= 0; i--) {
+        const u = s.evalCtx('__updates[' + i + ']');
+        if (typeof u.turn === 'number') { adv3 = u; break; }
+    }
+    ok(adv3 === null, 'U10c: новый ход уже в снапшоте — повторного продвижения нет');
+    s.run('ONLINE.role = "p1";');
 
     // U8: HTML-хуки на месте
     ok(HTML.includes('id="opEndTurnBtn"'), 'U8a: кнопка «Завершить ход» имеет id для блокировки');
     ok(HTML.includes('drawGroupedUnits(appData.campaign.opUnits, false);'), 'U8b: отрисовка юнитов сохранена');
     ok(HTML.includes('units.filter(onlineEnemyVisible)'), 'U8c: туман в отрисовке врагов');
-    ok(HTML.includes('onlineHandTurn()'), 'U8d: передача хода из endOperationalTurn');
+    ok(HTML.includes('onlineFinishTurn();'), 'U8d: завершение онлайн-хода из endOperationalTurn');
     ok(HTML.includes('turn: 1,') && HTML.includes('time: 0'), 'U8e: старт матча — turn=1, time=0');
 
     // U9: R25 — placing-гвард, finishPlacement, каталоги карт/наград, уведомления
     // U9a: в статусе 'placing' «Завершить ход» НЕ сдвигает время (R25#2)
-    s.run('ONLINE.match.status = "playing"; ONLINE.match.whoseTurn = "p1"; ONLINE.match.turn = 5; ONLINE.match.time = 40;');
+    s.run('ONLINE.match.status = "playing"; ONLINE.match.players.p1.turnDone = false; ONLINE.match.turn = 5; ONLINE.match.time = 40;');
     s.run('appData.campaign.currentTime = 40; appData.campaign.opTurnStartTime = 40; appData.campaign.currentTurn = 5;');
     s.run('ONLINE.match.status = "placing";');
     s.run('alerts.length = 0; endOperationalTurn();');
     ok(s.evalCtx('appData.campaign.currentTime') === 40 && s.evalCtx('appData.campaign.currentTurn') === 5,
         'U9a: в статусе placing «Завершить ход» не сдвигает время/ход');
     ok(s.alerts.some(a => a.includes('ещё не начался')), 'U9b: понятное предупреждение «матч ещё не начался»');
-    s.run('ONLINE.match.status = "playing"; ONLINE.match.whoseTurn = "p1";');
+    s.run('ONLINE.match.status = "playing";');
 
     // U9c: finishPlacement с неразмещёнными юнитами — НЕ блокирует «Разместить» (R25#3)
     s.run('var placementLocked = false; var placementUnlockCount = 0;');
@@ -662,34 +717,39 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     s.run('finishPlacement();');
     ok(s.evalCtx('placementLocked') === true, 'U9e: все размещены — блокировка установлена');
 
-    // U9f: уведомления на ОБОИХ переходах хода (R25#2 — отдельное окно с номером хода и временем)
-    s.run('ONLINE.match.turn = 7; ONLINE.match.time = 60; ONLINE.prevWhoseTurn = "p2"; ONLINE.match.whoseTurn = "p1";');
+    // U9f: продвижение хода — алерт с номером хода и временем (оба игрока, R27#6)
+    s.run('ONLINE.match.turn = 7; ONLINE.match.time = 60; ONLINE.prevTurn = 6;');
     s.run('alerts.length = 0; onlineOnTurnChanged();');
     ok(s.alerts.some(a => a.includes('ход 7') && a.includes('01:00') && a.includes('Ваш ход')),
-        'U9f: свой ход — алерт с номером хода и временем');
-    s.run('ONLINE.prevWhoseTurn = "p1"; ONLINE.match.whoseTurn = "p2"; ONLINE.match.turn = 8; ONLINE.match.time = 70;');
-    s.run('alerts.length = 0; onlineOnTurnChanged();');
-    ok(s.alerts.some(a => a.includes('ход 8') && a.includes('01:10') && a.includes('Ход оппонента')),
-        'U9g: ход оппонента — алерт с номером хода и временем (подтверждение передачи)');
+        'U9f: продвижение хода — алерт «Начался ход 7 — 01:00. Ваш ход!»');
+    // завершил свой ход — только баннер ожидания, алертов «Ваш ход» нет
+    s.run('ONLINE.match.turn = 7; ONLINE.prevTurn = 7; ONLINE.announcedWait = false; ONLINE.announcedOppDone = false; ' +
+          'ONLINE.match.players.p1.turnDone = true;');
+    s.run('alerts.length = 0; onlineOnTurnStatusChanged();');
+    ok(!s.alerts.some(a => a.includes('Ваш ход')) &&
+       s.elements.mapInfo.innerHTML.includes('Ждём') || s.elements.mapInfo.innerHTML.includes('ждём'),
+        'U9g: завершил свой ход — баннер ожидания (без алерта «Ваш ход»)');
 
     // U9h: каталог карт фракции во вкладке «Бой» (R25#5 — cards.js)
     s.run('var currentSquad = { faction: "BeVe", appliedCards: ["Дополнительный паек"], ' +
           'fighters: [{ name: "Боец1", hp: 3, maxHp: 3, awards: ["wound_award"] }] };');
     s.run('appData.factions = { BeVe: { cardLibrary: [ { name: "Дополнительный паек", desc: "паек", icon: "" }, ' +
-          '{ name: "Бюрократия", desc: "бумаги", icon: "" } ] } }; appData.activeCards = [];');
+          '{ name: "Бюрократия", desc: "бумаги", icon: "" } ] } }; ' +
+          'appData.activeCards = [{ name: "Дополнительный паек", faction: "BeVe", active: true }];');
     s.evalCtx('updateActiveCardsBattle()');
     const cardsHtml = s.elements.activeCardsListBattle.innerHTML;
-    ok(cardsHtml.includes('Дополнительный паек') && cardsHtml.includes('Бюрократия'),
-        'U9h: вкладка «Бой» показывает ВСЮ библиотеку карт фракции (cards.js)');
-    ok(cardsHtml.includes('✓'), 'U9i: карта, применённая к отряду, подсвечена');
+    ok(cardsHtml.includes('Дополнительный паек') && !cardsHtml.includes('Бюрократия'),
+        'U9h: v13.042 (R27#4) — вкладка «Бой» показывает ТОЛЬКО карты отряда');
+    ok(cardsHtml.includes('✓'), 'U9i: карта отряда подсвечена');
 
     // U9j: каталог наград фракции (R25#5 — weapons.js)
     ok(s.evalCtx('typeof BEVE_AWARDS !== "undefined" && BEVE_AWARDS.length > 0') === true,
         'U9j: BEVE_AWARDS из weapons.js доступен');
     ok(s.evalCtx('typeof AIRF_AWARDS !== "undefined" && AIRF_AWARDS.length > 0') === true,
         'U9k: AIRF_AWARDS из weapons.js доступен');
-    ok(HTML.includes('Каталог фракции'), 'U9l: блок наград показывает каталог фракции');
-    ok(HTML.includes('🃏 Карты (библиотека фракции):'), 'U9m: заголовок блока карт — библиотека фракции');
+    ok(HTML.includes('renderAwardsReference()'), 'U9l: топ-вкладка «🏅 Награды» рендерит каталог фракций (R25#5)');
+    ok(HTML.includes('id="battleCardPickBanner"') && HTML.includes('battleStartToBattleBtn'),
+        'U9m: v13.042 (R27#11) — баннер выбора карт + кнопка «⚔️ В бой» во вкладке «Карточки»');
 
     // U9n: каталоги карт/наград старых сейвов (R26#5 — «в вкладках пусто»)
     s.run('appData.factions = { BeVe: { icon: "", cardLibrary: [], awards: [] } };');
@@ -705,7 +765,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.041'"), 'U9q: константа версии v13.041');
+    ok(HTML.includes("var APP_VERSION = 'v13.042'"), 'U9q: константа версии v13.042');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 }

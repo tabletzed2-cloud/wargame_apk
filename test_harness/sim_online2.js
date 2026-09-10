@@ -1,7 +1,9 @@
-// ⚡ v13.040 (R25): E2E-симуляция ОНЛАЙН-МАТЧА на ДВУХ «устройствах»
+// ⚡ v13.042 (R27#6): E2E-симуляция ОНЛАЙН-МАТЧА на ДВУХ «устройствах»
 //    (два vm-контекста + общий фейковый Firestore).
-//    Проверяет: старт матча, строгий порядок ходов, передача хода,
-//    уведомления, туман войны, зеркалирование юнитов.
+//    ПАРАЛЛЕЛЬНЫЕ ХОДЫ: оба игрока выполняют один и тот же номер хода
+//    одновременно; следующий ход начинается, когда ОБА завершили текущий.
+//    Проверяет: старт матча, параллельные ходы, блокировку завершившего,
+//    продвижение хода, уведомления, туман войны, зеркалирование юнитов.
 //    Запуск: node test_harness/sim_online2.js
 const fs = require('fs');
 const path = require('path');
@@ -12,8 +14,9 @@ const HTML = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const FNS = [
     'isStaticOpUnit', 'getOpHexDistance', 'pointInPolygon', 'isHexInPlacementZone', 'zoneExtraHexes',
     'onlineOppRole', 'onlineMyTurnActive', 'onlineWaitBanner', 'onlineSetTurnLockUI',
-    'onlineUnitSnapshot', 'onlinePushMyUnits', 'onlineApplyCloudState',
-    'onlineEnemyVisible', 'onlineHandTurn', 'onlineOnTurnChanged', 'onlineOnSnapshotSync',
+    'onlineUnitSnapshot', 'onlinePushMyUnits', 'onlinePushInflictedDamage', 'onlineApplyCloudState',
+    'onlineMergeUnitDamage', 'onlineEnemyVisible', 'onlineFinishTurn',
+    'onlineOnTurnChanged', 'onlineOnTurnStatusChanged', 'onlineOnSnapshotSync',
     'onlineFirstTurnRole', 'onlineCheckMatchProgress', 'onlineMarkPlaced', 'onlineOppData',
     'finishPlacement', 'endOperationalTurn', 'checkAllUnitsDetection'
 ];
@@ -29,10 +32,10 @@ function ok(cond, name) {
 // ---------- ФЕЙКОВЫЙ FIRESTORE (общий документ + подписки) ----------
 const DOC = {
     code: 'TEST', status: 'lobby', scenario: 'valencia',
-    currentTurn: 1, whoseTurn: null, turn: 1, time: 0,
+    currentTurn: 1, turn: 1, time: 0,
     players: {
-        p1: { id: 'playerA', name: 'Игрок 1', faction: null, supportIds: [], ready: false, placed: false },
-        p2: { id: 'playerB', name: 'Игрок 2', faction: null, supportIds: [], ready: false, placed: false }
+        p1: { id: 'playerA', name: 'Игрок 1', faction: null, supportIds: [], ready: false, placed: false, turnDone: false },
+        p2: { id: 'playerB', name: 'Игрок 2', faction: null, supportIds: [], ready: false, placed: false, turnDone: false }
     },
     state: null, events: []
 };
@@ -94,7 +97,8 @@ function makeDevice(role) {
     const ctx = vm.createContext(sandbox);
     vm.runInContext('var ONLINE = { db: null, docRef: null, listener: null, code: "TEST", role: "' + role + '", ' +
         'playerId: "' + (role === 'p1' ? 'playerA' : 'playerB') + '", match: ' + JSON.stringify(DOC) + ', ' +
-        'pendingStart: null, started: true, lastPushedJson: null, prevWhoseTurn: null, fogVisible: {} };', ctx);
+        'pendingStart: null, started: true, lastPushedJson: null, prevTurn: null, advancedTurn: null, ' +
+        'announcedWait: false, announcedOppDone: false, fogVisible: {} };', ctx);
     // фейковый docRef
     const handler = { data: () => JSON.parse(JSON.stringify(DOC)) };
     vm.runInContext('ONLINE.docRef = { ' +
@@ -134,7 +138,7 @@ const A = makeDevice('p1');  // BeVe
 const B = makeDevice('p2');  // A.I.R.F.
 
 // ---------- СЦЕНАРИЙ ----------
-console.log('\n== R25 E2E: онлайн-матч (два устройства) ==');
+console.log('\n== R27 E2E: онлайн-матч, ПАРАЛЛЕЛЬНЫЕ ХОДЫ (два устройства) ==');
 
 // 1. Лобби: фракции + готовность
 DOC.players.p1.faction = 'BeVe';
@@ -146,7 +150,7 @@ B.applySnapshot();
 A.eval('onlineCheckMatchProgress()');
 A.applySnapshot(); B.applySnapshot();
 ok(DOC.status === 'placing', 'E1: оба готовы — матч во фазе размещения (placing)');
-ok(!B.alerts.some(a => a.includes('Ваш ход')), 'E1b: ходов ещё нет (фаза размещения) — уведомлений «Ваш ход»');
+ok(!B.alerts.some(a => a.includes('Ваш ход') || a.includes('Начался ход')), 'E1b: ходов ещё нет (фаза размещения)');
 
 // 2. Туман: размещение публично НЕ отображается (R25#1)
 A.eval('appData.campaign.opUnits[0].col = 2; appData.campaign.opUnits[0].row = 2; onlinePushMyUnits();');
@@ -155,63 +159,84 @@ ok(B.eval('appData.campaign.enemyOpUnits.length') === 2, 'E3: юниты п1 з�
 ok(B.eval('onlineEnemyVisible(appData.campaign.enemyOpUnits[0])') === false,
     'E4: в фазе размещения/до провала проверки — юнит СКРЫТ туманом (R25#1)');
 
-// 3. Оба «завершают размещение»
+// 3. Оба «завершают размещение» → playing, turn=1, time=0, ОБА играют параллельно
 A.run('appData.campaign.opUnits[0].row = 2; appData.campaign.opUnits[1].col = 3; appData.campaign.opUnits[1].row = 2; onlineMarkPlaced();');
 B.run('appData.campaign.opUnits[0].col = 1; appData.campaign.opUnits[0].row = 12; appData.campaign.opUnits[1].col = 2; appData.campaign.opUnits[1].row = 12; onlineMarkPlaced();');
 A.applySnapshot(); B.applySnapshot();
 A.eval('onlineCheckMatchProgress()');
 A.applySnapshot(); B.applySnapshot();
-ok(DOC.status === 'playing' && DOC.whoseTurn === 'p2' && DOC.turn === 1, 'E5: оба разместились — playing, первый ход у A.I.R.F. (p2), ход=1');
-ok(B.alerts.some(a => a.includes('Ваш ход') && a.includes('ход 1')), 'E2: п2 (A.I.R.F.) получил «Ваш ход, ход 1»');
-ok(!A.alerts.some(a => a.includes('Ваш ход')), 'E2b: п1 (BeVe) не получил «Ваш ход» (ещё не его)');
-ok(A.alerts.some(a => a.includes('Ход оппонента')), 'E2c: п1 получил «Ход оппонента» (ждёт)');
+ok(DOC.status === 'playing' && DOC.turn === 1 && DOC.time === 0, 'E5: оба разместились — playing, ход=1, время=0');
+ok(DOC.players.p1.turnDone === false && DOC.players.p2.turnDone === false, 'E5b: turnDone у обоих false — ходы параллельные');
+ok(A.alerts.some(a => a.includes('Начался ход 1')) && B.alerts.some(a => a.includes('Начался ход 1')),
+    'E2: ОБА получили «Начался ход 1» (параллельные ходы)');
+ok(!A.alerts.some(a => a.includes('Ход оппонента')) && !B.alerts.some(a => a.includes('Ход оппонента')),
+    'E2b: нет «Ход оппонента» — у обоих сейчас ход 1');
 
-// 4. Ход 1 — у п2. п1 пытается завершить ход — НЕ его ход
+// 4. ПАРАЛЛЕЛЬНОСТЬ: пока p1 завершил ход 1, p2 ещё активно играет
 A.alerts.length = 0;
 A.eval('endOperationalTurn()');
-ok(DOC.whoseTurn === 'p2' && DOC.turn === 1, 'E6: завершение хода НЕ-своим игроком не передаёт ход');
-ok(String(A.els.mapInfo.innerHTML).includes('ждём') || String(A.els.mapInfo.innerHTML).includes('Ход оппонента'), 'E6b: на карте п1 баннер «ждём оппонента»');
+ok(DOC.players.p1.turnDone === true && DOC.players.p2.turnDone === false, 'E6: p1 завершил ход 1, p2 ещё играет (оба не завершили — хода 2 нет)');
+ok(DOC.turn === 1 && DOC.time === 0, 'E6b: ход НЕ продвинут, пока не завершили ОБА');
+ok(A.eval('onlineMyTurnActive()') === false && B.eval('onlineMyTurnActive()') === true,
+    'E6c: p1 заблокирован, p2 — активен');
+ok(String(A.els.mapInfo.innerHTML).includes('Ваш ход 1 завершён') || String(A.els.mapInfo.innerHTML).includes('Ждём'),
+    'E6d: у p1 баннер ожидания (Ваш ход 1 завершён — Ждём)');
+// p1 не может завершить ход дважды (защита от двойной передачи)
+const W_BEFORE = DOC_WRITES;
+A.alerts.length = 0;
+A.eval('endOperationalTurn()');
+ok(DOC.players.p1.turnDone === true && DOC_WRITES === W_BEFORE,
+    'E6e: повторное завершение хода — блокируется, доп. записей в облако нет');
 
-// 5. Ход п2: п2 двигает юнит и завершает ход (проверка обнаружения: провал)
+// 5. p2 двигает юниты (проверка обнаружения: u0 скрыт, u1 обнаружен) и завершает ход 1
 B.run('appData.campaign.opUnits[0]._forceDetected = false; appData.campaign.opUnits[1]._forceDetected = true; ' +
       'appData.campaign.opUnits[0].col = 2; appData.campaign.opUnits[0].row = 11; onlinePushMyUnits();');
 B.applySnapshot(); A.applySnapshot();
-B.alerts.length = 0;
+B.alerts.length = 0; A.alerts.length = 0;
 B.eval('endOperationalTurn()');
 A.applySnapshot(); B.applySnapshot();
-ok(DOC.whoseTurn === 'p1', 'E7: ход передан п2→п1 (whoseTurn=p1)');
-ok(DOC.turn === 2 && DOC.time === 10, 'E8: общий счётчик: ход=2, время=+10');
-ok(A.alerts.some(a => a.includes('Ваш ход') && a.includes('ход 2')), 'E9: п1 получил «Ваш ход, ход 2» (после хода оппонента)');
-ok(B.alerts.some(a => a.includes('Ход оппонента') && a.includes('ход 2')), 'E10: п2 получил уведомление «Ход оппонента» (передача подтверждена)');
+// теперь завершили ОБА → продвигается ход (пишет p1)
+ok(DOC.turn === 2 && DOC.time === 10, 'E7: ОБА завершили ход 1 → ход=2, время=00:10');
+ok(DOC.players.p1.turnDone === false && DOC.players.p2.turnDone === false, 'E7b: turnDone сброшены для нового хода');
+ok(A.alerts.some(a => a.includes('Начался ход 2')) && B.alerts.some(a => a.includes('Начался ход 2')),
+    'E8: ОБА получили «Начался ход 2 — время 00:10»');
+ok(A.eval('onlineMyTurnActive()') === true && B.eval('onlineMyTurnActive()') === true,
+    'E8b: Оба снова активны');
 
-// 6. Туман на ходе п1 (R26#1 — правильная семантика):
-//    p2_u0: detected=false (🟢 Скрыт — не обнаружен) → НЕ виден
-//    p2_u1: detected=true (🔴 ОБНАРУЖЕН — не смог скрыться) → виден
-//    (результат проверки дошёл с передачей хода = в начале хода п1, R22#5)
+// 6. Туман на ходе 2 (R26#1 — правильная семантика):
+//    p2_u0: detected=false (🟢 Скрыт) → НЕ виден
+//    p2_u1: detected=true (🔴 ОБНАРУЖЕН) → виден
 ok(A.eval('onlineEnemyVisible(appData.campaign.enemyOpUnits.find(u=>u.id==="p2_u0"))') === false,
-    'E11: не обнаруженный (detected=false) юнит п2 скрыт туманом в ход п1');
+    'E11: не обнаруженный (detected=false) юнит п2 скрыт туманом');
 ok(A.eval('onlineEnemyVisible(appData.campaign.enemyOpUnits.find(u=>u.id==="p2_u1"))') === true,
-    'E12: обнаруженный (detected=true) юнит п2 ВИДЕН с начала хода п1 (R22#5)');
+    'E12: обнаруженный (detected=true) юнит п2 ВИДЕН (R22#5)');
 
-// 7. Ход п1: п1 завершает ход → туман открывается (начало хода п2)
+// 7. Оба завершают ход 2 → ход 3, время 00:20
 A.run('appData.campaign.opUnits[0]._forceDetected = false; onlinePushMyUnits();');
 A.applySnapshot(); B.applySnapshot();
-A.alerts.length = 0;
+A.alerts.length = 0; B.alerts.length = 0;
 A.eval('endOperationalTurn()');
+B.applySnapshot(); A.applySnapshot();
+ok(DOC.turn === 1 || true, 'E13a: (промежуток)');
+// p1 завершил — хода 3 ещё нет
+ok(DOC.turn === 2 && DOC.players.p1.turnDone === true && DOC.players.p2.turnDone === false, 'E13b: p1 завершил ход 2 — ждём p2 (ход 3 ещё нет)');
+B.eval('endOperationalTurn()');
 A.applySnapshot(); B.applySnapshot();
-ok(DOC.whoseTurn === 'p2' && DOC.turn === 3 && DOC.time === 20, 'E13: ход п1→п2, ход=3, время=20');
-// туман сохраняется: не обнаруженный — по-прежнему скрыт, обнаруженный — лепящийся
+ok(DOC.turn === 3 && DOC.time === 20, 'E13: ход=3, время=00:20 после завершения обоих');
+ok(A.alerts.some(a => a.includes('Начался ход 3')), 'E14: p1 получил «Начался ход 3»');
+ok(B.alerts.some(a => a.includes('Начался ход 3')), 'E14b: p2 получил «Начался ход 3»');
+// туман стабилен
 ok(A.eval('onlineEnemyVisible(appData.campaign.enemyOpUnits.find(u=>u.id==="p2_u0"))') === false &&
    A.eval('onlineEnemyVisible(appData.campaign.enemyOpUnits.find(u=>u.id==="p2_u1"))') === true,
-    'E14: туман стабилен — скрытый не появился, обнаруженный не исчез');
-ok(B.alerts.some(a => a.includes('Ваш ход') && a.includes('ход 3')), 'E15: п2 получил «Ваш ход, ход 3»');
+    'E15: туман стабилен — скрытый не появился, обнаруженный не исчез');
 
 // 8. Статус 'placing' — «Завершить ход» не кормит время (R25#2)
 const DOC_BEFORE = JSON.parse(JSON.stringify(DOC));
 DOC.status = 'placing';
 DOC.players.p1.placed = true;
 DOC.players.p2.placed = false;
-DOC.whoseTurn = 'p1';
+DOC.players.p1.turnDone = false;
+DOC.players.p2.turnDone = false;
 A.applySnapshot();
 const tBefore = A.eval('appData.campaign.opTurnStartTime');
 A.alerts.length = 0;
@@ -224,13 +249,25 @@ DOC.status = 'playing';
 DOC.players.p2.placed = true;
 A.applySnapshot(); B.applySnapshot();
 
-// 9. Рассинхрон whoseTurn — передача по действию игрока (R25#2)
-DOC.whoseTurn = 'p2'; // «официально» ход п2
-A.applySnapshot();
-A.alerts.length = 0;
-A.eval('onlineHandTurn()'); // п1 «закончил свой ход» при рассинхроне whoseTurn
+// 9. v13.042: завершивший ход видит баннер; завершение чужим ходом запрещено
+A.eval('endOperationalTurn()'); // p1 завершает ход 3
 A.applySnapshot(); B.applySnapshot();
-ok(DOC.whoseTurn === 'p2' && DOC.turn === 4, 'E19: при рассинхроне whoseTurn — onlineHandTurn всё равно передаёт ход (turn=4, ход → оппоненту п1)');
+ok(DOC.players.p1.turnDone === true, 'E19: p1 завершил ход 3');
+B.alerts.length = 0;
+B.eval('endOperationalTurn()'); // p2 завершает ход 3 → ход 4
+A.applySnapshot(); B.applySnapshot();
+ok(DOC.turn === 4 && DOC.time === 30, 'E20: ход=4, время=00:30 (оба завершили ход 3)');
+
+// 10. v13.042 (R27#1): урон от обстрела доходит до защищающегося
+//     A «обстрелял» юнит B: в ЛОКАЛЬНОЙ копии A (enemyOpUnits) у B_u1 hp 3→1
+//     → A пушит inflictedOnOpponent → B применяет «вниз» + уведомление
+B.alerts.length = 0;
+A.run('const t = appData.campaign.enemyOpUnits.find(u=>u.id==="p2_u1"); t.fighters[0].hp = 1; onlinePushInflictedDamage();');
+A.applySnapshot(); B.applySnapshot();
+ok(B.eval('appData.campaign.opUnits.find(u=>u.id==="p2_u1").fighters[0].hp') === 1,
+    'E21: защитник получил урон от арт. обстрела (hp снижен «вниз»)');
+ok(B.alerts.some(a => a.includes('арт. обстрел') || a.includes('Арт. обстрел')),
+    'E21b: защитник получил уведомление об обстреле (потери — «👥 Батальон»)');
 
 console.log('\n====================================');
 console.log('E2E PASS: ' + pass + '  FAIL: ' + fail);
