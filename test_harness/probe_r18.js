@@ -17,7 +17,7 @@ const FNS = [
     'onlineOppRole', 'onlineMyTurnActive', 'onlineWaitBanner', 'onlineSetTurnLockUI',
     'onlineUnitSnapshot', 'onlinePushMyUnits', 'onlineApplyCloudState',
     'onlineEnemyVisible', 'onlineFinishTurn', 'onlineOnTurnChanged', 'onlineOnTurnStatusChanged',
-          'onlineMergeUnitDamage', 'onlinePushInflictedDamage', 'onlineOnSnapshotSync',
+          'onlineMergeUnitDamage', 'onlinePushInflictedDamage', 'onlineScheduleInflictedPush', 'onlineOnSnapshotSync',
     'endOperationalTurn', 'updateActiveCardsBattle', 'syncFactionCatalogs', 'getDefaultData',
     'openOnlineMenu', 'onlineDiagnostics', 'onlineFirebaseReady', 'onlineCreateRoom', 'onlineJoinRoom',
     'onlineBody', 'onlineGoToCampaign', 'closeOnlineModal', 'onlineShowJoin',
@@ -765,9 +765,38 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.042'"), 'U9q: константа версии v13.042');
+    ok(HTML.includes("var APP_VERSION = 'v13.043'"), 'U9q: константа версии v13.043');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
+
+    // U11: v13.043 (R28) — урон ЛЮБОЙ стрельбы: распределение по бойцам
+    //    + доставка до защитника (онлайн); САУ = 1d10
+    //    (в песочнице applyDamageToOpUnit — СТАБ; реальный код вводим
+    //     под алиасом, не ломая остальные тесты)
+    const realAdmSrc = sliceFunction(HTML, 'applyDamageToOpUnit')
+        .replace('function applyDamageToOpUnit', 'function realApplyDamageToOpUnit');
+    s.run(realAdmSrc);
+    // let __inflictedPushScheduled живёт в ТОПЕ index.html (вне функции) —
+    // в песочнице объявляем явно
+    s.run('var __inflictedPushScheduled = false;');
+    s.run('appData.campaign.enemyOpUnits = [{ id: "eX", name: "Враг-X", col: 5, row: 5, isDestroyed: false, ' +
+          'squads: [{ name: "Отр", fighters: [{ name: "В1", hp: 3, maxHp: 3 }, { name: "В2", hp: 3, maxHp: 3 }] }] }];');
+    // одиночная игра — враг неуязвим (урон только в лог)
+    s.run('appData.campaign.online = null; realApplyDamageToOpUnit(appData.campaign.enemyOpUnits[0], 2);');
+    ok(s.evalCtx('appData.campaign.enemyOpUnits[0].squads[0].fighters.reduce((a, f) => a + f.hp, 0)') === 6,
+        'U11a: одиночная игра — враг неуязвим (урон в лог, как и раньше)');
+    // онлайн — урон применяется к локальной копии врага (распределён по бойцам)
+    s.run('appData.campaign.online = { code: "ABCD", role: "p1", playerId: "t" }; ONLINE.match.status = "playing";');
+    s.run('__updates.length = 0; realApplyDamageToOpUnit(appData.campaign.enemyOpUnits[0], 2);');
+    ok(s.evalCtx('appData.campaign.enemyOpUnits[0].squads[0].fighters.reduce((a, f) => a + f.hp, 0)') === 4,
+        'U11b: онлайн — враг получает РЕАЛЬНЫЙ урон, распределённый по бойцам (hp 6→4)');
+    ok(s.evalCtx('__updates.some(u => u["state.p1.inflictedOnOpponent"])') === true,
+        'U11c: онлайн — снимок потерь отправлен защитнику (state.p1.inflictedOnOpponent, батч)');
+    // v13.043 (R28#2): САУ — 1d10 (было 2d6); миномётная батарея — 1d6
+    ok(HTML.includes("isSau ? '1d10' : '1d6'"), 'U11d: приказ «обстрел» — САУ бьёт 1d10 (было 2d6)');
+    ok(HTML.includes("dmgPerHit === '1d10' ? rollD10()"), 'U11e: executeMortarSalvo умеет 1d10');
+    ok(HTML.includes("executeMortarSalvo(unit, [nearest.unit], nearest.dist, 15, '1d6')"),
+        'U11f: автоогонь миномётной батареи — по-прежнему 1d6/попадание');
 }
 
 console.log('\n====================================');

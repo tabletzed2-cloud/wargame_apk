@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.042 — операция</title>
+  <title>Боевой модуль v13.043 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -13,7 +13,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.042</h1>
+    <h1>⚔️ Боевой модуль v13.043</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -27,7 +27,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041: версия + принудительное обновление (старый кэш сервис-воркера) -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.042</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.043</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
   </div>
@@ -58,7 +58,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.042 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.043 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -269,7 +269,7 @@ function safeLocalStorage(method, ...args) {
     }    
 // ⚡ v13.041: текущая версия — отображается в меню/шапке/диагностике,
 //    чтобы игрок видел, свежая ли версия на его устройстве
-var APP_VERSION = 'v13.042';
+var APP_VERSION = 'v13.043';
 
 let selectedFaction = null;
 let selectedSubFaction = null; // 'belgian', 'dutch' или null
@@ -11968,7 +11968,9 @@ function getNearestOpUnit(units, col, row) {
 // ⚡ v13.019: серия средней артиллерии (миномётная батарея / САУ):
 //    N выстрелов, каждый попадает с 50%.
 // ⚡ v13.042 (R27#3): миномётная батарея — каждое попадание = 1d6
-//    (было 2d6). САУ — остаётся 2d6 (у неё меньше выстрелов: 7 на машину).
+//    (было 2d6).
+// ⚡ v13.043 (R28#2): САУ — каждое попадание = 1d10 (было 2d6; у неё
+//    меньше выстрелов: 7 на машину).
 //    Общий код для приказа «обстрел» и автоматического огня миномётов.
 function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
     const aliveFirst = enemies.filter(e => !e.isDestroyed);
@@ -11980,7 +11982,7 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
         if (alive.length === 0) break;
         if (Math.random() < 0.5) {
             hits++;
-            const dmg = dmgPerHit === '1d6' ? rollD6() : (rollD6() + rollD6()); // 1d6 или 2d6
+            const dmg = dmgPerHit === '1d6' ? rollD6() : (dmgPerHit === '1d10' ? rollD10() : (rollD6() + rollD6())); // 1d6 / 1d10 / 2d6
             const victim = alive[Math.floor(Math.random() * alive.length)];
             const result = applyDamageToOpUnit(victim, dmg);
             totalSalvoDamage += result.damage;
@@ -12154,7 +12156,7 @@ function executeShootOrder(unit, order) {
     // ⚡ v13.019: Количество выстрелов за ход: миномёт 82-мм — 15,
     //    каждая САУ — 7 (приказ «обстрел» бьёт с КАЖДОЙ машины отряда).
     // Каждый снаряд попадает с вероятностью 50%.
-    // ⚡ v13.042 (R27#3): миномёт — попадание 1d6, САУ — 2d6 (не менялось).
+    // ⚡ v13.042 (R27#3): миномёт — попадание 1d6. ⚡ v13.043 (R28#2): САУ — 1d10.
     if (isMediumArt) {
         const isSau = (unit.type === 'sau_battery') ||
                       (unit.name && /САУ/i.test(unit.name));
@@ -12166,7 +12168,7 @@ function executeShootOrder(unit, order) {
                 : 1;
             ROUNDS = 7 * Math.max(1, vehicleCount);
         }
-        executeMortarSalvo(unit, enemies, distance, ROUNDS, isSau ? '2d6' : '1d6');
+        executeMortarSalvo(unit, enemies, distance, ROUNDS, isSau ? '1d10' : '1d6');
 
         // ⚡ ВОССТАНАВЛИВАЕМ ОД
         unit.ap = savedAP;
@@ -16656,14 +16658,17 @@ function calculateOpShootDamage(shooter, target, distance) {
 function applyDamageToOpUnit(unit, damage) {
     if (!unit || damage <= 0) return { damage: 0, killed: 0 };
 
-    // ⚡ ВРЕМЕННО (до внедрения системы урона отряда противника):
-    //    отряды противника НЕУЯЗВИМЫ — урон в ЛОГЕ показывается
-    //    (насколько попал бы), но НЕ применяется: hp не меняется,
-    //    отряды не уничтожаются.
-    //    (система реального урона будет добавлена позже —
-    //     для этого достаточно удалить этот блок)
-    if (appData.campaign && appData.campaign.enemyOpUnits &&
-        appData.campaign.enemyOpUnits.includes(unit)) {
+    // ⚡ v13.043 (R28#1): урон распределяется по бойцам ЛЮБОЙ стрельбой.
+    //    ОДИНОЧНАЯ игра — отряды противника НЕУЯЗВИМЫ (урон только в ЛОГ,
+    //    как и раньше). ОНЛАЙН — урон ПРИМЕНЯЕТСЯ к локальной копии врага
+    //    (случайные отряды/бойцы) и ДОХОДИТ до защитника через
+    //    inflictedOnOpponent (потери видны в его вкладке «Батальон»).
+    const isEnemyUnit = !!(appData.campaign && appData.campaign.enemyOpUnits &&
+        appData.campaign.enemyOpUnits.includes(unit));
+    const isOnline = !!(appData.campaign && appData.campaign.online &&
+        typeof ONLINE !== 'undefined' && ONLINE && ONLINE.started &&
+        ONLINE.match && (ONLINE.match.status === 'playing' || ONLINE.match.status === 'placing'));
+    if (isEnemyUnit && !isOnline) {
         return { damage: damage, killed: 0 };
     }
 
@@ -16741,6 +16746,13 @@ function applyDamageToOpUnit(unit, damage) {
         unit.isDestroyed = true;
         unit.hidden = true;
         log(`☠️ ${unit.name} полностью уничтожен!`);
+    }
+
+    // ⚡ v13.043 (R28#1): онлайн — урон врагу нанесён реально: отправляем
+    //    защитнику снимок потерь (батчинг: вся серия выстрелов — один пуш)
+    if (isEnemyUnit && isOnline && damage - remainingDamage > 0 &&
+        typeof onlineScheduleInflictedPush === 'function') {
+        onlineScheduleInflictedPush();
     }
 
     saveData();
@@ -17025,6 +17037,9 @@ function executeOpShootAt(targets, distance) {
     let penetrations = 0;
     let destroyedUnits = [];
     let hitDetails = [];
+    // ⚡ v13.043 (R28#1): урон вражеской технике нанесён реально →
+    //    отправим защитнику (потери дойдут в его «Батальон»)
+    let enemyDamaged = false;
     
     for (let target of armorTargets) {
         console.log(`🎯 Обстрел цели: ${target.name}${target.isGroup ? ' (группа, ' + (target.vehicleList ? target.vehicleList.length : 0) + ' машин)' : ''}`);
@@ -17137,6 +17152,10 @@ function executeOpShootAt(targets, distance) {
     } 
                 // ⚡ ОБРАБАТЫВАЕМ ПОПАДАНИЕ
                 const result = processVehicleHit(targetVehicle, location, penetration, armorValue, shooter.name);
+                // ⚡ v13.043 (R28#1): реальный урон модулям/расчёту → защитник узнает
+                if (result.result !== 'ricochet' && result.result !== 'no_penetration') {
+                    enemyDamaged = true;
+                }
                 
                 // ⚡ СОХРАНЯЕМ ДЕТАЛИ
                 hitDetails.push({
@@ -17190,7 +17209,15 @@ function executeOpShootAt(targets, distance) {
                     
                     checkVehicleRadioAfterLoss(targetVehicle);
                 } else if (result.result === 'immobilized') {
-                    if (target.isGroup) {
+                    // ⚡ v13.043 (R28#1): онлайн — НЕ разбираем группу врага
+                    //    локально (защитник это не увидит; машина остаётся в
+                    //    его отряде с модулем «Ходовая: уничтожено»): просто
+                    //    маркируем — снимок уйдёт через inflictedOnOpponent
+                    const _onlineNow = (typeof ONLINE !== 'undefined' && ONLINE && ONLINE.started &&
+                        ONLINE.match && (ONLINE.match.status === 'playing' || ONLINE.match.status === 'placing'));
+                    if (_onlineNow) {
+                        targetVehicle.isImmobilized = true;
+                    } else if (target.isGroup) {
                         removeImmobilizedVehicleFromGroup(target, targetVehicle);
                     } else {
                         target.isImmobilized = true;
@@ -17202,12 +17229,22 @@ function executeOpShootAt(targets, distance) {
     
     // Удаляем полностью уничтоженные юниты
     if (destroyedUnits.length > 0) {
+        // ⚡ v13.043 (R28#1): онлайн — НЕ удаляем юнит из локального списка
+        //    (маркер isDestroyed уйдёт защитнику, а облако — источник истины)
+        const _onlineNow2 = (typeof ONLINE !== 'undefined' && ONLINE && ONLINE.started &&
+            ONLINE.match && (ONLINE.match.status === 'playing' || ONLINE.match.status === 'placing'));
         destroyedUnits.forEach(unit => {
+            if (_onlineNow2) return;
             const idx = (appData.campaign.enemyOpUnits || []).indexOf(unit);
             if (idx !== -1) {
                 appData.campaign.enemyOpUnits.splice(idx, 1);
             }
         });
+    }
+    
+    // ⚡ v13.043 (R28#1): онлайн — потери по технике доходят до защитника
+    if (enemyDamaged && typeof onlineScheduleInflictedPush === 'function') {
+        onlineScheduleInflictedPush();
     }
     
     // ⚡ ВОССТАНАВЛИВАЕМ ОД
@@ -20486,6 +20523,19 @@ function onlinePushInflictedDamage() {
         .catch(e => console.warn('onlinePushInflictedDamage:', e.message));
 }
 
+// ⚡ v13.043 (R28#1): БАТЧИНГ пуша потерь — за один ход стрельбы/автоогня
+//    (десяток выстрелов подряд) защищающемуся отправляется ОДИН снимок.
+let __inflictedPushScheduled = false;
+function onlineScheduleInflictedPush() {
+    if (typeof ONLINE === 'undefined' || !ONLINE || !ONLINE.docRef) return;
+    if (__inflictedPushScheduled) return;
+    __inflictedPushScheduled = true;
+    setTimeout(() => {
+        __inflictedPushScheduled = false;
+        try { onlinePushInflictedDamage(); } catch (e) { console.warn('onlinePushInflictedDamage:', e.message); }
+    }, 0);
+}
+
 // ⚡ v13.042 (R27#1): слияние УРОНА из облака в мой юнит — только «вниз»
 //    (hp уменьшается, isDestroyed/modules — липкие; позиции НЕ трогаем).
 //    Возвращает true, если юнит изменился.
@@ -20514,6 +20564,9 @@ function onlineMergeUnitDamage(u, c) {
             if (cv) {
                 if (cv.isDestroyed && !(v.isDestroyed && v.destroyed)) {
                     v.isDestroyed = true; v.destroyed = true; changed = true;
+                }
+                if (cv.isImmobilized && !v.isImmobilized) {
+                    v.isImmobilized = true; changed = true;
                 }
                 if (Array.isArray(cv.fighters)) mergeFighters(v.fighters, cv.fighters);
                 if (cv.squads) {
@@ -20616,12 +20669,14 @@ function onlineApplyCloudState() {
             if (onlineMergeUnitDamage(u, c)) damaged.push(u.name || '?');
         });
         if (damaged.length > 0) {
-            const msg = '💥 Вы подверглись арт. обстрелу! Пострадали: ' + damaged.join(', ') +
+            // ⚡ v13.043 (R28#1): урон может быть от ЛЮБОЙ стрельбы
+            //    (обстрел, автоогонь, огонь на ходу, ПТО) — текст общий
+            const msg = '💥 Ваш(и) юнит(ы) получили урон в бою! Пострадали: ' + damaged.join(', ') +
                 '. Потери по бойцам — во вкладке «👥 Батальон».';
             log(msg);
             try { alert(msg); } catch (e) { /* WebView без alert */ }
             const miDmg = document.getElementById('mapInfo');
-            if (miDmg) { miDmg.innerHTML = '💥 Арт. обстрел! Пострадали: ' + damaged.join(', ') + ' (потери — «👥 Батальон»).'; miDmg.style.color = '#e74c3c'; }
+            if (miDmg) { miDmg.innerHTML = '💥 Урон в бою! Пострадали: ' + damaged.join(', ') + ' (потери — «👥 Батальон»).'; miDmg.style.color = '#e74c3c'; }
         }
     }
 

@@ -15,10 +15,10 @@ const FNS = [
     'isStaticOpUnit', 'getOpHexDistance', 'pointInPolygon', 'isHexInPlacementZone', 'zoneExtraHexes',
     'onlineOppRole', 'onlineMyTurnActive', 'onlineWaitBanner', 'onlineSetTurnLockUI',
     'onlineUnitSnapshot', 'onlinePushMyUnits', 'onlinePushInflictedDamage', 'onlineApplyCloudState',
-    'onlineMergeUnitDamage', 'onlineEnemyVisible', 'onlineFinishTurn',
+    'onlineMergeUnitDamage', 'onlineScheduleInflictedPush', 'onlineEnemyVisible', 'onlineFinishTurn',
     'onlineOnTurnChanged', 'onlineOnTurnStatusChanged', 'onlineOnSnapshotSync',
     'onlineFirstTurnRole', 'onlineCheckMatchProgress', 'onlineMarkPlaced', 'onlineOppData',
-    'finishPlacement', 'endOperationalTurn', 'checkAllUnitsDetection'
+    'finishPlacement', 'endOperationalTurn', 'checkAllUnitsDetection', 'applyDamageToOpUnit'
 ];
 fs.writeFileSync('/tmp/wg_part.js', FNS.map(f => sliceFunction(HTML, f)).join('\n\n'));
 
@@ -73,7 +73,7 @@ function makeDevice(role) {
         confirm: () => true,
         log: () => {},
         saveData: () => {},
-        setTimeout: () => 0,
+        setTimeout: (fn) => { try { fn(); } catch (e) {} return 0; },
         // стабы прямых зависимостей endOperationalTurn
         hardMode: { enabled: false },
         opMoveAnim: { playing: false },
@@ -98,7 +98,7 @@ function makeDevice(role) {
     vm.runInContext('var ONLINE = { db: null, docRef: null, listener: null, code: "TEST", role: "' + role + '", ' +
         'playerId: "' + (role === 'p1' ? 'playerA' : 'playerB') + '", match: ' + JSON.stringify(DOC) + ', ' +
         'pendingStart: null, started: true, lastPushedJson: null, prevTurn: null, advancedTurn: null, ' +
-        'announcedWait: false, announcedOppDone: false, fogVisible: {} };', ctx);
+        'announcedWait: false, announcedOppDone: false, fogVisible: {} }; var __inflictedPushScheduled = false;', ctx);
     // фейковый docRef
     const handler = { data: () => JSON.parse(JSON.stringify(DOC)) };
     vm.runInContext('ONLINE.docRef = { ' +
@@ -266,8 +266,21 @@ A.run('const t = appData.campaign.enemyOpUnits.find(u=>u.id==="p2_u1"); t.fighte
 A.applySnapshot(); B.applySnapshot();
 ok(B.eval('appData.campaign.opUnits.find(u=>u.id==="p2_u1").fighters[0].hp') === 1,
     'E21: защитник получил урон от арт. обстрела (hp снижен «вниз»)');
-ok(B.alerts.some(a => a.includes('арт. обстрел') || a.includes('Арт. обстрел')),
-    'E21b: защитник получил уведомление об обстреле (потери — «👥 Батальон»)');
+ok(B.alerts.some(a => a.includes('получили урон в бою')),
+    'E21b: защитник получил уведомление об уроне (потери — «👥 Батальон»)');
+
+// 11. v13.043 (R28#1): урон ЛЮБОЙ стрельбы (applyDamageToOpUnit) доходит
+//     до защитника: A «стреляет» в B_u0 — у B бойцы получают реальный урон
+B.run('const b0 = appData.campaign.opUnits.find(u=>u.id==="p2_u0"); ' +
+      'b0.squads = [{ name: "Отр-0", fighters: [{ name: "Б0a", hp: 3, maxHp: 3 }, { name: "Б0b", hp: 3, maxHp: 3 }] }]; ' +
+      'b0.fighters = b0.squads[0].fighters; onlinePushMyUnits();');
+A.applySnapshot(); B.applySnapshot();
+B.alerts.length = 0;
+A.run('applyDamageToOpUnit(appData.campaign.enemyOpUnits.find(u=>u.id==="p2_u0"), 2);');
+ok(B.eval('appData.campaign.opUnits.find(u=>u.id==="p2_u0").squads[0].fighters.reduce((a,f)=>a+f.hp,0)') === 4,
+    'E22: автоогонь/стрельба — урон бойцам защитника применён «вниз» (hp 6→4)');
+ok(B.alerts.some(a => a.includes('получили урон в бою')),
+    'E22b: защитник уведомлён (батч-пуш одного снимка на серию выстрелов)');
 
 console.log('\n====================================');
 console.log('E2E PASS: ' + pass + '  FAIL: ' + fail);
