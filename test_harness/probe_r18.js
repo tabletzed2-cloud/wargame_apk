@@ -28,7 +28,10 @@ const FNS = [
     'opLineOfSightBlocked', 'unitCanBeDetected', 'artilleryCaliberMm', 'dotEmbrasureHp', 'dotEmbrasureDestroyed',
     'getRelayCompanyForOrder', 'findParentCompany', 'checkCommunication', 'hasRadio', 'hasPhoneLine', 'isInRadioRange',
     'renderAwardsReference', 'executeMortarSalvo', 'finishPlacement',
-    'updateAssemblySupportCheck', 'orderShouldExecuteNow', 'executeOrder', 'executeDigInOrder', 'rollD12'
+    'updateAssemblySupportCheck', 'orderShouldExecuteNow', 'executeOrder', 'executeDigInOrder', 'rollD12',
+    // ⚡ v13.047 (R32): миномёты/ДОТ, залп ∝ живому составу, авто. винтовка = 2
+    'isMortarUnit', 'mortarRoundsForUnit', 'unitAutoFire', 'canUnitShoot',
+    'isMediumArtillery', 'getNearestOpUnit', 'isArmoredUnit'
 ];
 
 let pass = 0, fail = 0;
@@ -769,7 +772,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.046'"), 'U9q: константа версии v13.046');
+    ok(HTML.includes("var APP_VERSION = 'v13.047'"), 'U9q: константа версии v13.047');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -894,12 +897,12 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     ok(s.evalCtx('artilleryCaliberMm({ name: "Батарея 82-мм миномётов", type: "mortar_battery" })') === 82, 'U14j: 82-мм миномёт → 82мм');
     ok(s.evalCtx('artilleryCaliberMm({ name: "Миномётный расчёт 50-мм №1" })') === 50, 'U14k: 50-мм миномёт → 50мм');
     ok(s.evalCtx('artilleryCaliberMm(null)') === 105, 'U14l: приказ «Арт. обстрел» — полковая арт. (>70мм)');
-    s.run('var dotU = { name: "ДОТ Bosh", type: "dots", col: 7, row: 3, isDestroyed: false, squads: [{ name: "Расчёт", fighters: [{ name: "Расчётный", weapon: "ПТО", hp: 3, maxHp: 3 }], crewInstances: [] }] };');
-    setRandom(s, Array(30).fill(0.1)); // 15 снарядов × 2 randoma (попадание + выбор жертвы)
+    s.run('var dotU = { name: "ДОТ Bosh", type: "dots", col: 7, row: 3, isDestroyed: false, embrasureHp: 3, squads: [{ name: "Расчёт", fighters: [{ name: "Расчётный", weapon: "ПТО", hp: 3, maxHp: 3 }], crewInstances: [] }] };');
+    setRandom(s, Array(30).fill(0.1)); // случайности НЕ расходуются — залп блокируется раньше
     s.run('executeMortarSalvo({ name: "Батарея 82-мм миномётов", type: "mortar_battery", col: 4, row: 3 }, [dotU], 3, 15, "1d6");');
-    ok(s.evalCtx('dotU.embrasureHp') <= 0, 'U14m: 82-мм — амбразура ДОТ разрушена');
+    ok(s.evalCtx('dotU.embrasureHp') === 3, 'U14m (R32): 82-мм миномёт — ДОТ не повреждён (миномёты не бьют ДОТ)');
     ok(s.evalCtx('dotU.squads[0].fighters[0].hp') === 3, 'U14n: расчёт ДОТ урона НЕ получил');
-    ok(s.evalCtx('dotEmbrasureDestroyed(dotU)') === true, 'U14o: амбразура разрушена — орудие ДОТ не стреляет');
+    ok(s.evalCtx('dotEmbrasureDestroyed(dotU)') === false, 'U14o (R32): амбразура цела — орудие ДОТ продолжает стрелять');
     s.run('var dotU2 = { name: "ДОТ Van Hees", type: "dots", col: 7, row: 3, isDestroyed: false, embrasureHp: 3, squads: [{ name: "Расчёт", fighters: [{ name: "Расчётный", weapon: "ПТО", hp: 3, maxHp: 3 }] }] };');
     setRandom(s, [0.1, 0.1, 0.1]);
     s.run('executeMortarSalvo({ name: "Миномётный расчёт 50-мм №1", type: "mortar_battery", col: 4, row: 3 }, [dotU2], 3, 3, "1d6");');
@@ -955,9 +958,50 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
        HTML.includes('const lostVehicles = unit.vehicleLosses || 0;'),
         'U14D: подбитые машины — потери в вкладке «Батальон»');
 
+    // ================= U15: v13.047 (R32) — миномёты/ДОТ, залп ∝ составу, автовинтовка = 2 =================
+    // #1: миномёты ЛЮБОГО калибра не бьют ДОТ; ствольные >70мм (САУ) — по-прежнему могут
+    ok(s.evalCtx('isMortarUnit({ name: "Батарея 82-мм миномётов", type: "mortar_battery" })') === true, 'U15a: 82-мм батарея — миномёт');
+    ok(s.evalCtx('isMortarUnit({ name: "Миномётный расчёт 50-мм №1", type: "mortar_battery" })') === true, 'U15b: 50-мм — тоже миномёт');
+    ok(s.evalCtx('isMortarUnit({ name: "Отряд САУ СУ-76", type: "sau_battery" })') === false, 'U15c: САУ — не миномёт');
+    ok(s.evalCtx('isMortarUnit(null)') === false, 'U15d: приказ «Арт. обстрел» (полковая) — не миномёт');
+    s.run('var dotU3 = { name: "ДОТ Van Hees", type: "dots", col: 7, row: 3, isDestroyed: false, squads: [{ name: "Расчёт", fighters: [{ name: "Расчётный", weapon: "ПТО", hp: 3, maxHp: 3 }] }] };');
+    setRandom(s, Array(30).fill(0.1)); // 15 снарядов × 2 randoma (попадание + выбор жертвы)
+    s.run('executeMortarSalvo({ name: "Отряд САУ СУ-76", type: "sau_battery", col: 4, row: 3 }, [dotU3], 3, 15, "1d10");');
+    ok(s.evalCtx('dotU3.embrasureHp') <= 0, 'U15e: САУ 75мм (>70) — амбразура ДОТ разрушена');
+    ok(s.evalCtx('dotU3.squads[0].fighters[0].hp') === 3, 'U15f: расчёт ДОТ урона НЕ получил (САУ)');
+    // #3: залп батареи миномётов — пропорционален % живого личного состава
+    s.run('var mkF = (n, aliveN) => Array.from({length: n}, (_, i) => ({ name: "Ф" + i, weapon: "Миномёт 82-мм", hp: (i < aliveN ? 3 : 0), maxHp: 3 }));');
+    s.run('var mFull = { name: "Батарея 82-мм миномётов", type: "mortar_battery", col: 0, row: 0, ap: 4, squads: [{ name: "Р1", fighters: mkF(8, 8) }] };');
+    s.run('var mHalf = { name: "Батарея 82-мм миномётов", type: "mortar_battery", col: 0, row: 0, ap: 4, squads: [{ name: "Р1", fighters: mkF(8, 4) }] };');
+    s.run('var mOne = { name: "Батарея 82-мм миномётов", type: "mortar_battery", col: 0, row: 0, ap: 4, squads: [{ name: "Р1", fighters: mkF(8, 1) }] };');
+    s.run('var mDead = { name: "Батарея 82-мм миномётов", type: "mortar_battery", col: 0, row: 0, ap: 4, squads: [{ name: "Р1", fighters: mkF(8, 0) }] };');
+    ok(s.evalCtx('mortarRoundsForUnit(mFull, 15)') === 15, 'U15g: полный состав 8/8 — 15 выстрелов');
+    ok(s.evalCtx('mortarRoundsForUnit(mHalf, 15)') === 8, 'U15h: состав 4/8 — 8 выстрелов (round(15×0.5))');
+    ok(s.evalCtx('mortarRoundsForUnit(mOne, 15)') === 2, 'U15i: состав 1/8 — 2 выстрела (round(15/8))');
+    ok(s.evalCtx('mortarRoundsForUnit(mDead, 15)') === 1, 'U15j: живых нет — минимум 1 выстрел');
+    ok(s.evalCtx('mortarRoundsForUnit({ name: "Батарея" }, 15)') === 15, 'U15k: данных о расчёте нет — полный залп');
+    // E2E: автоогонь миномёта с составом 4/8 — «8 снарядов» в логе
+    s.run('appData.campaign.opUnits = [mHalf]; appData.campaign.enemyOpUnits = [{ name: "Вражеская секция", type: "infantry_platoon", col: 2, row: 0, detected: true, isDestroyed: false, squads: [{ name: "Секция", faction: "A.I.R.F.", fighters: Array.from({length: 8}, (_, i) => ({ name: "В" + i, weapon: "Винтовка", hp: 3, maxHp: 3 })) }] }];');
+    setRandom(s, Array(30).fill(0.1)); // 8 снарядов × 3 randoma (попадание + жертва + 1d6)
+    s.run('unitAutoFire(mHalf, 10);');
+    ok(s.logs.some(l => l.includes('обстреливает гекс') && l.includes('— 8 снарядов')),
+        'U15l: автоогонь миномёта (состав 4/8) — 8 снарядов (∝ живому составу)');
+    // #2: автоматическая винтовка = 2 очка выстрела (винтовка 1, РПМ 3, СПМ 10)
+    s.run('var avShooter = { name: "Секция тест", type: "infantry_platoon", col: 0, row: 0, ap: 4, isDestroyed: false, squads: [{ name: "Секция", faction: "BeVe", crewInstances: [], fighters: [ { name: "А1", weapon: "Автоматическая винтовка Johanson M1941", hp: 3, maxHp: 3 }, { name: "А2", weapon: "Винтовка FN model 24/30", hp: 3, maxHp: 3 }, { name: "А3", weapon: "Ручной пулемет FN model D", hp: 3, maxHp: 3 }, { name: "А4", weapon: "Станковый пулемет Schwarzlose", hp: 3, maxHp: 3 } ] }] };');
+    s.run('var avTarget = { name: "Вражеская секция", type: "infantry_platoon", col: 1, row: 0, isDestroyed: false, isInBattle: false, squads: [{ name: "Секция", faction: "A.I.R.F.", fighters: Array.from({length: 8}, (_, i) => ({ name: "В" + i, weapon: "Винтовка", hp: 3, maxHp: 3 })) }] };');
+    s.run('appData.campaign.opUnits = [avShooter]; appData.campaign.enemyOpUnits = [avTarget];');
+    s.run('opShootingState.shooter = avShooter; opShootingState.active = true; opShootingState.weaponType = "mg";');
+    setRandom(s, [0.5]); // randomFactor = 0.8 + 0.5×0.4 = 1.0
+    s.run('executeOpShoot([avTarget], 1);');
+    const avModal = s.logs.find(l => l.startsWith('[showShootResultModal]'));
+    ok(!!avModal && avModal.includes('base=16'), 'U15m: 4 вида оружия — база 16 очков (2+1+3+10)', avModal);
+    ok(!!avModal && avModal.includes('Автоматическая винтовка (2 ед.)'), 'U15n: автоматическая винтовка = 2 очка выстрела', avModal);
+    ok(!!avModal && avModal.includes('Винтовка (1 ед.)') && avModal.includes('Ручной пулемёт (3 ед.)') && avModal.includes('Станковый пулемёт (10 ед.)'),
+        'U15o: винтовка 1 / РПМ 3 / СПМ 10 — без изменений', avModal);
+
     ok(HTML.includes("dmgPerHit === '1d10' ? rollD10()"), 'U11e: executeMortarSalvo умеет 1d10');
-    ok(HTML.includes("executeMortarSalvo(unit, [nearest.unit], nearest.dist, 15, '1d6')"),
-        'U11f: автоогонь миномётной батареи — по-прежнему 1d6/попадание');
+    ok(HTML.includes("executeMortarSalvo(unit, [nearest.unit], nearest.dist, mortarRoundsForUnit(unit, 15), '1d6')"),
+        'U11f: автоогонь миномётной батареи — 1d6/попадание, залп ∝ живому составу (R32)');
 }
 
 console.log('\n====================================');

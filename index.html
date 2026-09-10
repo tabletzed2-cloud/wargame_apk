@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.046 — операция</title>
+  <title>Боевой модуль v13.047 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -13,7 +13,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.046</h1>
+    <h1>⚔️ Боевой модуль v13.047</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -27,7 +27,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041: версия + принудительное обновление (старый кэш сервис-воркера) -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.046</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.047</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
   </div>
@@ -58,7 +58,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.046 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.047 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -271,7 +271,7 @@ function safeLocalStorage(method, ...args) {
     }    
 // ⚡ v13.041: текущая версия — отображается в меню/шапке/диагностике,
 //    чтобы игрок видел, свежая ли версия на его устройстве
-var APP_VERSION = 'v13.046';
+var APP_VERSION = 'v13.047';
 
 let selectedFaction = null;
 let selectedSubFaction = null; // 'belgian' | 'dutch' | null — ⚡ v13.045 (R30): влияет на выбор карт в бою
@@ -12125,8 +12125,16 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
     if (aliveFirst.length === 0) return;
     // ⚡ v13.046 (R31#3): ДОТ — только артиллерия калибром >70мм; урон —
     //    ТОЛЬКО амбразуре (3 ед.), расчёт не получает урона
+    // ⚡ v13.047 (R32#1): миномёты ЛЮБОГО калибра (82-мм, 50-мм...) не могут
+    //    обстреливать ДОТ — только ствольные орудия >70мм
     const caliber = artilleryCaliberMm(unit);
     const hasDot = aliveFirst.some(e => isStaticOpUnit(e));
+    if (hasDot && isMortarUnit(unit)) {
+        log(`❌ ${unit.name}: миномёты любого калибра не могут обстреливать ДОТ.`);
+        const miM = document.getElementById('mapInfo');
+        if (miM) { miM.innerHTML = `❌ ${unit.name}: миномёты любого калибра не могут обстреливать ДОТ.`; miM.style.color = '#e67e22'; }
+        return;
+    }
     if (hasDot && caliber <= 70) {
         log(`❌ ${unit.name} (${caliber}мм): калибр не более 70мм — ДОТ не повреждается.`);
         const miDot = document.getElementById('mapInfo');
@@ -12231,11 +12239,12 @@ function unitAutoFire(unit, maxDist) {
 
     const savedAP = unit.ap;
     try {
-        // Миномётная батарея: 15 выстрелов по ближайшему врагу (попадание = 1d6)
+        // Миномётная батарея: выстрелы по ближайшему врагу (попадание = 1d6)
+        // ⚡ v13.047 (R32#3): число выстрелов — пропорционально живому составу
         if (isMortarBatt) {
             const nearest = getNearestOpUnit(enemies, unit.col, unit.row);
             if (!nearest) return false;
-            executeMortarSalvo(unit, [nearest.unit], nearest.dist, 15, '1d6');
+            executeMortarSalvo(unit, [nearest.unit], nearest.dist, mortarRoundsForUnit(unit, 15), '1d6');
             return true;
         }
         // ПТО: приоритет — ближайшая бронетехника
@@ -12333,7 +12342,8 @@ function executeShootOrder(unit, order) {
     if (isMediumArt) {
         const isSau = (unit.type === 'sau_battery') ||
                       (unit.name && /САУ/i.test(unit.name));
-        let ROUNDS = 15;
+        // ⚡ v13.047 (R32#3): миномётный залп — пропорционален живому составу
+        let ROUNDS = isMortarUnit(unit) ? mortarRoundsForUnit(unit, 15) : 15;
         if (isSau) {
             // ⚡ Отряд САУ: 7 выстрелов на КАЖДУЮ живую машину
             const vehicleCount = (unit.isGroup && unit.vehicleList)
@@ -16382,6 +16392,31 @@ function artilleryCaliberMm(unit) {
     return 0; // не артиллерия
 }
 
+// ⚡ v13.047 (R32#1): миномётная батарея (ЛЮБОГО калибра) — не может обстреливать
+//    ДОТ. Повредить амбразуру могут только ствольные орудия >70мм (САУ/артиллерия).
+function isMortarUnit(unit) {
+    if (!unit) return false; // приказ «Арт. обстрел» — полковая 105-мм пушка
+    if (unit.type === 'sau_battery') return false;
+    if (unit.name && /САУ/i.test(unit.name)) return false;
+    if (unit.type === 'mortar_battery') return true;
+    const n = String(unit.name || '');
+    return /миномет|миномёт/i.test(n);
+}
+
+// ⚡ v13.047 (R32#3): число выстрелов батареи миномётов — пропорционально
+//    проценту живого личного состава: полный расчёт — baseRounds выстрелов,
+//    потери сокращают залп (не менее 1 выстрела).
+function mortarRoundsForUnit(unit, baseRounds) {
+    let total = 0, alive = 0;
+    for (const sq of ((unit && unit.squads) || [])) {
+        const fs = (sq && sq.fighters) || [];
+        total += fs.length;
+        for (const f of fs) if (f && f.hp > 0) alive++;
+    }
+    if (total === 0) return baseRounds; // данных о расчёте нет — полный залп
+    return Math.max(1, Math.round((baseRounds * alive) / total));
+}
+
 // ⚡ v13.046 (R31#3): амбразура ДОТ (3 единицы). Урон расчёту НЕ наносится —
 //    только амбразуре; на 0 — орудие ДОТ не может стрелять.
 function dotEmbrasureHp(u) {
@@ -16622,7 +16657,7 @@ function executeOpShoot(targets, distance) {
                     } else if (wLower.includes('ручной пулемет') || wLower.includes('fn model d') || wLower.includes('zb.26') || wLower.includes('дп-27')) {
                         damage = 3;
                         label = 'Ручной пулемёт';
-                    } else if (wLower.includes('автоматическая винтовка') || wLower.includes('johnson') || wLower.includes('авс-36')) {
+                    } else if (wLower.includes('автоматическая винтовка') || wLower.includes('автомат. винтовка') || wLower.includes('johanson') || wLower.includes('johnson') || wLower.includes('авс-36')) { // ⚡ v13.047 (R32#2): авто. винтовка = 2 очка выстрела
                         damage = 2;
                         label = 'Автоматическая винтовка';
                     } else if (wLower.includes('винтовка') || wLower.includes('geweer') || wLower.includes('vz.24') || wLower.includes('fn model')) {
@@ -16866,7 +16901,7 @@ function calculateOpShootDamage(shooter, target, distance) {
                 } else if (wLower.includes('ручной пулемет') || wLower.includes('fn model d') || wLower.includes('zb.26') || wLower.includes('дп-27')) {
                     damage = 3;
                     label = 'Ручной пулемёт';
-                } else if (wLower.includes('автоматическая винтовка') || wLower.includes('johnson') || wLower.includes('авс-36')) {
+                } else if (wLower.includes('автоматическая винтовка') || wLower.includes('автомат. винтовка') || wLower.includes('johanson') || wLower.includes('johnson') || wLower.includes('авс-36')) { // ⚡ v13.047 (R32#2): авто. винтовка = 2 очка выстрела
                     damage = 2;
                     label = 'Автоматическая винтовка';
                 } else if (wLower.includes('винтовка') || wLower.includes('geweer') || wLower.includes('vz.24') || wLower.includes('fn model')) {

@@ -137,7 +137,7 @@ function createSandbox(appData) {
             return { damage: applied, killed };
         },
         showAtShootResultModal: (r) => { logs.push('[showAtShootResultModal] hits=' + (r.hits) + ' destroyed=' + (r.destroyed)); },
-        showShootResultModal: (r) => { logs.push('[showShootResultModal] damage=' + r.damage); },
+        showShootResultModal: (r) => { logs.push('[showShootResultModal] damage=' + r.damage + ' base=' + (r.totalBaseDamage === undefined ? '?' : r.totalBaseDamage) + ' | ' + (r.details || '')); },
         showShootNotification: () => {},
         opShootingState: { active: false, shooter: null, weaponType: null, targetHex: null },
         OP_MAP_COLS: 20,
@@ -158,7 +158,7 @@ function createSandbox(appData) {
     //    Math из Node-кода ловит Node-Math, а не подменяемый sandbox.Math
     vm.runInContext('function rollD6() { return Math.floor(Math.random() * 6) + 1; }\n' +
                     'function rollD10() { return Math.floor(Math.random() * 10) + 1; }\n' +
-                    'var APP_VERSION = "v13.046"; // дубль глобала из index.html (вне извлечения FNS)', ctx);
+                    'var APP_VERSION = "v13.047"; // дубль глобала из index.html (вне извлечения FNS)', ctx);
     // js-модули игры
     for (const f of ['js/weapons.js', 'js/data.js', 'js/cards.js', 'js/templates.js']) {
         vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
