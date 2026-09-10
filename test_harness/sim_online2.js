@@ -167,8 +167,8 @@ A.eval('onlineCheckMatchProgress()');
 A.applySnapshot(); B.applySnapshot();
 ok(DOC.status === 'playing' && DOC.turn === 1 && DOC.time === 0, 'E5: оба разместились — playing, ход=1, время=0');
 ok(DOC.players.p1.turnDone === false && DOC.players.p2.turnDone === false, 'E5b: turnDone у обоих false — ходы параллельные');
-ok(A.alerts.some(a => a.includes('Начался ход 1')) && B.alerts.some(a => a.includes('Начался ход 1')),
-    'E2: ОБА получили «Начался ход 1» (параллельные ходы)');
+ok(A.alerts.some(a => a.includes('Ваш ход. Ход 1')) && B.alerts.some(a => a.includes('Ваш ход. Ход 1')),
+    'E2: ОБА получили «Ваш ход. Ход 1» (R31#13, параллельные ходы)');
 ok(!A.alerts.some(a => a.includes('Ход оппонента')) && !B.alerts.some(a => a.includes('Ход оппонента')),
     'E2b: нет «Ход оппонента» — у обоих сейчас ход 1');
 
@@ -198,8 +198,8 @@ A.applySnapshot(); B.applySnapshot();
 // теперь завершили ОБА → продвигается ход (пишет p1)
 ok(DOC.turn === 2 && DOC.time === 10, 'E7: ОБА завершили ход 1 → ход=2, время=00:10');
 ok(DOC.players.p1.turnDone === false && DOC.players.p2.turnDone === false, 'E7b: turnDone сброшены для нового хода');
-ok(A.alerts.some(a => a.includes('Начался ход 2')) && B.alerts.some(a => a.includes('Начался ход 2')),
-    'E8: ОБА получили «Начался ход 2 — время 00:10»');
+ok(A.alerts.some(a => a.includes('Ваш ход. Ход 2')) && B.alerts.some(a => a.includes('Ваш ход. Ход 2')),
+    'E8: ОБА получили «Ваш ход. Ход 2, время 00:10» (R31#13)');
 ok(A.eval('onlineMyTurnActive()') === true && B.eval('onlineMyTurnActive()') === true,
     'E8b: Оба снова активны');
 
@@ -223,8 +223,8 @@ ok(DOC.turn === 2 && DOC.players.p1.turnDone === true && DOC.players.p2.turnDone
 B.eval('endOperationalTurn()');
 A.applySnapshot(); B.applySnapshot();
 ok(DOC.turn === 3 && DOC.time === 20, 'E13: ход=3, время=00:20 после завершения обоих');
-ok(A.alerts.some(a => a.includes('Начался ход 3')), 'E14: p1 получил «Начался ход 3»');
-ok(B.alerts.some(a => a.includes('Начался ход 3')), 'E14b: p2 получил «Начался ход 3»');
+ok(A.alerts.some(a => a.includes('Ваш ход. Ход 3')), 'E14: p1 получил «Ваш ход. Ход 3» (R31#13)');
+ok(B.alerts.some(a => a.includes('Ваш ход. Ход 3')), 'E14b: p2 получил «Ваш ход. Ход 3» (R31#13)');
 // туман стабилен
 ok(A.eval('onlineEnemyVisible(appData.campaign.enemyOpUnits.find(u=>u.id==="p2_u0"))') === false &&
    A.eval('onlineEnemyVisible(appData.campaign.enemyOpUnits.find(u=>u.id==="p2_u1"))') === true,

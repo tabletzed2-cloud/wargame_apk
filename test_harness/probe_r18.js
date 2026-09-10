@@ -25,6 +25,9 @@ const FNS = [
     'onlineAutoEnterPlacement', 'onlineFirstTurnRole',
     'showOperationalMap', 'setOpMapMode', 'renderTemplateSelection', 'selectFaction', 'selectSubFaction',
     'computeSubFactionFromSquads', 'getBattleCardContext', 'renderCardSelectionForBattle',
+    'opLineOfSightBlocked', 'unitCanBeDetected', 'artilleryCaliberMm', 'dotEmbrasureHp', 'dotEmbrasureDestroyed',
+    'getRelayCompanyForOrder', 'findParentCompany', 'checkCommunication', 'hasRadio', 'hasPhoneLine', 'isInRadioRange',
+    'renderAwardsReference', 'executeMortarSalvo', 'finishPlacement',
     'updateAssemblySupportCheck', 'orderShouldExecuteNow', 'executeOrder', 'executeDigInOrder', 'rollD12'
 ];
 
@@ -643,8 +646,8 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
           'appData.campaign.opUnits[0].ap = 0; appData.campaign.opUnits[0].maxAp = 4; ' +
           'appData.campaign.currentTime = 20; appData.campaign.currentTurn = 3;');
     s.run('alerts.length = 0; onlineOnTurnChanged();');
-    ok(s.alerts.some(a => a.indexOf('Начался ход 3') !== -1 && a.indexOf('00:20') !== -1 && a.indexOf('Ваш ход') !== -1),
-        'U7a: продвижение хода — уведомление «Начался ход 3 — 00:20. Ваш ход!» (оба игрока)');
+    ok(s.alerts.some(a => a.indexOf('Ваш ход. Ход 3, время 00:20') !== -1),
+        'U7a: продвижение хода — уведомление «Ваш ход. Ход 3, время 00:20» (R31#13)');
     ok(s.evalCtx('appData.campaign.opUnits[0].ap') === 4, 'U7b: ОД своих юнитов восстановлены в начале нового хода');
     // тот же номер хода — повторных алертов нет (dedup по prevTurn)
     s.run('alerts.length = 0; onlineOnTurnChanged();');
@@ -721,8 +724,8 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     // U9f: продвижение хода — алерт с номером хода и временем (оба игрока, R27#6)
     s.run('ONLINE.match.turn = 7; ONLINE.match.time = 60; ONLINE.prevTurn = 6;');
     s.run('alerts.length = 0; onlineOnTurnChanged();');
-    ok(s.alerts.some(a => a.includes('ход 7') && a.includes('01:00') && a.includes('Ваш ход')),
-        'U9f: продвижение хода — алерт «Начался ход 7 — 01:00. Ваш ход!»');
+    ok(s.alerts.some(a => a.includes('Ваш ход. Ход 7, время 01:00')),
+        'U9f: продвижение хода — алерт «Ваш ход. Ход 7, время 01:00» (R31#13)');
     // завершил свой ход — только баннер ожидания, алертов «Ваш ход» нет
     s.run('ONLINE.match.turn = 7; ONLINE.prevTurn = 7; ONLINE.announcedWait = false; ONLINE.announcedOppDone = false; ' +
           'ONLINE.match.players.p1.turnDone = true;');
@@ -766,7 +769,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.045'"), 'U9q: константа версии v13.045');
+    ok(HTML.includes("var APP_VERSION = 'v13.046'"), 'U9q: константа версии v13.046');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -862,6 +865,95 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U13h: большинство → подфракция большинства');
     ok(HTML.includes('subFaction: computeSubFactionFromSquads(playerSquads)'),
         'U13i: запись тактического боя сохраняет subFaction');
+
+    // U14: v13.046 (R31) — 14 пунктов
+    // #1: не стрелял и не двигался, ближайший враг >2 гексов — не обнаруживается
+    s.run('var uTest = { name: "U1", col: 3, row: 3, isDestroyed: false, movedThisTurn: false, firedThisTurn: false };');
+    s.run('appData.campaign.enemyOpUnits = [{ name: "V1", col: 6, row: 3, isDestroyed: false }];');
+    ok(s.evalCtx('unitCanBeDetected(uTest)') === false, 'U14a: не двигался/не стрелял, враг в 3 гексах → НЕ обнаруживается');
+    s.run('appData.campaign.enemyOpUnits = [{ name: "V1", col: 5, row: 3, isDestroyed: false }];');
+    ok(s.evalCtx('unitCanBeDetected(uTest)') === true, 'U14b: враг в 2 гексах → обнаружение возможно');
+    s.run('uTest.movedThisTurn = true; appData.campaign.enemyOpUnits = [{ name: "V1", col: 6, row: 3, isDestroyed: false }];');
+    ok(s.evalCtx('unitCanBeDetected(uTest)') === true, 'U14c: юнит двигался → обнаружение возможно даже далеко');
+    s.run('uTest.movedThisTurn = false; uTest.firedThisTurn = true;');
+    ok(s.evalCtx('unitCanBeDetected(uTest)') === true, 'U14d: юнит стрелял → обнаружение возможно');
+    s.run('uTest.firedThisTurn = false;');
+    // #14: холм/лес на линии видимости — вне зоны видимости
+    s.run('appData.campaign.opMapGrid = {};');
+    s.run('appData.campaign.opMapGrid["4,3"] = { types: ["hill"] };');
+    ok(s.evalCtx('opLineOfSightBlocked(3,3,5,3)') === true, 'U14e: холм между гексами — линия видимости перекрыта');
+    s.run('appData.campaign.enemyOpUnits = [{ name: "V1", col: 5, row: 3, isDestroyed: false }];');
+    ok(s.evalCtx('unitCanBeDetected(uTest)') === false, 'U14f: холм между юнитом и врагом → вне зоны видимости');
+    s.run('appData.campaign.opMapGrid["4,3"] = { types: ["forest"] };');
+    ok(s.evalCtx('opLineOfSightBlocked(3,3,5,3)') === true, 'U14g: лес тоже перекрывает линию видимости');
+    s.run('appData.campaign.opMapGrid["4,3"] = { types: ["grass"] };');
+    ok(s.evalCtx('opLineOfSightBlocked(3,3,5,3)') === false && s.evalCtx('unitCanBeDetected(uTest)') === true,
+        'U14h: открытая местность — линия видимости свободна');
+    ok(s.evalCtx('opLineOfSightBlocked(3,3,4,3)') === false, 'U14i: соседние гексы — перекрытия нет');
+    // #3: пехота не бьёт ДОТ; арт. >70мм — только амбразура, расчёт цел
+    ok(s.evalCtx('artilleryCaliberMm({ name: "Батарея 82-мм миномётов", type: "mortar_battery" })') === 82, 'U14j: 82-мм миномёт → 82мм');
+    ok(s.evalCtx('artilleryCaliberMm({ name: "Миномётный расчёт 50-мм №1" })') === 50, 'U14k: 50-мм миномёт → 50мм');
+    ok(s.evalCtx('artilleryCaliberMm(null)') === 105, 'U14l: приказ «Арт. обстрел» — полковая арт. (>70мм)');
+    s.run('var dotU = { name: "ДОТ Bosh", type: "dots", col: 7, row: 3, isDestroyed: false, squads: [{ name: "Расчёт", fighters: [{ name: "Расчётный", weapon: "ПТО", hp: 3, maxHp: 3 }], crewInstances: [] }] };');
+    setRandom(s, Array(30).fill(0.1)); // 15 снарядов × 2 randoma (попадание + выбор жертвы)
+    s.run('executeMortarSalvo({ name: "Батарея 82-мм миномётов", type: "mortar_battery", col: 4, row: 3 }, [dotU], 3, 15, "1d6");');
+    ok(s.evalCtx('dotU.embrasureHp') <= 0, 'U14m: 82-мм — амбразура ДОТ разрушена');
+    ok(s.evalCtx('dotU.squads[0].fighters[0].hp') === 3, 'U14n: расчёт ДОТ урона НЕ получил');
+    ok(s.evalCtx('dotEmbrasureDestroyed(dotU)') === true, 'U14o: амбразура разрушена — орудие ДОТ не стреляет');
+    s.run('var dotU2 = { name: "ДОТ Van Hees", type: "dots", col: 7, row: 3, isDestroyed: false, embrasureHp: 3, squads: [{ name: "Расчёт", fighters: [{ name: "Расчётный", weapon: "ПТО", hp: 3, maxHp: 3 }] }] };');
+    setRandom(s, [0.1, 0.1, 0.1]);
+    s.run('executeMortarSalvo({ name: "Миномётный расчёт 50-мм №1", type: "mortar_battery", col: 4, row: 3 }, [dotU2], 3, 3, "1d6");');
+    ok(s.evalCtx('dotU2.embrasureHp') === 3, 'U14p: 50-мм (≤70мм) — ДОТ не повреждается');
+    // #9b: ПТО по броне с 3 гексов — 5%
+    ok(HTML.includes('case 3: hitChance = 0.05'), 'U14q: ПТО по бронетехнике с 3 гексов — 5% (было 10%)');
+    // #2: враги на маршруте в тумане — не показываются
+    ok(HTML.includes("typeof onlineEnemyVisible === 'function' ? onlineEnemyVisible(e) : true"),
+        'U14r: приказ «выдвинуться» не раскрывает скрытых в тумане юнитов');
+    // #12: приказ ВСЕГДА через штаб роты
+    s.run('var hardMode = { enabled: true, hqUnitId: 0, messengers: { battalion: { total: 5, available: 5, active: [] }, companies: {} }, signalPlatoon: { radios: { assigned: [] }, phones: { assigned: [] } }, phoneLines: [] };');
+    s.run('appData.campaign.opUnits = [ { name: "Штаб Батальона", type: "battalion_hq", col: 0, row: 0 }, { name: "Штаб Роты А", type: "company_hq", col: 8, row: 8 }, { name: "1-й взвод", col: 1, row: 0 } ];');
+    const relayCo = s.evalCtx('getRelayCompanyForOrder(appData.campaign.opUnits[0], appData.campaign.opUnits[2])');
+    ok(relayCo && relayCo.name === 'Штаб Роты А', 'U14s: приказ взводу — через штаб роты (даже если штаб роты дальше)');
+    // #5: награды — только фракции игрока
+    s.run('appData.factions["A.I.R.F."] = { icon: "", cardLibrary: [{ name: "Карта АИРФ" }], awards: [{ name: "Награда АИРФ", criteria: "x", bonus: "y" }] };');
+    s.run('inStandaloneBattle = false; appData.currentBattleId = null; selectedFaction = null; appData.campaign.active = true; appData.campaign.battalions.player = { faction: "BeVe" };');
+    s.run('renderAwardsReference();');
+    const awardsHtmlR31 = s.elements.awardsReference.innerHTML;
+    ok(awardsHtmlR31.includes('BeVe') && !awardsHtmlR31.includes('Награда АИРФ'),
+        'U14t: вкладка «Награды» — только награды фракции игрока (BeVe)');
+    // #8: панель «добавление отрядов» скрыта в режиме сценария
+    s.run('inStandaloneBattle = false; selectedFaction = "BeVe"; renderTemplateSelection();');
+    ok(s.elements.standalonePrepPanel.style.display === 'none', 'U14u: сценарий — панель «добавить отряды в бой» скрыта');
+    s.run('inStandaloneBattle = true; renderTemplateSelection();');
+    ok(s.elements.standalonePrepPanel.style.display === 'block', 'U14v: одиночный бой — панель видна');
+    s.run('inStandaloneBattle = false;');
+    // #10: старт боя — гекс + отряды; возврат — фаза карт сохраняется
+    ok(HTML.includes('Гекс начала:'), 'U14w: старт тактического боя — показ гекса начала и вступивших отрядов');
+    ok(HTML.includes("if (!battle.cardsChosen && typeof openCardsTabForBattleStart === 'function')") &&
+       HTML.includes("if (!existingBattle.cardsChosen && typeof openCardsTabForBattleStart === 'function')"),
+        'U14x: возврат в бой — фаза выбора 3 карт не теряется');
+    // #11: надпись про копирование кода убрана
+    ok(!HTML.includes('Если копирование'), 'U14y: надпись «Если копирование кнопкой не сработало…» удалена');
+    // #13: уведомление «Ваш ход. Ход N, время»
+    ok(HTML.includes("const msg = 'Ваш ход. Ход ' + now + ', время ' + tStr + '.';") &&
+       HTML.includes('Ваш ход. Ход ${appData.campaign.currentTurn}, время'),
+        'U14z: уведомление начала хода — «Ваш ход. Ход N, время» (без «кто ходит / кого ждём»');
+    // #6: БТР с десантом — десант в бою
+    ok(HTML.includes('addEmbarkedUnits(playerUnits);') && HTML.includes('addEmbarkedUnits(enemyUnits);'),
+        'U14A: БТР с десантом — десант вступает в тактический бой');
+    // #7: юнит на БТР — размещение завершается
+    s.run('var placementLocked = false; setOpMapMode = function() {}; updateHardModeButtons = function() {};');
+    s.run('appData.campaign.online = null; appData.campaign.opUnits = [ { name: "БТР Llanero №1", col: 1, row: 1, isDestroyed: false }, { name: "2-й взвод", col: null, row: null, isDestroyed: false, embarkedInBtr: true, btrIds: [0] } ];');
+    s.run('finishPlacement();');
+    ok(s.evalCtx('placementLocked') === true, 'U14B: юнит на размещённом БТР — «Завершить размещение» доступно');
+    s.run('placementLocked = false; appData.campaign.opUnits = [ { name: "2-й взвод", col: null, row: null, isDestroyed: false } ];');
+    s.run('finishPlacement();');
+    ok(s.evalCtx('placementLocked') === false && s.alerts.some(a => a.includes('Не размещено юнитов')),
+        'U14C: неразмещённый юнит без БТР — размещение НЕ завершается');
+    // #9a: потери техники — во вкладке «Батальон»
+    ok(HTML.includes('unit.vehicleLosses = (unit.vehicleLosses || 0) + removed;') &&
+       HTML.includes('const lostVehicles = unit.vehicleLosses || 0;'),
+        'U14D: подбитые машины — потери в вкладке «Батальон»');
 
     ok(HTML.includes("dmgPerHit === '1d10' ? rollD10()"), 'U11e: executeMortarSalvo умеет 1d10');
     ok(HTML.includes("executeMortarSalvo(unit, [nearest.unit], nearest.dist, 15, '1d6')"),

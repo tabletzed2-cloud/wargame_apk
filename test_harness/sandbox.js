@@ -158,7 +158,7 @@ function createSandbox(appData) {
     //    Math из Node-кода ловит Node-Math, а не подменяемый sandbox.Math
     vm.runInContext('function rollD6() { return Math.floor(Math.random() * 6) + 1; }\n' +
                     'function rollD10() { return Math.floor(Math.random() * 10) + 1; }\n' +
-                    'var APP_VERSION = "v13.045"; // дубль глобала из index.html (вне извлечения FNS)', ctx);
+                    'var APP_VERSION = "v13.046"; // дубль глобала из index.html (вне извлечения FNS)', ctx);
     // js-модули игры
     for (const f of ['js/weapons.js', 'js/data.js', 'js/cards.js', 'js/templates.js']) {
         vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
