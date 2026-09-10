@@ -157,9 +157,10 @@ function createSandbox(appData) {
     // ⚠️ rollD6/rollD10 ОБЯЗАТЕЛЬНО внутри контекста — замыкание на
     //    Math из Node-кода ловит Node-Math, а не подменяемый sandbox.Math
     vm.runInContext('function rollD6() { return Math.floor(Math.random() * 6) + 1; }\n' +
-                    'function rollD10() { return Math.floor(Math.random() * 10) + 1; }', ctx);
+                    'function rollD10() { return Math.floor(Math.random() * 10) + 1; }\n' +
+                    'var APP_VERSION = "v13.041"; // дубль глобала из index.html (вне извлечения FNS)', ctx);
     // js-модули игры
-    for (const f of ['js/weapons.js', 'js/data.js', 'js/templates.js']) {
+    for (const f of ['js/weapons.js', 'js/data.js', 'js/cards.js', 'js/templates.js']) {
         vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
     }
     // извлечённые из index.html функции (пишет probe в /tmp/wg_part.js)

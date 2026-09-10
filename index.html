@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.023 — операция  </title>
+  <title>Боевой модуль v13.041 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -13,7 +13,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.023</h1>
+    <h1>⚔️ Боевой модуль v13.041</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -26,6 +26,9 @@
     <!-- ⚡ v13.038: кнопка сброса данных — в главном меню (была во вкладке «Бой») -->
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
+    <!-- ⚡ v13.041: версия + принудительное обновление (старый кэш сервис-воркера) -->
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.041</p>
+    <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
   </div>
 <div id="factionModal" class="faction-modal">
@@ -55,7 +58,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.023 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.041 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -249,6 +252,10 @@ function safeLocalStorage(method, ...args) {
       try { return window.localStorage[method](...args); }
       catch(e) { console.warn('localStorage недоступен, работаем без сохранения'); return null; }
     }    
+// ⚡ v13.041: текущая версия — отображается в меню/шапке/диагностике,
+//    чтобы игрок видел, свежая ли версия на его устройстве
+var APP_VERSION = 'v13.041';
+
 let selectedFaction = null;
 let selectedSubFaction = null; // 'belgian', 'dutch' или null
     // === Модальное окно выбора фракции ===
@@ -3193,6 +3200,28 @@ let hardMode = {
     orderQueue: [],
     messengerQueue: []
 };
+// ⚡ v13.041 (R26#5): синхронизация статических каталогов фракций
+//    (карты/награды из cards.js и weapons.js) — если в сохранении пусто,
+//    берём из getDefaultData(). Никогда НЕ затираем пользовательские
+//    данные (редактор карточек) — только заполняем пустые/отсутствующие.
+function syncFactionCatalogs() {
+    try {
+        if (!appData || !appData.factions) return;
+        const d = getDefaultData();
+        Object.keys(d.factions).forEach(f => {
+            if (!appData.factions[f]) { appData.factions[f] = d.factions[f]; return; }
+            const df = d.factions[f], sf = appData.factions[f];
+            if ((!sf.cardLibrary || sf.cardLibrary.length === 0) && df.cardLibrary && df.cardLibrary.length) {
+                sf.cardLibrary = df.cardLibrary.slice();
+            }
+            if ((!sf.awards || sf.awards.length === 0) && df.awards && df.awards.length) {
+                sf.awards = df.awards.slice();
+            }
+            if (!sf.icon && df.icon) sf.icon = df.icon;
+        });
+    } catch (e) { console.warn('syncFactionCatalogs:', e.message); }
+}
+
 let appData;
 try {
   const saved = safeLocalStorage('getItem', STORAGE_KEY);
@@ -3231,6 +3260,13 @@ try {
     // Автоматически удаляем устаревший глобальный модификатор «Плохой порох»
     if (appData.modifiers) appData.modifiers = appData.modifiers.filter(m => m.name !== 'Плохой порох');
     if (!appData.factions || !appData.templates || !appData.squads) throw new Error('Структура повреждена');
+
+    // ⚡ v13.041 (R26#5): СТАТИЧЕСКИЕ КАТАЛОГИ (карты — js/cards.js,
+    //    награды — js/weapons.js) в сохранении могли быть ПУСТЫМИ (старый
+    //    сейв, созданный до заполнения каталогов). Обновляем их из
+    //    значений по умолчанию, если в сейве пусто/нет — иначе вкладки
+    //    «🃏 Карточки» и «🏅 Награды» пустые.
+    syncFactionCatalogs();
     
     if (!appData.campaign) {
       appData.campaign = {
@@ -3269,6 +3305,20 @@ try {
   safeLocalStorage('removeItem', STORAGE_KEY);
   appData = getDefaultData();
 }
+
+// ⚡ v13.041: показываем ТЕКУЩУЮ ВЕРСИЮ в меню и шапке — игрок сразу видит,
+//    актуальна ли версия на его устройстве (если видно старую — нажать
+//    «🔄 Обновить игру» или переустановить приложение)
+try {
+  document.title = '⚔️ Боевой модуль ' + APP_VERSION;
+  const h1m = document.querySelector('#mainMenu h1');
+  if (h1m) h1m.innerHTML = '⚔️ Боевой модуль <b style="color:#f1c40f;">' + APP_VERSION + '</b>';
+  const h2b = document.getElementById('battleModuleTitle');
+  if (h2b) h2b.textContent = '⚔️ Боевой модуль ' + APP_VERSION + ' — операция';
+  const vBadge = document.getElementById('appVersionBadge');
+  if (vBadge) vBadge.textContent = APP_VERSION;
+} catch (e) {}
+
     appData.squads = appData.squads || [];
     appData.squads.forEach(s => { if (!s.appliedCards) s.appliedCards = []; });
     appData.templates = appData.templates || [];
@@ -8101,8 +8151,16 @@ function renderCardSelectionForBattle() {
     });
   });
 
+  // ⚡ v13.041 (R26#5): если у выбранной фракции пусто — показываем ВСЕ
+  //    каталоги (страховка от рассинхрона имени фракции в старых сейвах)
   if (allCards.length === 0) {
-    container.innerHTML = '<p>Нет карт в библиотеке.</p>';
+    Object.entries(appData.factions).forEach(([faction, data]) => {
+      (data.cardLibrary || []).forEach(card => allCards.push({ ...card, faction }));
+    });
+  }
+
+  if (allCards.length === 0) {
+    container.innerHTML = '<p>Нет карт в библиотеке. Установите последнюю версию игры — каталог карт (cards.js) подтягивается при обновлении. Также можно «🗑️ Сбросить данные» в главном меню.</p>';
     return;
   }
 
@@ -8918,12 +8976,17 @@ function editCard(faction, idx) {
     function renderAwardsReference() {
   const container = document.getElementById('awardsReference');
   if (!container) return;
-  
+
   let html = '';
-  const factionsToShow = (selectedFaction === 'test') 
-    ? Object.keys(appData.factions) 
+  let factionsToShow = (selectedFaction === 'test')
+    ? Object.keys(appData.factions)
     : [selectedFaction];
-  
+  // ⚡ v13.041 (R26#5): если у выбранной фракции наград нет — показываем
+  //    все фракции, у которых каталог наград (weapons.js) заполнен
+  if (!factionsToShow.some(f => (appData.factions[f] && appData.factions[f].awards && appData.factions[f].awards.length > 0))) {
+    factionsToShow = Object.keys(appData.factions);
+  }
+
   factionsToShow.forEach(faction => {
     const factionAwards = appData.factions[faction]?.awards;
     if (!factionAwards || factionAwards.length === 0) return;
@@ -19558,11 +19621,14 @@ let ONLINE = {
     // ⚡ v13.039: синхронизация — дедупликация пушей, переходы хода, туман
     lastPushedJson: null,
     prevWhoseTurn: null,
-    // ⚡ v13.040 (R25#1): туман войны:
-    //   fogPending  — юниты оппонента, чья проверка на обнаружение ПРОВАЛЕНА,
-    //                 но они появятся на моей карте только в НАЧАЛЕ ХОДА ОППОНЕНТА
-    //   fogVisible  — уже ставшие мне видимыми (провал проверки / разведка / обстрел)
-    fogPending: {},
+    // ⚡ v13.041 (R26#1): туман войны:
+    //   fogVisible — юниты оппонента, уже ставшие мне видимыми (ЛЕПЯЩИЙСЯ:
+    //    раз видели — остаются видимыми):
+    //      • юнит НЕ смог скрыться в конце хода СВОЕГО владельца (detected=true)
+    //      • моя активная зона разведки (R20)
+    //      • прямое попадание арт. обстрела
+    //   Юнит с detected=false/undefined (незамечен) — СКРЫТ, в т.ч. в фазе
+    //   размещения (публичного размещения нет).
     fogVisible: {}
 };
 
@@ -19622,7 +19688,7 @@ function onlineDiagnostics() {
     const sdkOk = (typeof firebase !== 'undefined');
     let s = '<div style="margin-top:12px; padding:8px; background:#1a1a1a; border-radius:6px; font-size:0.78rem; color:#999;">';
     s += 'Диагностика:<br>';
-    s += '· Страница: <b style="color:#ddd;">v13.040</b><br>';
+    s += '· Страница: <b style="color:#ddd;">' + APP_VERSION + '</b><br>';
     s += '· Конфиг: ' + (cfgOk ? '<b style="color:#2ecc71;">✅ задан</b> (проект ' + ONLINE_CONFIG.firebase.projectId + ')'
                                 : '<b style="color:#e74c3c;">❌ пуст/неполный</b> — вставьте apiKey и projectId в ONLINE_CONFIG');
     s += '<br>· Firebase SDK: ' + (sdkOk ? '<b style="color:#2ecc71;">✅ загружен</b>'
@@ -20149,16 +20215,18 @@ function onlineApplyCloudState() {
             return nu;
         });
         appData.campaign.enemyOpUnits = newEnemy;
-        // ⚡ v13.040 (R25#1) туман войны: юнит оппонента СКРЫТ, пока он НЕ
-        //    провалил проверку на обнаружение (detected === false после конца
-        //    его хода). Проваливший — в fogPending; станет видимым в НАЧАЛЕ
-        //    ХОДА ОППОНЕНТА (R22#5) — перенос делает onlineOnTurnChanged.
+        // ⚡ v13.041 (R26#1) туман войны — правильная семантика (как в игре):
+        //    detected=true  — юнит НЕ смог скрыться (🔴 ОБНАРУЖЕН) → видим мне
+        //    detected=false — юнит НЕ обнаружен (🟢 Скрыт)           → скрыт туманом
+        //    (нет поля — ещё не размещён / проверка ещё не делалась)  → скрыт
+        //    Проверка делается в конце хода владельца юнита, поэтому результат
+        //    доходит ко мне с передачей хода — юнит появляется в НАЧАЛЕ МОЕГО хода (R22#5).
         newEnemy.forEach(u => {
             if (!u || u.isDestroyed) return;
             if (u.col === null || u.col === undefined) return; // ещё не размещён
-            if (u.detected === false) {
-                if (u.id && !ONLINE.fogVisible[u.id] && !ONLINE.fogPending[u.id]) ONLINE.fogPending[u.id] = true;
-                if (u.name && !ONLINE.fogVisible[u.name] && !ONLINE.fogPending[u.name]) ONLINE.fogPending[u.name] = true;
+            if (u.detected === true) {
+                if (u.id) ONLINE.fogVisible[u.id] = true;   // ЛЕПЯЩИЙСЯ
+                if (u.name) ONLINE.fogVisible[u.name] = true;
             }
         });
     }
@@ -20230,15 +20298,16 @@ function onlineApplyCloudState() {
     saveData();
 }
 
-// ⚡ v13.040 (R25#1): туман войны — виден ли мне юнит оппонента?
-//    Юнит СКРЫТ, пока не будет провалена проверка на обнаружение:
-//    • провалил проверку (detected=false) — станет видимым в начале хода
-//      оппонента (fogPending → fogVisible, делает onlineOnTurnChanged)
-//    • разведка: в активной зоне моей разведки (R20) — виден сразу
-//    • арт. обстрел попал — виден (эффект удара)
+// ⚡ v13.041 (R26#1): туман войны — виден ли мне юнит оппонента?
+//    Видим, ТОЛЬКО если:
+//    • юнит не смог скрыться в конце хода своего владельца (detected=true) —
+//      результат доходит с передачей хода, т.е. юнит появляется в НАЧАЛЕ
+//      МОЕГО хода (R22#5)
+//    • уже в fogVisible (ЛЕПЯЩИЙСЯ: раз видели — остаётся видимым)
+//    • в активной зоне моей разведки (R20) — виден сразу
 //    • уничтожен — известен
-//    Фаза расстановки — тоже в тумане (противник не должен видеть,
-//    куда я выставил юнитов, и наоборот).
+//    Всё остальное (включая фазу размещения и detected=false) — СКРЫТО
+//    туманом войны.
 function onlineEnemyVisible(u) {
     if (!appData.campaign || !appData.campaign.online) return true;
     if (typeof ONLINE === 'undefined' || !ONLINE.match) return true;
@@ -20246,6 +20315,7 @@ function onlineEnemyVisible(u) {
     if (u.isDestroyed) return true;
     if (u.id && ONLINE.fogVisible[u.id]) return true;
     if (u.name && ONLINE.fogVisible[u.name]) return true;
+    if (u.detected === true) return true; // 🔴 ОБНАРУЖЕН в конце хода владельца
     // моя активная зона разведки (R20)
     const t = appData.campaign.currentTurn || 1;
     (appData.campaign.opUnits || []).forEach(mu => {
@@ -20311,14 +20381,10 @@ function onlineOnTurnChanged() {
     if (prev === now) return;
     ONLINE.prevWhoseTurn = now;
 
-    // ⚡ v13.040 (R25#1): в НАЧАЛЕ ХОДА ОППОНЕНТА становятся мне видимыми
-    //    его юниты, провалившие проверку на обнаружение (R22#5)
-    if (now !== ONLINE.role) {
-        Object.keys(ONLINE.fogPending || {}).forEach(k => {
-            ONLINE.fogVisible[k] = true;
-            delete ONLINE.fogPending[k];
-        });
-    }
+    // ⚡ v13.041 (R26#1): раскрытие обнаруженных юнитов оппонента
+    //    (detected=true → fogVisible) делает onlineApplyCloudState — она
+    //    выполняется ПЕРЕД этой функцией в onlineOnSnapshotSync, так что
+    //    к началу МОЕГО хода обнаруженные юниты уже на карте (R22#5).
 
     // общее время берём из облака (m.time) — это синхронные часы матча
     const clockMin = (typeof m.time === 'number') ? m.time : (appData.campaign.currentTime || 0);
@@ -20400,7 +20466,15 @@ function onlineOnSnapshotSync() {
 
 <script>
   if ('serviceWorker' in navigator) {
+    // ⚡ v13.041: если появился НОВЫЙ сервис-воркер (новая версия файлов),
+    //    подхватываем его и перезагружаем страницу ОДИН раз — иначе страница
+    //    продолжала бы работать на старом кэше, пока пользователь не
+    //    перезагрузит сам.
     window.addEventListener('load', () => {
+      let didReload = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!didReload) { didReload = true; location.reload(); }
+      });
       navigator.serviceWorker.register('./service-worker.js')
         .then(reg => console.log('Service Worker registered'))
         .catch(err => console.error('Service Worker failed', err));
@@ -20737,6 +20811,21 @@ function onlineOnSnapshotSync() {
       <span id="mapCodeStatus" style="color:#9ccc65; font-size:0.85rem;"></span>
     </div>
     <p style="font-size:0.75rem; color:#777; margin-bottom:0;">Если копирование кнопкой не сработало (на телефоне) — выделите код в окне и скопируйте вручную (Ctrl+C / долгий тап).</p>
+  </div>
+</div>
+  <div id="battalionRosterScreen" style="display:none; padding:20px;">
+  <h2>👥 Личный состав батальона</h2>
+  <button onclick="backToOperationalMapFromRoster()" style="background:#555;">← Назад к карте</button>
+  <div id="battalionRosterSummary" style="margin:10px 0; font-weight:bold;"></div>
+  <div id="battalionRosterList"></div>
+  <div id="battalionUnitDetails" style="display:none; margin-top:10px; padding:10px; background:#2a2a2a; border-radius:6px;"></div>
+<button id="btnBackToRosterList" style="display:none; margin-top:6px;" onclick="backToRosterList()">← Назад к списку</button>
+</div>
+</div>
+    
+</body>
+</html>
+size:0.75rem; color:#777; margin-bottom:0;">Если копирование кнопкой не сработало (на телефоне) — выделите код в окне и скопируйте вручную (Ctrl+C / долгий тап).</p>
   </div>
 </div>
   <div id="battalionRosterScreen" style="display:none; padding:20px;">

@@ -94,7 +94,7 @@ function makeDevice(role) {
     const ctx = vm.createContext(sandbox);
     vm.runInContext('var ONLINE = { db: null, docRef: null, listener: null, code: "TEST", role: "' + role + '", ' +
         'playerId: "' + (role === 'p1' ? 'playerA' : 'playerB') + '", match: ' + JSON.stringify(DOC) + ', ' +
-        'pendingStart: null, started: true, lastPushedJson: null, prevWhoseTurn: null, fogPending: {}, fogVisible: {} };', ctx);
+        'pendingStart: null, started: true, lastPushedJson: null, prevWhoseTurn: null, fogVisible: {} };', ctx);
     // фейковый docRef
     const handler = { data: () => JSON.parse(JSON.stringify(DOC)) };
     vm.runInContext('ONLINE.docRef = { ' +
@@ -184,12 +184,14 @@ ok(DOC.turn === 2 && DOC.time === 10, 'E8: общий счётчик: ход=2, 
 ok(A.alerts.some(a => a.includes('Ваш ход') && a.includes('ход 2')), 'E9: п1 получил «Ваш ход, ход 2» (после хода оппонента)');
 ok(B.alerts.some(a => a.includes('Ход оппонента') && a.includes('ход 2')), 'E10: п2 получил уведомление «Ход оппонента» (передача подтверждена)');
 
-// 6. Туман на ходе п1: п2-юнит с detected=false ЕЩЁ СКРЫТ (появится в начале хода п2)
+// 6. Туман на ходе п1 (R26#1 — правильная семантика):
+//    p2_u0: detected=false (🟢 Скрыт — не обнаружен) → НЕ виден
+//    p2_u1: detected=true (🔴 ОБНАРУЖЕН — не смог скрыться) → виден
+//    (результат проверки дошёл с передачей хода = в начале хода п1, R22#5)
 ok(A.eval('onlineEnemyVisible(appData.campaign.enemyOpUnits.find(u=>u.id==="p2_u0"))') === false,
-    'E11: проваливший проверку юнит п2 ещё скрыт в ход п1 (R22#5 — ждём начало хода оппонента)');
-// detected=true юнит — тоже скрыт (видимость только по провалу/разведке)
-ok(A.eval('onlineEnemyVisible(appData.campaign.enemyOpUnits.find(u=>u.id==="p2_u1"))') === false,
-    'E12: обнаруженный (detected=true) юнит в тумане (видимость — только провал/разведка/обстрел)');
+    'E11: не обнаруженный (detected=false) юнит п2 скрыт туманом в ход п1');
+ok(A.eval('onlineEnemyVisible(appData.campaign.enemyOpUnits.find(u=>u.id==="p2_u1"))') === true,
+    'E12: обнаруженный (detected=true) юнит п2 ВИДЕН с начала хода п1 (R22#5)');
 
 // 7. Ход п1: п1 завершает ход → туман открывается (начало хода п2)
 A.run('appData.campaign.opUnits[0]._forceDetected = false; onlinePushMyUnits();');
@@ -198,8 +200,10 @@ A.alerts.length = 0;
 A.eval('endOperationalTurn()');
 A.applySnapshot(); B.applySnapshot();
 ok(DOC.whoseTurn === 'p2' && DOC.turn === 3 && DOC.time === 20, 'E13: ход п1→п2, ход=3, время=20');
-ok(A.eval('onlineEnemyVisible(appData.campaign.enemyOpUnits.find(u=>u.id==="p2_u0"))') === true,
-    'E14: в начале хода оппонента проваливший проверку юнит СТАЛ видим (R22#5)');
+// туман сохраняется: не обнаруженный — по-прежнему скрыт, обнаруженный — лепящийся
+ok(A.eval('onlineEnemyVisible(appData.campaign.enemyOpUnits.find(u=>u.id==="p2_u0"))') === false &&
+   A.eval('onlineEnemyVisible(appData.campaign.enemyOpUnits.find(u=>u.id==="p2_u1"))') === true,
+    'E14: туман стабилен — скрытый не появился, обнаруженный не исчез');
 ok(B.alerts.some(a => a.includes('Ваш ход') && a.includes('ход 3')), 'E15: п2 получил «Ваш ход, ход 3»');
 
 // 8. Статус 'placing' — «Завершить ход» не кормит время (R25#2)

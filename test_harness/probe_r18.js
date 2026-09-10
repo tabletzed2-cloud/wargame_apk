@@ -17,7 +17,7 @@ const FNS = [
     'onlineOppRole', 'onlineMyTurnActive', 'onlineWaitBanner', 'onlineSetTurnLockUI',
     'onlineUnitSnapshot', 'onlinePushMyUnits', 'onlineApplyCloudState',
     'onlineEnemyVisible', 'onlineHandTurn', 'onlineOnTurnChanged', 'onlineOnSnapshotSync',
-    'endOperationalTurn', 'updateActiveCardsBattle',
+    'endOperationalTurn', 'updateActiveCardsBattle', 'syncFactionCatalogs', 'getDefaultData',
     'openOnlineMenu', 'onlineDiagnostics', 'onlineFirebaseReady', 'onlineCreateRoom', 'onlineJoinRoom',
     'onlineBody', 'onlineGoToCampaign', 'closeOnlineModal', 'onlineShowJoin',
     'onlineSelfTest', 'onlineSelfTestMeaning',
@@ -514,7 +514,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     const updates = [];
     s.run('var ONLINE = { db: null, docRef: null, listener: null, code: "ABCD", role: "p1", ' +
           'playerId: "t", match: null, pendingStart: null, started: false, ' +
-          'lastPushedJson: null, prevWhoseTurn: null, fogPending: {}, fogVisible: {} };');
+          'lastPushedJson: null, prevWhoseTurn: null, fogVisible: {} };');
     s.run('ONLINE.docRef = { update: function(o) { __updates.push(o); return Promise.resolve(); } };');
     s.run('var __updates = [];');
 
@@ -578,39 +578,46 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     ok(s.evalCtx('appData.campaign.currentTime') === 10 && s.evalCtx('appData.campaign.currentTurn') === 2,
         'U5c: общее время из облака (time=10, ход=2)');
 
-    // U6: туман войны (R25#1) — юнит СКРЫТ, пока не провалена проверка обнаружения
-    s.run('ONLINE.fogPending = {}; ONLINE.fogVisible = {};');
+    // U6: туман войны (R26#1) — правильная семантика:
+    //    detected=true  → юнит не смог скрыться (🔴 ОБНАРУЖЕН) → ВИДЕН
+    //    detected=false → юнит не обнаружен (🟢 Скрыт)        → скрыт туманом
+    //    нет поля / фаза размещения                          → скрыт туманом
+    s.run('ONLINE.fogVisible = {};');
     s.run('appData.campaign.opUnits[0].reconZoneHexes = null;');
     const eVis = 'onlineEnemyVisible(appData.campaign.enemyOpUnits[0])';
-    // фаза размещения — тоже туман (R25#1: «я вижу отряды, выставленные противником»)
+    // фаза размещения — туман (R26#1: «я вижу отряды, выставленные противником»)
     s.run('ONLINE.match.status = "placing"; ONLINE.match.whoseTurn = null;');
+    s.run('ONLINE.match.state.p2.units[0].detected = false;');
+    s.run('onlineApplyCloudState();');
     ok(s.evalCtx(eVis) === false, 'U6a: фаза размещения — юниты противника СКРЫТЫ (туман)');
-    // playing: проваливший проверку (detected=false) — в fogPending, ещё скрыт в мой ход
+    // playing: detected=false (не обнаружен) — скрыт
     s.run('ONLINE.match.status = "playing"; ONLINE.match.whoseTurn = "p1";');
-    s.run('appData.campaign.enemyOpUnits[0].detected = false;');
+    s.run('ONLINE.fogVisible = {};');
     s.run('onlineApplyCloudState();');
-    ok(s.evalCtx('ONLINE.fogPending["e1"]') === true, 'U6b: проваливший проверку юнит — в fogPending');
-    ok(s.evalCtx(eVis) === false, 'U6c: в МОЙ ход проваливший проверку юнит ещё скрыт (R22#5)');
-    // в НАЧАЛЕ ХОДА ОППОНЕНТА — становится видимым
-    s.run('ONLINE.prevWhoseTurn = "p1"; ONLINE.match.whoseTurn = "p2"; onlineOnTurnChanged();');
-    ok(s.evalCtx('ONLINE.fogVisible["e1"]') === true, 'U6d: в начале хода оппонента проваливший проверку юнит СТАЛ видим');
-    ok(s.evalCtx(eVis) === true, 'U6e: юнит виден на моей карте');
-    // обнаруженный (detected=true) — в тумане (видимость только по провалу/разведке/обстрелу)
-    s.run('ONLINE.match.state.p2.units[0].detected = true;'); // в облаке (источник)
-    s.run('ONLINE.fogVisible = {}; ONLINE.fogPending = {};');
+    ok(s.evalCtx(eVis) === false, 'U6b: detected=false (🟢 Скрыт) — юнит НЕ виден');
+    // detected=true (не смог скрыться, 🔴 ОБНАРУЖЕН) — виден;
+    // результат доходит с передачей хода = в начале МОЕГО хода (R22#5)
+    s.run('ONLINE.match.state.p2.units[0].detected = true;');
     s.run('onlineApplyCloudState();');
-    ok(s.evalCtx(eVis) === false, 'U6f: detected=true — юнит НЕ появляется (видимость только по провалу)');
-    // fogVisible (разведка/обстрел) — виден
-    s.run('ONLINE.fogVisible["e1"] = true;');
-    ok(s.evalCtx(eVis) === true, 'U6g: юнит в fogVisible (разведка/обстрел) — виден');
-    // зона разведки
-    s.run('ONLINE.fogVisible = {}; ONLINE.fogPending = {}; appData.campaign.currentTurn = 5; ' +
+    ok(s.evalCtx('ONLINE.fogVisible["e1"]') === true, 'U6c: detected=true (🔴 ОБНАРУЖЕН) — юнит в fogVisible');
+    ok(s.evalCtx(eVis) === true, 'U6d: обнаруженный юнит виден на моей карте');
+    // лепящийся: раз видели — остаётся видимым, даже если следующий снапшот detected=false
+    s.run('ONLINE.match.state.p2.units[0].detected = false;');
+    s.run('onlineApplyCloudState();');
+    ok(s.evalCtx(eVis) === true, 'U6e: fogVisible лепящийся — юнит не «исчезает» после нового снапшота');
+    // свежий (ещё не раскрывался) юнит с detected=false — скрыт
+    s.run('ONLINE.fogVisible = {}; ONLINE.match.state.p2.units[0].detected = false;');
+    s.run('onlineApplyCloudState();');
+    ok(s.evalCtx(eVis) === false, 'U6f: не обнаруженный (свежий) юнит — снова скрыт');
+    // зона разведки (R20) — виден сразу
+    s.run('appData.campaign.currentTurn = 5; ' +
           'appData.campaign.opUnits[0].reconZoneHexes = [{col:5,row:5}]; appData.campaign.opUnits[0].reconActiveTurn = 5;');
-    ok(s.evalCtx(eVis) === true, 'U6h: враг в активной зоне моей разведки — виден');
+    ok(s.evalCtx(eVis) === true, 'U6g: враг в активной зоне моей разведки — виден');
+    s.run('appData.campaign.opUnits[0].reconZoneHexes = null; ONLINE.fogVisible = {};');
     // уничтоженный — известен
-    s.run('ONLINE.fogVisible = {}; appData.campaign.enemyOpUnits[0].isDestroyed = true;');
-    ok(s.evalCtx(eVis) === true, 'U6i: уничтоженный юнит — виден');
-    s.run('appData.campaign.enemyOpUnits[0].isDestroyed = false; appData.campaign.opUnits[0].reconZoneHexes = null;');
+    s.run('appData.campaign.enemyOpUnits[0].isDestroyed = true;');
+    ok(s.evalCtx(eVis) === true, 'U6h: уничтоженный юнит — виден');
+    s.run('appData.campaign.enemyOpUnits[0].isDestroyed = false;');
 
     // U7: смена хода на МОЙ — уведомление + восстановление ОД
     s.run('ONLINE.match.whoseTurn = "p1"; ONLINE.match.turn = 3; ONLINE.match.time = 20; ' +
@@ -683,6 +690,24 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9k: AIRF_AWARDS из weapons.js доступен');
     ok(HTML.includes('Каталог фракции'), 'U9l: блок наград показывает каталог фракции');
     ok(HTML.includes('🃏 Карты (библиотека фракции):'), 'U9m: заголовок блока карт — библиотека фракции');
+
+    // U9n: каталоги карт/наград старых сейвов (R26#5 — «в вкладках пусто»)
+    s.run('appData.factions = { BeVe: { icon: "", cardLibrary: [], awards: [] } };');
+    s.run('syncFactionCatalogs();');
+    ok(s.evalCtx('appData.factions.BeVe.cardLibrary.length') > 0,
+        'U9n: пустой каталог карт в сейве заполнен из cards.js');
+    ok(s.evalCtx('appData.factions.BeVe.awards.length') > 0,
+        'U9o: пустой каталог наград в сейве заполнен из weapons.js');
+    s.run('appData.factions.BeVe.cardLibrary = [{ name: "Своя карта", desc: "", effect: "", type: "bonus" }];');
+    s.run('syncFactionCatalogs();');
+    ok(s.evalCtx('appData.factions.BeVe.cardLibrary.length') === 1 &&
+       s.evalCtx('appData.factions.BeVe.cardLibrary[0].name') === 'Своя карта',
+        'U9p: пользовательские карты (редактор) НЕ затираются');
+
+    // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
+    ok(HTML.includes("var APP_VERSION = 'v13.041'"), 'U9q: константа версии v13.041');
+    ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
+        'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 }
 
 console.log('\n====================================');
