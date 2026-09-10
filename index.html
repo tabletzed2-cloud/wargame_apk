@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.033 — операция  </title>
+  <title>Боевой модуль v13.037 — операция  </title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -13,7 +13,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.033</h1>
+    <h1>⚔️ Боевой модуль v13.037</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -53,7 +53,7 @@
     </div>
   </div>
 </div>
-  <h2>⚔️ Боевой модуль v13.033 — операция </h2>
+  <h2>⚔️ Боевой модуль v13.037 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -558,6 +558,8 @@ function selectScenario(scenarioId) {
           const ps = ONLINE.pendingStart;
           ONLINE.pendingStart = null;
           confirmBattalion(ps.faction, ps.supportIds);
+          // ⚡ v13.036: сразу на карту в режиме расстановки
+          if (typeof onlineAutoEnterPlacement === 'function') onlineAutoEnterPlacement();
         } else {
           showScenarioDetails(scenarioId);
         }
@@ -572,6 +574,8 @@ function selectScenario(scenarioId) {
           const ps = ONLINE.pendingStart;
           ONLINE.pendingStart = null;
           confirmBattalion(ps.faction, ps.supportIds);
+          // ⚡ v13.036: сразу на карту в режиме расстановки
+          if (typeof onlineAutoEnterPlacement === 'function') onlineAutoEnterPlacement();
         } else {
           showScenarioDetails(scenarioId);
         }
@@ -646,18 +650,55 @@ function startBattalionAssembly(faction) {
   // Чекбоксы поддержки
   let supportHtml = '';
   preset.supportOptions.forEach(opt => {
-    supportHtml += `<div><label><input type="checkbox" value="${opt.id}" class="support-check"> ${opt.name}</label></div>`;
+    supportHtml += `<div><label><input type="checkbox" value="${opt.id}" class="support-check" onchange="updateAssemblySupportCheck()"> ${opt.name}</label></div>`;
   });
+  // ⚡ v13.037: BeVe — ровно 3 поддержки из 4
+  const need3of4 = (faction === 'BeVe' && preset.supportOptions.length === 4);
+  // ⚡ v13.037: глобальные бонусы фракции (карточки с иконками)
+  const bonuses = (typeof FRACTION_GLOBAL_BONUSES !== 'undefined' && FRACTION_GLOBAL_BONUSES[faction]) || [];
+  const bonusHtml = bonuses.length ? `
+    <h3>Глобальные бонусы фракции:</h3>
+    <div style="display:flex; flex-wrap:wrap; gap:8px;">
+      ${bonuses.map(b => `
+        <div style="display:flex; align-items:center; gap:8px; background:#222; border:1px solid #444; border-radius:6px; padding:6px 10px; min-width:230px;">
+          <img src="${b.icon}" alt="${b.name}" style="width:36px; height:36px; object-fit:contain; background:#333; border-radius:4px; flex-shrink:0;">
+          <div><b style="font-size:0.85rem; color:#f1c40f;">${b.name}</b><br><span style="color:#999; font-size:0.72rem;">${b.desc}</span></div>
+        </div>`).join('')}
+    </div>` : '';
 
+  appData.campaign.assemblyFaction = faction;
   container.innerHTML = `
     <h2>Сбор батальона (${faction})</h2>
     <h3>Стандартный состав:</h3>
     ${stdList}
-    <h3>Доступная поддержка:</h3>
+    <h3>Доступная поддержка${need3of4 ? ' — выберите ровно 3 из 4' : ''}:</h3>
     <div id="supportOptions">${supportHtml}</div>
-    <button class="menu-btn" onclick="confirmBattalion('${faction}')">Сформировать батальон</button>
+    <div id="assemblySupportStatus" style="margin-top:4px; font-size:0.8rem;"></div>
+    ${bonusHtml}
+    <button class="menu-btn" id="assemblyConfirmBtn" onclick="confirmBattalion('${faction}')">Сформировать батальон</button>
     <button onclick="selectCampaignFaction('${faction}')" style="background:#555;">Назад</button>
   `;
+  if (need3of4) updateAssemblySupportCheck();
+}
+
+// ⚡ v13.037: BeVe — ровно 3 поддержки из 4 (кнопка активна только при 3)
+function updateAssemblySupportCheck() {
+    const status = document.getElementById('assemblySupportStatus');
+    const btn = document.getElementById('assemblyConfirmBtn');
+    const checks = Array.from(document.querySelectorAll('.support-check'));
+    if (!status || !btn || checks.length === 0) return;
+    const checked = checks.filter(c => c.checked).length;
+    const faction = appData.campaign.assemblyFaction;
+    if (faction === 'BeVe' && checks.length === 4) {
+        status.innerHTML = `Выбрано ${checked} из 4 — нужно <b>ровно 3</b>`;
+        status.style.color = checked === 3 ? '#2ecc71' : '#e67e22';
+        btn.disabled = checked !== 3;
+        btn.style.opacity = checked === 3 ? '1' : '0.5';
+    } else {
+        status.textContent = '';
+        btn.disabled = false;
+        btn.style.opacity = '1';
+    }
 }
 function renderActiveBattlesList() {
   const listContainer = document.getElementById('activeBattlesList');
@@ -747,6 +788,14 @@ function confirmBattalion(faction, fixedSupportIds) {
   } else {
     const checks = document.querySelectorAll('.support-check:checked');
     supportIds = Array.from(checks).map(cb => cb.value);
+  }
+  // ⚡ v13.037: BeVe — ровно 3 поддержки из 4
+  if (faction === 'BeVe') {
+    const total = ((BATTALION_PRESETS[faction] || {}).supportOptions || []).length;
+    if (total === 4 && supportIds.length !== 3) {
+      alert('❌ BeVe: выберите ровно 3 поддержки из 4.');
+      return;
+    }
   }
   const battalion = generateBattalion(faction, supportIds);
   if (!battalion) {
@@ -1696,10 +1745,13 @@ function redrawOperationalMap() {
         }
     }
 
-    // ⚡ v13.032: подсветка зоны расстановки фракции (онлайн-матч, фаза подготовки)
+    // ⚡ v13.032 (усилено v13.037): подсветка зоны расстановки фракции
+    //    (онлайн-матч, фаза подготовки) — зелёная заливка + контур
     if (appData.campaign.online && appData.campaign.opUnits &&
         appData.campaign.opUnits.some(u => u.col === null || u.col === undefined)) {
         ctx.fillStyle = 'rgba(39, 174, 96, 0.32)';
+        ctx.strokeStyle = 'rgba(46, 204, 113, 0.95)';
+        ctx.lineWidth = 2;
         for (let zRow = 0; zRow < OP_MAP_ROWS; zRow++) {
             for (let zCol = 0; zCol < OP_MAP_COLS; zCol++) {
                 if (!isHexInPlacementZone(appData.campaign.scenario, appData.campaign.playerFaction, zCol, zRow).ok) continue;
@@ -1715,6 +1767,7 @@ function redrawOperationalMap() {
                 }
                 ctx.closePath();
                 ctx.fill();
+                ctx.stroke();
             }
         }
     }
@@ -3596,7 +3649,9 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         subUnitIds: options.subUnitIds || [],
         orderType: options.orderType || null,
         // ⚡ v13.020: «не штурмовать бронетехнику» — состояние галочки на момент приказа
-        ignoreArmor: typeof options.ignoreArmor === 'boolean' ? options.ignoreArmor : true
+        ignoreArmor: typeof options.ignoreArmor === 'boolean' ? options.ignoreArmor : true,
+        // ⚡ v13.037: приказ на время (минуты, например 870 = 14:30)
+        startTimeMin: (options.startTimeMin !== undefined ? options.startTimeMin : null)
     };
     
     const fromUnit = appData.campaign.opUnits ? appData.campaign.opUnits[fromUnitId] : null;
@@ -4816,8 +4871,8 @@ if (appData.currentTime >= 1440) appData.currentTime -= 1440;
     if (appData.campaign.enemyOpUnits) {
       appData.campaign.enemyOpUnits.forEach(u => { u.ap = u.maxAp; });
     }
-    alert('⚠️ Наступил новый операционный ход! Время: ' + formatTime(appData.campaign.currentTime));
-    log('⚠️ Новый операционный ход: ' + formatTime(appData.campaign.currentTime));
+    alert('⚠️ Начался операционный ход ' + appData.campaign.currentTurn + '! Время: ' + formatTime(appData.campaign.currentTime));
+    log('⚠️ Начался операционный ход ' + appData.campaign.currentTurn + ': ' + formatTime(appData.campaign.currentTime));
 }
 checkNightTime();
   // === Санитар (лечит случайного раненого из любого отряда) ===
@@ -10324,7 +10379,10 @@ function rotateSelectedHex() {
    function showOperationalMap() {
   document.getElementById('campaignContent').style.display = 'none';
   document.getElementById('campaignMapScreen').style.display = 'block';
-  buildOperationalUnits(); 
+  // ⚡ v13.037: онлайн-матч — панель противника скрыта (враг у оппонента)
+  const epEl = document.getElementById('opEnemyPanel');
+  if (epEl) epEl.style.display = appData.campaign.online ? 'none' : 'block';
+  buildOperationalUnits();
   initOperationalMap();
   renderActiveBattlesList();
      appData.campaign.selectedOpUnit = null;
@@ -10350,6 +10408,21 @@ function endOperationalTurn() {
     appData.campaign.currentTime = appData.campaign.opTurnStartTime;
     appData.currentTime = appData.campaign.currentTime;
     appData.campaign.currentTurn++;
+
+    // ⚡ v13.037: уведомление о начале нового хода (номер хода + время)
+    {
+        const tStr = (typeof formatTime === 'function') ? formatTime(appData.campaign.currentTime)
+            : (String(Math.floor(appData.campaign.currentTime / 60)).padStart(2, '0') + ':' + String(appData.campaign.currentTime % 60).padStart(2, '0'));
+        let turnWho = '';
+        if (appData.campaign.online && typeof ONLINE !== 'undefined' && ONLINE.match && ONLINE.match.whoseTurn) {
+            turnWho = ' Ход: ' + (ONLINE.match.whoseTurn === ONLINE.role ? 'ваш' : 'оппонента') + '.';
+        }
+        const msg = `⏱️ Начался ход ${appData.campaign.currentTurn} — время ${tStr}.${turnWho}`;
+        try { alert(msg); } catch (e) { /* WebView без alert */ }
+        log(msg);
+        const miTurn = document.getElementById('mapInfo');
+        if (miTurn) { miTurn.innerHTML = msg; miTurn.style.color = '#f1c40f'; }
+    }
 
     // Восстанавливаем ОД ВСЕМ юнитам
     if (appData.campaign.opUnits) {
@@ -10515,11 +10588,20 @@ function processOrders() {
     }
     
     // 2. Выполняем активные приказы
+    // ⚡ v13.037: приказ на время — ждём, пока время на карте достигнет startTimeMin
     if (hardMode.orders) {
         hardMode.orders.forEach(order => {
-            if (order.status === 'active') {
-                executeOrder(order);
+            if (order.status !== 'active') return;
+            if (!orderShouldExecuteNow(order)) {
+                if (!order.timeWaitLogged) {
+                    order.timeWaitLogged = true;
+                    const uName = (appData.campaign.opUnits && appData.campaign.opUnits[order.toUnitId] && appData.campaign.opUnits[order.toUnitId].name) || 'штаб';
+                    log(`⏰ Приказ «${order.type}» (${uName}) назначен на ${formatTime(order.startTimeMin)} — ожидание.`);
+                }
+                return;
             }
+            order.timeWaitLogged = false;
+            executeOrder(order);
         });
     }
     
@@ -10558,9 +10640,19 @@ function processOrders() {
     renderActiveOrders();
 }
 
-// ⚡ v13.023: исполнение АРТОБСТРЕЛА: 20 выстрелов, точность 60%,
-//    каждое попадание = 3d6. Урон делится поровну на ВСЕ отряды на гексе
-//    (и вражеские, и свои). Обстрел начинается в СЛЕДУЮЩЕМ ходу после приказа.
+// ⚡ v13.037: приказ на время — наступило ли время исполнения?
+function orderShouldExecuteNow(order) {
+    if (!order || order.startTimeMin === null || order.startTimeMin === undefined) return true;
+    const t = (appData.campaign && typeof appData.campaign.currentTime === 'number') ? appData.campaign.currentTime : 0;
+    return t >= order.startTimeMin;
+}
+
+// ⚡ v13.037: исполнение АРТОБСТРЕЛА: КАЖДЫЙ отряд (каждая машина группы)
+//    на обстрелянном гексе получает СВОЙ урон d12 (пул не делится).
+//    В онлайн-матче урон реально наносится юнитам оппонента (даже если они
+//    ещё не обнаружены — обстрел бьёт по гексу). В одиночной игре враг
+//    по-прежнему «в лог». Обстрел начинается в СЛЕДУЮЩЕМ ходу после приказа
+//    (или в назначенное время, если задано).
 function executeArtilleryStrikeOrder(order) {
     const curTurn = (appData.campaign && appData.campaign.currentTurn) || 1;
     if (curTurn <= (order.issueTurn || 0)) {
@@ -10574,16 +10666,8 @@ function executeArtilleryStrikeOrder(order) {
         saveData();
         return;
     }
-    log(`💥 АРТОБСТРЕЛ: гекс (${c},${r})! 20 выстрелов (точность 60%, 3d6 за попадание).`);
-    let hits = 0, totalDamage = 0;
-    for (let i = 0; i < 20; i++) {
-        if (Math.random() < 0.6) {
-            hits++;
-            totalDamage += rollD6() + rollD6() + rollD6();
-        }
-    }
-    log(`   Попаданий: ${hits}/20 | Общий урон: ${totalDamage}.`);
-    
+    log(`💥 АРТОБСТРЕЛ: гекс (${c},${r})! Каждый отряд на гексе получает урон 1d12.`);
+
     // Все «отряды» на гексе: отряды обычных юнитов + каждая машина группы
     const targets = [];
     const collect = (units, isEnemy) => {
@@ -10601,17 +10685,20 @@ function executeArtilleryStrikeOrder(order) {
     };
     collect(appData.campaign.opUnits, false);
     collect(appData.campaign.enemyOpUnits, true);
-    
+
     if (targets.length === 0) {
         log(`   ⚠️ На гексе (${c},${r}) некого бить — снаряды разбили пустоту.`);
     }
-    
-    // ⚡ v13.024: урон распределяется СЛУЧАЙНО по всем отрядам/машинам
-    //    на гексе — каждый «кубик» урона идёт случайному юниту
-    //    (включая юниты того игрока, который нанёс обстрел).
+
+    // ⚡ v13.037: каждый отряд/машина на гексе получает СВОЙ урон d12
+    //    (общий пул больше не делится). В онлайн-матче урон РЕАЛЬНО
+    //    наносится юнитам оппонента — даже если они ещё не обнаружены
+    //    (обстрел бьёт по гексу, а не по «видимости»). В одиночной игре
+    //    враг, как и раньше, «в лог».
+    const isOnlineMatch = !!appData.campaign.online;
     const unitTotals = {}; // урон по юнитам (для лога/уведомления)
     const damageLines = []; // строки для уведомления о потере
-    
+
     const getTargetFighters = (t) => {
         if (t.unit.isGroup && t.unit.vehicleList) {
             const v = t.unit.vehicleList.find(vv => vv.name === t.label);
@@ -10621,21 +10708,27 @@ function executeArtilleryStrikeOrder(order) {
         const sq = (t.unit.squads || []).find(s => s.name === t.label);
         return (sq && sq.fighters) || [];
     };
-    
-    const targetCanTakeDamage = (t) => {
-        if (t.isEnemy) return true; // враг неуязвим — урон «в лог», всегда принимает
-        return getTargetFighters(t).some(f => f.hp > 0);
-    };
-    
-    const applyDamageOne = (t) => {
-        unitTotals[t.unit.name] = (unitTotals[t.unit.name] || 0) + 1;
-        if (t.isEnemy) {
-            // враг неуязвим — урон только в лог (как все остальные обстрелы)
+
+    const applySquadStrike = (t) => {
+        const dmg = rollD12();
+        unitTotals[t.unit.name] = (unitTotals[t.unit.name] || 0) + dmg;
+        const enemyReal = t.isEnemy && isOnlineMatch;
+        if (t.isEnemy && !enemyReal) {
+            // одиночная игра — враг неуязвим, урон только в лог
+            log(`   🎯 Враг «${t.label}» (${t.unit.name}): урон ${dmg} (в лог).`);
             return;
         }
+        // урон d12 — по случайным живым бойцам отряда (по 1 ОЗ на бойца)
         const fighters = getTargetFighters(t);
-        const f = fighters.find(ff => ff.hp > 0);
-        if (f) f.hp -= 1;
+        let remaining = dmg;
+        while (remaining > 0) {
+            const alive = fighters.filter(ff => ff.hp > 0);
+            if (alive.length === 0) break;
+            const f = alive[Math.floor(Math.random() * alive.length)];
+            f.hp -= 1;
+            remaining--;
+            log(`      🔻 ${f.name} (урон 1, осталось ${f.hp > 0 ? f.hp + ' ОЗ' : '0 ОЗ'})`);
+        }
         if (fighters.length > 0 && fighters.every(ff => ff.hp <= 0)) {
             if (t.unit.isGroup && t.unit.vehicleList) {
                 const v = t.unit.vehicleList.find(vv => vv.name === t.label);
@@ -10648,30 +10741,22 @@ function executeArtilleryStrikeOrder(order) {
             } else {
                 log(`   💀 Отряд «${t.label}» (${t.unit.name}) полностью уничтожен арт. обстрелом.`);
                 damageLines.push(`💀 ${t.unit.name}: отряд «${t.label}» уничтожен`);
-                // юнит, у которого погибли все отряды
                 if (t.unit.squads.every(s => !(s.fighters || []).some(ff => ff.hp > 0))) {
                     t.unit.isDestroyed = true;
                 }
             }
+        } else if (remaining === 0 && dmg > 0) {
+            log(`   🎯 ${t.isEnemy ? 'Враг' : 'Свой'} «${t.label}» (${t.unit.name}): урон ${dmg}.`);
         }
     };
-    
-    let remainingDmg = totalDamage;
-    while (remainingDmg > 0) {
-        const alive = targets.filter(targetCanTakeDamage);
-        if (alive.length === 0) {
-            log(`   ⚠️ Все юниты на гексе (${c},${r}) уничтожены — оставшийся урон пропал.`);
-            break;
-        }
-        const t = alive[Math.floor(Math.random() * alive.length)];
-        applyDamageOne(t);
-        remainingDmg--;
-    }
-    
+
+    targets.forEach(applySquadStrike);
+
     // Итог по юнитам
     const resultLines = Object.keys(unitTotals).map(nm => {
         const isEnemyUnit = (appData.campaign.enemyOpUnits || []).some(e => e && e.name === nm);
-        log(`   🎯 ${nm}: урон ${unitTotals[nm]}${isEnemyUnit ? ' (враг неуязвим — в лог)' : ''}`);
+        const tag = isEnemyUnit ? (isOnlineMatch ? ' (враг, урон реальный)' : ' (враг, в лог)') : '';
+        log(`   🎯 ${nm}: урон ${unitTotals[nm]}${tag}`);
         return `🎯 ${nm}: ${unitTotals[nm]}${isEnemyUnit ? ' (враг)' : ''}`;
     });
     
@@ -10693,8 +10778,9 @@ function executeArtilleryStrikeOrder(order) {
         }
     }
     
-    // ⚡ v13.024: УВЕДОМЛЕНИЕ о результате арт. обстрела
-    let notify = `💥 АРТОБСТРЕЛ: гекс (${c},${r})\nПопаданий: ${hits}/20 | Общий урон: ${totalDamage}.`;
+    // ⚡ v13.037: УВЕДОМЛЕНИЕ о результате арт. обстрела
+    const strikeTotal = Object.values(unitTotals).reduce((a, b) => a + b, 0);
+    let notify = `💥 АРТОБСТРЕЛ: гекс (${c},${r})\nКаждый отряд на гексе — урон 1d12.`;
     notify += resultLines.length > 0
         ? `\n\nУрон по юнитам:\n${resultLines.join('\n')}`
         : `\n\nНа гексе некого бить — снаряды разбили пустоту.`;
@@ -10704,7 +10790,7 @@ function executeArtilleryStrikeOrder(order) {
     try { alert(notify); } catch (err) { /* мобильный WebView без alert — только лог */ }
     const miStrike = document.getElementById('mapInfo');
     if (miStrike) {
-        miStrike.innerHTML = `💥 Обстрел (${c},${r}): ${hits}/20 попаданий, урон ${totalDamage}.`;
+        miStrike.innerHTML = `💥 Обстрел (${c},${r}): ${resultLines.length} отрядов поражено, суммарный урон ${strikeTotal}.`;
     }
     
     order.status = 'completed';
@@ -10762,9 +10848,10 @@ function executeOrder(order) {
         return;
     }
     
-    // ⚡ v13.023: СИЕСТА AIRF (14:00–15:00): юнит, который дальше 5 гексов
-    //    от ближайшего врага, с вероятностью 50% не выполняет приказов.
-    //    Приказ остаётся активным — попробуем в следующем ходу.
+    // ⚡ v13.023 (обновлено v13.037): СИЕСТА AIRF (14:00–15:00): юнит,
+    //    который дальше 3 гексов от ближайшего врага, с вероятностью 80%
+    //    не выполняет приказов. Приказ остаётся активным — попробуем
+    //    в следующем ходу. (Глобальный бонус фракции «Сиеста».)
     if (appData.campaign.playerFaction === 'A.I.R.F.' &&
         appData.campaign.currentTime >= 840 && appData.campaign.currentTime < 900 &&
         unit.col !== null && unit.row !== null && !unit.siestaRolledThisTurn) {
@@ -10775,7 +10862,7 @@ function executeOrder(order) {
             const d = getOpHexDistance(unit.col, unit.row, e.col, e.row);
             if (d < nearestEnemyDist) nearestEnemyDist = d;
         });
-        if (nearestEnemyDist > 5 && Math.random() < 0.5) {
+        if (nearestEnemyDist > 3 && Math.random() < 0.8) {
             log(`😴 [${unit.name}] Сиеста: враг далеко (${nearestEnemyDist === Infinity ? 'нет видимых' : nearestEnemyDist + ' гексов'}) — приказ не выполняется.`);
             return;
         }
@@ -12781,6 +12868,13 @@ function submitArtilleryStrikeOrder() {
         return;
     }
     appData.campaign.artilleryStrikesUsed++;
+    // ⚡ v13.037: обстрел на время — HH:MM из поля «Время начала» → минуты
+    const stElArt = document.getElementById('orderStartTime');
+    let stMinArt = null;
+    if (stElArt && stElArt.value) {
+        const tpA = stElArt.value.split(':');
+        stMinArt = (parseInt(tpA[0], 10) || 0) * 60 + (parseInt(tpA[1], 10) || 0);
+    }
     if (!hardMode.orders) hardMode.orders = [];
     hardMode.orders.push({
         id: Date.now() + Math.random(),
@@ -12795,9 +12889,14 @@ function submitArtilleryStrikeOrder() {
         startHex: null,
         targetDistance: null,
         subUnitIds: [],
-        ignoreArmor: true
+        ignoreArmor: true,
+        // ⚡ v13.037: время начала (минуты); null = следующий ход, как раньше
+        startTimeMin: stMinArt
     });
-    log(`💣 АРТОБСТРЕЛ назначен на гекс (${ac},${ar}) — начнётся в следующем ходу. Осталось обстрелов: ${4 - appData.campaign.artilleryStrikesUsed}.`);
+    const whenStr = stMinArt !== null
+        ? ` в ${String(Math.floor(stMinArt / 60)).padStart(2, '0')}:${String(stMinArt % 60).padStart(2, '0')}`
+        : ' в следующем ходу';
+    log(`💣 АРТОБСТРЕЛ назначен на гекс (${ac},${ar}) — начнётся${whenStr}. Осталось обстрелов: ${4 - appData.campaign.artilleryStrikesUsed}.`);
     saveData();
     renderActiveOrders();
     const mi = document.getElementById('mapInfo');
@@ -13093,6 +13192,13 @@ function submitOrder()   {
     const fireDistanceValue = fireDistanceInput ? parseInt(fireDistanceInput.value) : null;
     
     // Подготавливаем опции
+    // ⚡ v13.037: приказ на время — HH:MM из поля «Время начала» → минуты
+    const startTimeEl = document.getElementById('orderStartTime');
+    let startTimeMinVal = null;
+    if (startTimeEl && startTimeEl.value) {
+        const tp = startTimeEl.value.split(':');
+        startTimeMinVal = (parseInt(tp[0], 10) || 0) * 60 + (parseInt(tp[1], 10) || 0);
+    }
     const options = {
         behavior: behavior,
         waypoints: [...orderWaypoints],
@@ -13103,7 +13209,9 @@ function submitOrder()   {
         //    могла сброситься, и штурм брони никогда не срабатывал.
         ignoreArmor: (document.getElementById('assaultIgnoreArmor') ? document.getElementById('assaultIgnoreArmor').checked : true),
         // Стартовая позиция юнита (для отслеживания прогресса маршрута)
-        startHex: (unit.col !== null && unit.row !== null) ? `${unit.col},${unit.row}` : null
+        startHex: (unit.col !== null && unit.row !== null) ? `${unit.col},${unit.row}` : null,
+        // ⚡ v13.037: время начала выполнения (минуты)
+        startTimeMin: startTimeMinVal
     };
     
     // Проверяем, выбран ли штаб (роты/батальона) и есть ли подчинённые
@@ -13642,6 +13750,12 @@ function toggleMapViewPanel() {
 }
 
 function setOpMapMode(mode) {
+    // ⚡ v13.037: онлайн-матч — панель и режимы размещения/перемещения ВРАГА недоступны
+    if ((mode === 'placeEnemy' || mode === 'moveEnemy') && appData.campaign.online) {
+        const miE = document.getElementById('mapInfo');
+        if (miE) miE.innerHTML = '❌ В онлайн-матче юниты противника размещает и перемещает сам оппонент.';
+        return;
+    }
     // Блокировка размещения
     if (mode === 'placePlayer' && placementLocked) {
         tryUnlockPlacement();
@@ -19303,7 +19417,7 @@ function onlineDiagnostics() {
     const sdkOk = (typeof firebase !== 'undefined');
     let s = '<div style="margin-top:12px; padding:8px; background:#1a1a1a; border-radius:6px; font-size:0.78rem; color:#999;">';
     s += 'Диагностика:<br>';
-    s += '· Страница: <b style="color:#ddd;">v13.035</b><br>';
+    s += '· Страница: <b style="color:#ddd;">v13.037</b><br>';
     s += '· Конфиг: ' + (cfgOk ? '<b style="color:#2ecc71;">✅ задан</b> (проект ' + ONLINE_CONFIG.firebase.projectId + ')'
                                 : '<b style="color:#e74c3c;">❌ пуст/неполный</b> — вставьте apiKey и projectId в ONLINE_CONFIG');
     s += '<br>· Firebase SDK: ' + (sdkOk ? '<b style="color:#2ecc71;">✅ загружен</b>'
@@ -19533,6 +19647,17 @@ function renderOnlineLobby() {
             ? supports.map(o => `<label style="display:block; margin:4px 0;"><input type="checkbox" class="online-supp" value="${o.id}" ${((me.supportIds || []).includes(o.id)) ? 'checked' : ''}> ${o.name}</label>`).join('')
             : '<span style="color:#777;">Сначала выберите фракцию</span>';
         const conflict = me && opp && me.faction && opp.faction && me.faction === opp.faction;
+        // ⚡ v13.037: BeVe — ровно 3 из 4 + глобальные бонусы фракции
+        const isBeVe = !!(me && me.faction === 'BeVe');
+        const supCount = isBeVe ? ` — выбрано ${(me.supportIds || []).length} из 4 (нужно ровно 3)` : '';
+        const myBonuses = (typeof FRACTION_GLOBAL_BONUSES !== 'undefined' && FRACTION_GLOBAL_BONUSES[me && me.faction]) || [];
+        const bonusHtml2 = (me && me.faction && myBonuses.length)
+            ? `<p style="margin:8px 0 2px; color:#f1c40f;">Глобальные бонусы ${me.faction}:</p>
+               <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                 ${myBonuses.map(b => `<div style="display:flex; align-items:center; gap:6px; background:#222; border:1px solid #444; border-radius:6px; padding:4px 8px;">
+                   <img src="${b.icon}" alt="" style="width:28px; height:28px; object-fit:contain; background:#333; border-radius:4px;">
+                   <span style="font-size:0.75rem; color:#ccc;" title="${b.desc}">${b.name}</span></div>`).join('')}
+               </div>` : '';
         const oppInfo = opp
             ? `👥 Оппонент: ${opp.faction || 'фракция не выбрана'} — ${opp.ready ? '✅ готов' : '⏳ не готов'}${((opp.supportIds || []).length ? ' (' + opp.supportIds.length + ' поддержки)' : '')}`
             : '👥 Ожидание оппонента… (перешлите ему код комнаты)';
@@ -19545,8 +19670,9 @@ function renderOnlineLobby() {
           <select id="onlineScenario" ${isHost ? '' : 'disabled'} onchange="onlineSetScenario(this.value)" style="width:100%; background:#444; color:#fff; border-radius:6px; padding:6px;">${scenOpts}</select>
           <label style="display:block; margin-top:10px; color:#aaa;">Ваша фракция:</label>
           <select id="onlineFaction" onchange="onlineSetFaction(this.value)" style="width:100%; background:#444; color:#fff; border-radius:6px; padding:6px;">${factionOpts}</select>
-          <p style="margin:10px 0 2px; color:#aaa;">Ваша поддержка:</p>
+          <p style="margin:10px 0 2px; color:#aaa;">Ваша поддержка:${isBeVe ? ' (ровно 3 из 4)' : ''}<span style="color:${isBeVe && (me.supportIds || []).length === 3 ? '#2ecc71' : '#777'};">${supCount}</span></p>
           <div style="background:#222; border-radius:6px; padding:8px; min-height:26px;">${supHtml}</div>
+          ${bonusHtml2}
           ${conflict ? '<p style="color:#e74c3c;">⚠️ Вы оба выбрали одну фракцию! Фракции должны быть разные.</p>' : ''}
           <label style="display:block; margin-top:12px; font-size:1.05rem;"><input type="checkbox" id="onlineReady" ${(me && me.ready) ? 'checked' : ''} onchange="onlineSetReady(this.checked)"> Я готов</label>
           <p style="margin-top:10px; color:#aaa;">${oppInfo}</p>
@@ -19564,18 +19690,25 @@ function renderOnlineLobby() {
         }
         const myPlaced = (me && me.placed) ? '✅ готово' : '⏳ идёт';
         const oppPlaced = (opp && opp.placed) ? '✅ готово' : '⏳ идёт';
+        const firstTurnRole = onlineFirstTurnRole(m.players);
+        const firstTurnWho = (firstTurnRole === ONLINE.role) ? 'вы' : 'оппонент';
         box.innerHTML = `
-          <p>📍 <b>Фаза расстановки.</b> На карте кампании: «📌 Размещение» → расставьте юниты <b>только в своей зоне</b> → «✅ Завершить размещение».</p>
+          <p>📍 <b>Фаза расстановки.</b> Вы уже на карте — режим расстановки включён автоматически. Расставьте юниты <b>только в своей зоне</b>, затем «✅ Завершить размещение» (это = «я готов»).</p>
           <p>Вы: ${myPlaced}<br>Оппонент: ${oppPlaced}</p>
-          <p style="color:#777; font-size:0.8rem;">Когда оба завершат — кампания начнётся.</p>
+          <p style="color:#777; font-size:0.8rem;">Первый ход: <b>A.I.R.F.</b> — ${firstTurnWho}. Когда оба завершат — кампания начнётся.</p>
         `;
         onlineCheckMatchProgress();
         return;
     }
 
     if (m.status === 'playing') {
+        // ⚡ v13.036: показать, у кого ход (первый — у A.I.R.F.)
+        const ftRole = m.whoseTurn || onlineFirstTurnRole(m.players);
+        const ftP = (m.players && m.players[ftRole]) || null;
+        const ftWho = (ftRole === ONLINE.role) ? 'вы' : 'оппонент';
         box.innerHTML = `
-          <p style="color:#2ecc71;">🎖️ Кампания идёт! (Синхронизация ходов, туман войны и урон по бойцам — фаза 2.)</p>
+          <p style="color:#2ecc71;">🎖️ Кампания идёт! Ход: <b>${ftP && ftP.faction ? ftP.faction : ftRole}</b> (${ftWho}).</p>
+          <p style="color:#777; font-size:0.8rem;">Синхронизация ходов, туман войны и урон по бойцам — фаза 2.</p>
           <button class="menu-btn" onclick="onlineGoToCampaign()">Перейти к кампании</button>
         `;
         return;
@@ -19597,7 +19730,8 @@ function onlineCheckMatchProgress() {
     if (m.status === 'lobby' && me.faction && me.ready && opp.faction && opp.ready && me.faction !== opp.faction) {
         ONLINE.docRef.update({ status: 'placing' }).catch(() => {});
     } else if (m.status === 'placing' && me.placed && opp.placed) {
-        ONLINE.docRef.update({ status: 'playing', whoseTurn: 'p1' }).catch(() => {});
+        // ⚡ v13.036: первый ход — у игрока за A.I.R.F.
+        ONLINE.docRef.update({ status: 'playing', whoseTurn: onlineFirstTurnRole(m.players) }).catch(() => {});
     }
 }
 
@@ -19619,6 +19753,11 @@ function onlineSetReady(v) {
     if (!ONLINE.docRef) return;
     const me = onlineMe();
     if (v && me && !me.faction) { alert('Сначала выберите фракцию.'); return; }
+    // ⚡ v13.037: BeVe — ровно 3 поддержки из 4
+    if (v && me && me.faction === 'BeVe' && (me.supportIds || []).length !== 3) {
+        alert('❌ BeVe: выберите ровно 3 поддержки из 4.');
+        return;
+    }
     ONLINE.docRef.update({ ['players.' + ONLINE.role + '.ready']: !!v }).catch(e => alert(e.message));
 }
 
@@ -19654,9 +19793,40 @@ function onlineStartLocalCampaign() {
     selectScenario(m.scenario || 'valencia');
 }
 
+// ⚡ v13.036: онлайн-матч — сразу после лобби: на карту, режим расстановки
+// включён (без промежуточного экрана «Батальон сформирован»)
+function onlineAutoEnterPlacement() {
+    try {
+        const units = appData.campaign.opUnits || [];
+        // новый матч: все юниты неразмещены — снимаем блокировку предыдущей расстановки
+        if (units.length && units.every(u => u.col === null || u.col === undefined)) {
+            placementLocked = false;
+            placementUnlockCount = 0;
+        }
+        showOperationalMap();
+        setOpMapMode('placePlayer');
+        const mi = document.getElementById('mapInfo');
+        if (mi) {
+            mi.innerHTML = '📍 Онлайн-матч: режим расстановки. Разместите юнитов в своей зоне (зелёная), затем «✅ Завершить размещение» — это значит, что вы готовы.';
+            mi.style.color = '#27ae60';
+        }
+    } catch (e) {
+        console.error('onlineAutoEnterPlacement error:', e);
+    }
+}
+
+// ⚡ v13.036: первый ход — у A.I.R.F. (по правилам матча)
+function onlineFirstTurnRole(players) {
+    if (players) {
+        for (const r of ['p1', 'p2']) {
+            if (players[r] && players[r].faction === 'A.I.R.F.') return r;
+        }
+    }
+    return 'p1';
+}
+
 // «Завершить размещение» (закрепляется за finishPlacement)
-function onlineMarkPlaced() {
-    if (!ONLINE.docRef) return;
+function onlineMarkPlaced() {    if (!ONLINE.docRef) return;
     const units = appData.campaign.opUnits || [];
     const unplaced = units.filter(u => u.col === null || u.col === undefined);
     if (unplaced.length > 0) {
@@ -19800,7 +19970,15 @@ function onlineMarkPlaced() {
     </select>
     <span id="artilleryStrikeCount" style="color:#f39c12; font-size:0.8rem; margin-left:8px;"></span>
   </div>
-  
+
+  <!-- ⚡ v13.037: ПРИКАЗ НА ВРЕМЯ — юнит начнёт выполнять приказ, когда
+       наступит ход с этим временем (необязательно) -->
+  <div style="margin-top:4px;">
+    <label style="color:#aaa;">Время начала (необязательно): </label>
+    <input type="time" id="orderStartTime" style="background:#444; color:#fff;">
+    <span style="color:#777; font-size:0.72rem;">— приказ выполнится в ход, когда время на карте достигнет/проскочит этот момент</span>
+  </div>
+
   <!-- Целевой гекс (вне select) -->
   <div style="margin-top:4px;">
     <label style="color:#aaa;">Целевой гекс: </label>
@@ -19898,7 +20076,8 @@ function onlineMarkPlaced() {
     </div>
     <div id="vehicleStatusContent" style="margin-top:6px;"></div>
 </div>
-      <div style="margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
+      <!-- ⚡ v13.037: id для скрытия в онлайн-матче (врага размещает оппонент) -->
+      <div id="opEnemyPanel" style="margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
   <strong>☠️ Противник</strong>
   <button onclick="setOpMapMode('placeEnemy')" style="background:#c0392b;">📌 Разместить</button>
   <button onclick="setOpMapMode('moveEnemy')" style="background:#e67e22;">🚶 Переместить</button>
