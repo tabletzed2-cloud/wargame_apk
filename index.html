@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.045 — операция</title>
+  <title>Боевой модуль v13.047 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -13,7 +13,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.045</h1>
+    <h1>⚔️ Боевой модуль v13.047</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -27,7 +27,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041: версия + принудительное обновление (старый кэш сервис-воркера) -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.045</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.047</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
   </div>
@@ -58,7 +58,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.045 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.047 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -74,7 +74,9 @@
   </div>
 
   <div id="battleTab" class="tabcontent" style="display:block">
-    <div class="section">
+    <!-- ⚡ v13.046 (R31#8): панель добавления отрядов — ТОЛЬКО одиночный бой;
+         в режиме сценария (кампания) скрывается -->
+    <div class="section" id="standalonePrepPanel">
       <h3>Подготовка к бою</h3>
       <div id="factionEmblem" style="margin-bottom:8px; display:flex; align-items:center; gap:8px;"></div>
       <label>Фильтр по фракции: <select id="battleFactionFilter" onchange="renderTemplateSelection(); renderFactionInfoForFilter()"><option value="">Все фракции</option></select></label>
@@ -269,7 +271,7 @@ function safeLocalStorage(method, ...args) {
     }    
 // ⚡ v13.041: текущая версия — отображается в меню/шапке/диагностике,
 //    чтобы игрок видел, свежая ли версия на его устройстве
-var APP_VERSION = 'v13.045';
+var APP_VERSION = 'v13.047';
 
 let selectedFaction = null;
 let selectedSubFaction = null; // 'belgian' | 'dutch' | null — ⚡ v13.045 (R30): влияет на выбор карт в бою
@@ -816,8 +818,8 @@ function refreshSquadToPlaceDropdown() {
   if (appData.campaign.enemyOpUnits) {
     appData.campaign.enemyOpUnits.forEach(u => { if (u && battleUnitNames.has(u.name)) u.isInBattle = true; });
   }
-  // ⚡ v13.042 (R27#11): повторный вход в бой — фаза выбора карт завершена
-  if (!battle.cardsChosen) battle.cardsChosen = true;
+  // ⚡ v13.046 (R31#10): повторный вход в бой — если карты ЕЩЁ не выбирались,
+  //    фаза выбора карт ВОССТАНОВЛЯЕТСЯ (раньше отметка просто проставлялась)
   if (typeof refreshBattleCardPickUI === 'function') refreshBattleCardPickUI();
   renderSquadSelector();
   updateUI();
@@ -833,6 +835,11 @@ function refreshSquadToPlaceDropdown() {
   document.getElementById('battleApp').style.display = 'block';
   activateBattleTab();
   document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
+  // ⚡ v13.046 (R31#10): игрок вышел в кампанию и вернулся — если карты
+  //    ещё не выбраны, снова показываем фазу выбора 3 карт
+  if (!battle.cardsChosen && typeof openCardsTabForBattleStart === 'function') {
+      openCardsTabForBattleStart();
+  }
 }     
 // ⚡ v13.031: fixedSupportIds — для онлайн-матча (поддержка берётся из лобби,
 //    не из чекбоксов)
@@ -1452,8 +1459,16 @@ function renderBattalionRoster() {
     let unitTotal = 0, unitAlive = 0, unitLost = 0;
     if (unit.isGroup && unit.vehicleList) {
         // Для группы техники считаем машины
-        unitTotal = unit.vehicleList.length;
-        unitAlive = unitTotal;
+        // ⚡ v13.046 (R31#9): подбитые машины — потери (vehicleLosses)
+        const lostVehicles = unit.vehicleLosses || 0;
+        unitTotal = unit.vehicleList.length + lostVehicles;
+        unitAlive = unit.vehicleList.length;
+        let crewDead = 0;
+        (unit.vehicleList || []).forEach(v => {
+            const fs = (v.fighters && v.fighters.length) ? v.fighters : ((v.squads && v.squads[0] && v.squads[0].fighters) || []);
+            (fs || []).forEach(f => { if (f.hp <= 0) crewDead++; });
+        });
+        unitLost = lostVehicles + crewDead;
     } else if (unit.squads) {
         unit.squads.forEach(squad => {
           if (squad.fighters) {
@@ -2963,6 +2978,8 @@ function isArmoredUnit(unit) {
 // Проверка наличия ПТО/танковых орудий у юнита
 function hasAtGunWeapons(unit) {
     if (!unit) return false;
+    // ⚡ v13.046 (R31#3): амбразура ДОТ разрушена — орудие не стреляет
+    if (typeof dotEmbrasureDestroyed === 'function' && dotEmbrasureDestroyed(unit)) return false;
     
     // ⚡ ЕСЛИ ЭТО ГРУППА - ПРОВЕРЯЕМ vehicleList
     if (unit.isGroup && unit.vehicleList && unit.vehicleList.length > 0) {
@@ -3052,6 +3069,8 @@ function hasMgWeapons(unit) {
 // Подсчёт количества ПТО орудий в юните
 function countAtGuns(unit) {
     if (!unit) return 0;
+    // ⚡ v13.046 (R31#3): амбразура ДОТ разрушена — орудие не стреляет
+    if (typeof dotEmbrasureDestroyed === 'function' && dotEmbrasureDestroyed(unit)) return 0;
     let count = 0;
     const countCrewGuns = (squads, faction) => {
         for (let squad of (squads || [])) {
@@ -4262,11 +4281,10 @@ function getRelayCompanyForOrder(hqUnit, targetUnit) {
     const hIdx = appData.campaign.opUnits.indexOf(hqUnit);
     if (cIdx === -1 || cIdx === hIdx) return null; // штаб и есть этот штаб роты
     
-    // Реле имеет смысл, если штаб роты БЛИЖЕ к штабу батальона, чем взвод
-    const dCompany = getOpHexDistance(hqUnit.col, hqUnit.row, company.col, company.row);
-    const dTarget = getOpHexDistance(hqUnit.col, hqUnit.row, targetUnit.col, targetUnit.row);
-    if (dCompany >= dTarget) return null;
-    
+    // ⚡ v13.046 (R31#12): приказ ВСЕГДА сначала доставляется в штаб роты,
+    //    к которому приписан взвод, и уже оттуда (рация/телефон/свой посыльный)
+    //    передаётся во взвод. Посыльный штаба батальона к самому взводу
+    //    НЕ ходит (даже если штаб роты дальше взвода).
     return company;
 }  
 function saveData() {
@@ -4478,6 +4496,25 @@ function startTacticalBattle(playerUnits, enemyUnits) {
         return out;
     };
     
+    // ⚡ v13.046 (R31#6): БТР с десантом — десант вступает в бой вместе с
+    //    машинами (десантный юнит — отдельный opUnit, он не «на гексе»)
+    const addEmbarkedUnits = (units) => {
+        (units || []).forEach(u => {
+            if (!u) return;
+            let emb = null;
+            if (u.embarkedUnitId !== undefined && u.embarkedUnitId !== null &&
+                (appData.campaign.opUnits || [])[u.embarkedUnitId]) {
+                emb = appData.campaign.opUnits[u.embarkedUnitId];
+            }
+            if (!emb && u.embarkedUnit) {
+                emb = (appData.campaign.opUnits || []).find(x => x && x.name === u.embarkedUnit);
+            }
+            if (emb && !emb.isDestroyed && !units.includes(emb)) units.push(emb);
+        });
+    };
+    addEmbarkedUnits(playerUnits);
+    addEmbarkedUnits(enemyUnits);
+    
     // Собираем все отряды игрока
     let playerSquads = collectBattleSquads(playerUnits, 'player');
     
@@ -4545,8 +4582,8 @@ function startTacticalBattle(playerUnits, enemyUnits) {
             if (appData.campaign.opUnits) appData.campaign.opUnits.forEach(u => { if (u && u.name === nm) u.isInBattle = true; });
             if (appData.campaign.enemyOpUnits) appData.campaign.enemyOpUnits.forEach(u => { if (u && u.name === nm) u.isInBattle = true; });
         });
-        // ⚡ v13.042 (R27#11): фаза выбора карт уже была
-        if (!existingBattle.cardsChosen) existingBattle.cardsChosen = true;
+        // ⚡ v13.046 (R31#10): если карты ещё не выбирались — фаза выбора
+        //    карт сохраняется (раньше отметка просто проставлялась)
 
         // Переключаемся на бой
         appData.squads = existingBattle.playerSquads.map(s => JSON.parse(JSON.stringify(s)));
@@ -4567,6 +4604,10 @@ function startTacticalBattle(playerUnits, enemyUnits) {
         document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
         document.getElementById('btnFinishBattle').style.display = 'inline-block';
         appData.currentBattleId = existingBattle.id;
+        // ⚡ v13.046 (R31#10): карты не выбраны — снова фаза выбора карт
+        if (!existingBattle.cardsChosen && typeof openCardsTabForBattleStart === 'function') {
+            openCardsTabForBattleStart();
+        }
         saveData();
         return;
     }
@@ -4651,6 +4692,18 @@ function startTacticalBattle(playerUnits, enemyUnits) {
     document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
     document.getElementById('btnFinishBattle').style.display = 'inline-block';
     appData.currentBattleId = newBattle.id;
+    // ⚡ v13.046 (R31#10): СНАЧАЛА показываем игроку гекс, с которого начался
+    //    бой, и какие отряды в него вступают — затем фаза выбора карт
+    {
+        const hp = String(hexKey).split(',');
+        const pNames = playerUnits.map(u => u.name).join(', ');
+        const eNames = enemyUnits.map(e => e.name).join(', ');
+        const msg = `⚔️ Начался тактический бой!\n\nГекс начала: (${hp[0]},${hp[1]})\n\nВаши юниты: ${pNames}\nВражеские юниты: ${eNames}\n\nВыберите до 3 бонусных карточек (или пропустите) и нажмите «⚔️ В бой».`;
+        try { alert(msg); } catch (e) { /* WebView без alert */ }
+        log(msg);
+        const mi0 = document.getElementById('mapInfo');
+        if (mi0) { mi0.innerHTML = `⚔️ Бой начался на гексе (${hp[0]},${hp[1]}) — ваши: ${pNames}`; mi0.style.color = '#f1c40f'; }
+    }
     openCardsTabForBattleStart();
 }
 
@@ -4869,6 +4922,9 @@ function syncBattleLossesToCampaign(battleId) {
                 return true;
             });
             if (removed > 0) {
+                // ⚡ v13.046 (R31#9): потери техники накапливаются —
+                //    отображаются во вкладке «Батальон»
+                unit.vehicleLosses = (unit.vehicleLosses || 0) + removed;
                 unit.groupSize = unit.vehicleList.length;
                 if (unit.groupSize === 0) {
                     unit.isDestroyed = true;
@@ -4958,6 +5014,7 @@ function syncBattleLossesToCampaign(battleId) {
                 return true;
             });
             if (removed > 0) {
+                unit.vehicleLosses = (unit.vehicleLosses || 0) + removed; // ⚡ v13.046 (R31#9)
                 unit.groupSize = unit.vehicleList.length;
                 if (unit.groupSize === 0) {
                     unit.isDestroyed = true;
@@ -9258,13 +9315,21 @@ function editCard(faction, idx) {
   if (!container) return;
 
   let html = '';
-  let factionsToShow = (selectedFaction === 'test')
+  // ⚡ v13.046 (R31#5): только награды фракции игрока
+  //    (в кампании — фракция батальона; в одиночном бою — выбранная)
+  let ctxFactionForAwards = selectedFaction;
+  if (typeof getBattleCardContext === 'function') {
+    const cf = getBattleCardContext().faction;
+    if (cf) ctxFactionForAwards = cf;
+  }
+  let factionsToShow = (ctxFactionForAwards === 'test')
     ? Object.keys(appData.factions)
-    : [selectedFaction];
-  // ⚡ v13.041 (R26#5): если у выбранной фракции наград нет — показываем
-  //    все фракции, у которых каталог наград (weapons.js) заполнен
+    : [ctxFactionForAwards];
+  // ⚡ v13.046 (R31#5): если у фракции игрока наград нет — сообщаем,
+  //    (наград других фракций НЕ показываем)
   if (!factionsToShow.some(f => (appData.factions[f] && appData.factions[f].awards && appData.factions[f].awards.length > 0))) {
-    factionsToShow = Object.keys(appData.factions);
+    container.innerHTML = '<p>У вашей фракции пока нет наград.</p>';
+    return;
   }
 
   factionsToShow.forEach(faction => {
@@ -9303,6 +9368,11 @@ function editCard(faction, idx) {
   //    НЕ фильтрует юнитов; ⚡ v13.045 (R30): подфракция влияет только на карты)
 if (selectedFaction !== 'test' && selectedFaction) {
   filteredTemplates = filteredTemplates.filter(t => t.faction === selectedFaction);
+}
+    // ⚡ v13.046 (R31#8): в режиме сценария панель «добавление отрядов» скрыта
+{
+  const prepPanel = document.getElementById('standalonePrepPanel');
+  if (prepPanel) prepPanel.style.display = (typeof inStandaloneBattle !== 'undefined' && inStandaloneBattle) ? 'block' : 'none';
 }
   // В тестовом режиме показываем всё без изменений
 if (!filteredTemplates.length) {
@@ -10894,7 +10964,7 @@ function endOperationalTurn() {
         {
             const tStr = (typeof formatTime === 'function') ? formatTime(appData.campaign.currentTime)
                 : (String(Math.floor(appData.campaign.currentTime / 60)).padStart(2, '0') + ':' + String(appData.campaign.currentTime % 60).padStart(2, '0'));
-            const msg = `⏱️ Начался ход ${appData.campaign.currentTurn} — время ${tStr}.`;
+            const msg = `Ваш ход. Ход ${appData.campaign.currentTurn}, время ${tStr}.`; // ⚡ v13.046 (R31#13)
             try { alert(msg); } catch (e) { /* WebView без alert */ }
             log(msg);
             const miTurn = document.getElementById('mapInfo');
@@ -10913,6 +10983,7 @@ function endOperationalTurn() {
             // ⚡ v13.024: стационарные (ДОТ) ОД не получают
             u.ap = isStaticOpUnit(u) ? 0 : u.maxAp;
             u.movedThisTurn = false;
+            u.firedThisTurn = false; // ⚡ v13.046 (R31#1)
             // ⚡ v13.023: сиеста AIRF — бросок «спать» делается раз за ход
             u.siestaRolledThisTurn = false;
         });
@@ -11208,6 +11279,23 @@ function executeArtilleryStrikeOrder(order) {
     const applySquadStrike = (t) => {
         const dmg = rollD12();
         unitTotals[t.unit.name] = (unitTotals[t.unit.name] || 0) + dmg;
+        // ⚡ v13.046 (R31#3): ДОТ — арт. калибром >70мм повреждает ТОЛЬКО
+        //    амбразуру (d12 >= 7), расчёт не получает урона
+        if (isStaticOpUnit(t.unit)) {
+            if (dmg >= 7) {
+                dotEmbrasureHp(t.unit);
+                t.unit.embrasureHp -= 1;
+                log(`   💥 ${t.unit.name}: амбразура повреждена арт. обстрелом (d12=${dmg}, осталось ${Math.max(0, t.unit.embrasureHp)}/3).`);
+                damageLines.push(`💥 ${t.unit.name}: амбразура повреждена (осталось ${Math.max(0, t.unit.embrasureHp)}/3)`);
+                if (t.unit.embrasureHp <= 0) {
+                    log(`   💥 ${t.unit.name}: амбразура РАЗРУШЕНА — орудие не стреляет (расчёт цел).`);
+                    damageLines.push(`💥 ${t.unit.name}: амбразура разрушена`);
+                }
+            } else {
+                log(`   🎯 ${t.unit.name}: арт. обстрел (d12=${dmg}) — амбразура выдержала.`);
+            }
+            return;
+        }
         const enemyReal = t.isEnemy && isOnlineMatch;
         if (t.isEnemy && !enemyReal) {
             // одиночная игра — враг неуязвим, урон только в лог
@@ -12035,22 +12123,51 @@ function getNearestOpUnit(units, col, row) {
 function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
     const aliveFirst = enemies.filter(e => !e.isDestroyed);
     if (aliveFirst.length === 0) return;
-    let hits = 0, totalSalvoDamage = 0, totalKilled = 0;
+    // ⚡ v13.046 (R31#3): ДОТ — только артиллерия калибром >70мм; урон —
+    //    ТОЛЬКО амбразуре (3 ед.), расчёт не получает урона
+    // ⚡ v13.047 (R32#1): миномёты ЛЮБОГО калибра (82-мм, 50-мм...) не могут
+    //    обстреливать ДОТ — только ствольные орудия >70мм
+    const caliber = artilleryCaliberMm(unit);
+    const hasDot = aliveFirst.some(e => isStaticOpUnit(e));
+    if (hasDot && isMortarUnit(unit)) {
+        log(`❌ ${unit.name}: миномёты любого калибра не могут обстреливать ДОТ.`);
+        const miM = document.getElementById('mapInfo');
+        if (miM) { miM.innerHTML = `❌ ${unit.name}: миномёты любого калибра не могут обстреливать ДОТ.`; miM.style.color = '#e67e22'; }
+        return;
+    }
+    if (hasDot && caliber <= 70) {
+        log(`❌ ${unit.name} (${caliber}мм): калибр не более 70мм — ДОТ не повреждается.`);
+        const miDot = document.getElementById('mapInfo');
+        if (miDot) { miDot.innerHTML = `❌ ${unit.name} (${caliber}мм): калибр не более 70мм — ДОТ не повреждается.`; miDot.style.color = '#e67e22'; }
+        return;
+    }
+    let hits = 0, totalSalvoDamage = 0, totalKilled = 0, dotHits = 0;
     log(`💣 ${unit.name} обстреливает гекс (${aliveFirst[0].col},${aliveFirst[0].row}) — ${rounds} снарядов`);
     for (let i = 0; i < rounds; i++) {
         const alive = enemies.filter(e => !e.isDestroyed);
         if (alive.length === 0) break;
         if (Math.random() < 0.5) {
             hits++;
-            const dmg = dmgPerHit === '1d6' ? rollD6() : (dmgPerHit === '1d10' ? rollD10() : (rollD6() + rollD6())); // 1d6 / 1d10 / 2d6
             const victim = alive[Math.floor(Math.random() * alive.length)];
+            if (isStaticOpUnit(victim)) {
+                // ⚡ v13.046 (R31#3): попадание по ДОТ — урон амбразуре, не расчёту
+                dotHits++;
+                dotEmbrasureHp(victim);
+                victim.embrasureHp -= 1;
+                if (victim.embrasureHp <= 0) {
+                    log(`💥 ${unit.name}: амбразура «${victim.name}» РАЗРУШЕНА — орудие не стреляет (расчёт цел).`);
+                    try { showShootNotification(unit.name, victim.name, distance, 0, 0); } catch (e) {}
+                }
+                continue;
+            }
+            const dmg = dmgPerHit === '1d6' ? rollD6() : (dmgPerHit === '1d10' ? rollD10() : (rollD6() + rollD6())); // 1d6 / 1d10 / 2d6
             const result = applyDamageToOpUnit(victim, dmg);
             totalSalvoDamage += result.damage;
             totalKilled += result.killed;
         }
         // ⚡ Лог засоряем только ИТОГОМ, а не каждым снарядом
     }
-    const summary = `🎯 ${unit.name}: ${hits}/${rounds} снарядов попали | Урон: ${totalSalvoDamage}${totalKilled > 0 ? ` | Убито: ${totalKilled}` : ''}`;
+    const summary = `🎯 ${unit.name}: ${hits}/${rounds} снарядов попали | Урон: ${totalSalvoDamage}${totalKilled > 0 ? ` | Убито: ${totalKilled}` : ''}${dotHits > 0 ? ` | ДОТ: попаданий по амбразуре ${dotHits} (осталось ${Math.max(0, (aliveFirst.find(e => isStaticOpUnit(e)) || {}).embrasureHp || 0)}/3)` : ''}`;
     log(summary);
     const mapInfo = document.getElementById('mapInfo');
     if (mapInfo) {
@@ -12112,18 +12229,22 @@ function unitAutoFire(unit, maxDist) {
         // ⚡ v13.042 (R27#2): автоматический огонь — ТОЛЬКО по обнаруженным
         //    (detected=true). Не обнаруженный враг в тумане — не цель.
         e.detected === true &&
+        // ⚡ v13.046 (R31#3): ДОТ автоогонь (пехота/ПТО) не берёт — только арт. >70мм
+        !isStaticOpUnit(e) &&
         getOpHexDistance(unit.col, unit.row, e.col, e.row) <= range &&
         (isArmoredUnit(e) || !e.isInBattle)
     );
     if (enemies.length === 0) return false;
+    unit.firedThisTurn = true; // ⚡ v13.046 (R31#1): юнит стрелял — может быть обнаружен
 
     const savedAP = unit.ap;
     try {
-        // Миномётная батарея: 15 выстрелов по ближайшему врагу (попадание = 1d6)
+        // Миномётная батарея: выстрелы по ближайшему врагу (попадание = 1d6)
+        // ⚡ v13.047 (R32#3): число выстрелов — пропорционально живому составу
         if (isMortarBatt) {
             const nearest = getNearestOpUnit(enemies, unit.col, unit.row);
             if (!nearest) return false;
-            executeMortarSalvo(unit, [nearest.unit], nearest.dist, 15, '1d6');
+            executeMortarSalvo(unit, [nearest.unit], nearest.dist, mortarRoundsForUnit(unit, 15), '1d6');
             return true;
         }
         // ПТО: приоритет — ближайшая бронетехника
@@ -12211,6 +12332,7 @@ function executeShootOrder(unit, order) {
     
     // ⚡ СОХРАНЯЕМ ОД (артиллерийский обстрел не тратит ОД)
     const savedAP = unit.ap;
+    unit.firedThisTurn = true; // ⚡ v13.046 (R31#1): юнит стрелял — может быть обнаружен
     
     // ============ СРЕДНЯЯ АРТИЛЛЕРИЯ: СЕРИЯ ВЫСТРЕЛОВ ============
     // ⚡ v13.019: Количество выстрелов за ход: миномёт 82-мм — 15,
@@ -12220,7 +12342,8 @@ function executeShootOrder(unit, order) {
     if (isMediumArt) {
         const isSau = (unit.type === 'sau_battery') ||
                       (unit.name && /САУ/i.test(unit.name));
-        let ROUNDS = 15;
+        // ⚡ v13.047 (R32#3): миномётный залп — пропорционален живому составу
+        let ROUNDS = isMortarUnit(unit) ? mortarRoundsForUnit(unit, 15) : 15;
         if (isSau) {
             // ⚡ Отряд САУ: 7 выстрелов на КАЖДУЮ живую машину
             const vehicleCount = (unit.isGroup && unit.vehicleList)
@@ -12827,9 +12950,11 @@ function executeReconOrder(unit, order) {
     unit.reconHighlightHexes = null; // в ход проведения — ещё не показываем
 
     // Логируем результат разведки (врагов ищем в зоне)
+    // ⚡ v13.046 (R31#14): холм/лес на линии видимости — враг НЕ обнаружен
     const enemiesFound = (appData.campaign.enemyOpUnits || []).filter(e =>
         highlightHexes.some(h => h.col === e.col && h.row === e.row) &&
-        !e.isDestroyed
+        !e.isDestroyed &&
+        !opLineOfSightBlocked(unit.col, unit.row, e.col, e.row)
     );
     if (enemiesFound.length > 0) {
         log(`🔍 [${unit.name}] Обнаружены враги в зоне разведки: ${enemiesFound.map(e => e.name).join(', ')}`);
@@ -13544,10 +13669,13 @@ function submitOrder()   {
         }
         
         // Проверяем, есть ли враги на маршруте
+        // ⚡ v13.046 (R31#2): враги, которых скрывает туман войны, НЕ
+        //    показываемся — уведомление выдало бы их позиции игроку
         let enemiesOnRoute = [];
         for (let wp of orderWaypoints) {
             const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
-                e.col === wp.col && e.row === wp.row && !e.isDestroyed
+                e.col === wp.col && e.row === wp.row && !e.isDestroyed &&
+                (typeof onlineEnemyVisible === 'function' ? onlineEnemyVisible(e) : true)
             );
             if (enemies.length > 0) {
                 enemiesOnRoute.push({ hex: wp, enemies: enemies });
@@ -14217,7 +14345,16 @@ function finishPlacement() {
     //    кнопку «Разместить» и не подтверждаем готовность: просто сообщаем
     //    и даём продолжить размещение
     {
-        const unplacedNow = (appData.campaign.opUnits || []).filter(u => u.col === null || u.col === undefined);
+        // ⚡ v13.046 (R31#7): юнит, посаженный на БТР (размещённый на поле),
+        //    считается РАЗМЕЩЁННЫМ — не блокирует «Завершить размещение»
+        const isEmbarkedOnPlacedBtr = (u) => {
+            if (!u.embarkedInBtr || !Array.isArray(u.btrIds)) return false;
+            return u.btrIds.some(id => {
+                const b = (appData.campaign.opUnits || [])[id];
+                return b && b.col !== null && b.col !== undefined;
+            });
+        };
+        const unplacedNow = (appData.campaign.opUnits || []).filter(u => (u.col === null || u.col === undefined) && !isEmbarkedOnPlacedBtr(u));
         if (unplacedNow.length > 0) {
             const msg = '⚠️ Не размещено юнитов: ' + unplacedNow.length +
                 ((unplacedNow[0] && unplacedNow[0].name) ? ' (например: ' + unplacedNow[0].name + '...)' : '') +
@@ -14521,6 +14658,16 @@ function checkOpDetection() {
     return;
   }
   
+  // ⚡ v13.046 (R31#1/#14): нет линии видимости / не стрелял-не двигался далеко —
+  //    обнаружение невозможно
+  if (typeof unitCanBeDetected === 'function' && !unitCanBeDetected(unit)) {
+      log(`Проверка обнаружения для "${unit.name}": не обнаружен (расстояние/линия видимости).`);
+      unit.detected = false;
+      saveData();
+      redrawOperationalMap();
+      return;
+  }
+  
   const roll = rollD10();
   const result = roll + mod;
   log(`Проверка обнаружения для "${unit.name}": d10=${roll} + мод=${mod} = ${result}`);
@@ -14564,6 +14711,17 @@ function checkAllUnitsDetection() {
         if (unit.isInBattle) return;                          // в тактическом бою
         if (unit.isAmbush) return;                            // засада — не обнаруживается
         if (unit.hidden) return;                              // скрыт
+    
+        // ⚡ v13.046 (R31#1/#14): не стрелял и не двигался, а до ближайшего
+        //    врага более 2 гексов — НЕ обнаруживается; холм/лес между юнитом
+        //    и ближайшим врагом — вне зоны видимости.
+        if (typeof unitCanBeDetected === 'function' && !unitCanBeDetected(unit)) {
+            unit.detected = false;
+            unit.noiseMarker = false;
+            clean++;
+            log(`🟢 ${unit.name}: не обнаружен (не стрелял/не двигался и/или нет линии видимости).`);
+            return;
+        }
     
         let mod = getOpDetectionModifier(unit);
         if (unit.movedThisTurn) mod += 1;   // если двигался – легче обнаружить
@@ -16175,6 +16333,100 @@ function getOpHexDistance(col1, row1, col2, row2) {
     const y2 = -x2 - z2;
     return Math.max(Math.abs(x1 - x2), Math.abs(y1 - y2), Math.abs(z1 - z2));
 }
+
+// ⚡ v13.046 (R31#14): Линия видимости между двумя гексами.
+//    Если на прямой линии (между гексами, не считая конца) есть ХОЛМ или
+//    ЛЕС — прямой наводкой (ПТО / пехота) по цели стрелять нельзя, и цель
+//    не попадает в зону видимости. Меткий огонь (миномёт/САУ/артобстрел)
+//    по-прежнему возможен — он наклонный.
+function opLineOfSightBlocked(col1, row1, col2, row2) {
+    if (col1 === col2 && row1 === row2) return false;
+    const toCube = (c, r) => { const x = c - (r - (r & 1)) / 2; const z = r; const y = -x - z; return { x, y, z }; };
+    const a = toCube(col1, row1), b = toCube(col2, row2);
+    const steps = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y), Math.abs(b.z - a.z));
+    for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        const x = Math.round(a.x + (b.x - a.x) * t);
+        const y = Math.round(a.y + (b.y - a.y) * t);
+        const z = Math.round(a.z + (b.z - a.z) * t);
+        const row = z;
+        const col = x + (z - (z & 1)) / 2;
+        if (col < 0 || row < 0) continue;
+        const types = (typeof getOpHexTypes === 'function') ? getOpHexTypes(col, row) : ['grass'];
+        if (types.includes('hill') || types.includes('forest')) return true;
+    }
+    return false;
+}
+
+// ⚡ v13.046 (R31#1/#14): может ли юнит быть обнаружен врагом:
+//   • не стрелял и не двигался, а до ближайшего врага БОЛЕЕ 2 гексов —
+//     обнаруживаться НЕ должен;
+//   • между юнитом и ближайшим врагом холм/лес (нет линии видимости) —
+//     вне зоны видимости.
+function unitCanBeDetected(unit) {
+    if (!unit || unit.col === null || unit.row === null) return true;
+    const enemies = ((appData.campaign && appData.campaign.enemyOpUnits) || []).filter(e =>
+        e && !e.isDestroyed && e.col !== null && e.row !== null);
+    if (enemies.length === 0) return true; // обнаруживать некому
+    let best = null, bestD = Infinity;
+    enemies.forEach(e => {
+        const d = getOpHexDistance(unit.col, unit.row, e.col, e.row);
+        if (d < bestD) { bestD = d; best = e; }
+    });
+    const moved = !!unit.movedThisTurn;
+    const fired = !!unit.firedThisTurn;
+    if (!moved && !fired && bestD > 2) return false;
+    if (opLineOfSightBlocked(best.col, best.row, unit.col, unit.row)) return false;
+    return true;
+}
+
+// ⚡ v13.046 (R31#3): калибр артиллерии (мм) — только >70мм повреждает ДОТ
+function artilleryCaliberMm(unit) {
+    if (!unit) return 105; // приказ «Арт. обстрел» — полковая артиллерия
+    const name = String(unit.name || '');
+    const m = name.match(/(\d{2,3})\s*-?\s*мм/);
+    if (m) return parseInt(m[1], 10);
+    if (unit.type === 'mortar_battery' || name.includes('миномет') || name.includes('миномёт')) return 82;
+    if (unit.type === 'sau_battery' || name.includes('САУ')) return 75;
+    if (unit.type === 'regimental_artillery' || unit.type === 'artillery_support') return 105;
+    return 0; // не артиллерия
+}
+
+// ⚡ v13.047 (R32#1): миномётная батарея (ЛЮБОГО калибра) — не может обстреливать
+//    ДОТ. Повредить амбразуру могут только ствольные орудия >70мм (САУ/артиллерия).
+function isMortarUnit(unit) {
+    if (!unit) return false; // приказ «Арт. обстрел» — полковая 105-мм пушка
+    if (unit.type === 'sau_battery') return false;
+    if (unit.name && /САУ/i.test(unit.name)) return false;
+    if (unit.type === 'mortar_battery') return true;
+    const n = String(unit.name || '');
+    return /миномет|миномёт/i.test(n);
+}
+
+// ⚡ v13.047 (R32#3): число выстрелов батареи миномётов — пропорционально
+//    проценту живого личного состава: полный расчёт — baseRounds выстрелов,
+//    потери сокращают залп (не менее 1 выстрела).
+function mortarRoundsForUnit(unit, baseRounds) {
+    let total = 0, alive = 0;
+    for (const sq of ((unit && unit.squads) || [])) {
+        const fs = (sq && sq.fighters) || [];
+        total += fs.length;
+        for (const f of fs) if (f && f.hp > 0) alive++;
+    }
+    if (total === 0) return baseRounds; // данных о расчёте нет — полный залп
+    return Math.max(1, Math.round((baseRounds * alive) / total));
+}
+
+// ⚡ v13.046 (R31#3): амбразура ДОТ (3 единицы). Урон расчёту НЕ наносится —
+//    только амбразуре; на 0 — орудие ДОТ не может стрелять.
+function dotEmbrasureHp(u) {
+    if (u && u.embrasureHp === undefined) u.embrasureHp = 3;
+    return u ? (u.embrasureHp || 0) : 0;
+}
+function dotEmbrasureDestroyed(u) {
+    return !!(u && isStaticOpUnit(u) && (u.embrasureHp !== undefined && u.embrasureHp <= 0));
+}
+
 // Функция для клика по цели на карте (переопределяем обработку)
 // Нужно добавить обработку режима 'selectTarget' в handleOpMapClick
 // Показать кнопку подтверждения обстрела
@@ -16227,6 +16479,26 @@ function executeOpShoot(targets, distance) {
         cancelOpShooting();
         return;
     }
+    
+    // ⚡ v13.046 (R31#3): пехота НЕ может обстреливать ДОТ
+    if (targets.some(t => isStaticOpUnit(t))) {
+        document.getElementById('mapInfo').innerHTML = '❌ Пехота не может обстреливать ДОТ. Только артиллерия калибром более 70мм (повреждает амбразуру).';
+        log(`⚠️ [${shooter.name}]: пехота не стреляет по ДОТ (нужна артиллерия >70мм).`);
+        cancelOpShooting();
+        return;
+    }
+    // ⚡ v13.046 (R31#14): холм/лес на линии видимости — прямой наводкой нельзя
+    {
+        const losTarget = (targets.find(t => !t.isGroup) || targets[0]);
+        if (losTarget && losTarget.col !== null && losTarget.row !== null &&
+            opLineOfSightBlocked(shooter.col, shooter.row, losTarget.col, losTarget.row)) {
+            document.getElementById('mapInfo').innerHTML = '❌ Линия видимости перекрыта (холм/лес) — прямой наводкой нельзя. Можно: миномётная батарея / САУ.';
+            log(`⚠️ [${shooter.name}]: линия видимости перекрыта — выстрел не ведётся.`);
+            cancelOpShooting();
+            return;
+        }
+    }
+    shooter.firedThisTurn = true; // ⚡ v13.046 (R31#1): юнит стрелял — может быть обнаружен
     
     // ⚡ v13.027: BeVe — +20% точности, если юнит в 2 гексах от штаба
     const hqModMg = getHqSupportAccuracyMod(shooter);
@@ -16385,7 +16657,7 @@ function executeOpShoot(targets, distance) {
                     } else if (wLower.includes('ручной пулемет') || wLower.includes('fn model d') || wLower.includes('zb.26') || wLower.includes('дп-27')) {
                         damage = 3;
                         label = 'Ручной пулемёт';
-                    } else if (wLower.includes('автоматическая винтовка') || wLower.includes('johnson') || wLower.includes('авс-36')) {
+                    } else if (wLower.includes('автоматическая винтовка') || wLower.includes('автомат. винтовка') || wLower.includes('johanson') || wLower.includes('johnson') || wLower.includes('авс-36')) { // ⚡ v13.047 (R32#2): авто. винтовка = 2 очка выстрела
                         damage = 2;
                         label = 'Автоматическая винтовка';
                     } else if (wLower.includes('винтовка') || wLower.includes('geweer') || wLower.includes('vz.24') || wLower.includes('fn model')) {
@@ -16629,7 +16901,7 @@ function calculateOpShootDamage(shooter, target, distance) {
                 } else if (wLower.includes('ручной пулемет') || wLower.includes('fn model d') || wLower.includes('zb.26') || wLower.includes('дп-27')) {
                     damage = 3;
                     label = 'Ручной пулемёт';
-                } else if (wLower.includes('автоматическая винтовка') || wLower.includes('johnson') || wLower.includes('авс-36')) {
+                } else if (wLower.includes('автоматическая винтовка') || wLower.includes('автомат. винтовка') || wLower.includes('johanson') || wLower.includes('johnson') || wLower.includes('авс-36')) { // ⚡ v13.047 (R32#2): авто. винтовка = 2 очка выстрела
                     damage = 2;
                     label = 'Автоматическая винтовка';
                 } else if (wLower.includes('винтовка') || wLower.includes('geweer') || wLower.includes('vz.24') || wLower.includes('fn model')) {
@@ -17017,6 +17289,26 @@ function executeOpShootAt(targets, distance) {
         return;
     }
     
+    // ⚡ v13.046 (R31#3): ДОТ нельзя бить ПТО — только арт. калибром >70мм
+    if (targets.some(t => isStaticOpUnit(t))) {
+        document.getElementById('mapInfo').innerHTML = '❌ ДОТ можно обстреливать только артиллерией калибром более 70мм (повреждает амбразуру, не расчёт).';
+        log(`⚠️ [${shooter.name}]: ПТО не стреляет по ДОТ (нужна артиллерия >70мм).`);
+        cancelOpShooting();
+        return;
+    }
+    // ⚡ v13.046 (R31#14): холм/лес на линии видимости — прямой наводкой нельзя
+    {
+        const losTarget = (targets.find(t => !t.isGroup) || targets[0]);
+        if (losTarget && losTarget.col !== null && losTarget.row !== null &&
+            opLineOfSightBlocked(shooter.col, shooter.row, losTarget.col, losTarget.row)) {
+            document.getElementById('mapInfo').innerHTML = '❌ Линия видимости перекрыта (холм/лес) — прямой наводкой нельзя. Можно: миномётная батарея / САУ.';
+            log(`⚠️ [${shooter.name}]: линия видимости перекрыта — выстрел не ведётся.`);
+            cancelOpShooting();
+            return;
+        }
+    }
+    shooter.firedThisTurn = true; // ⚡ v13.046 (R31#1): юнит стрелял — может быть обнаружен
+    
     const armorTargets = getArmorUnits(targets);
     if (armorTargets.length === 0) {
         document.getElementById('mapInfo').innerHTML = '❌ На этом гексе нет бронетехники!';
@@ -17042,7 +17334,7 @@ function executeOpShootAt(targets, distance) {
     switch (distance) {
         case 1: hitChance = 0.30; penetrationKey = 10; break;
         case 2: hitChance = 0.20; penetrationKey = 20; break;
-        case 3: hitChance = 0.10; penetrationKey = 30; break;
+        case 3: hitChance = 0.05; penetrationKey = 30; break; // ⚡ v13.046 (R31#9): ПТО по броне с 3 гексов — 5%
         case 4: case 5: hitChance = 0.08; penetrationKey = 35; break;
         case 6: case 7: hitChance = 0.06; penetrationKey = 38; break;
         case 8: case 9: case 10: hitChance = 0.04; penetrationKey = 40; break;
@@ -20876,13 +21168,15 @@ function onlineOnTurnChanged() {
         if (!u || u.isDestroyed) return;
         u.ap = (typeof isStaticOpUnit === 'function' && isStaticOpUnit(u)) ? 0 : (u.maxAp !== undefined ? u.maxAp : u.ap);
         u.movedThisTurn = false;
+        u.firedThisTurn = false; // ⚡ v13.046 (R31#1)
         u.siestaRolledThisTurn = false;
         if (u.availableHexes) delete u.availableHexes;
     });
     if (typeof hardMode !== 'undefined' && hardMode && hardMode.enabled && typeof processOrders === 'function') {
         try { processOrders(); } catch (e) { console.warn('processOrders:', e.message); }
     }
-    const msg = '⏱️ Начался ход ' + now + ' — время ' + tStr + '. Ваш ход!';
+    // ⚡ v13.046 (R31#13): просто «Ваш ход. Ход N, время» — без «кто ходит / кого ждём»
+    const msg = 'Ваш ход. Ход ' + now + ', время ' + tStr + '.';
     try { alert(msg); } catch (e) { /* WebView без alert */ }
     log(msg);
     const mi = document.getElementById('mapInfo');
@@ -20914,11 +21208,9 @@ function onlineOnTurnStatusChanged() {
         onlineSetTurnLockUI(false);
         if (opp.turnDone && !ONLINE.announcedOppDone) {
             ONLINE.announcedOppDone = true;
-            const msg = '⏳ Оппонент завершил свой ход ' + turnNo + ' — ваш ход ' + turnNo + ', завершайте его!';
-            try { alert(msg); } catch (e) { /* WebView без alert */ }
-            log(msg);
-            const mi = document.getElementById('mapInfo');
-            if (mi) { mi.innerHTML = msg; mi.style.color = '#f1c40f'; }
+            // ⚡ v13.046 (R31#13): без алерта «кто ходит / кого ждём» —
+            //    уведомление о начале хода одно: «Ваш ход. Ход N, время»
+            log('⏳ Оппонент завершил свой ход ' + turnNo + '.');
         }
     }
 }
@@ -21330,7 +21622,6 @@ function onlineOnSnapshotSync() {
       <button onclick="document.getElementById('mapCodeModal').style.display='none'" style="background:#555;">Закрыть</button>
       <span id="mapCodeStatus" style="color:#9ccc65; font-size:0.85rem;"></span>
     </div>
-    <p style="font-size:0.75rem; color:#777; margin-bottom:0;">Если копирование кнопкой не сработало (на телефоне) — выделите код в окне и скопируйте вручную (Ctrl+C / долгий тап).</p>
   </div>
 </div>
   <div id="battalionRosterScreen" style="display:none; padding:20px;">
@@ -21345,7 +21636,6 @@ function onlineOnSnapshotSync() {
     
 </body>
 </html>
-size:0.75rem; color:#777; margin-bottom:0;">Если копирование кнопкой не сработало (на телефоне) — выделите код в окне и скопируйте вручную (Ctrl+C / долгий тап).</p>
   </div>
 </div>
   <div id="battalionRosterScreen" style="display:none; padding:20px;">
