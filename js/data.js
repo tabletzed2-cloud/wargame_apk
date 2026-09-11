@@ -7,11 +7,11 @@
       road:         { color: '#795548', baseCost: 1.5,icon: '🛣️', level: 0, images: ['images/дорога.png', 'images/дорога1.png', 'images/дорога развилка.png'] },
       hill:         { color: '#8D6E63', baseCost: 6,  icon: '⛰️', level: 0, images: ['images/склон1.png', 'images/склон2.png', 'images/склон3.png', 'images/склон4.png', 'images/склон5.png', 'images/склон6.png', 'images/склон7.png', 'images/склон8.png', 'images/склон9.png', 'images/склон10.png', 'images/склон11.png', 'images/склон12.png', 'images/склон13.png', 'images/склон14.png'] },
       water:        { color: '#2980b9', baseCost: 999,icon: '💧', level: 0, image: null },
-      swamp_passable:   { color: '#2E7D32', baseCost: 5,  icon: '🌊', level: 0, image: ['images/болото 1.png', 'images/болото 2.png'] },
+      swamp_passable:   { color: '#2E7D32', baseCost: 5,  icon: '🌊', level: 0, images: ['images/болото 1.png', 'images/болото 2.png'] },
       swamp_impassable: { color: '#1B5E20', baseCost: 999,icon: '⛔', level: 0, image: null },
       bushes:           { color: '#33691E', baseCost: 3,  icon: '🌳', level: 0, images: ['images/кусты.png', 'images/кусты1.png', 'images/кусты2.png' ] },
       rocks:            { color: '#78909C', baseCost: 5,  icon: '🪨', level: 0, images: ['images/камни.png', 'images/камни1.png', 'images/камни2.png'] },
-      trenches:         { color: '#A1887F', baseCost: 3,  icon: '🕳️', level: 0, images: ['images/окоп1.png', 'images/окоп2.png', 'images/окоп3.png', 'images/окоп4.png', 'images/окоп5.png', 'images/окоп6.png'] },
+      trenches:         { color: '#A1887F', baseCost: 3,  icon: '🕳️', level: 0, images: ['images/окоп1.png', 'images/окоп2.png', 'images/окоп3.png', 'images/окоп4.png', 'images/окоп5.png', 'images/окоп6.png', 'images/окоп7.png'] },
    };
 
 // Настройки карт сценариев
