@@ -31,7 +31,9 @@ const FNS = [
     'updateAssemblySupportCheck', 'orderShouldExecuteNow', 'executeOrder', 'executeDigInOrder', 'rollD12',
     // ⚡ v13.047 (R32): миномёты/ДОТ, залп ∝ живому составу, авто. винтовка = 2
     'isMortarUnit', 'mortarRoundsForUnit', 'unitAutoFire', 'canUnitShoot',
-    'isMediumArtillery', 'getNearestOpUnit', 'isArmoredUnit'
+    'isMediumArtillery', 'getNearestOpUnit', 'isArmoredUnit',
+    // ⚡ v13.048 (R33): бонусы фракций на экране выбора стороны
+    'showScenarioDetails', 'factionBonusHtml'
 ];
 
 let pass = 0, fail = 0;
@@ -772,7 +774,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.047'"), 'U9q: константа версии v13.047');
+    ok(HTML.includes("var APP_VERSION = 'v13.048'"), 'U9q: константа версии v13.048');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -1002,6 +1004,45 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     ok(HTML.includes("dmgPerHit === '1d10' ? rollD10()"), 'U11e: executeMortarSalvo умеет 1d10');
     ok(HTML.includes("executeMortarSalvo(unit, [nearest.unit], nearest.dist, mortarRoundsForUnit(unit, 15), '1d6')"),
         'U11f: автоогонь миномётной батареи — 1d6/попадание, залп ∝ живому составу (R32)');
+
+    // ================= U16: v13.048 (R33) — дубли карт, бонусы фракций, болото =================
+    // #1: общая библиотека дублировала карты фракции — дедупликация по имени
+    //    (свежие каталоги из cards.js — предыдущие тесты могли их подменить)
+    s.run('appData.factions.BeVe.cardLibrary = []; appData.factions["A.I.R.F."].cardLibrary = []; ' +
+          'appData.factions._global = { icon: "", cardLibrary: [], awards: [] }; syncFactionCatalogs();');
+    s.run('appData.currentBattleId = 88; inStandaloneBattle = false; selectedFaction = null; ' +
+          'appData.campaign.activeBattles = [{ id: 88, playerSquads: [{ name: "С1", faction: "BeVe", subfaction: "belgian" }], subFaction: "belgian" }]; ' +
+          'renderCardSelectionForBattle();');
+    let htmlU16 = s.elements.cardSelectionForBattle.innerHTML;
+    {
+        const namesU16 = [...htmlU16.matchAll(/data-name="([^"]+)"/g)].map(m => m[1]);
+        ok(new Set(namesU16).size === namesU16.length && namesU16.length === 21,
+            'U16a: BeVe (бельгийцы) — 21 карта без дублей (24 − 3 голландских)', namesU16.join(','));
+        ok(!htmlU16.includes('data-faction="A.I.R.F."'), 'U16b: у BeVe-игрока карт AIRF НЕТ');
+    }
+    s.run('appData.campaign.activeBattles[0].playerSquads = [{ name: "С1", faction: "A.I.R.F." }]; appData.campaign.activeBattles[0].subFaction = null; renderCardSelectionForBattle();');
+    htmlU16 = s.elements.cardSelectionForBattle.innerHTML;
+    {
+        const namesU16c = [...htmlU16.matchAll(/data-name="([^"]+)"/g)].map(m => m[1]);
+        ok(new Set(namesU16c).size === namesU16c.length && namesU16c.length === 45,
+            'U16c: AIRF-игрок — 45 карт без дублей (23 свои + 22 общие-уникальные)');
+        ok(htmlU16.includes('data-faction="A.I.R.F."') && !htmlU16.includes('data-faction="BeVe"'),
+            'U16d: AIRF-игрок — свои карты + «Общие», без библиотеки BeVe');
+        ok(htmlU16.includes('[Общие]'), 'U16e: общие карты помечены меткой «Общие»');
+    }
+    // #2: экран «Выберите сторону» — бонусы/дебафсы фракций с иконками
+    s.run('showScenarioDetails("valencia");');
+    const scenHtml = s.elements.campaignContent.innerHTML;
+    ok(['fire_control', 'radio_phillips', 'motor_courier', 'siesta', 'chaskeys'].every(
+            f => scenHtml.includes('images/bonuses/' + f + '.png')),
+        'U16f: выбор стороны — все 5 иконок бонусов/дебафов фракций');
+    ok(scenHtml.includes('Портативный комплекс управления огнём') && scenHtml.includes('Сиеста'),
+        'U16g: выбор стороны — названия бонусов BeVe и AIRF');
+    // #3: болото — текстуры грузятся (поле «images», как у остальных типов)
+    ok(Array.isArray(s.evalCtx('TERRAIN_DATA.swamp_passable.images')) &&
+       s.evalCtx('TERRAIN_DATA.swamp_passable.images.length') === 2 &&
+       s.evalCtx('TERRAIN_DATA.swamp_passable.images[0]') === 'images/болото 1.png',
+        'U16h: swamp_passable — текстуры в поле «images» (загрузчик preloadTerrainImages читает именно его)');
 }
 
 console.log('\n====================================');
