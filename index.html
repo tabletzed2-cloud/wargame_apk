@@ -8424,16 +8424,28 @@ function renderCardSelectionForBattle() {
     seenCardNames.add(card.name);
     allCards.push({ ...card, faction });
   };
+  // ⚡ v13.049: карты из _global, которые на самом деле являются картами
+  //    «другой» фракции (для BeVe — A.I.R.F., для A.I.R.F. — BeVe),
+  //    больше не показываем. Иначе игрок BeVe видел все карточки A.I.R.F.
+  const otherFactionName = (ctx.faction === 'BeVe')   ? 'A.I.R.F.' :
+                           (ctx.faction === 'A.I.R.F.') ? 'BeVe' : null;
+  const otherLibNames = new Set(
+      (otherFactionName && appData.factions[otherFactionName] &&
+       Array.isArray(appData.factions[otherFactionName].cardLibrary))
+          ? appData.factions[otherFactionName].cardLibrary
+              .map(c => c && c.name).filter(Boolean)
+          : []
+  );
+
   const processFactionLib = (faction, data) => {
     (data.cardLibrary || []).forEach(card => {
       // ⚡ v13.045 (R30): карты другой подфракции BeVe недоступны
-      //    (бельгийцы — без карт голландцев, и наоборот; «common» — всем).
-      //    Срабатывает и на общих (_global) картах — часть «голландских»/
-      //    «бельгийских» карт лежит именно в _global-библиотеке.
       if (card.subfaction && card.subfaction !== 'common' &&
-    card.subfaction !== ctx.subFaction) return;
+          card.subfaction !== ctx.subFaction) return;
       if (isCommonFaction(faction)) {
-        // общие карты — всем (кроме чужих подфракций BeVe)
+        // ⚡ v13.049: общие карты показываем, только если карточка НЕ является
+        //    уникальной картой противника (иначе карты A.I.R.F. видны игроку BeVe)
+        if (otherLibNames.has(card.name)) return;
         pushCard(card, faction);
         return;
       }
