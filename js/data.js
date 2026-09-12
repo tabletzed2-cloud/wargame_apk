@@ -3,7 +3,7 @@
   const TERRAIN_DATA = {
       // Базовые типы (уровень 0)
       grass:        { color: '#4CAF50', baseCost: 2,  icon: '🌿', level: 0, images: ['images/трава.png', 'images/трава1.png', 'images/пшено.png', 'images/воронки в поле.png', 'images/воронки в поле1.png' ]},
-      forest:       { color: '#1B5E20', baseCost: 4,  icon: '🌲', level: 0, images: ['images/лес.png', 'images/лес1.png', 'images/лес2.png', 'images/лес обстрелянный.png', 'images/лес обстрелянный1.png'] },
+      forest:       { color: '#1B5E20', baseCost: 4,  icon: '🌲', level: 0, images: ['images/лес.png', 'images/лес1.png', 'images/лес2.png', 'images/лес обстрелянный.png', 'images/лес обстрелянный1.png', 'images/лес поваленный.png'] },
       road:         { color: '#795548', baseCost: 1.5,icon: '🛣️', level: 0, images: ['images/дорога.png', 'images/дорога1.png', 'images/дорога развилка.png'] },
       hill:         { color: '#8D6E63', baseCost: 6,  icon: '⛰️', level: 0, images: ['images/склон1.png', 'images/склон2.png', 'images/склон3.png', 'images/склон4.png', 'images/склон5.png', 'images/склон6.png', 'images/склон7.png', 'images/склон8.png', 'images/склон9.png', 'images/склон10.png', 'images/склон11.png', 'images/склон12.png', 'images/склон13.png', 'images/склон14.png'] },
       water:        { color: '#2980b9', baseCost: 999,icon: '💧', level: 0, image: null },
