@@ -2,13 +2,13 @@
 // Типы местности
   const TERRAIN_DATA = {
       // Базовые типы (уровень 0)
-      grass:        { color: '#4CAF50', baseCost: 2,  icon: '🌿', level: 0, images: ['images/трава.png', 'images/трава1.png', 'images/пшено.png'] },
-      forest:       { color: '#1B5E20', baseCost: 4,  icon: '🌲', level: 0, images: ['images/лес.png', 'images/лес1.png', 'images/лес2.png'] },
+      grass:        { color: '#4CAF50', baseCost: 2,  icon: '🌿', level: 0, images: ['images/трава.png', 'images/трава1.png', 'images/пшено.png', 'images/воронки в поле.png', 'images/воронки в поле1.png' ]},
+      forest:       { color: '#1B5E20', baseCost: 4,  icon: '🌲', level: 0, images: ['images/лес.png', 'images/лес1.png', 'images/лес2.png', 'images/лес обстрелянный.png', 'images/лес обстрелянный1.png'] },
       road:         { color: '#795548', baseCost: 1.5,icon: '🛣️', level: 0, images: ['images/дорога.png', 'images/дорога1.png', 'images/дорога развилка.png'] },
       hill:         { color: '#8D6E63', baseCost: 6,  icon: '⛰️', level: 0, images: ['images/склон1.png', 'images/склон2.png', 'images/склон3.png', 'images/склон4.png', 'images/склон5.png', 'images/склон6.png', 'images/склон7.png', 'images/склон8.png', 'images/склон9.png', 'images/склон10.png', 'images/склон11.png', 'images/склон12.png', 'images/склон13.png', 'images/склон14.png'] },
       water:        { color: '#2980b9', baseCost: 999,icon: '💧', level: 0, image: null },
       swamp_passable:   { color: '#2E7D32', baseCost: 5,  icon: '🌊', level: 0, images: ['images/болото 1.png', 'images/болото 2.png'] },
-      swamp_impassable: { color: '#1B5E20', baseCost: 999,icon: '⛔', level: 0, image: null },
+      swamp_impassable: { color: '#1B5E20', baseCost: 999,icon: '⛔', level: 0, images: ['images/болото непроходимое.png', 'images/болото непроходимое1.png', 'images/болото непроходимое.png2'] },
       bushes:           { color: '#33691E', baseCost: 3,  icon: '🌳', level: 0, images: ['images/кусты.png', 'images/кусты1.png', 'images/кусты2.png' ] },
       rocks:            { color: '#78909C', baseCost: 5,  icon: '🪨', level: 0, images: ['images/камни.png', 'images/камни1.png', 'images/камни2.png'] },
       trenches:         { color: '#A1887F', baseCost: 3,  icon: '🕳️', level: 0, images: ['images/окоп1.png', 'images/окоп2.png', 'images/окоп3.png', 'images/окоп4.png', 'images/окоп5.png', 'images/окоп6.png', 'images/окоп7.png'] },
@@ -64,21 +64,21 @@ const FRACTION_GLOBAL_BONUSES = {
   "BeVe": [
     { id: "fire_control", name: "Портативный комплекс управления огнём",
       desc: "+20% к меткости юнитов в радиусе 2 гексов от штаба батальона",
-      icon: "images/bonuses/fire_control.png" },
+      icon: "images/Портативный комплекс управления огнем.png" },
     { id: "radio_phillips", name: "Радио Phillips",
       desc: "Батальону доступно 3 рации для распределения по юнитам",
-      icon: "images/bonuses/radio_phillips.png" },
+      icon: "images/Радио филипс.png" },
     { id: "motor_courier", name: "Мотогонец",
       desc: "Скорость посыльного по дороге — 6 гексов/ход",
-      icon: "images/bonuses/motor_courier.png" }
+      icon: "images/мотогонец.png" }
   ],
   "A.I.R.F.": [
     { id: "siesta", name: "Сиеста",
       desc: "С 14:00 до 15:00 юниты, находящиеся на дистанции >3 гексов от врага, с вероятностью 80% не выполняют полученный приказ",
-      icon: "images/bonuses/siesta.png" },
+      icon: "images/сиеста1.png" },
     { id: "chaskeys", name: "Бегуны Часки",
       desc: "Скорость посыльных AIRF независимо от типа местности — 3 гекса/ход",
-      icon: "images/bonuses/chaskeys.png" }
+      icon: "images/Бегун часки.png" }
   ]
 };
 
@@ -379,8 +379,8 @@ const BTR_REQUIREMENTS = {
     'company_hq': 2,            // штаб роты
     'battalion_hq': 3,          // штаб батальона
     'mortar_battery': 3,        // минометная батарея
-    'at_gun': 2,                // ПТО
-    'at_battery': 4,            // батарея ПТО
+    'at_gun': 1,                // ПТО
+    'at_battery': 3,            // батарея ПТО
     'hq': 3,                    // штаб (общий)
     'default': 4                // по умолчанию
 };
@@ -417,21 +417,22 @@ const GROUP_ICONS = {
 //    эмодзи-fallback'ами (как окопы/здания/лес); если появится свой PNG —
 //    достаточно заполнить поле icon у нужной метки.
 const markerIconMap = {
-  'detected': { icon: null, fallback: '👁️', width: 30, height: 30 },
-  'noise': { icon: null, fallback: '🔊', width: 30, height: 30 },
-  'artillery': { icon: null, fallback: '💥', width: 30, height: 30 },
-  'fireField': { icon: 'images/BeVe/горящее поле.png', fallback: '🔥', width: 30, height: 30 },
-  'bicyclePark': { icon: 'images/BeVe/велостоянка метка.png', fallback: '🚲', width: 30, height: 30 },
-  'ammoPoint': { icon: null, fallback: '📦', width: 30, height: 30 },
-  'destroyedVehicle': { icon: null, fallback: '🔥', width: 30, height: 30 },
-  'destroyedSquadFriendly': { icon: null, fallback: '💀', width: 30, height: 30 },
-  'destroyedSquadEnemy': { icon: null, fallback: '☠️', width: 30, height: 30 },
-  'dot': { icon: null, fallback: '🏰', width: 30, height: 30 },
-  'trenches': { icon: null, fallback: '🕳️', width: 30, height: 30 },
-  'building': { icon: null, fallback: '🏠', width: 30, height: 30 },
-  'forest': { icon: null, fallback: '🌲', width: 30, height: 30 },
-  'bushes': { icon: null, fallback: '🌳', width: 30, height: 30 },
-  'rocks': { icon: null, fallback: '🪨', width: 30, height: 30 }
+  'detected':               { icon: 'images/markers/detected.png',              fallback: '👁️', width: 30, height: 30 },
+  'noise':                  { icon: 'images/markers/noise.png',                 fallback: '🔊', width: 30, height: 30 },
+  'artillery':              { icon: 'images/markers/artillery.png',             fallback: '💥', width: 30, height: 30 },
+  'fireField':              { icon: 'images/BeVe/горящее поле.png',             fallback: '🔥', width: 30, height: 30 },
+  'bicyclePark':            { icon: 'images/BeVe/велостоянка метка.png',        fallback: '🚲', width: 30, height: 30 },
+  'ammoPoint':              { icon: 'images/markers/ammoPoint.png',             fallback: '📦', width: 30, height: 30 },
+  'destroyedVehicle':       { icon: 'images/подбитый танк аирф.png',            fallback: '🔥', width: 30, height: 30 },
+  'destroyedSquadFriendly': { icon: 'images/markers/destroyedSquadFriendly.png',fallback: '💀', width: 30, height: 30 },
+  'destroyedSquadEnemy':    { icon: 'images/markers/destroyedSquadEnemy.png',   fallback: '☠️', width: 30, height: 30 },
+  'dot':                    { icon: 'images/markers/dot.png',                   fallback: '🏰', width: 30, height: 30 },
+  'trenches':               { icon: 'images/окоп оп.png',                       fallback: '🕳️', width: 30, height: 30 },
+  'building':               { icon: 'images/markers/building.png',              fallback: '🏠', width: 30, height: 30 },
+  'forest':                 { icon: 'images/markers/forest.png',                fallback: '🌲', width: 30, height: 30 },
+  'bushes':                 { icon: 'images/markers/bushes.png',                fallback: '🌳', width: 30, height: 30 },
+  'rocks':                  { icon: 'images/валуны.png',                        fallback: '🪨', width: 30, height: 30 },
+  'crater':                 { icon: 'images/markers/crater.png',                fallback: '💥', width: 30, height: 30 }
 };
 
 // Функции доступа к данным
