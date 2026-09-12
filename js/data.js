@@ -11,7 +11,7 @@
       swamp_impassable: { color: '#1B5E20', baseCost: 999,icon: '⛔', level: 0, image: null },
       bushes:           { color: '#33691E', baseCost: 3,  icon: '🌳', level: 0, images: ['images/кусты.png', 'images/кусты1.png', 'images/кусты2.png' ] },
       rocks:            { color: '#78909C', baseCost: 5,  icon: '🪨', level: 0, images: ['images/камни.png', 'images/камни1.png', 'images/камни2.png'] },
-      trenches:         { color: '#A1887F', baseCost: 3,  icon: '🕳️', level: 0, images: ['images/окоп1.png', 'images/окоп2.png', 'images/окоп3.png', 'images/окоп4.png', 'images/окоп5.png', 'images/окоп6.png'] },
+      trenches:         { color: '#A1887F', baseCost: 3,  icon: '🕳️', level: 0, images: ['images/окоп1.png', 'images/окоп2.png', 'images/окоп3.png', 'images/окоп4.png', 'images/окоп5.png', 'images/окоп6.png', 'images/окоп7.png' ] },
    };
 
 // Настройки карт сценариев
