@@ -12,7 +12,22 @@
       bushes:           { color: '#33691E', baseCost: 3,  icon: '🌳', level: 0, images: ['images/кусты.png', 'images/кусты1.png', 'images/кусты2.png' ] },
       rocks:            { color: '#78909C', baseCost: 5,  icon: '🪨', level: 0, images: ['images/камни.png', 'images/камни1.png', 'images/камни2.png'] },
       trenches:         { color: '#A1887F', baseCost: 3,  icon: '🕳️', level: 0, images: ['images/окоп1.png', 'images/окоп2.png', 'images/окоп3.png', 'images/окоп4.png', 'images/окоп5.png', 'images/окоп6.png', 'images/окоп7.png' ] },
+      // ⚡ v13.049 (R34): типы, которые появляются на тактической карте гекса
+      //    в результате приказов игрока и обстрелов артиллерией
+      fallen_forest:    { color: '#8D6E63', baseCost: 3,  icon: '🪵', level: 0, images: ['images/поваленный лес.png'] },
+      shelled_forest:   { color: '#4E342E', baseCost: 3,  icon: '🌲', level: 0, images: ['images/обстрелянный лес1.png', 'images/обстрелянный лес2.png'] },
+      craters:          { color: '#795548', baseCost: 4,  icon: '💥', level: 0, images: ['images/воронки в поле.png', 'images/воронки в поле1.png'] },
    };
+
+// ⚡ v13.049 (R34): СЕМАНТИКА НОВЫХ ТИПОВ МЕСТНОСТИ
+//   • лес (forest) и обстрелянный лес (shelled_forest) — «лес» для правила
+//     «в лес глубже 2 гексов стрелять нельзя» и для линии видимости;
+//   • поваленный лес (fallen_forest) — лес вырублен/повален: обзор открыт,
+//     для правила глубины леса НЕ считается лесом;
+//   • воронки в поле (craters) — укрытие как у камней (штраф к меткости
+//     стреляющего), пехота ходит 4 ОД, техника не заходит.
+const FOREST_LIKE_TYPES = ['forest', 'shelled_forest'];
+const COVER_LIKE_ROCKS_TYPES = ['rocks', 'craters'];
 
 // Настройки карт сценариев
 const SCENARIO_OP_MAP_SETTINGS = {

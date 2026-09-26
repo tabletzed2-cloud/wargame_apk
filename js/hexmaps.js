@@ -1,0 +1,899 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.049 (R34): КАРТЫ ГЕКСОВ ОПЕРАТИВНОЙ КАРТЫ ДЛЯ ТАКТИЧЕСКОГО БОЯ
+//
+// 1) Тактический бой начинается на гексе оперативной карты (col,row) и
+//    открывает карту поля боя из папки «maps/Карты Валенсия/» — файл, имя
+//    которого начинается с «col.row» (например «8.10 мост.json»).
+//    Если карты для гекса нет — остаётся обычное поле 20×20 (как раньше).
+//
+// 2) Правки местности (окопы, подготовка позиций, воронки от обстрелов)
+//    хранятся в appData.campaign.hexOverlays['col,row'].hexEdits и
+//    НАКЛАДЫВАЮТСЯ на карту гекса и в редакторе, и в бою, у обоих игроков
+//    (в онлайне — через state.p<role>.hexOverlays).
+// ═══════════════════════════════════════════════════════════════════════════
+
+const HEX_MAP_DIR = 'maps/Карты Валенсия/';
+const HEX_MAP_DIR_ALT = 'maps/';
+const HEX_MAP_INDEX_FILES = [HEX_MAP_DIR + 'index.json', HEX_MAP_DIR_ALT + 'index.json'];
+
+let TACTICAL_HEX_INDEX = null;          // [{name, file}]
+let tacticalHexIndexPromise = null;
+const TACTICAL_HEX_MAPS = {};           // '8,10' → {grid, w, h} (без правок, эталон)
+const TACTICAL_HEX_MAP_LOADING = {};    // '8,10' → Promise
+
+// Текущее состояние редактора гекса (режим карты 'hexEdit')
+let hexEditorState = null;
+
+// ─────────────────────────── РАЗБОР ИМЁН И ИНДЕКС ───────────────────────────
+
+// «8.10 мост.json» / «8,10.json» / «8-10 ...» → '8,10'
+function tacticalHexKeyFromMapName(name) {
+    if (!name) return null;
+    const base = String(name).split('/').pop().replace(/\.json$/i, '').trim();
+    const m = base.match(/^(\d{1,2})\s*[.,\-–]\s*(\d{1,2})(?!\d)/);
+    if (!m) return null;
+    return parseInt(m[1], 10) + ',' + parseInt(m[2], 10);
+}
+
+function normalizeTacticalMapData(raw) {
+    let grid = null, enemySquads = [];
+    if (raw) {
+        if (raw.currentMap && raw.currentMap.grid) { grid = raw.currentMap.grid; enemySquads = raw.currentMap.enemySquads || []; }
+        else if (raw.tacticalMap && raw.tacticalMap.grid) { grid = raw.tacticalMap.grid; enemySquads = raw.tacticalMap.enemySquads || []; }
+        else if (raw.grid) { grid = raw.grid; enemySquads = raw.enemySquads || []; }
+    }
+    if (!grid) return null;
+    let w = 0, h = 0;
+    const out = {};
+    const put = (col, row, cell) => {
+        if (!cell) return;
+        const c = { ...cell };
+        if (!c.type) c.type = 'grass';
+        if (!Array.isArray(c.squadIds)) c.squadIds = [];
+        if (!Array.isArray(c.enemySquadIds)) c.enemySquadIds = [];
+        if (!Array.isArray(c.markers)) c.markers = [];
+        if (c.rotation === undefined) c.rotation = 0;
+        if (c.variant === undefined) c.variant = 0;
+        if (c.level === undefined) c.level = 0;
+        out[col + ',' + row] = c;
+        if (col + 1 > w) w = col + 1;
+        if (row + 1 > h) h = row + 1;
+    };
+    if (Array.isArray(grid)) {
+        // сетка как массив строк/столбцов
+        grid.forEach((rowArr, row) => {
+            if (Array.isArray(rowArr)) rowArr.forEach((cell, col) => put(col, row, cell));
+        });
+    } else {
+        Object.keys(grid).forEach(k => {
+            const parts = String(k).split(',').map(Number);
+            if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return;
+            put(parts[0], parts[1], grid[k]);
+        });
+    }
+    if (w === 0 || h === 0) return null;
+    return { grid: out, w, h, enemySquads };
+}
+
+// Список карт: maps/Карты Валенсия/index.json, иначе maps/index.json
+function loadTacticalHexIndex() {
+    if (TACTICAL_HEX_INDEX) return Promise.resolve(TACTICAL_HEX_INDEX);
+    if (tacticalHexIndexPromise) return tacticalHexIndexPromise;
+    const tryFetch = (url) => {
+        if (typeof fetch !== 'function') return Promise.resolve(null);
+        return fetch(url, { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).catch(() => null);
+    };
+    tacticalHexIndexPromise = tryFetch(HEX_MAP_INDEX_FILES[0])
+        .then(list => list || tryFetch(HEX_MAP_INDEX_FILES[1]))
+        .then(list => {
+            TACTICAL_HEX_INDEX = Array.isArray(list) ? list.filter(x => x && (x.file || x.name)) : [];
+            return TACTICAL_HEX_INDEX;
+        })
+        .catch(() => { TACTICAL_HEX_INDEX = []; return TACTICAL_HEX_INDEX; });
+    return tacticalHexIndexPromise;
+}
+
+function findHexMapEntry(hexKey) {
+    if (!TACTICAL_HEX_INDEX) return null;
+    const [c, r] = String(hexKey).split(',').map(Number);
+    const exact = TACTICAL_HEX_INDEX.find(x => tacticalHexKeyFromMapName(x.name || '') === hexKey ||
+                                               tacticalHexKeyFromMapName(x.file || '') === hexKey);
+    if (exact) return exact;
+    // «начинается с номера гекса» — 8.10 → 8,10 (первое совпадение)
+    return TACTICAL_HEX_INDEX.find(x => {
+        const k1 = tacticalHexKeyFromMapName(x.name || '');
+        const k2 = tacticalHexKeyFromMapName(x.file || '');
+        return k1 === hexKey || k2 === hexKey || (c === c && false);
+    }) || null;
+}
+
+// Загрузка и кэширование карты гекса (без правок — эталон)
+function ensureTacticalHexMap(hexKey) {
+    if (TACTICAL_HEX_MAPS[hexKey]) return Promise.resolve(TACTICAL_HEX_MAPS[hexKey]);
+    if (TACTICAL_HEX_MAP_LOADING[hexKey]) return TACTICAL_HEX_MAP_LOADING[hexKey];
+    if (typeof fetch !== 'function') return Promise.resolve(null);
+    const [c, r] = String(hexKey).split(',').map(Number);
+    const load = (url) => fetch(url, { cache: 'no-cache' })
+        .then(res => res.ok ? res.json() : null)
+        .then(raw => normalizeTacticalMapData(raw))
+        .catch(() => null);
+    const p = loadTacticalHexIndex().then(list => {
+        const cands = [];
+        const entry = findHexMapEntry(hexKey);
+        if (entry && entry.file) cands.push(entry.file.indexOf('/') >= 0 ? entry.file : HEX_MAP_DIR + entry.file);
+        cands.push(HEX_MAP_DIR + c + '.' + r + '.json');
+        cands.push(HEX_MAP_DIR + c + ',' + r + '.json');
+        cands.push(HEX_MAP_DIR_ALT + c + '.' + r + '.json');
+        const step = (i) => (i >= cands.length ? Promise.resolve(null)
+            : load(cands[i]).then(m => m || step(i + 1)));
+        return step(0);
+    }).then(mapData => {
+        if (mapData) TACTICAL_HEX_MAPS[hexKey] = mapData;
+        delete TACTICAL_HEX_MAP_LOADING[hexKey];
+        return mapData;
+    });
+    TACTICAL_HEX_MAP_LOADING[hexKey] = p;
+    return p;
+}
+
+// Фоновая загрузка всех карт из индекса (чтобы бой открывался мгновенно)
+function preloadTacticalHexMaps() {
+    loadTacticalHexIndex().then(list => {
+        (list || []).forEach(item => {
+            const key = tacticalHexKeyFromMapName(item.name || '') || tacticalHexKeyFromMapName(item.file || '');
+            if (key && !TACTICAL_HEX_MAPS[key]) ensureTacticalHexMap(key);
+        });
+    }).catch(() => {});
+}
+
+// ─────────────────────────── ПРАВКИ МЕСТНОСТИ (ОВЕРЛЕИ) ───────────────────────────
+
+function getHexOverlays() {
+    if (!appData.campaign) appData.campaign = {};
+    if (!appData.campaign.hexOverlays || typeof appData.campaign.hexOverlays !== 'object') {
+        appData.campaign.hexOverlays = {};
+    }
+    return appData.campaign.hexOverlays;
+}
+
+function getHexOverlay(hexKey, create) {
+    const all = getHexOverlays();
+    let ov = all[hexKey];
+    if (!ov && create) {
+        ov = { hexEdits: {}, hexVariants: {}, trenchPoints: 0, prepPoints: 0, shellings: 0 };
+        all[hexKey] = ov;
+    }
+    if (ov) {
+        if (!ov.hexEdits) ov.hexEdits = {};
+        if (!ov.hexVariants) ov.hexVariants = {};
+        if (typeof ov.trenchPoints !== 'number') ov.trenchPoints = 0;
+        if (typeof ov.prepPoints !== 'number') ov.prepPoints = 0;
+        if (typeof ov.shellings !== 'number') ov.shellings = 0;
+    }
+    return ov || null;
+}
+
+// Накладываем правки на сетку (и в редакторе, и в бою, у обоих игроков)
+function applyHexOverlays(grid, hexKey) {
+    const ov = getHexOverlay(hexKey, false);
+    if (!ov || !grid) return grid;
+    Object.keys(ov.hexEdits || {}).forEach(k => {
+        const cell = grid[k];
+        if (!cell) return;
+        cell.type = ov.hexEdits[k];
+        cell.variant = (ov.hexVariants && ov.hexVariants[k]) || 0;
+    });
+    return grid;
+}
+
+function saveHexOverlays() {
+    try { saveData(); } catch (e) {}
+    if (typeof onlinePushHexOverlays === 'function') { try { onlinePushHexOverlays(); } catch (e) {} }
+}
+
+// Слияние облачных правок с локальными (локальные приоритетнее)
+function mergeHexOverlays(cloud) {
+    if (!cloud || typeof cloud !== 'object') return false;
+    const local = getHexOverlays();
+    let changed = false;
+    Object.keys(cloud).forEach(hexKey => {
+        const c = cloud[hexKey] || {};
+        if (!local[hexKey]) {
+            local[hexKey] = { hexEdits: {}, trenchPoints: 0, prepPoints: 0, shellings: 0 };
+            changed = true;
+        }
+        const l = local[hexKey];
+        if (!l.hexEdits) l.hexEdits = {};
+        if (!l.hexVariants) l.hexVariants = {};
+        Object.keys(c.hexEdits || {}).forEach(k => {
+            if (!(k in l.hexEdits)) { l.hexEdits[k] = c.hexEdits[k]; changed = true; }
+        });
+        Object.keys(c.hexVariants || {}).forEach(k => {
+            if (!(k in l.hexVariants)) { l.hexVariants[k] = c.hexVariants[k]; changed = true; }
+        });
+        ['trenchPoints', 'prepPoints', 'shellings'].forEach(f => {
+            const cv = c[f] || 0, lv = l[f] || 0;
+            if (cv > lv) { l[f] = cv; changed = true; }
+        });
+    });
+    return changed;
+}
+
+// ─────────────────────── СЕТКА БОЯ ИЗ КАРТЫ ГЕКСА ───────────────────────
+
+// Синхронно: готовая сетка для боя (null — карты ещё нет/не загружена)
+function buildBattleGridForHex(hexKey) {
+    const md = TACTICAL_HEX_MAPS[hexKey];
+    if (!md) return null;
+    const size = Math.max(md.w || 0, md.h || 0, 15);
+    const grid = {};
+    for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+            const k = col + ',' + row;
+            const src = md.grid[k];
+            grid[k] = src ? { ...src, squadIds: [], enemySquadIds: [], markers: [], rotation: 0, variant: 0, level: src.level || 0 }
+                          : { type: 'grass', squadIds: [], enemySquadIds: [], markers: [], rotation: 0, variant: 0, level: 0 };
+        }
+    }
+    applyHexOverlays(grid, hexKey);
+    return { grid, size };
+}
+
+// Открывает карту гекса для текущего боя (если не загружена — подгрузит и перерисует)
+function openHexMapForBattle(hexKey, tacticalMap) {
+    const built = buildBattleGridForHex(hexKey);
+    if (built) {
+        tacticalMap.grid = built.grid;
+        tacticalMap.mapSize = built.size;
+        if (typeof TACTICAL_MAP_SIZE !== 'undefined') TACTICAL_MAP_SIZE = built.size;
+        return true;
+    }
+    ensureTacticalHexMap(hexKey).then(md => {
+        if (!md) return;
+        const built2 = buildBattleGridForHex(hexKey);
+        if (!built2) return;
+        // сохраняем уже размещённые отряды
+        const keep = {};
+        Object.keys(appData.map.grid || {}).forEach(k => {
+            const h = appData.map.grid[k];
+            if (h && ((h.squadIds && h.squadIds.length) || (h.enemySquadIds && h.enemySquadIds.length))) {
+                keep[k] = { squadIds: h.squadIds, enemySquadIds: h.enemySquadIds, markers: h.markers || [] };
+            }
+        });
+        Object.keys(keep).forEach(k => {
+            if (built2.grid[k]) Object.assign(built2.grid[k], keep[k]);
+        });
+        appData.map.grid = built2.grid;
+        appData.map.mapSize = built2.size;
+        try { TACTICAL_MAP_SIZE = built2.size; } catch (e) {}
+        if (appData.currentBattleId !== null && appData.currentBattleId !== undefined && appData.campaign.activeBattles) {
+            const b = appData.campaign.activeBattles.find(x => x.id === appData.currentBattleId);
+            if (b && b.tacticalMap) { b.tacticalMap.grid = JSON.parse(JSON.stringify(built2.grid)); b.tacticalMap.mapSize = built2.size; }
+        }
+        try { initMap(); redrawMap(); } catch (e) {}
+        const mi = document.getElementById('mapInfo');
+        if (mi) { mi.innerHTML = '🗺️ Карта гекса (' + hexKey + ') загружена.'; mi.style.color = '#27ae60'; }
+        try { saveData(); } catch (e) {}
+    });
+    return false;
+}
+
+// ─────────────────── ПРАВИЛА: ГЛУБИНА ЛЕСА И УКРЫТИЕ ───────────────────
+
+function _hexCubeCoords(c, r) { const x = c - (r - (r & 1)) / 2; const z = r; return { x, y: -x - z, z }; }
+
+function hexGridDistance(c1, r1, c2, r2) {
+    const a = _hexCubeCoords(c1, r1), b = _hexCubeCoords(c2, r2);
+    return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.z - b.z));
+}
+
+// Гекс, на котором стоит отряд боя (свой — squadIds, враг — enemySquadIds)
+function getBattleSquadHex(grid, idx, isEnemy) {
+    for (const k in grid) {
+        const cell = grid[k];
+        const arr = isEnemy ? cell.enemySquadIds : cell.squadIds;
+        if (arr && arr.includes(idx)) {
+            const p = k.split(',').map(Number);
+            return { col: p[0], row: p[1], key: k };
+        }
+    }
+    return null;
+}
+
+function isForestHexType(type) { return (typeof FOREST_LIKE_TYPES !== 'undefined') && FOREST_LIKE_TYPES.indexOf(type) >= 0; }
+
+// Глубина леса от гекса цели в сторону стрелка (сколько гексов леса подряд,
+// считая сам гекс цели). Не более 3 для проверки «>2».
+function tacticalForestDepth(grid, sc, sr, tc, tr) {
+    const steps = hexGridDistance(sc, sr, tc, tr);
+    if (steps <= 0) return 0;
+    const tCell = grid[tc + ',' + tr];
+    if (!tCell || !isForestHexType(tCell.type)) return 0;
+    const a = _hexCubeCoords(sc, sr), b = _hexCubeCoords(tc, tr);
+    let depth = 0;
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = Math.round(b.x + (a.x - b.x) * t);
+        const y = Math.round(b.y + (a.y - b.y) * t);
+        const z = Math.round(b.z + (a.z - b.z) * t);
+        const col = x + (z - (z & 1)) / 2, row = z;
+        const cell = grid[col + ',' + row];
+        if (cell && isForestHexType(cell.type)) { depth++; if (depth > 2) return depth; }
+        else if (i > 0) break;   // лес кончился — глубина посчитана
+        else return 0;           // цель не в лесу
+    }
+    return depth;
+}
+
+// Стрельба из стрелкового оружия по цели в лесу глубже 2 гексов — запрещена
+function smallArmsBlockedByForest(grid, shooterIdx, targetIdx) {
+    if (!grid) return null;
+    const s = getBattleSquadHex(grid, shooterIdx, false);
+    const t = getBattleSquadHex(grid, targetIdx, true);
+    if (!s || !t) return null;
+    const d = tacticalForestDepth(grid, s.col, s.row, t.col, t.row);
+    if (d > 2) return { depth: d, from: s, to: t };
+    return null;
+}
+
+// Укрытие местности: воронки — как камни (+2 к сложности попадания)
+function getTacticalCoverMod(type) {
+    if (typeof COVER_LIKE_ROCKS_TYPES !== 'undefined' && COVER_LIKE_ROCKS_TYPES.indexOf(type) >= 0) return 2;
+    if (isForestHexType(type)) return 1;
+    if (type === 'bushes' || type === 'trenches') return 1;
+    return 0;
+}
+
+function getTacticalCoverInfoForEnemy(grid, enemyIdx) {
+    const pos = getBattleSquadHex(grid, enemyIdx, true);
+    if (!pos) return null;
+    const cell = grid[pos.key];
+    const mod = getTacticalCoverMod(cell ? cell.type : 'grass');
+    const names = { rocks: 'камни', craters: 'воронки', forest: 'лес', shelled_forest: 'обстрелянный лес',
+                    bushes: 'кусты', trenches: 'окопы' };
+    return { pos, mod, type: cell ? cell.type : 'grass', label: names[cell ? cell.type : 'grass'] || (cell ? cell.type : '') };
+}
+
+// ─────────────────── ВОРОНКИ ОТ АРТИЛЛЕРИЙСКОГО ОБСТРЕЛА ───────────────────
+
+// За каждый обстрел гекса — 5 гексов воронок/обстрелянного леса.
+// Места: случайные, приоритет — рядом с окопами. Позиции фиксируются
+// в оверлее, поэтому у обоих игроков картина одинаковая.
+function addShellingCraters(hexKey, count) {
+    count = count || 5;
+    return ensureTacticalHexMap(hexKey).then(md => {
+        if (!md) return 0;
+        return _applyShellingCraters(hexKey, count);
+    });
+}
+
+// Синхронная часть (карта гекса уже загружена) — 5 гексов воронок/обстрелянного
+// леса за обстрел; позиции фиксируются в оверлее (одинаково у обоих игроков)
+function _applyShellingCraters(hexKey, count) {
+    const md = TACTICAL_HEX_MAPS[hexKey];
+    if (!md) return 0;
+    count = count || 5;
+    {
+        const ov = getHexOverlay(hexKey, true);
+        ov.shellings = (ov.shellings || 0) + 1;
+        const size = Math.max(md.w || 0, md.h || 0, 15);
+        const usable = [];
+        const nearTrenches = [];
+        Object.keys(md.grid).forEach(k => {
+            if (ov.hexEdits[k]) return;                 // уже правили — не трогаем
+            const cell = md.grid[k];
+            const t = cell.type;
+            if (isForestHexType(t) || t === 'grass' || t === 'bushes') {
+                const p = k.split(',').map(Number);
+                // рядом (в 1 гексе) есть окоп?
+                let near = false;
+                for (let dc = -1; dc <= 1 && !near; dc++) {
+                    for (let dr = -1; dr <= 1 && !near; dr++) {
+                        if (dc === 0 && dr === 0) continue;
+                        if (ov.hexEdits[(p[0] + dc) + ',' + (p[1] + dr)] === 'trenches') near = true;
+                    }
+                }
+                (near ? nearTrenches : usable).push(k);
+            }
+        });
+        const pick = (arr) => {
+            const i = Math.floor(Math.random() * arr.length);
+            return arr.splice(i, 1)[0];
+        };
+        let placed = 0;
+        while (placed < count && (usable.length || nearTrenches.length)) {
+            const k = (nearTrenches.length && (usable.length === 0 || Math.random() < 0.5)) ? pick(nearTrenches) : pick(usable);
+            const cell = md.grid[k];
+            if (isForestHexType(cell.type)) {
+                ov.hexEdits[k] = 'shelled_forest';
+            } else {
+                ov.hexEdits[k] = 'craters';
+            }
+            // ⚡ случайная текстура из набора типа (воронки 1/2, обстрелянный лес 1/2)
+            const tData = (typeof TERRAIN_DATA !== 'undefined') ? TERRAIN_DATA[ov.hexEdits[k]] : null;
+            const nVar = (tData && tData.images) ? tData.images.length : 1;
+            ov.hexVariants[k] = (nVar > 1) ? Math.floor(Math.random() * nVar) : 0;
+            placed++;
+        }
+        saveHexOverlays();
+        log(`💥 Обстрел гекса (${hexKey}): на тактической карте появилось воронок/обстрелянного леса — ${placed} (всего обстрелов: ${ov.shellings}).`);
+        return placed;
+    }
+}
+
+// ─────────────────── ВЫДАЧА ПРАВОК ПО ПРИКАЗАМ ───────────────────
+
+// Окопы: за каждый отряд взвода, который окапывался на гексе, — 1 гекс окопа
+function grantTrenchPoints(hexKey, squadsCount, unitName) {
+    const ov = getHexOverlay(hexKey, true);
+    const n = Math.max(1, squadsCount || 1);
+    ov.trenchPoints = (ov.trenchPoints || 0) + n;
+    saveHexOverlays();
+    log(`🕳️ ${unitName || 'Отряд'}: доступно гексов окопов на гексе (${hexKey}) — +${n} (всего ${ov.trenchPoints}).`);
+    showHexEditButton(hexKey, 'trenches');
+    return ov.trenchPoints;
+}
+
+// Подготовка позиций: за каждый отряд взвода — 1 правка местности
+// (лес → поваленный лес, кусты → трава)
+function grantPrepPoints(hexKey, squadsCount, unitName) {
+    const ov = getHexOverlay(hexKey, true);
+    const n = Math.max(1, squadsCount || 1);
+    ov.prepPoints = (ov.prepPoints || 0) + n;
+    saveHexOverlays();
+    log(`🪓 ${unitName || 'Отряд'}: доступно правок «подготовка позиций» на гексе (${hexKey}) — +${n} (всего ${ov.prepPoints}).`);
+    showHexEditButton(hexKey, 'prep');
+    return ov.prepPoints;
+}
+
+// Кнопка «открыть карту гекса» на оперативной карте для игрока
+function showHexEditButton(hexKey, kind) {
+    const mi = document.getElementById('mapInfo');
+    if (!mi) return;
+    const ov = getHexOverlay(hexKey, false) || {};
+    const t = ov.trenchPoints || 0, p = ov.prepPoints || 0;
+    mi.innerHTML = `🛠️ Гекс (${hexKey}): доступны правки карты — окопов: <b>${t}</b>, подготовка позиций: <b>${p}</b>. ` +
+        `<button onclick="openHexEditorForBattle('${hexKey}','trenches')" ${t ? '' : 'disabled'} style="background:#8e44ad;">🕳️ Расставить окопы</button> ` +
+        `<button onclick="openHexEditorForBattle('${hexKey}','prep')" ${p ? '' : 'disabled'} style="background:#16a085;">🪓 Подготовка позиций</button>`;
+    mi.style.color = '#f1c40f';
+}
+
+// ─────────────────── РЕДАКТОР КАРТЫ ГЕКСА (окопы / подготовка) ───────────────────
+
+function hexEditRuleFor(kind) {
+    if (kind === 'trenches') {
+        return {
+            title: '🕳️ Расстановка окопов',
+            hint: 'Клик по гексу — сделать его окопом. Можно менять только «траву» и «дорогу»; кусты, лес, болото, камни и склон холма — нельзя.',
+            allowed: (baseType) => baseType === 'grass' || baseType === 'road',
+            targetType: 'trenches',
+            pointsField: 'trenchPoints'
+        };
+    }
+    return {
+        title: '🪓 Подготовка позиций',
+        hint: 'Клик по гексу: «лес» → «поваленный лес» (обзор открыт), «кусты» → «трава». Деревья валят, кусты вырубают — глубина леса для стрельбы считается по оставшемуся лесу.',
+        allowed: (baseType) => isForestHexType(baseType) || baseType === 'bushes',
+        targetType: null,   // лес → поваленный лес, кусты → трава
+        pointsField: 'prepPoints'
+    };
+}
+
+function openHexEditorForBattle(hexKey, kind) {
+    if (!hexKey) return;
+    kind = kind || 'trenches';
+    const ov = getHexOverlay(hexKey, true);
+    const rule = hexEditRuleFor(kind);
+    const budget = ov[rule.pointsField] || 0;
+    if (budget <= 0) {
+        alert('Нет доступных правок. Отдайте приказ «' + (kind === 'trenches' ? 'Окопаться' : 'Подготовка позиций') + '» и дождитесь его выполнения (3 хода).');
+        return;
+    }
+    const proceed = (md) => {
+        // снимок состояния кампании для возврата
+        hexEditorState = {
+            hexKey, kind, rule,
+            prevMap: JSON.parse(JSON.stringify(appData.map)),
+            prevSize: (typeof TACTICAL_MAP_SIZE !== 'undefined') ? TACTICAL_MAP_SIZE : 20,
+            prevBattleId: appData.currentBattleId,
+            prevEnemySquads: (appData.campaign && appData.campaign.enemyOpUnits) ? null : null,
+            baseGrid: md ? JSON.parse(JSON.stringify(md.grid)) : {},
+            undo: [],
+            placed: 0
+        };
+        let baseGrid = hexEditorState.baseGrid;
+        const size = Math.max(md ? Math.max(md.w || 0, md.h || 0) : 0, 15);
+        const grid = {};
+        for (let row = 0; row < size; row++) {
+            for (let col = 0; col < size; col++) {
+                const k = col + ',' + row;
+                const src = baseGrid[k];
+                grid[k] = src ? { ...src, squadIds: [], enemySquadIds: [], markers: [], rotation: 0, variant: 0, level: src.level || 0 }
+                              : { type: 'grass', squadIds: [], enemySquadIds: [], markers: [], rotation: 0, variant: 0, level: 0 };
+            }
+        }
+        applyHexOverlays(grid, hexKey);
+        appData.map.grid = grid;
+        appData.map.enemySquads = [];
+        appData.map.baseHexSize = 45;
+        appData.map.zoomLevel = 1;
+        appData.map.mode = 'hexEdit';
+        appData.map.selectedMoveSquadIdx = null;
+        appData.map.selectedEnemyMoveIdx = null;
+        appData.map.reachableHexes = [];
+        if (typeof TACTICAL_MAP_SIZE !== 'undefined') TACTICAL_MAP_SIZE = size;
+        appData.currentBattleId = null;   // это не бой — состояние боя не трогаем
+
+        document.getElementById('mainMenu').style.display = 'none';
+        document.getElementById('campaignApp').style.display = 'none';
+        document.getElementById('campaignMapScreen').style.display = 'none';
+        document.getElementById('battleApp').style.display = 'block';
+        try { showHexEditorMapTab(); } catch (e) {}
+        const btnBack = document.getElementById('btnReturnToCampaign');
+        if (btnBack) btnBack.style.display = 'none';
+        const btnFinish = document.getElementById('btnFinishBattle');
+        if (btnFinish) btnFinish.style.display = 'none';
+        const btnRetreat = document.getElementById('btnRetreatBattle');
+        if (btnRetreat) btnRetreat.style.display = 'none';
+        showHexEditorBanner();
+        try { initMap(); } catch (e) {}
+        try { redrawMap(); } catch (e) {}
+    };
+    if (TACTICAL_HEX_MAPS[hexKey]) {
+        proceed(TACTICAL_HEX_MAPS[hexKey]);
+    } else {
+        ensureTacticalHexMap(hexKey).then(md => {
+            if (!md) {
+                alert('Карта для гекса (' + hexKey + ') не найдена в папке «' + HEX_MAP_DIR + '». Файл должен называться, например, «' +
+                      hexKey.replace(',', '.') + ' ...json».');
+                return;
+            }
+            proceed(md);
+        });
+    }
+}
+
+function showHexEditorMapTab() {
+    document.querySelectorAll('.tabcontent').forEach(e => { e.style.display = 'none'; });
+    document.querySelectorAll('.tablinks').forEach(e => { e.classList.remove('active'); });
+    const mapTab = document.getElementById('mapTab');
+    if (mapTab) mapTab.style.display = 'block';
+    const btn = document.querySelector('.tablinks[onclick*="mapTab"]');
+    if (btn && btn.classList) btn.classList.add('active');
+}
+
+// Пункт меню оперативной карты: «🛠️ Карты гексов» — какие гексы ждут правок
+function showHexEditorsMenu() {
+    const all = getHexOverlays();
+    const rows = Object.keys(all).filter(k => (all[k].trenchPoints || 0) > 0 || (all[k].prepPoints || 0) > 0);
+    if (rows.length === 0) {
+        const mi = document.getElementById('mapInfo');
+        if (mi) {
+            mi.innerHTML = '🛠️ Нет доступных правок карт гексов. Отдайте приказ «🕳️ Окопаться» или «🪓 Подготовка позиций» — ' +
+                'после выполнения (3 хода) откроется расстановка окопов/вырубки на карте этого гекса.';
+            mi.style.color = '#f1c40f';
+        }
+        return;
+    }
+    const mi = document.getElementById('mapInfo');
+    if (!mi) return;
+    mi.innerHTML = '🛠️ Гексы с доступными правками карты:<br>' + rows.map(k => {
+        const ov = all[k];
+        return `· гекс (${k}): окопов ${ov.trenchPoints || 0}, подготовка позиций ${ov.prepPoints || 0} — ` +
+            `<button onclick="openHexEditorForBattle('${k}','trenches')" ${(ov.trenchPoints || 0) ? '' : 'disabled'} style="background:#8e44ad;">🕳️ окопы</button> ` +
+            `<button onclick="openHexEditorForBattle('${k}','prep')" ${(ov.prepPoints || 0) ? '' : 'disabled'} style="background:#16a085;">🪓 подготовка</button>`;
+    }).join('<br>');
+    mi.style.color = '#f1c40f';
+}
+
+function showHexEditorBanner() {    let banner = document.getElementById('hexEditorBanner');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'hexEditorBanner';
+        const mapTab = document.getElementById('mapTab');
+        if (mapTab) mapTab.insertBefore(banner, mapTab.firstChild);
+        else document.getElementById('battleApp').insertBefore(banner, document.getElementById('battleApp').firstChild);
+    }
+    const st = hexEditorState;
+    if (!st) { banner.style.display = 'none'; return; }
+    const ov = getHexOverlay(st.hexKey, true);
+    const left = ov[st.rule.pointsField] || 0;
+    banner.style.cssText = 'display:block; background:#12241a; border:2px solid #27ae60; border-radius:8px; padding:10px; margin-bottom:8px;';
+    banner.innerHTML = `
+      <b style="color:#2ecc71;">${st.rule.title} — гекс (${st.hexKey})</b><br>
+      <span style="color:#ccc; font-size:0.85rem;">${st.rule.hint}</span><br>
+      <span style="color:#f1c40f; font-size:0.9rem;">Осталось правок: <b>${left}</b> (поставлено в этой сессии: ${st.placed})</span>
+      <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
+        <button onclick="hexEditUndo()" style="background:#8e44ad;">↩️ Отменить последнюю</button>
+        <button onclick="closeHexEditor()" style="background:#27ae60;">✅ Готово</button>
+      </div>`;
+}
+
+// Клик по гексу в режиме 'hexEdit'
+function hexEditClick(hexKeyCell) {
+    const st = hexEditorState;
+    if (!st) return false;
+    const ov = getHexOverlay(st.hexKey, true);
+    const left = ov[st.rule.pointsField] || 0;
+    const infoBox = document.getElementById('mapInfo');
+    if (left <= 0) {
+        if (infoBox) { infoBox.innerHTML = '✅ Правки закончились — нажмите «Готово», чтобы вернуться в кампанию.'; infoBox.style.color = '#f1c40f'; }
+        return true;
+    }
+    const baseCell = st.baseGrid[hexKeyCell];
+    const baseType = baseCell ? baseCell.type : 'grass';
+    const working = appData.map.grid[hexKeyCell];
+    if (!working) {
+        if (infoBox) { infoBox.innerHTML = '⚠️ Гекс ' + hexKeyCell + ' вне карты этого гекса.'; infoBox.style.color = '#e67e22'; }
+        return true;
+    }
+    if (ov.hexEdits[hexKeyCell]) {
+        if (infoBox) { infoBox.innerHTML = `⚠️ Гекс ${hexKeyCell} уже правили (${ov.hexEdits[hexKeyCell]}). Выберите другой.`; infoBox.style.color = '#e67e22'; }
+        return true;
+    }
+    if (!st.rule.allowed(baseType)) {
+        const bad = { forest: 'лес', shelled_forest: 'обстрелянный лес', swamp_passable: 'болото', swamp_impassable: 'болото',
+                      rocks: 'камни', hill: 'склон холма', water: 'вода', trenches: 'окопы', craters: 'воронки', fallen_forest: 'поваленный лес' };
+        if (infoBox) {
+            infoBox.innerHTML = `❌ Гекс ${hexKeyCell} (${bad[baseType] || baseType}) менять нельзя.` +
+                (st.kind === 'trenches' ? ' Окоп можно ставить только на «траву» и «дорогу».' : ' Можно менять только «лес» и «кусты».');
+            infoBox.style.color = '#e74c3c';
+        }
+        return true;
+    }
+    const newType = (st.kind === 'trenches') ? 'trenches'
+        : (isForestHexType(baseType) ? 'fallen_forest' : 'grass');
+    ov.hexEdits[hexKeyCell] = newType;
+    // ⚡ случайная текстура из набора типа (окопы 1..7 и т.п.)
+    const tData = (typeof TERRAIN_DATA !== 'undefined') ? TERRAIN_DATA[newType] : null;
+    const nVar = (tData && tData.images) ? tData.images.length : 1;
+    const variant = (nVar > 1) ? Math.floor(Math.random() * nVar) : 0;
+    ov.hexVariants[hexKeyCell] = variant;
+    ov[st.rule.pointsField] = left - 1;
+    st.undo.push(hexKeyCell);
+    st.placed++;
+    if (working) { working.type = newType; working.variant = variant; }
+    saveHexOverlays();
+    if (infoBox) {
+        infoBox.innerHTML = `✅ Гекс ${hexKeyCell}: ${baseType} → ${newType}. Осталось правок: ${ov[st.rule.pointsField]}.`;
+        infoBox.style.color = '#27ae60';
+    }
+    showHexEditorBanner();
+    try { redrawMap(); } catch (e) {}
+    return true;
+}
+
+function hexEditUndo() {
+    const st = hexEditorState;
+    if (!st || !st.undo || st.undo.length === 0) return;
+    const k = st.undo.pop();
+    const ov = getHexOverlay(st.hexKey, true);
+    if (k in ov.hexEdits) {
+        delete ov.hexEdits[k];
+        if (ov.hexVariants) delete ov.hexVariants[k];
+        ov[st.rule.pointsField] = (ov[st.rule.pointsField] || 0) + 1;
+        st.placed = Math.max(0, st.placed - 1);
+        // восстанавливаем исходный тип на рабочей сетке
+        const baseCell = st.baseGrid[k];
+        if (appData.map.grid[k]) {
+            appData.map.grid[k].type = baseCell ? baseCell.type : 'grass';
+            appData.map.grid[k].variant = 0;
+        }
+        saveHexOverlays();
+    }
+    showHexEditorBanner();
+    try { redrawMap(); } catch (e) {}
+}
+
+function closeHexEditor() {
+    const st = hexEditorState;
+    hexEditorState = null;
+    const banner = document.getElementById('hexEditorBanner');
+    if (banner) banner.style.display = 'none';
+    if (st) {
+        if (typeof TACTICAL_MAP_SIZE !== 'undefined') { try { TACTICAL_MAP_SIZE = st.prevSize; } catch (e) {} }
+        appData.currentBattleId = st.prevBattleId;
+        appData.map = st.prevMap;
+    }
+    try {
+        document.getElementById('battleApp').style.display = 'none';
+        document.getElementById('campaignApp').style.display = 'block';
+        showOperationalMap();
+    } catch (e) {}
+    const ov = st ? getHexOverlay(st.hexKey, false) : null;
+    const mi = document.getElementById('mapInfo');
+    if (mi && ov) {
+        mi.innerHTML = `🛠️ Правки карты гекса (${st.hexKey}) сохранены. Окопов осталось: ${ov.trenchPoints || 0}, подготовки позиций: ${ov.prepPoints || 0}.`;
+        mi.style.color = '#27ae60';
+    }
+    try { saveData(); } catch (e) {}
+}
+
+// ─────────────────── ПРИКАЗ «ПОДГОТОВКА ПОЗИЦИЙ» (R34#3) ───────────────────
+
+// Сколько отрядов взвода выполняет работу на гексе (по 1 правке на отряд)
+function countSquadsForHexEdit(unit) {
+    if (!unit) return 1;
+    const alive = (unit.squads || []).filter(s => s && s.fighters && s.fighters.some(f => f.hp > 0));
+    if (alive.length > 0) return alive.length;
+    return 1;
+}
+
+// Приказ выполняется 3 хода (как окапывание). По завершении игрок получает
+// по 1 правке на каждый отряд взвода: «лес» → «поваленный лес» (обзор открыт),
+// «кусты» → «трава» — на карте гекса, где выполнялся приказ.
+function executePrepPositionsOrder(unit, order) {
+    if (unit.isInBattle) {
+        order.status = 'cancelled';
+        log(`❌ ${unit.name} вступил в тактический бой! Подготовка позиций прервана.`);
+        return;
+    }
+    if (unit.isDestroyed) {
+        order.status = 'cancelled';
+        log(`❌ ${unit.name} уничтожен!`);
+        return;
+    }
+
+    // ЕСЛИ ЕСТЬ ЦЕЛЕВОЙ ГЕКС И ЮНИТ НЕ ТАМ — ДВИГАЕМСЯ ПОШАГОВО
+    if (order.targetHex) {
+        const [targetCol, targetRow] = order.targetHex.split(',').map(Number);
+        if (unit.col !== targetCol || unit.row !== targetRow) {
+            const result = stepUnitTowardTarget(unit, targetCol, targetRow);
+            if (result === 'no_route') {
+                order.status = 'cancelled';
+                log(`❌ ${unit.name} не может достичь гекса (${targetCol},${targetRow}) для подготовки позиций. Приказ отменён.`);
+                saveData();
+                redrawOperationalMap();
+                return;
+            }
+            if (result === 'battle') {
+                log(`⚔️ ${unit.name} вступил в бой на пути к позициям. Продолжение в следующем ходу.`);
+                saveData();
+                redrawOperationalMap();
+                return;
+            }
+            if (result !== 'reached') {
+                log(`⏳ ${unit.name} выдвигается на гекс (${targetCol},${targetRow}) для подготовки позиций. Осталось ОД: ${unit.ap}.`);
+                saveData();
+                redrawOperationalMap();
+                return;
+            }
+            log(`🚶 ${unit.name} выдвинулся на гекс (${unit.col},${unit.row}) для подготовки позиций.`);
+        }
+    }
+    if (order.originalHex && order.originalHex !== `${unit.col},${unit.row}`) {
+        order.status = 'cancelled';
+        log(`❌ ${unit.name} покинул гекс подготовки позиций. Приказ отменён.`);
+        saveData();
+        redrawOperationalMap();
+        return;
+    }
+    if (unit.ap <= 0) {
+        log(`⏳ ${unit.name} не хватает ОД для подготовки позиций. Ожидание следующего хода.`);
+        return;
+    }
+
+    if (!order.digProgress) order.digProgress = 0;
+    unit.ap = 0;
+    order.digProgress++;
+    log(`🪓 ${unit.name} готовит позиции (валят лес, вырубают кусты)... Прогресс: ${order.digProgress}/3`);
+
+    if (order.digProgress >= 3) {
+        const hexKey = `${unit.col},${unit.row}`;
+        try {
+            if (appData.campaign.opMapGrid) {
+                if (!appData.campaign.opMapGrid[hexKey]) {
+                    appData.campaign.opMapGrid[hexKey] = { types: ['grass'], markers: [] };
+                }
+                const hx = appData.campaign.opMapGrid[hexKey];
+                if (Array.isArray(hx)) appData.campaign.opMapGrid[hexKey] = { types: hx, markers: [] };
+                if (!appData.campaign.opMapGrid[hexKey].markers) appData.campaign.opMapGrid[hexKey].markers = [];
+                if (!appData.campaign.opMapGrid[hexKey].markers.includes('prep_positions')) {
+                    appData.campaign.opMapGrid[hexKey].markers.push('prep_positions');
+                }
+            }
+        } catch (e) {}
+        order.status = 'completed';
+        log(`✅ ${unit.name} завершил подготовку позиций на гексе (${unit.col},${unit.row})!`);
+        grantPrepPoints(hexKey, countSquadsForHexEdit(unit), unit.name);
+        saveData();
+        redrawOperationalMap();
+        try { renderActiveOrders(); } catch (e) {}
+        return;
+    }
+
+    if (!order.originalHex) order.originalHex = `${unit.col},${unit.row}`;
+    saveData();
+    redrawOperationalMap();
+}
+
+// ─────────────────── ЦЕЛЬ НА ТАКТИЧЕСКОЙ КАРТЕ (R34#3) ───────────────────
+// В модалке стрельбы можно выбрать конкретный вражеский отряд на карте:
+// дистанция и укрытие подставляются автоматически; стрельба из стрелкового
+// оружия по цели в лесу глубже 2 гексов запрещена (ПТО и орудия — могут).
+
+function fillModalTargets(attackType) {
+    const row = document.getElementById('modalTargetRow');
+    const sel = document.getElementById('modalTargetSelect');
+    if (!row || !sel) return;
+    if (!currentSquad || !appData.map || !appData.map.grid) { row.style.display = 'none'; return; }
+    const shooterIdx = currentSquadIndex;
+    const shooterPos = getBattleSquadHex(appData.map.grid, shooterIdx, false);
+    const enemies = appData.map.enemySquads || [];
+    if (!shooterPos || enemies.length === 0) { row.style.display = 'none'; return; }
+    let html = '<option value="-1">— не выбрана (ввести вручную) —</option>';
+    enemies.forEach((e, idx) => {
+        const pos = getBattleSquadHex(appData.map.grid, idx, true);
+        if (!pos) return;
+        const d = hexGridDistance(shooterPos.col, shooterPos.row, pos.col, pos.row);
+        const cov = getTacticalCoverInfoForEnemy(appData.map.grid, idx);
+        html += `<option value="${idx}" data-dist="${d}" data-cover="${cov ? cov.mod : 0}">${e.name} — ${d} гекс(ов)` +
+                `${cov && cov.mod ? ', укрытие ' + cov.label + ' +' + cov.mod : ''}</option>`;
+    });
+    sel.innerHTML = html;
+    sel.value = '-1';
+    row.style.display = (enemies.some((e, idx) => getBattleSquadHex(appData.map.grid, idx, true))) ? 'block' : 'none';
+    const info = document.getElementById('modalTargetInfo');
+    if (info) info.innerHTML = '';
+    // правила для стрелкового оружия
+    if (row.style.display === 'block' && (attackType === 'smallArms' || attackType === 'sniper' || attackType === 'suppressiveFire')) {
+        if (!info) return;
+        info.innerHTML = '🎯 Стрельба в лес глубже 2 гексов из стрелкового оружия запрещена. ПТО/орудия — могут.';
+    }
+}
+
+function onModalTargetChange() {
+    const sel = document.getElementById('modalTargetSelect');
+    const info = document.getElementById('modalTargetInfo');
+    if (!sel || !info) return;
+    const idx = parseInt(sel.value, 10);
+    if (isNaN(idx) || idx < 0) {
+        info.innerHTML = '🎯 Цель не выбрана — введите дистанцию и укрытие вручную.';
+        return;
+    }
+    const opt = sel.options[sel.selectedIndex] || {};
+    const d = parseInt(opt.getAttribute ? opt.getAttribute('data-dist') : 0, 10) || 0;
+    const mod = parseInt(opt.getAttribute ? opt.getAttribute('data-cover') : 0, 10) || 0;
+    if (d > 0) document.getElementById('modalDistance').value = d;
+    document.getElementById('modalCover').value = Math.min(10, 6 + mod);
+    const cov = getTacticalCoverInfoForEnemy(appData.map.grid, idx);
+    let msg = `🎯 Цель: ${(appData.map.enemySquads[idx] || {}).name} — ${d} гекс(ов)`;
+    if (cov && cov.mod) msg += `, укрытие «${cov.label}» (+${cov.mod} к сложности)`;
+    // правило леса — только для стрелкового оружия
+    const smallArms = ['smallArms', 'sniper', 'suppressiveFire', 'molotovCrew', 'atGrenade'];
+    if (smallArms.indexOf(pendingAttack) >= 0) {
+        const blocked = smallArmsBlockedByForest(appData.map.grid, currentSquadIndex, idx);
+        if (blocked) {
+            msg += `<br>⛔ Стрельба запрещена: цель в лесу глубиной ${blocked.depth} гекса (больше 2). ` +
+                   'Вырубите лес (приказ «Подготовка позиций») или бейте из ПТО/орудий.';
+            info.style.color = '#e74c3c';
+            info.innerHTML = msg;
+            return;
+        }
+    }
+    info.style.color = '#27ae60';
+    info.innerHTML = msg;
+}
+
+// Проверка перед выстрелом из стрелкового оружия (цель выбрана в модалке)
+function checkSmallArmsForestBlock() {
+    try {
+        const sel = document.getElementById('modalTargetSelect');
+        if (!sel || parseInt(sel.value, 10) < 0) return null;
+        if (!appData.map || !appData.map.grid) return null;
+        return smallArmsBlockedByForest(appData.map.grid, currentSquadIndex, parseInt(sel.value, 10));
+    } catch (e) { return null; }
+}
+
+function reportForestBlock(blocked) {
+    if (!blocked) return;
+    const msg = `⛔ Стрельба по цели в лесу глубже 2 гексов (глубина ${blocked.depth}) из стрелкового оружия запрещена. ` +
+                'Нужна «Подготовка позиций» (вырубить лес) или огонь из ПТО/орудий.';
+    log(msg);
+    try {
+        const info = document.getElementById('modalTargetInfo');
+        if (info) { info.innerHTML = msg; info.style.color = '#e74c3c'; }
+        const mi = document.getElementById('mapInfo');
+        if (mi) { mi.innerHTML = msg; mi.style.color = '#e74c3c'; }
+    } catch (e) {}
+}

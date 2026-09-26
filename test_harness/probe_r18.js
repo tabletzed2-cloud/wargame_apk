@@ -33,7 +33,11 @@ const FNS = [
     'isMortarUnit', 'mortarRoundsForUnit', 'unitAutoFire', 'canUnitShoot',
     'isMediumArtillery', 'getNearestOpUnit', 'isArmoredUnit',
     // ⚡ v13.048 (R33): бонусы фракций на экране выбора стороны
-    'showScenarioDetails', 'factionBonusHtml'
+    'showScenarioDetails', 'factionBonusHtml',
+    // ⚡ v13.049 (R34): ходимость по новым типам местности
+    //    (executePrepPositionsOrder и весь модуль карт гексов — в js/hexmaps.js,
+    //     его песочница грузит целиком)
+    'getMovementCost'
 ];
 
 let pass = 0, fail = 0;
@@ -774,7 +778,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.048'"), 'U9q: константа версии v13.048');
+    ok(HTML.includes("var APP_VERSION = 'v13.049'"), 'U9q: константа версии v13.049');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -1043,6 +1047,167 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
        s.evalCtx('TERRAIN_DATA.swamp_passable.images.length') === 2 &&
        s.evalCtx('TERRAIN_DATA.swamp_passable.images[0]') === 'images/болото 1.png',
         'U16h: swamp_passable — текстуры в поле «images» (загрузчик preloadTerrainImages читает именно его)');
+
+    // ================= U17: v13.049 (R34) — карты гексов, окопы, подготовка позиций, воронки =================
+    // Имя файла карты → гекс оперативной карты («8.10 мост.json» → 8,10)
+    ok(s.evalCtx('tacticalHexKeyFromMapName("8.10 мост.json")') === '8,10' &&
+       s.evalCtx('tacticalHexKeyFromMapName("12,14.json")') === '12,14' &&
+       s.evalCtx('tacticalHexKeyFromMapName("8-10 переправа")') === '8,10',
+        'U17a: имя карты → гекс (8.10 / 12,14 / 8-10)');
+    ok(s.evalCtx('tacticalHexKeyFromMapName("высота_142.json")') === null,
+        'U17b: карта без номера гекса не привязывается к случайному гексу');
+
+    // Разбор файла карты (формат приложения: {currentMap:{grid:{...}}})
+    s.run('var __md = normalizeTacticalMapData({currentMap:{grid:{"0,0":{type:"forest"},"1,0":{type:"grass"},' +
+          '"14,14":{type:"trenches"}}}, enemySquads:[{name:"Враг"}]});');
+    ok(s.evalCtx('__md.w') === 15 && s.evalCtx('__md.h') === 15 &&
+       s.evalCtx('__md.grid["0,0"].type') === 'forest' &&
+       s.evalCtx('Array.isArray(__md.grid["1,0"].squadIds)') &&
+       s.evalCtx('__md.grid["14,14"].type') === 'trenches',
+        'U17c: карта гекса читается (15×15, тип + пустые списки отрядов по умолчанию)');
+
+    // Правки местности накладываются на карту гекса
+    s.run('appData.campaign.hexOverlays = {"8,10":{hexEdits:{"1,0":"trenches","3,3":"craters"},trenchPoints:2,prepPoints:0,shellings:1}};');
+    s.run('TACTICAL_HEX_MAPS["8,10"] = normalizeTacticalMapData({currentMap:{grid:{"0,0":{type:"grass"},"1,0":{type:"grass"},' +
+          '"3,3":{type:"grass"},"9,9":{type:"rocks"}}}});');
+    ok(s.evalCtx('buildBattleGridForHex("8,10").size') === 15 &&
+       s.evalCtx('buildBattleGridForHex("8,10").grid["1,0"].type') === 'trenches' &&
+       s.evalCtx('buildBattleGridForHex("8,10").grid["3,3"].type') === 'craters' &&
+       s.evalCtx('buildBattleGridForHex("8,10").grid["9,9"].type') === 'rocks' &&
+       s.evalCtx('buildBattleGridForHex("8,10").grid["5,5"].type') === 'grass',
+        'U17d: окопы/воронки из правок попадают в бой, нетронутые гексы — как на карте');
+    ok(s.evalCtx('buildBattleGridForHex("99,99")') === null,
+        'U17e: если карты для гекса нет — обычное поле (как раньше)');
+
+    // Правило «в лес глубже 2 гексов из стрелкового оружия стрелять нельзя»
+    s.run('var __g = {}; for (var i = 0; i < 6; i++) __g[i + ",0"] = {type: "grass", squadIds: [], enemySquadIds: []};');
+    s.run('__g["4,0"].type = "forest"; __g["3,0"].type = "forest"; __g["2,0"].type = "forest";');
+    ok(s.evalCtx('tacticalForestDepth(__g, 0, 0, 4, 0)') === 3,
+        'U17f: глубина леса от цели к стрелку = 3 гекса (лес, лес, лес)');
+    ok(s.evalCtx('(function(){ __g["2,0"].type = "grass"; return tacticalForestDepth(__g, 0, 0, 4, 0); })()') === 2,
+        'U17g: два гекса леса — глубина 2 (стрелять можно)');
+    ok(s.evalCtx('(function(){ __g["4,0"].type = "grass"; return tacticalForestDepth(__g, 0, 0, 4, 0); })()') === 0,
+        'U17h: цель не в лесу — ограничения нет');
+    s.run('__g["4,0"].type = "forest"; __g["3,0"].type = "forest"; __g["2,0"].type = "forest";' +
+          '__g["4,0"].enemySquadIds = [0]; __g["0,0"].squadIds = [0];');
+    ok(s.evalCtx('(smallArmsBlockedByForest(__g, 0, 0) || {}).depth') === 3,
+        'U17i: стрельба по цели в лесу глубже 2 гексов — запрещена (стрелковое оружие)');
+    ok(s.evalCtx('(function(){ __g["2,0"].type = "grass"; return smallArmsBlockedByForest(__g, 0, 0); })()') === null,
+        'U17j: цель в 2-гексной кромке леса — стрелять можно');
+    // ПТО/орудия ограничение не затрагивает (проверка по коду стрельбы)
+    ok(!HTML.includes('const __fb = (typeof checkSmallArmsForestBlock') === false &&
+       HTML.includes('checkSmallArmsForestBlock') && HTML.includes('reportForestBlock'),
+        'U17k: проверка леса подключена к стрельбе (только стрелковое оружие)');
+    ok(!/attackOrdnance[\s\S]{0,900}checkSmallArmsForestBlock/.test(HTML),
+        'U17l: в стрельбе из орудий (ПТО) ограничения по лесу НЕТ');
+
+    // Воронки: укрытие как камни, ходимость как камни
+    ok(s.evalCtx('getTacticalCoverMod("craters")') === 2 && s.evalCtx('getTacticalCoverMod("rocks")') === 2 &&
+       s.evalCtx('getTacticalCoverMod("forest")') === 1 && s.evalCtx('getTacticalCoverMod("grass")') === 0 &&
+       s.evalCtx('getTacticalCoverMod("fallen_forest")') === 0,
+        'U17m: воронки дают укрытие как камни (+2), поваленный лес укрытия не даёт');
+    ok(s.evalCtx('TERRAIN_DATA.craters.images.length') === 2 &&
+       s.evalCtx('TERRAIN_DATA.fallen_forest.images[0]') === 'images/поваленный лес.png' &&
+       s.evalCtx('TERRAIN_DATA.shelled_forest.images.length') === 2,
+        'U17n: текстуры новых типов подключены (воронки, поваленный лес, обстрелянный лес)');
+
+    // Приказ «подготовка позиций»: правила правок + лимит
+    const ruleT = s.evalCtx('JSON.stringify({g:hexEditRuleFor("trenches").allowed("grass"),r:hexEditRuleFor("trenches").allowed("road"),' +
+        'f:hexEditRuleFor("trenches").allowed("forest"),b:hexEditRuleFor("trenches").allowed("bushes"),h:hexEditRuleFor("trenches").allowed("hill"),' +
+        's:hexEditRuleFor("trenches").allowed("swamp_passable"),k:hexEditRuleFor("trenches").allowed("rocks")})');
+    const rt = JSON.parse(ruleT);
+    ok(rt.g === true && rt.r === true && rt.f === false && rt.b === false && rt.h === false && rt.s === false && rt.k === false,
+        'U17o: окоп — только «трава»/«дорога»; кусты, лес, болото, камни, склон нельзя');
+    const ruleP = JSON.parse(s.evalCtx('JSON.stringify({f:hexEditRuleFor("prep").allowed("forest"),' +
+        'sf:hexEditRuleFor("prep").allowed("shelled_forest"),b:hexEditRuleFor("prep").allowed("bushes"),g:hexEditRuleFor("prep").allowed("grass")})'));
+    ok(ruleP.f === true && ruleP.sf === true && ruleP.b === true && ruleP.g === false,
+        'U17p: подготовка позиций — меняются только лес (любой) и кусты');
+
+    // Лимит правок: 1 отряд взвода = 1 гекс окопа
+    s.run('Math.random = function() { return 0.42; };');   // вариант текстуры окопа — детерминированно
+    ok(s.evalCtx('countSquadsForHexEdit({squads:[{fighters:[{hp:3}]},{fighters:[{hp:2}]},{fighters:[{hp:0}]}]})') === 2 &&
+       s.evalCtx('countSquadsForHexEdit({})') === 1,
+        'U17q: правок на приказ = число живых отрядов взвода (по 1 на отряд)');
+    s.run('appData.campaign.hexOverlays = {"8,10":{hexEdits:{},trenchPoints:1,prepPoints:0,shellings:0}};' +
+          'hexEditorState = {hexKey:"8,10",kind:"trenches",rule:hexEditRuleFor("trenches"),baseGrid:{"2,2":{type:"grass"},"3,2":{type:"forest"}},' +
+          'undo:[],placed:0};' +
+          'appData.map = {grid:{"2,2":{type:"grass"},"3,2":{type:"forest"}}};');
+    ok(s.evalCtx('(hexEditClick("3,2"), true)') === true &&
+       s.evalCtx('Object.keys(appData.campaign.hexOverlays["8,10"].hexEdits).length') === 0,
+        'U17r: лес нельзя превратить в окоп (правка отклонена)');
+    s.run('hexEditClick("2,2");');
+    ok(s.evalCtx('appData.campaign.hexOverlays["8,10"].hexEdits["2,2"]') === 'trenches' &&
+       s.evalCtx('appData.campaign.hexOverlays["8,10"].trenchPoints') === 0 &&
+       s.evalCtx('appData.map.grid["2,2"].type') === 'trenches',
+        'U17s: окоп поставлен на «траву», лимит израсходован (1 отряд = 1 гекс)');
+    s.run('hexEditClick("5,5");');
+    ok(s.evalCtx('Object.keys(appData.campaign.hexOverlays["8,10"].hexEdits).length') === 1,
+        'U17t: после исчерпания лимита правки не ставятся (нужен новый приказ)');
+    s.run('hexEditUndo();');
+    ok(s.evalCtx('Object.keys(appData.campaign.hexOverlays["8,10"].hexEdits).length') === 0 &&
+       s.evalCtx('appData.campaign.hexOverlays["8,10"].trenchPoints') === 1 &&
+       s.evalCtx('appData.map.grid["2,2"].type') === 'grass' &&
+       s.evalCtx('hexEditorState.placed') === 0,
+        'U17u: отмена возвращает гекс и правку');
+    s.run('hexEditorState = null; appData.map = null;');
+
+    // «Подготовка позиций»: лес → поваленный лес, кусты → трава
+    s.run('appData.campaign.hexOverlays = {"6,7":{hexEdits:{},trenchPoints:0,prepPoints:2,shellings:0}};' +
+          'hexEditorState = {hexKey:"6,7",kind:"prep",rule:hexEditRuleFor("prep"),baseGrid:{"1,1":{type:"forest"},"2,1":{type:"bushes"},"3,1":{type:"grass"}},' +
+          'undo:[],placed:0}; appData.map = {grid:{"1,1":{type:"forest"},"2,1":{type:"bushes"},"3,1":{type:"grass"}}};');
+    s.run('hexEditClick("1,1"); hexEditClick("2,1"); hexEditClick("3,1");');
+    ok(s.evalCtx('appData.campaign.hexOverlays["6,7"].hexEdits["1,1"]') === 'fallen_forest' &&
+       s.evalCtx('appData.campaign.hexOverlays["6,7"].hexEdits["2,1"]') === 'grass' &&
+       !s.evalCtx('appData.campaign.hexOverlays["6,7"].hexEdits["3,1"]') &&
+       s.evalCtx('appData.campaign.hexOverlays["6,7"].prepPoints') === 0,
+        'U17v: подготовка позиций — лес→поваленный лес, кусты→трава; на траве правка невозможна');
+    s.run('hexEditorState = null; appData.map = null;');
+
+    // Воронки от обстрела: 5 гексов за каждый обстрел, позиции фиксируются
+    // (случайность — детерминированная: места воронок фиксируются в правках)
+    s.run('Math.random = function() { return 0.42; };');
+    s.run('appData.campaign.hexOverlays = {}; ' +
+          'TACTICAL_HEX_MAPS["11,3"] = normalizeTacticalMapData({currentMap:{grid:(function(){var g={};' +
+          'for (var c=0;c<6;c++) for (var r=0;r<6;r++) g[c+","+r]={type:(c%2? "forest":"grass")}; return g;})()}});');
+    s.run('_applyShellingCraters("11,3", 5);');
+    ok(s.evalCtx('Object.keys(appData.campaign.hexOverlays["11,3"].hexEdits).length') === 5 &&
+       s.evalCtx('appData.campaign.hexOverlays["11,3"].shellings') === 1,
+        'U17w: обстрел гекса → 5 гексов воронок/обстрелянного леса');
+    ok(s.evalCtx('Object.keys(appData.campaign.hexOverlays["11,3"].hexEdits).every(function(k){' +
+        'var t=appData.campaign.hexOverlays["11,3"].hexEdits[k]; return t==="craters"||t==="shelled_forest";})'),
+        'U17x: воронки — на траве/кустах, обстрелянный лес — вместо леса');
+    s.run('_applyShellingCraters("11,3", 5);');
+    ok(s.evalCtx('Object.keys(appData.campaign.hexOverlays["11,3"].hexEdits).length') === 10 &&
+       s.evalCtx('appData.campaign.hexOverlays["11,3"].shellings') === 2,
+        'U17y: второй обстрел — ещё 5 гексов (позиции не переиспользуются)');
+    ok(s.evalCtx('Object.keys(appData.campaign.hexOverlays["11,3"].hexEdits).every(function(k){' +
+        'var b = buildBattleGridForHex("11,3"); return b.grid[k] && b.grid[k].type === appData.campaign.hexOverlays["11,3"].hexEdits[k]; })'),
+        'U17z: воронки/обстрелянный лес видны в бою на этом гексе (то же и у противника — правки в оверлее)');
+
+    // Случайная текстура из набора типа (окопы 1..7, воронки 1/2)
+    s.run('appData.campaign.hexOverlays = {"8,10":{hexEdits:{"2,2":"trenches"},hexVariants:{"2,2":3},trenchPoints:0,prepPoints:0,shellings:0}};');
+    ok(s.evalCtx('buildBattleGridForHex("8,10").grid["2,2"].variant') === 3,
+        'U17ae: вариант текстуры правки сохраняется и применяется в бою');
+
+    // Слияние правок противника (онлайн)
+    s.run('appData.campaign.hexOverlays = {"8,10":{hexEdits:{"2,2":"trenches"},trenchPoints:0,prepPoints:0,shellings:1}};');
+    ok(s.evalCtx('mergeHexOverlays({"8,10":{hexEdits:{"4,4":"craters"},shellings:2},"9,9":{hexEdits:{"1,1":"trenches"}}})') === true &&
+       s.evalCtx('appData.campaign.hexOverlays["8,10"].hexEdits["4,4"]') === 'craters' &&
+       s.evalCtx('appData.campaign.hexOverlays["8,10"].hexEdits["2,2"]') === 'trenches' &&
+       s.evalCtx('appData.campaign.hexOverlays["8,10"].shellings') === 2 &&
+       s.evalCtx('appData.campaign.hexOverlays["9,9"].hexEdits["1,1"]') === 'trenches',
+        'U17aa: правки противника (окопы/воронки) приходят в онлайн и видны в бою');
+    // Ходимость: воронки — как камни (пехота 4 ОД, техника не входит)
+    s.run('appData.map = {grid:{"0,0":{type:"grass",level:0},"1,0":{type:"craters",level:0},' +
+          '"2,0":{type:"fallen_forest",level:0},"3,0":{type:"shelled_forest",level:0},"4,0":{type:"forest",level:0}}};');
+    ok(s.evalCtx('getMovementCost({name:"Стрелковое отделение",armor:null}, "0,0", "1,0", false)') === 4,
+        'U17ab: воронки — 4 ОД для пехоты (как камни)');
+    ok(s.evalCtx('getMovementCost({name:"Стрелковое отделение",armor:null}, "0,0", "2,0", false)') === 3 &&
+       s.evalCtx('getMovementCost({name:"Стрелковое отделение",armor:null}, "0,0", "3,0", false)') === 3,
+        'U17ac: поваленный и обстрелянный лес проходимы как лес (3 ОД)');
+    ok(s.evalCtx('getMovementCost({name:"Танковый взвод",armor:3}, "0,0", "1,0", false)') === Infinity,
+        'U17ad: техника в воронки не заходит (как в камни)');
+    s.run('appData.map = null;');
 }
 
 console.log('\n====================================');

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.048 — операция</title>
+  <title>Боевой модуль v13.049 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -13,7 +13,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.048</h1>
+    <h1>⚔️ Боевой модуль v13.049</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -27,7 +27,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041: версия + принудительное обновление (старый кэш сервис-воркера) -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.048</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.049</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
   </div>
@@ -58,7 +58,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.048 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.049 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -251,6 +251,8 @@
 </div>
      <!-- ПОДКЛЮЧЕНИЕ ВНЕШНИХ МОДУЛЕЙ (ДО ОСНОВНОГО КОДА!) -->
     <script src="js/data.js"></script>
+    <!-- ⚡ v13.049 (R34): карты гексов оперативной карты, правки местности -->
+    <script src="js/hexmaps.js"></script>
     <script src="js/weapons.js"></script>
     <script src="js/cards.js"></script>
     <script src="js/templates.js"></script>
@@ -271,7 +273,7 @@ function safeLocalStorage(method, ...args) {
     }    
 // ⚡ v13.041: текущая версия — отображается в меню/шапке/диагностике,
 //    чтобы игрок видел, свежая ли версия на его устройстве
-var APP_VERSION = 'v13.048';
+var APP_VERSION = 'v13.049';
 
 let selectedFaction = null;
 let selectedSubFaction = null; // 'belgian' | 'dutch' | null — ⚡ v13.045 (R30): влияет на выбор карт в бою
@@ -2045,6 +2047,7 @@ if (appData.campaign.opUnits) {
                 let icon = '📌';
                 switch(type) {
                     case 'trenches': icon = '🕳️'; break;
+                    case 'prep_positions': icon = '🪓'; break;   // ⚡ v13.049 (R34)
                     case 'building': icon = '🏠'; break;
                     case 'forest': icon = '🌲'; break;
                     case 'bushes': icon = '🌳'; break;
@@ -3843,6 +3846,7 @@ const ORDER_TYPES = {
     MOVE: 'move',
     ATTACK: 'attack',
     DIG_IN: 'dig_in',
+    PREP_POSITIONS: 'prep_positions',   // ⚡ v13.049 (R34): подготовка позиций
     DEFEND: 'defend',
     RECON: 'recon',
     HOLD: 'hold',
@@ -4612,6 +4616,8 @@ function startTacticalBattle(playerUnits, enemyUnits) {
         // Переключаемся на бой
         appData.squads = existingBattle.playerSquads.map(s => JSON.parse(JSON.stringify(s)));
         appData.map = JSON.parse(JSON.stringify(existingBattle.tacticalMap));
+        // ⚡ v13.049 (R34): карта гекса могла быть 15×15 (не 20×20)
+        TACTICAL_MAP_SIZE = appData.map.mapSize || 20;
         appData.currentTurn = existingBattle.currentTurn || 1;
         currentTurn = appData.currentTurn;
         appData.squads.forEach((_, i) => ensureAP(i));
@@ -4639,6 +4645,7 @@ function startTacticalBattle(playerUnits, enemyUnits) {
     // Создаём новый бой
     const tacticalMap = {
         grid: {},
+        mapSize: TACTICAL_MAP_SIZE,
         baseHexSize: 45,
         zoomLevel: 1,
         mode: 'view',
@@ -4651,18 +4658,31 @@ function startTacticalBattle(playerUnits, enemyUnits) {
     };
     
     // Создаём сетку тактической карты
-    for (let row = 0; row < TACTICAL_MAP_SIZE; row++) {
-        for (let col = 0; col < TACTICAL_MAP_SIZE; col++) {
-            const key = `${col},${row}`;
-            tacticalMap.grid[key] = {
-                type: 'grass',
-                squadIds: [],
-                enemySquadIds: [],
-                markers: [],
-                rotation: 0,
-                variant: 0,
-                level: 0
-            };
+    // ⚡ v13.049 (R34): если для этого гекса оперативной карты есть карта поля
+    //    боя (maps/Карты Валенсия/<col>.<row> ....json) — бой идёт на ней
+    //    (плюс правки: окопы, подготовка позиций, воронки от обстрелов).
+    //    Карта не найдена — обычное поле 20×20, как раньше.
+    let hexMapOpened = false;
+    TACTICAL_MAP_SIZE = 20;   // если карты гекса нет — обычное поле 20×20
+    try {
+        hexMapOpened = openHexMapForBattle(hexKey, tacticalMap);
+    } catch (e) {
+        console.warn('openHexMapForBattle:', e.message);
+    }
+    if (!hexMapOpened) {
+        for (let row = 0; row < TACTICAL_MAP_SIZE; row++) {
+            for (let col = 0; col < TACTICAL_MAP_SIZE; col++) {
+                const key = `${col},${row}`;
+                tacticalMap.grid[key] = {
+                    type: 'grass',
+                    squadIds: [],
+                    enemySquadIds: [],
+                    markers: [],
+                    rotation: 0,
+                    variant: 0,
+                    level: 0
+                };
+            }
         }
     }
     
@@ -5750,6 +5770,10 @@ function handleFighterDeath(squad) {
 function sniperShot() {
   if (!currentSquad) return;
   if (getEffectiveMorale() <= 1) { log('❌ Отряд бежит.'); return; }
+  // ⚡ v13.049 (R34#3): цель в лесу глубже 2 гексов — стрелковым оружием нельзя
+  { const __fb = (typeof checkSmallArmsForestBlock === 'function') ? checkSmallArmsForestBlock() : null;
+    if (__fb) { reportForestBlock(__fb); return; } }
+
 
   // Найти снайпера с подходящим оружием
   const sniper = currentSquad.fighters.find(f => {
@@ -6378,6 +6402,10 @@ function deploySmokeScreen() {
   
 function suppressiveFire() {
   if (!currentSquad) return;
+  // ⚡ v13.049 (R34#3): цель в лесу глубже 2 гексов — стрелковым оружием нельзя
+  { const __fb = (typeof checkSmallArmsForestBlock === 'function') ? checkSmallArmsForestBlock() : null;
+    if (__fb) { reportForestBlock(__fb); return; } }
+
   if (currentSquad.armor) { log('Техника не ведёт огонь на подавление.'); return; }
   if (getEffectiveMorale() <= 1) { log('Отряд бежит!'); return; }
   if (currentSquad.ammoSmall <= 0) { log('Нет патронов!'); return; }
@@ -6840,8 +6868,12 @@ function getMovementCost(squad, fromKey, toKey, isCrouch) {
       case 'grass':
       case 'bushes': baseCost = 1; break;
       case 'forest':
-      case 'trenches': baseCost = 3; break;
+      case 'trenches':
+      // ⚡ v13.049 (R34): вырубленный/обстрелянный лес — проходим как лес
+      case 'fallen_forest':
+      case 'shelled_forest': baseCost = 3; break;
       case 'hill': baseCost = 4; break;
+      // воронки — как камни: техника не заходит (default Infinity)
       default: baseCost = Infinity;
     }
     if (toLevel > 1 && !hasWinch) return Infinity;
@@ -6855,6 +6887,11 @@ function getMovementCost(squad, fromKey, toKey, isCrouch) {
       case 'swamp_passable': baseCost = 4; break;
       case 'hill': baseCost = 2; break;
       case 'rocks': baseCost = 4; break;
+      // ⚡ v13.049 (R34): воронки — как камни (4 ОД); поваленный лес и
+      //    обстрелянный лес — как обычный лес (3 ОД)
+      case 'craters': baseCost = 4; break;
+      case 'fallen_forest': baseCost = 3; break;
+      case 'shelled_forest': baseCost = 3; break;
       default: baseCost = Infinity;
     }
   }
@@ -6862,7 +6899,7 @@ function getMovementCost(squad, fromKey, toKey, isCrouch) {
   return baseCost;
 }
 // ========== ОПЕРАЦИОННАЯ КАРТА ==========
-const TACTICAL_MAP_SIZE = 20;   // размер тактической карты (кол-во гексов по X и Y)
+let TACTICAL_MAP_SIZE = 20;   // размер тактической карты (кол-во гексов по X и Y) — ⚡ v13.049: подстраивается под карту гекса
 const OP_MAP_COLS = 20;
 const OP_MAP_ROWS = 15;
 const OP_HEX_SIZE = 55; // размер гекса в пикселях
@@ -7011,6 +7048,8 @@ function openTargetModal(attackType) {
   pendingAttack = attackType;
   document.getElementById('modalDistance').value = document.getElementById('targetDistance').value;
   document.getElementById('modalCover').value = document.getElementById('coverTarget').value;
+  // ⚡ v13.049 (R34#3): список целей (отряды противника на тактической карте)
+  try { fillModalTargets(attackType); } catch (e) { console.warn('fillModalTargets:', e.message); }
   document.getElementById('targetModal').classList.add('active');
 }
 
@@ -7867,6 +7906,10 @@ function remountBicycle() {
 function attackSmallArms() {
   if (!currentSquad) return;
   if (getEffectiveMorale() <= 1) { log('❌ Отряд бежит.'); updateUI(); return; }
+  // ⚡ v13.049 (R34#3): цель в лесу глубже 2 гексов — стрелковым оружием нельзя
+  { const __fb = (typeof checkSmallArmsForestBlock === 'function') ? checkSmallArmsForestBlock() : null;
+    if (__fb) { reportForestBlock(__fb); return; } }
+
   if (!currentSquad.actionsThisTurn) currentSquad.actionsThisTurn = {};
   const activeMods = [...(appData.activeCards || []).filter(c => c.active), ...(appData.modifiers || []).filter(m => m.active)];
   const shotMod = activeMods.reduce((s, m) => s + (m.shotMod || 0), 0);
@@ -10020,6 +10063,12 @@ function handleHexAction(key) {
   const infoBox = document.getElementById('mapInfo');
   console.log('Клик по гексу', key, 'режим:', mode);
 
+  // ======== ⚡ v13.049 (R34): РЕДАКТОР КАРТЫ ГЕКСА (окопы / подготовка) ========
+  if (mode === 'hexEdit') {
+    if (typeof hexEditClick === 'function') hexEditClick(key);
+    return;
+  }
+
   // ======== РЕДАКТОР ========
   if (mode === 'edit') {
     const select = document.getElementById('terrainTypeSelect');
@@ -10291,6 +10340,12 @@ if (mode === 'move') {
     }
 
 function setMapMode(mode) {
+  // ⚡ v13.049 (R34): в редакторе карты гекса (окопы/подготовка) другие режимы
+  //    недоступны — иначе можно было бы «обойти» лимит правок
+  if (typeof hexEditorState !== 'undefined' && hexEditorState && mode !== 'hexEdit') {
+    document.getElementById('mapInfo').innerHTML = '⚠️ Идёт расстановка окопов/подготовка позиций. Нажмите «✅ Готово», чтобы выйти.';
+    return;
+  }
   appData.map.mode = mode;
   appData.map.selectedMoveSquadIdx = null;
   appData.map.selectedEnemyMoveIdx = null;
@@ -10929,6 +10984,9 @@ function rotateSelectedHex() {
   document.getElementById('mapInfo').innerHTML = `Отряд "${squad.name}" убран с карты.`;
 }
    function showOperationalMap() {
+    // ⚡ v13.049 (R34): заранее подтягиваем карты полей боя для гексов
+    //    (maps/Карты Валенсия/<col>.<row> ...json), чтобы бой открывался мгновенно
+    try { if (typeof preloadTacticalHexMaps === 'function') preloadTacticalHexMaps(); } catch (e) {}
   document.getElementById('campaignContent').style.display = 'none';
   document.getElementById('campaignMapScreen').style.display = 'block';
   // ⚡ v13.037: онлайн-матч — панель противника скрыта (враг у оппонента)
@@ -11275,6 +11333,8 @@ function executeArtilleryStrikeOrder(order) {
         return;
     }
     log(`💥 АРТОБСТРЕЛ: гекс (${c},${r})! Каждый отряд на гексе получает урон 1d12.`);
+    // ⚡ v13.049 (R34#4): 20 снарядов полковой артиллерии — воронки на тактической карте
+    try { addShellingCraters(`${c},${r}`, 5); } catch (e) { console.warn('addShellingCraters:', e.message); }
 
     // Все «отряды» на гексе: отряды обычных юнитов + каждая машина группы
     const targets = [];
@@ -11459,7 +11519,8 @@ function executeOrder(order) {
         'dismount': '🚲 Спешивание',
         'remount': '🚲 Посадка',
         'disembark': '🚌 Высадка десанта',
-        'artillery_strike': '💣 Арт. обстрел'
+        'artillery_strike': '💣 Арт. обстрел',
+        'prep_positions': '🪓 Подготовка позиций'
     };
     
     const unit = appData.campaign.opUnits[order.toUnitId];
@@ -11549,6 +11610,11 @@ function executeOrder(order) {
             break;
         case 'dig_in':
             executeDigInOrder(unit, order);
+            break;
+        case 'prep_positions':
+            // ⚡ v13.049 (R34): реализация — в js/hexmaps.js
+            if (typeof executePrepPositionsOrder === 'function') executePrepPositionsOrder(unit, order);
+            else log('❌ Модуль «подготовка позиций» не загружен (js/hexmaps.js).');
             break;
        case 'hold':
             executeHoldOrder(unit, order);
@@ -12184,6 +12250,17 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
     }
     let hits = 0, totalSalvoDamage = 0, totalKilled = 0, dotHits = 0;
     log(`💣 ${unit.name} обстреливает гекс (${aliveFirst[0].col},${aliveFirst[0].row}) — ${rounds} снарядов`);
+    // ⚡ v13.049 (R34#4): средняя/тяжёлая артиллерия (миномёты, САУ, арт. >70мм)
+    //    оставляет на тактической карте гекса воронки и обстрелянный лес —
+    //    по 5 гексов за каждый обстрел, позиции фиксируются и видны обоим игрокам
+    try {
+        const shellKey = `${aliveFirst[0].col},${aliveFirst[0].row}`;
+        const cal = artilleryCaliberMm(unit);
+        // средняя/тяжёлая артиллерия: миномётная батарея (в т.ч. 82-мм), САУ, орудия >70мм
+        if (isMortarUnit(unit) || (unit && unit.type === 'sau_battery') || cal > 70) {
+            addShellingCraters(shellKey, 5);
+        }
+    } catch (e) { console.warn('addShellingCraters:', e.message); }
     for (let i = 0; i < rounds; i++) {
         const alive = enemies.filter(e => !e.isDestroyed);
         if (alive.length === 0) break;
@@ -13872,6 +13949,21 @@ function submitOrder()   {
             return;
         }
     }
+    // === ПРОВЕРКА 11б (R34): подготовка позиций — тоже только пехота ===
+    if (orderType === 'prep_positions') {
+        const isVehicleP = unit.type === 'tank_platoon' ||
+                         unit.type === 'btr_platoon' ||
+                         unit.type === 'sau_battery' ||
+                         unit.type === 'armored_vehicle_platoon' ||
+                         (unit.name && (unit.name.includes('САУ') ||
+                          unit.name.includes('Танк') ||
+                          unit.name.includes('БТР') ||
+                          unit.name.includes('Бронеавтомобиль')));
+        if (isVehicleP) {
+            alert('❌ Техника не может готовить позиции (нужны пехотинцы с пилами и топорами)!');
+            return;
+        }
+    }
     // === ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ - СОЗДАЁМ ПРИКАЗ ===
     
     const targetHexValue = targetHexInput ? targetHexInput.value.trim() : null;
@@ -14235,7 +14327,8 @@ function renderActiveOrders() {
         'dismount': '🚲 Спешивание',
         'remount': '🚲 Посадка на велосипед',
         'series': '📋 Серия',
-        'artillery_strike': '💣 Арт. обстрел'
+        'artillery_strike': '💣 Арт. обстрел',
+        'prep_positions': '🪓 Подготовка позиций'
     };
     
     const statusNames = {
@@ -14808,8 +14901,8 @@ function openTerrainEditor(hexKey) {
     html += `<div><label><input type="radio" name="terrainType" value="${type}" ${checked}> ${type}</label></div>`;
   });
   // ⚡ v13.021: метки местности редактируются в том же окне
-  const markersList = ['trenches', 'building', 'forest', 'bushes', 'rocks', 'bicyclePark'];
-  const markerNames = { trenches: '🕳️ Окопы', building: '🏠 Здание', forest: '🌲 Лес', bushes: '🌳 Кусты', rocks: '🪨 Камни', bicyclePark: '🚲 Велостоянка' };
+  const markersList = ['trenches', 'prep_positions', 'building', 'forest', 'bushes', 'rocks', 'bicyclePark'];
+  const markerNames = { trenches: '🕳️ Окопы', prep_positions: '🪓 Подготовка позиций', building: '🏠 Здание', forest: '🌲 Лес', bushes: '🌳 Кусты', rocks: '🪨 Камни', bicyclePark: '🚲 Велостоянка' };
   html += `<hr style="border-color:#555; margin:8px 0;"><div><strong style="color:#f1c40f;">Метки на гексе:</strong></div>`;
   markersList.forEach(m => {
     const checked = currentMarkers.includes(m) ? 'checked' : '';
@@ -20079,6 +20172,12 @@ function executeDigInOrder(unit, order) {
         
         order.status = 'completed';
         log(`✅ ${unit.name} завершил окапывание! Метка "окоп" установлена на гексе (${unit.col},${unit.row}).`);
+        // ⚡ v13.049 (R34): за каждый отряд взвода, который окапывался на гексе,
+        //    игрок может поставить 1 гекс окопа на карте этого гекса
+        try {
+            const nSq = (typeof countSquadsForHexEdit === 'function') ? countSquadsForHexEdit(unit) : 1;
+            grantTrenchPoints(hexKey, nSq, unit.name);
+        } catch (e) { console.warn('grantTrenchPoints:', e.message); }
         
         saveData();
         redrawOperationalMap();
@@ -20265,6 +20364,13 @@ function onOrderBehaviorChange() {
 <div id="targetModal" class="detection-modal">
   <div class="detection-modal-content">
     <h3>Параметры стрельбы</h3>
+    <!-- ⚡ v13.049 (R34#3): конкретная цель на тактической карте — дистанция и
+         укрытие считаются автоматически, а стрельба в лес глубже 2 гексов
+         из стрелкового оружия блокируется -->
+    <div id="modalTargetRow" style="display:none; margin-bottom:6px;">
+      <label>Цель на карте: <select id="modalTargetSelect" onchange="onModalTargetChange()" style="background:#444; color:#fff; max-width:280px;"></select></label>
+      <div id="modalTargetInfo" style="font-size:0.8rem; color:#f39c12; margin-top:4px;"></div>
+    </div>
     <label>Дистанция (гексы): <input type="number" id="modalDistance" value="5" min="1" style="width:60px"></label><br><br>
     <label>Укрытие цели (d10 >= <input type="number" id="modalCover" value="6" min="2" max="10" style="width:50px">)</label><br><br>
     <button onclick="executeAttack()">🔥 Огонь</button>
@@ -20907,6 +21013,19 @@ function onlinePushMyUnits() {
 //    существует только в моей локальной копии (enemyOpUnits) — пушим его в
 //    облако (state.p<me>.inflictedOnOpponent), чтобы защитник увидел потери
 //    у себя (вкладка «👥 Батальон» и карта).
+// ⚡ v13.049 (R34): правки местности гексов оперативной карты (окопы,
+//    подготовка позиций, воронки от обстрелов) — общие для обоих игроков:
+//    владелец гекса правит карту, оппонент видит её в бою на этом гексе.
+function onlinePushHexOverlays() {
+    if (!ONLINE.docRef || !appData.campaign || !appData.campaign.online) return;
+    const m = ONLINE.match;
+    if (!m || (m.status !== 'placing' && m.status !== 'playing')) return;
+    const ov = (typeof getHexOverlays === 'function') ? getHexOverlays() : null;
+    if (!ov) return;
+    ONLINE.docRef.update({ ['state.' + ONLINE.role + '.hexOverlays']: ov })
+        .catch(e => console.warn('onlinePushHexOverlays:', e.message));
+}
+
 function onlinePushInflictedDamage() {
     if (!ONLINE.docRef || !appData.campaign || !appData.campaign.online) return;
     const m = ONLINE.match;
@@ -21038,6 +21157,13 @@ function onlineApplyCloudState() {
                 if (u.name) ONLINE.fogVisible[u.name] = true;
             }
         });
+    }
+
+    // --- (b0) ⚡ v13.049 (R34): правки местности гексов от оппонента
+    //     (окопы, подготовка позиций, воронки от его обстрелов)
+    const oppHexOverlays = state[oppRole] && state[oppRole].hexOverlays;
+    if (oppHexOverlays && typeof mergeHexOverlays === 'function') {
+        try { if (mergeHexOverlays(oppHexOverlays)) saveData(); } catch (e) { console.warn('mergeHexOverlays:', e.message); }
     }
 
     // --- (b) урон моим юнитам (из state.p<me>, который пушит оппонент) ---
@@ -21440,6 +21566,7 @@ function onlineOnSnapshotSync() {
       <option value="move">🚶 Движение</option>
       <option value="attack">⚔️ Атака</option>
       <option value="dig_in">🕳️ Окопаться</option>
+      <option value="prep_positions">🪓 Подготовка позиций</option>
       <option value="recon">🔍 Разведка</option>
       <option value="retreat">🏃 Отступление</option>
       <option value="shoot_at">💥 Стрельба по бронетехнике</option>
@@ -21599,6 +21726,8 @@ function onlineOnSnapshotSync() {
   <button onclick="setOpMapMode('view')" style="background:#555;">🖱️ Просмотр</button>
   <button onclick="setOpMapMode('editTerrain')" style="background:#f39c12;">✏️ Местность</button>
   <button onclick="setOpMapMode('marker')" style="background:#8e44ad;">📌 Метки</button>
+  <!-- ⚡ v13.049 (R34): правки карт гексов (окопы, подготовка позиций) -->
+  <button onclick="showHexEditorsMenu()" style="background:#16a085;">🛠️ Карты гексов</button>
   <select id="opMarkerTypeSelect" style="display:none; background:#444; color:#fff;">
     <option value="trenches">🕳️ Окопы</option>
     <option value="building">🏠 Здание</option>

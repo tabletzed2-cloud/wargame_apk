@@ -1,6 +1,6 @@
 // ⚡ v13.024: имя кэша обязательно обновлять с каждой версией —
 //    иначе старый (устаревший) кэш продолжает отдавать старые js/data.js
-const CACHE_NAME = 'wargame-v13.048';
+const CACHE_NAME = 'wargame-v13.049';
 
 const ASSETS = [
       // ====== КОРНЕВЫЕ ФАЙЛЫ ======
@@ -63,6 +63,12 @@ const ASSETS = [
     './images/bonuses/motor_courier.png',
     './images/bonuses/siesta.png',
     './images/bonuses/chaskeys.png',
+    './js/hexmaps.js',
+    './images/поваленный лес.png',
+    './images/обстрелянный лес1.png',
+    './images/обстрелянный лес2.png',
+    './images/воронки в поле.png',
+    './images/воронки в поле1.png',
     './images/бтр1.jpg',
     './images/бтр2.jpg',
     './images/бтр3.jpg',
