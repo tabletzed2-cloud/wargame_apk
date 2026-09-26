@@ -37,7 +37,9 @@ const FNS = [
     // ⚡ v13.049 (R34): ходимость по новым типам местности
     //    (executePrepPositionsOrder и весь модуль карт гексов — в js/hexmaps.js,
     //     его песочница грузит целиком)
-    'getMovementCost'
+    'getMovementCost',
+    // ⚡ v13.050: сквозной старт боя на гексе с реальной картой пользователя
+    'startTacticalBattle'
 ];
 
 let pass = 0, fail = 0;
@@ -303,19 +305,20 @@ console.log('\n== M. v13.030: иконки меток — без битых сс
     const ad = freshAppData();
     const s = makeSandbox(ad);
     const map = s.evalCtx('markerIconMap');
-    // M1: каждая установленная icon ведёт на существующий файл (или icon = null → эмодзи)
-    let missing = [];
-    Object.keys(map).forEach(k => {
-        if (map[k].icon && !fs.existsSync(path2.join(root, map[k].icon))) missing.push(map[k].icon);
-    });
-    ok(missing.length === 0, 'M1: все установленные файлы иконок меток на месте', missing.join(', '));
+    // M1 (v13.050): у КАЖДОЙ метки есть эмодзи-fallback — пути вида images/markers/*.png
+    //    пользователь задал «на будущее» (файлов пока нет), отрисовка при отсутствии
+    //    файла падает на эмодзи (loadedMarkerImages[type] не заполняется без onload)
+    const noFb = Object.keys(map).filter(k => !map[k].fallback);
+    ok(noFb.length === 0, 'M1: у всех меток есть эмодзи-fallback (иконки images/markers/* могут отсутствовать)', noFb.join(', '));
+    const present = Object.keys(map).filter(k => map[k].icon && fs.existsSync(path2.join(root, map[k].icon)));
+    ok(present.includes('trenches') && present.includes('rocks') && present.includes('destroyedVehicle') && present.includes('bicyclePark'),
+        'M1b: файлы иконок окоп/валуны/подбитая техника/велостоянка (пользователя) на месте', present.join(', '));
     // M2: fallback — нормальный эмодзи, а не «??»
     const badFb = Object.keys(map).filter(k => map[k].fallback === '??' || map[k].fallback === '???');
     ok(badFb.length === 0, 'M2: fallback без «??» (эмодзи)', JSON.stringify(badFb));
-    // M3: сгенерированные v13.029 иконки удалены — у меток icon = null
-    const nullIcons = ['detected', 'noise', 'artillery', 'ammoPoint', 'destroyedVehicle', 'destroyedSquadFriendly', 'destroyedSquadEnemy', 'dot'];
-    const wrong = nullIcons.filter(k => map[k].icon !== null);
-    ok(wrong.length === 0, 'M3: 8 сгенерированных иконок удалены (icon = null, метка = эмодзи)', JSON.stringify(wrong));
+    // M3 (v13.050): сгенерированных v13.029 иконок (images/markers-gen/…) больше нет — ни одна метка на них не ссылается
+    const wrong = Object.keys(map).filter(k => map[k].icon && /markers-gen|generated/i.test(map[k].icon));
+    ok(wrong.length === 0, 'M3: меток на сгенерированные иконки нет', JSON.stringify(wrong));
 }
 
 // ============================================================
@@ -778,7 +781,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.049'"), 'U9q: константа версии v13.049');
+    ok(HTML.includes("var APP_VERSION = 'v13.050'"), 'U9q: константа версии v13.050');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -1028,18 +1031,25 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     htmlU16 = s.elements.cardSelectionForBattle.innerHTML;
     {
         const namesU16c = [...htmlU16.matchAll(/data-name="([^"]+)"/g)].map(m => m[1]);
-        ok(new Set(namesU16c).size === namesU16c.length && namesU16c.length === 45,
-            'U16c: AIRF-игрок — 45 карт без дублей (23 свои + 22 общие-уникальные)');
+        ok(new Set(namesU16c).size === namesU16c.length && namesU16c.length === 23,
+            'U16c: AIRF-игрок — 23 свои карты без дублей (v13.050: _global-карты, входящие в библиотеку BeVe, игроку AIRF не показываются)', namesU16c.length);
         ok(htmlU16.includes('data-faction="A.I.R.F."') && !htmlU16.includes('data-faction="BeVe"'),
             'U16d: AIRF-игрок — свои карты + «Общие», без библиотеки BeVe');
-        ok(htmlU16.includes('[Общие]'), 'U16e: общие карты помечены меткой «Общие»');
+        ok(!namesU16c.includes('Велоблиц') && !namesU16c.includes('Кальвинистская эффективность') && !namesU16c.includes('Велостоянка'),
+            'U16e: у AIRF нет карт BeVe из общей библиотеки (Велоблиц/Кальвинистская эффективность/Велостоянка)');
+        // метка «Общие» показывается только для _global-карт, которых нет у противника — сейчас таких нет,
+        // но код метки на месте
+        ok(HTML.includes("c.faction === '_global' ? 'Общие' : c.faction"), 'U16e2: метка «Общие» для общих карт в коде сохранена');
     }
     // #2: экран «Выберите сторону» — бонусы/дебафсы фракций с иконками
     s.run('showScenarioDetails("valencia");');
     const scenHtml = s.elements.campaignContent.innerHTML;
-    ok(['fire_control', 'radio_phillips', 'motor_courier', 'siesta', 'chaskeys'].every(
-            f => scenHtml.includes('images/bonuses/' + f + '.png')),
-        'U16f: выбор стороны — все 5 иконок бонусов/дебафов фракций');
+    {
+        const bonusIcons = s.evalCtx('[].concat(FRACTION_GLOBAL_BONUSES.BeVe, FRACTION_GLOBAL_BONUSES["A.I.R.F."]).map(b => b.icon)');
+        const missingIcons = bonusIcons.filter(ic => !fs.existsSync(path.resolve(__dirname, '..', ic)));
+        ok(bonusIcons.length === 5 && bonusIcons.every(ic => scenHtml.includes(ic)) && missingIcons.length === 0,
+            'U16f: выбор стороны — все 5 иконок бонусов/дебафов фракций (файлы пользователя на месте)', missingIcons.join(', '));
+    }
     ok(scenHtml.includes('Портативный комплекс управления огнём') && scenHtml.includes('Сиеста'),
         'U16g: выбор стороны — названия бонусов BeVe и AIRF');
     // #3: болото — текстуры грузятся (поле «images», как у остальных типов)
@@ -1106,10 +1116,21 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
        s.evalCtx('getTacticalCoverMod("forest")') === 1 && s.evalCtx('getTacticalCoverMod("grass")') === 0 &&
        s.evalCtx('getTacticalCoverMod("fallen_forest")') === 0,
         'U17m: воронки дают укрытие как камни (+2), поваленный лес укрытия не даёт');
-    ok(s.evalCtx('TERRAIN_DATA.craters.images.length') === 2 &&
-       s.evalCtx('TERRAIN_DATA.fallen_forest.images[0]') === 'images/поваленный лес.png' &&
-       s.evalCtx('TERRAIN_DATA.shelled_forest.images.length') === 2,
-        'U17n: текстуры новых типов подключены (воронки, поваленный лес, обстрелянный лес)');
+    {
+        const texAll = s.evalCtx('[].concat(TERRAIN_DATA.craters.images, TERRAIN_DATA.fallen_forest.images, TERRAIN_DATA.shelled_forest.images)');
+        const texMissing = texAll.filter(t => !fs.existsSync(path.resolve(__dirname, '..', t)));
+        ok(s.evalCtx('TERRAIN_DATA.craters.images.length') === 2 &&
+           s.evalCtx('TERRAIN_DATA.fallen_forest.images[0]') === 'images/лес поваленный.png' &&
+           s.evalCtx('TERRAIN_DATA.shelled_forest.images.length') === 2 && texMissing.length === 0,
+            'U17n: текстуры новых типов подключены — файлы пользователя (воронки в поле ×2, лес поваленный, лес обстрелянный ×2)', texMissing.join(', '));
+        // воронки/обстрелянный лес — НЕ варианты обычной травы/леса (иначе случайная трава рисовалась бы воронками)
+        const grassImgs = s.evalCtx('TERRAIN_DATA.grass.images'), forestImgs = s.evalCtx('TERRAIN_DATA.forest.images');
+        ok(!grassImgs.some(t => /воронк/.test(t)) && !forestImgs.some(t => /обстрел|повален/.test(t)) && grassImgs.includes('images/пшено.png'),
+            'U17n2: трава = трава/трава1/пшено (рожь), лес = лес/лес1/лес2 — без воронок и обстрелянного леса в вариантах');
+        ok(s.evalCtx('TERRAIN_DATA.swamp_impassable.images.length') === 3 &&
+           s.evalCtx('TERRAIN_DATA.swamp_impassable.images').every(t => fs.existsSync(path.resolve(__dirname, '..', t))),
+            'U17n3: непроходимое болото — 3 текстуры на месте (опечатка «.png2» исправлена)');
+    }
 
     // Приказ «подготовка позиций»: правила правок + лимит
     const ruleT = s.evalCtx('JSON.stringify({g:hexEditRuleFor("trenches").allowed("grass"),r:hexEditRuleFor("trenches").allowed("road"),' +
@@ -1208,6 +1229,128 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     ok(s.evalCtx('getMovementCost({name:"Танковый взвод",armor:3}, "0,0", "1,0", false)') === Infinity,
         'U17ad: техника в воронки не заходит (как в камни)');
     s.run('appData.map = null;');
+}
+
+// ============================================================
+console.log('\n== U18. v13.050: реальные карты гексов пользователя (maps/Карты Валенсия) ==');
+{
+    const root = path.resolve(__dirname, '..');
+    const dir = path.join(root, 'maps', 'Карты Валенсия');
+    const idxPath = path.join(dir, 'index.json');
+    const idx = fs.existsSync(idxPath) ? JSON.parse(fs.readFileSync(idxPath, 'utf8')) : null;
+    ok(Array.isArray(idx) && idx.length >= 148, 'U18a: индекс карт гексов собран (maps/Карты Валенсия/index.json, ≥148 карт)', idx && idx.length);
+    const files = fs.readdirSync(dir).filter(f => /\.json$/i.test(f) && f !== 'index.json');
+    const missingFiles = (idx || []).filter(e => !fs.existsSync(path.join(root, e.file)));
+    ok(missingFiles.length === 0, 'U18b: каждая запись индекса указывает на существующий файл', missingFiles.map(e => e.file).join(', '));
+    const hexes = (idx || []).map(e => e.hex);
+    ok(new Set(hexes).size === hexes.length, 'U18c: один гекс — одна карта (дубль 6.7 отсеян с предупреждением)');
+    ok(files.length === 149 && idx.length === 148, 'U18d: 149 файлов карт → 148 гексов (6.7 — два файла)', files.length + '/' + (idx && idx.length));
+    const s = makeSandbox(freshAppData());
+    // имя каждого файла разбирается в гекс, и он совпадает с полем hex индекса
+    const badNames = (idx || []).filter(e => s.evalCtx('tacticalHexKeyFromMapName(' + JSON.stringify(e.name) + ')') !== e.hex);
+    ok(badNames.length === 0, 'U18e: имя файла → гекс совпадает с индексом («0.0 лес» → 0,0 … «11.13 лес, гора» → 11,13)', badNames.map(e => e.name).join(', '));
+    // реальная карта 8.10 (холм-болото): формат {grid, enemySquads, baseHexSize, zoomLevel}, 20×20
+    const e810 = (idx || []).find(e => e.hex === '8,10');
+    const raw810 = e810 ? fs.readFileSync(path.join(root, e810.file), 'utf8') : 'null';
+    s.run('var __m810 = normalizeTacticalMapData(' + raw810 + ');');
+    ok(!!e810 && s.evalCtx('__m810 && __m810.w') === 20 && s.evalCtx('__m810.h') === 20 &&
+       s.evalCtx('Object.keys(__m810.grid).length') === 400,
+        'U18f: карта гекса 8,10 («' + (e810 && e810.name) + '») читается: 20×20, 400 гексов');
+    // бой на гексе 8,10 открывает именно эту карту: поворот дорог/вариант текстуры/уровень — как у автора
+    s.run('TACTICAL_HEX_MAPS["8,10"] = __m810; appData.campaign.hexOverlays = {}; var __tm = {grid:{}, mapSize:20}; TACTICAL_MAP_SIZE = 20; var __opened = openHexMapForBattle("8,10", __tm);');
+    const srcTypes = JSON.parse(raw810).grid;
+    const rotCell = Object.keys(srcTypes).find(k => (srcTypes[k].rotation || 0) !== 0);
+    const varCell = Object.keys(srcTypes).find(k => (srcTypes[k].variant || 0) !== 0);
+    const lvlCell = Object.keys(srcTypes).find(k => (srcTypes[k].level || 0) !== 0);
+    ok(s.evalCtx('__opened') === true && s.evalCtx('__tm.mapSize') === 20 && s.evalCtx('TACTICAL_MAP_SIZE') === 20 &&
+       s.evalCtx('Object.keys(__tm.grid).length') === 400 &&
+       Object.keys(srcTypes).every(k => s.evalCtx('__tm.grid[' + JSON.stringify(k) + '].type') === srcTypes[k].type),
+        'U18g: бой на гексе 8,10 — сетка боя = карта автора (все 400 типов местности совпадают), размер 20');
+    ok(!!rotCell && s.evalCtx('__tm.grid[' + JSON.stringify(rotCell) + '].rotation') === srcTypes[rotCell].rotation &&
+       !!varCell && s.evalCtx('__tm.grid[' + JSON.stringify(varCell) + '].variant') === srcTypes[varCell].variant &&
+       !!lvlCell && s.evalCtx('__tm.grid[' + JSON.stringify(lvlCell) + '].level') === srcTypes[lvlCell].level,
+        'U18h: поворот (' + rotCell + '=' + (rotCell && srcTypes[rotCell].rotation) + '°), вариант текстуры и уровень высоты сохранены (v13.049 обнулял поворот/вариант)');
+    ok(Object.keys(srcTypes).every(k => s.evalCtx('__tm.grid[' + JSON.stringify(k) + '].squadIds.length + __tm.grid[' + JSON.stringify(k) + '].enemySquadIds.length') === 0),
+        'U18i: отрядов на свежей карте нет — размещение вручную');
+    // правки (окопы) накладываются и на реальную карту
+    const grassCell = Object.keys(srcTypes).find(k => srcTypes[k].type === 'grass');
+    s.run('appData.campaign.hexOverlays = {"8,10":{hexEdits:{' + JSON.stringify(grassCell) + ':"trenches"},hexVariants:{},trenchPoints:0,prepPoints:0,shellings:0}}; var __b2 = buildBattleGridForHex("8,10");');
+    ok(s.evalCtx('__b2.grid[' + JSON.stringify(grassCell) + '].type') === 'trenches',
+        'U18j: окоп из правок виден на реальной карте гекса (' + grassCell + ': трава → окоп)');
+    // все 149 карт: читаются, 20×20, типы местности известны TERRAIN_DATA
+    const known = new Set(Object.keys(s.evalCtx('TERRAIN_DATA')));
+    let badMaps = [];
+    files.forEach(f => {
+        try {
+            const raw = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+            const g = raw.grid || (raw.currentMap && raw.currentMap.grid);
+            const keys = Object.keys(g || {});
+            if (keys.length !== 400) { badMaps.push(f + ': ' + keys.length + ' гексов'); return; }
+            const unknown = keys.map(k => g[k].type).filter(t => !known.has(t));
+            if (unknown.length) badMaps.push(f + ': неизвестные типы ' + [...new Set(unknown)].join('/'));
+        } catch (e) { badMaps.push(f + ': ' + e.message); }
+    });
+    ok(badMaps.length === 0, 'U18k: все 149 карт читаются, 20×20, типы местности известны', badMaps.slice(0, 5).join('; '));
+    // библиотека карт редактора: пути в maps/index.json существуют
+    const lib = JSON.parse(fs.readFileSync(path.join(root, 'maps', 'index.json'), 'utf8'));
+    const libMissing = lib.filter(e => !fs.existsSync(path.join(root, e.file)));
+    ok(lib.length === 4 && libMissing.length === 0, 'U18l: maps/index.json — 4 карты, пути существуют (8.8/8.10 → папка «Карты Валенсия»)', libMissing.map(e => e.file).join(', '));
+    ok(HTML.includes('Карты гексов (Валенсия)') && HTML.includes('loadTacticalHexIndex()') ,
+        'U18m: библиотека редактора показывает карты гексов отдельной группой');
+    // сервис-воркер: ядро строго, остальное мягко; карты гексов — из индекса
+    const sw = fs.readFileSync(path.join(root, 'service-worker.js'), 'utf8');
+    ok(sw.includes("const CACHE_NAME = 'wargame-v13.050'"), 'U18n: SW — кэш wargame-v13.050');
+    ok(sw.includes('cache.addAll(CORE_ASSETS)') && sw.includes('precacheSoft(cache, soft)') && sw.includes('precacheHexMaps(cache)') &&
+       !/return cache\.addAll\(ASSETS\)/.test(sw),
+        'U18o: SW — ядро (index/js/css) строго, картинки/карты мягко, карты гексов — по index.json (одна пропавшая картинка не срывает обновление)');
+    const swAssets = [...sw.matchAll(/'\.\/([^']+)'/g)].map(m => m[1]).filter(a => a && a !== '.' && !a.endsWith('/'));
+    const swMissing = [...new Set(swAssets)].filter(a => !fs.existsSync(path.join(root, a)));
+    ok(swMissing.length === 0, 'U18p: все файлы из списка SW существуют (bonuses/*, сгенерированные текстуры, «штаб роты BeVe гол.jpg» исправлены)', swMissing.join(', '));
+    ok(sw.includes("'./js/hexmaps.js'") && sw.includes("'./maps/Карты Валенсия/index.json'") && sw.includes("'./images/лес поваленный.png'") &&
+       sw.includes("'./images/AIRF/Стрелковое отделение №24.png'") && !sw.includes('images/bonuses/'),
+        'U18q: SW — hexmaps.js, индекс карт, текстуры и новые иконки AIRF в списке; images/bonuses убраны');
+    // ссылки на картинки в коде: файлы существуют (кроме заведомо «на будущее» images/markers, images/groups и развед аирф.png)
+    const codeFiles = ['index.html', 'js/data.js', 'js/templates.js', 'js/cards.js', 'js/weapons.js'];
+    const refs = new Set();
+    codeFiles.forEach(f => { for (const m of fs.readFileSync(path.join(root, f), 'utf8').matchAll(/images\/[^'"\)\\\n]+?\.(?:png|jpg|jpeg|gif|webp)/g)) refs.add(m[0]); });
+    const refMissing = [...refs].filter(r => !fs.existsSync(path.join(root, r)) && !/^images\/(markers|groups)\//.test(r) && r !== 'images/AIRF/развед аирф.png');
+    ok(refMissing.length === 0, 'U18r: битых ссылок на картинки нет (Belgian Beve / Schwarcloze / снайперы → images/BeVe/)', refMissing.join(', '));
+    // фоновая подгрузка: очередь, гексы с юнитами — первыми; без fetch не падает
+    s.run('_hexPreloadStarted = false; appData.campaign.opUnits = [{name:"A", col: 8, row: 10}]; var __pl = true; try { preloadTacticalHexMaps(); } catch (e) { __pl = false; }');
+    ok(s.evalCtx('__pl') === true && s.evalCtx('_hexPreloadStarted') === true,
+        'U18s: preloadTacticalHexMaps — очередь по 3, приоритет гексам с юнитами, повторно не запускается');
+    // подфракции: ничья у BeVe — карты обеих подфракций (R30) сохранены при правке пользователя (v13.049 в index.html)
+    ok(HTML.includes("const subFactionTie = (ctx.faction === 'BeVe' && !ctx.subFaction)") && HTML.includes('otherLibNames.has(card.name)'),
+        'U18t: карточки — правка пользователя (общие карты противника скрыты) + ничья подфракций BeVe без ограничения');
+    // Сквозной сценарий: свой взвод и взвод противника на гексе 8,10 → startTacticalBattle
+    //    → бой открывается на карте «8.10 холм-болото» (+ правки), отряды не расставлены (вручную)
+    {
+        const s2 = makeSandbox(freshAppData());
+        ['ensureAP','selectSquad','renderSquadSelector','updateUI','refreshSquadToPlaceDropdown','activateBattleTab',
+         'openCardsTabForBattleStart','saveData','initMap','redrawMap','log','renderEnemySquads','updateTimeDisplay','renderMapTemplates']
+            .forEach(fn => s2.run(`if (typeof ${fn} !== 'function') ${fn} = function(){};`));
+        s2.run('var TACTICAL_MAP_SIZE = 20; var currentTurn = 1; var inStandaloneBattle = false;');
+        s2.run('TACTICAL_HEX_MAPS["8,10"] = normalizeTacticalMapData(' + raw810 + ');');
+        s2.run('appData.campaign.activeBattles = []; console = { log: function(){}, warn: function(){}, error: function(){} };' +
+               'appData.campaign.hexOverlays = {"8,10":{hexEdits:{"5,5":"trenches"},hexVariants:{"5,5":2},trenchPoints:0,prepPoints:0,shellings:0}};' +
+               'appData.campaign.opUnits = [{ name: "Взвод А", type: "platoon", col: 8, row: 10, faction: "BeVe", isDestroyed: false, ' +
+               '  squads: [{name:"Отд 1", faction:"BeVe", subfaction:"belgian", fighters:[{name:"a",hp:3,maxHp:3,weapon:"Винтовка Geweer M95"}]}] }];' +
+               'appData.campaign.enemyOpUnits = [{ name: "Враг Б", type: "platoon", col: 8, row: 10, faction: "A.I.R.F.", isDestroyed: false, ' +
+               '  squads: [{name:"Вр 1", faction:"A.I.R.F.", fighters:[{name:"b",hp:3,maxHp:3,weapon:"Винтовка Vz.24"}]}] }];' +
+               'var __err = null; try { startTacticalBattle(appData.campaign.opUnits[0], appData.campaign.enemyOpUnits[0]); } catch (e) { __err = e.stack; }');
+        const err = s2.evalCtx('__err');
+        const sameCnt = Object.keys(srcTypes).filter(k => s2.evalCtx('appData.map.grid[' + JSON.stringify(k) + '].type') === srcTypes[k].type).length;
+        ok(err === null && s2.evalCtx('appData.campaign.activeBattles.length') === 1 &&
+           s2.evalCtx('appData.campaign.activeBattles[0].hexKey') === '8,10' &&
+           s2.evalCtx('TACTICAL_MAP_SIZE') === 20 && s2.evalCtx('appData.map.mapSize') === 20 &&
+           s2.evalCtx('Object.keys(appData.map.grid).length') === 400 && sameCnt === 399 &&
+           s2.evalCtx('appData.map.grid["5,5"].type') === 'trenches' && s2.evalCtx('appData.map.grid["5,5"].variant') === 2,
+            'U18u: startTacticalBattle на гексе 8,10 → бой на карте «8.10 холм-болото» (399/400 как у автора + 1 окоп из правок, вариант текстуры сохранён)', err || sameCnt);
+        ok(s2.evalCtx('appData.map.enemySquads.length') === 1 && s2.evalCtx('appData.squads.length') === 1 &&
+           s2.evalCtx('Object.values(appData.map.grid).filter(c => c.squadIds.length || c.enemySquadIds.length).length') === 0 &&
+           s2.evalCtx('appData.campaign.activeBattles[0].tacticalMap.grid["10,4"].rotation') === srcTypes['10,4'].rotation,
+            'U18v: отряды обеих сторон в бою, на сетке никто не расставлен (вручную); в записи боя карта с поворотами автора');
+    }
 }
 
 console.log('\n====================================');

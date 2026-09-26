@@ -1,6 +1,6 @@
 // ⚡ v13.024: имя кэша обязательно обновлять с каждой версией —
 //    иначе старый (устаревший) кэш продолжает отдавать старые js/data.js
-const CACHE_NAME = 'wargame-v13.049';
+const CACHE_NAME = 'wargame-v13.050';
 
 const ASSETS = [
       // ====== КОРНЕВЫЕ ФАЙЛЫ ======
@@ -11,6 +11,7 @@ const ASSETS = [
     './js/weapons.js',
     './js/cards.js',
     './js/templates.js',
+    './js/hexmaps.js',
     './manifest.json',
 
     // ====== ОБЩИЕ ИЗОБРАЖЕНИЯ (images/) ======
@@ -58,15 +59,6 @@ const ASSETS = [
     './images/бат аирф.png',
     './images/болото 1.png',
     './images/болото 2.png',
-    './images/bonuses/fire_control.png',
-    './images/bonuses/radio_phillips.png',
-    './images/bonuses/motor_courier.png',
-    './images/bonuses/siesta.png',
-    './images/bonuses/chaskeys.png',
-    './js/hexmaps.js',
-    './images/поваленный лес.png',
-    './images/обстрелянный лес1.png',
-    './images/обстрелянный лес2.png',
     './images/воронки в поле.png',
     './images/воронки в поле1.png',
     './images/бтр1.jpg',
@@ -276,24 +268,139 @@ const ASSETS = [
     './images/BeVe/штаб мин4.jpg',
     './images/BeVe/штаб мин5.jpg',
     './images/BeVe/штаб мин6.jpg',
-    './images/BeVe/штаб роты BeVe гол.jpg',
+    './images/BeVe/штаб роты  BeVe гол.jpg',
     './images/BeVe/штаб роты BeVe бел.jpg',
     './images/BeVe/штаб роты BeVe сам.jpg',
     './images/BeVe/штаб самокат вззод 1.jpg',
     './images/BeVe/штаб самокат вззод 2.jpg',
     './images/BeVe/штаб самокат вззод 3.jpg',
 
+
+    // ====== v13.050: новые иконки/текстуры/метки (файлы пользователя) ======
+    './images/AIRF/Стрелковое отделение №10.png',
+    './images/AIRF/Стрелковое отделение №11.png',
+    './images/AIRF/Стрелковое отделение №12.png',
+    './images/AIRF/Стрелковое отделение №13.png',
+    './images/AIRF/Стрелковое отделение №14.png',
+    './images/AIRF/Стрелковое отделение №15.png',
+    './images/AIRF/Стрелковое отделение №16.png',
+    './images/AIRF/Стрелковое отделение №17.png',
+    './images/AIRF/Стрелковое отделение №18.png',
+    './images/AIRF/Стрелковое отделение №19.png',
+    './images/AIRF/Стрелковое отделение №20.png',
+    './images/AIRF/Стрелковое отделение №21.png',
+    './images/AIRF/Стрелковое отделение №22.png',
+    './images/AIRF/Стрелковое отделение №23.png',
+    './images/AIRF/Стрелковое отделение №24.png',
+    './images/AIRF/Стрелковое отделение №3.png',
+    './images/AIRF/Стрелковое отделение №4.png',
+    './images/AIRF/Стрелковое отделение №5.png',
+    './images/AIRF/Стрелковое отделение №6.png',
+    './images/AIRF/Стрелковое отделение №7.png',
+    './images/AIRF/Стрелковое отделение №8.png',
+    './images/AIRF/Стрелковое отделение №9.png',
+    './images/AIRF/Штурмовое отделение №10.png',
+    './images/AIRF/Штурмовое отделение №11.png',
+    './images/AIRF/Штурмовое отделение №12.png',
+    './images/AIRF/Штурмовое отделение №3.png',
+    './images/AIRF/Штурмовое отделение №4.png',
+    './images/AIRF/Штурмовое отделение №5.png',
+    './images/AIRF/Штурмовое отделение №6.png',
+    './images/AIRF/Штурмовое отделение №7.png',
+    './images/AIRF/Штурмовое отделение №8.png',
+    './images/AIRF/Штурмовое отделение №9.png',
+    './images/AIRF/пулеметное отделение АИРФ2.png',
+    './images/AIRF/пулеметное отделение АИРФ3.png',
+    './images/AIRF/пулеметное отделение АИРФ4.png',
+    './images/AIRF/пулеметное отделение АИРФ5.png',
+    './images/AIRF/пулеметное отделение АИРФ6.png',
+    './images/AIRF/пулеметное отделение АИРФ7.png',
+    './images/AIRF/пулеметное отделение АИРФ8.png',
+    './images/AIRF/пулеметное отделение АИРФ9.png',
+    './images/BeVe/ДОТ Van Hees.png',
+    './images/Бегун часки.png',
+    './images/Портативный комплекс управления огнем.png',
+    './images/Радио филипс.png',
+    './images/болото непроходимое.png',
+    './images/болото непроходимое1.png',
+    './images/болото непроходимое2.png',
+    './images/валуны.png',
+    './images/лес обстрелянный.png',
+    './images/лес обстрелянный1.png',
+    './images/лес поваленный.png',
+    './images/мотогонец.png',
+    './images/окоп оп.png',
+    './images/окоп7.png',
+    './images/подбитый танк аирф.png',
+    './images/полевой телефон.png',
+    './images/пшено.png',
+    './images/рация.png',
+    './images/сиеста1.png',
+
     // ====== КАРТЫ ======
     './maps/Валенсия.png',
     './maps/valencia_terrain.json',
     './maps/index.json',
-  
+    './maps/высота_142.json',
+    './maps/Высота 63.json',
+    // карты полей боя для гексов оперативной карты: список берётся из
+    // индекса (node tools/build_hex_map_index.js) — см. precacheHexMaps()
+    './maps/Карты Валенсия/index.json',
 ];
+
+// ⚡ v13.050: файлы, без которых приложение не работает. Только они кэшируются
+//    «строго» (cache.addAll) — если хоть одного нет, установка новой версии
+//    прерывается. Всё остальное (картинки, карты) кэшируется «мягко»: одна
+//    пропавшая/переименованная картинка больше НЕ блокирует обновление
+//    приложения (раньше любой 404 в списке ASSETS срывал установку всего
+//    сервис-воркера, и устройства оставались на старой версии).
+const CORE_ASSETS = [
+    './',
+    './index.html',
+    './css/style.css',
+    './js/data.js',
+    './js/weapons.js',
+    './js/cards.js',
+    './js/templates.js',
+    './js/hexmaps.js',
+];
+
+const HEX_MAP_INDEX = './maps/Карты Валенсия/index.json';
+
+function precacheSoft(cache, urls) {
+  return Promise.all(urls.map((url) =>
+    cache.add(url).catch((err) => {
+      console.warn('[SW] не удалось закэшировать (пропущено):', url, err && err.message);
+      return null;
+    })
+  ));
+}
+
+// Карты гексов оперативной карты — по индексу maps/Карты Валенсия/index.json
+function precacheHexMaps(cache) {
+  return fetch(HEX_MAP_INDEX, { cache: 'no-cache' })
+    .then((r) => (r.ok ? r.json() : []))
+    .then((list) => {
+      const urls = (Array.isArray(list) ? list : [])
+        .map((item) => item && item.file)
+        .filter(Boolean)
+        .map((file) => './' + String(file).replace(/^\.?\//, ''));
+      return precacheSoft(cache, urls);
+    })
+    .catch((err) => {
+      console.warn('[SW] индекс карт гексов недоступен:', err && err.message);
+      return null;
+    });
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS);
+      const core = new Set(CORE_ASSETS);
+      const soft = ASSETS.filter((u) => !core.has(u));
+      return cache.addAll(CORE_ASSETS)
+        .then(() => precacheSoft(cache, soft))
+        .then(() => precacheHexMaps(cache));
     })
   );
   // ⚡ v13.024: новый SW перехватывает управление сразу,

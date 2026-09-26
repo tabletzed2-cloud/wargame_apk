@@ -136,13 +136,40 @@ function ensureTacticalHexMap(hexKey) {
     return p;
 }
 
-// Фоновая загрузка всех карт из индекса (чтобы бой открывался мгновенно)
+// Фоновая загрузка карт из индекса (чтобы бой открывался мгновенно).
+// ⚡ v13.050: карт стало ~150 (≈10 МБ) — грузим не все разом, а очередью
+//    по 3 параллельно; первыми — гексы, где стоят юниты (свои и противника)
+//    и их соседи, т.е. где бой вероятнее всего.
+let _hexPreloadStarted = false;
 function preloadTacticalHexMaps() {
+    if (_hexPreloadStarted) return;
+    _hexPreloadStarted = true;
     loadTacticalHexIndex().then(list => {
+        const keys = [];
         (list || []).forEach(item => {
-            const key = tacticalHexKeyFromMapName(item.name || '') || tacticalHexKeyFromMapName(item.file || '');
-            if (key && !TACTICAL_HEX_MAPS[key]) ensureTacticalHexMap(key);
+            const key = item.hex || tacticalHexKeyFromMapName(item.name || '') || tacticalHexKeyFromMapName(item.file || '');
+            if (key && !TACTICAL_HEX_MAPS[key] && keys.indexOf(key) < 0) keys.push(key);
         });
+        // приоритет: гексы с юнитами + соседи
+        const hot = new Set();
+        try {
+            const units = [].concat((appData.campaign && appData.campaign.opUnits) || [],
+                                    (appData.campaign && appData.campaign.enemyOpUnits) || []);
+            units.forEach(u => {
+                if (!u || u.col === null || u.col === undefined || u.row === null || u.row === undefined) return;
+                hot.add(u.col + ',' + u.row);
+                const nb = (typeof getOpHexNeighbors === 'function') ? getOpHexNeighbors(u.col, u.row) : [];
+                (nb || []).forEach(n => { if (n && n.col !== undefined) hot.add(n.col + ',' + n.row); });
+            });
+        } catch (e) {}
+        keys.sort((a, b) => (hot.has(b) ? 1 : 0) - (hot.has(a) ? 1 : 0));
+        let i = 0;
+        const next = () => {
+            if (i >= keys.length) return Promise.resolve();
+            const key = keys[i++];
+            return ensureTacticalHexMap(key).catch(() => null).then(next);
+        };
+        for (let w = 0; w < 3; w++) next();
     }).catch(() => {});
 }
 
@@ -231,7 +258,11 @@ function buildBattleGridForHex(hexKey) {
         for (let col = 0; col < size; col++) {
             const k = col + ',' + row;
             const src = md.grid[k];
-            grid[k] = src ? { ...src, squadIds: [], enemySquadIds: [], markers: [], rotation: 0, variant: 0, level: src.level || 0 }
+            // ⚡ v13.050: поворот (дороги/окопы), вариант текстуры (склоны, рожь)
+            //    и уровень высоты берём ИЗ КАРТЫ автора — сбрасываем только
+            //    боевое состояние (отряды, метки боя).
+            grid[k] = src ? { ...src, squadIds: [], enemySquadIds: [], markers: [],
+                              rotation: src.rotation || 0, variant: src.variant || 0, level: src.level || 0 }
                           : { type: 'grass', squadIds: [], enemySquadIds: [], markers: [], rotation: 0, variant: 0, level: 0 };
         }
     }
