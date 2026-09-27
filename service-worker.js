@@ -1,6 +1,6 @@
 // ⚡ v13.024: имя кэша обязательно обновлять с каждой версией —
 //    иначе старый (устаревший) кэш продолжает отдавать старые js/data.js
-const CACHE_NAME = 'wargame-v13.050';
+const CACHE_NAME = 'wargame-v13.051';
 
 const ASSETS = [
       // ====== КОРНЕВЫЕ ФАЙЛЫ ======
@@ -11,6 +11,8 @@ const ASSETS = [
     './js/weapons.js',
     './js/cards.js',
     './js/templates.js',
+    './js/hexmaps.js',
+    './js/online_battles.js',
     './manifest.json',
 
     // ====== ОБЩИЕ ИЗОБРАЖЕНИЯ (images/) ======
@@ -429,10 +431,60 @@ const ASSETS = [
  './maps/9.9 болото.json',
 ];
 
+// ⚡ v13.050: файлы, без которых приложение не работает. Только они кэшируются
+//    «строго» (cache.addAll) — если хоть одного нет, установка новой версии
+//    прерывается. Всё остальное (картинки, карты) кэшируется «мягко»: одна
+//    пропавшая/переименованная картинка больше НЕ блокирует обновление
+//    приложения (раньше любой 404 в списке ASSETS срывал установку всего
+//    сервис-воркера, и устройства оставались на старой версии).
+const CORE_ASSETS = [
+    './',
+    './index.html',
+    './css/style.css',
+    './js/data.js',
+    './js/weapons.js',
+    './js/cards.js',
+    './js/templates.js',
+    './js/hexmaps.js',
+    './js/online_battles.js',
+];
+
+const HEX_MAP_INDEX = './maps/Карты Валенсия/index.json';
+
+function precacheSoft(cache, urls) {
+  return Promise.all(urls.map((url) =>
+    cache.add(url).catch((err) => {
+      console.warn('[SW] не удалось закэшировать (пропущено):', url, err && err.message);
+      return null;
+    })
+  ));
+}
+
+// Карты гексов оперативной карты — по индексу maps/Карты Валенсия/index.json
+function precacheHexMaps(cache) {
+  return fetch(HEX_MAP_INDEX, { cache: 'no-cache' })
+    .then((r) => (r.ok ? r.json() : []))
+    .then((list) => {
+      const urls = (Array.isArray(list) ? list : [])
+        .map((item) => item && item.file)
+        .filter(Boolean)
+        .map((file) => './' + String(file).replace(/^\.?\//, ''));
+      return precacheSoft(cache, urls);
+    })
+    .catch((err) => {
+      console.warn('[SW] индекс карт гексов недоступен:', err && err.message);
+      return null;
+    });
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS);
+      const core = new Set(CORE_ASSETS);
+      const soft = ASSETS.filter((u) => !core.has(u));
+      return cache.addAll(CORE_ASSETS)
+        .then(() => precacheSoft(cache, soft))
+        .then(() => precacheHexMaps(cache));
     })
   );
   // ⚡ v13.024: новый SW перехватывает управление сразу,
