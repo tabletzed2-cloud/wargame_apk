@@ -477,6 +477,20 @@ function grantPrepPoints(hexKey, squadsCount, unitName) {
     return ov.prepPoints;
 }
 
+// ⚡ v13.051 (R36#3): кнопки редактора для гекса (если на нём есть доступные
+//    правки) — вставляются в строку «Гекс: c,r» под оперативной картой при
+//    клике по гексу. Нет правок — пустая строка.
+function hexEditButtonsHtml(hexKey) {
+    if (!hexKey) return '';
+    const ov = getHexOverlay(hexKey, false) || {};
+    const t = ov.trenchPoints || 0, p = ov.prepPoints || 0;
+    if (!t && !p) return '';
+    let html = '<span style="color:#f1c40f;">🛠️ правки карты гекса — окопов: <b>' + t + '</b>, подготовка позиций: <b>' + p + '</b></span> ';
+    if (t) html += `<button onclick="openHexEditorForBattle('${hexKey}','trenches')" style="background:#8e44ad; font-size:0.8rem;">🕳️ Расставить окопы</button> `;
+    if (p) html += `<button onclick="openHexEditorForBattle('${hexKey}','prep')" style="background:#16a085; font-size:0.8rem;">🪓 Подготовка позиций</button>`;
+    return html;
+}
+
 // Кнопка «открыть карту гекса» на оперативной карте для игрока
 function showHexEditButton(hexKey, kind) {
     const mi = document.getElementById('mapInfo');
@@ -600,8 +614,11 @@ function showHexEditorsMenu() {
     if (rows.length === 0) {
         const mi = document.getElementById('mapInfo');
         if (mi) {
-            mi.innerHTML = '🛠️ Нет доступных правок карт гексов. Отдайте приказ «🕳️ Окопаться» или «🪓 Подготовка позиций» — ' +
-                'после выполнения (3 хода) откроется расстановка окопов/вырубки на карте этого гекса.';
+            // ⚡ v13.051 (R36#3): подсказка — где именно копятся правки
+            const sel = (typeof appData !== 'undefined' && appData.campaign) ? appData.campaign.selectedOpUnit : null;
+            const selTxt = (sel && sel.col !== null && sel.col !== undefined) ? ` Выбран юнит «${sel.name}» на гексе (${sel.col},${sel.row}) — правок для этого гекса пока нет.` : '';
+            mi.innerHTML = '🛠️ Нет доступных правок карт гексов. Отдайте приказ «🕳️ Окопаться» или «🪓 Подготовка позиций» (🎯 Отдать приказ) — ' +
+                'через 3 хода после выполнения здесь и в строке «Гекс: …» под картой появятся кнопки «Расставить окопы» / «Подготовка позиций».' + selTxt;
             mi.style.color = '#f1c40f';
         }
         return;

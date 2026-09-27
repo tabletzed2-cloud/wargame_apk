@@ -38,6 +38,11 @@ const FNS = [
     //    (executePrepPositionsOrder и весь модуль карт гексов — в js/hexmaps.js,
     //     его песочница грузит целиком)
     'getMovementCost',
+    // ⚡ v13.051 (R36): десант на БТР = размещён; авторазмещение; разведка r3; туман без «липкости»
+    'isOpUnitEmbarkedOnPlacedBtr', 'getUnplacedOpUnits', 'getFactionPlacementHexes', 'autoPlaceUnplacedUnits',
+    'maybeAutoPlaceAtStart', 'isReconZoneActive', 'onlineFogMap', 'onlineRevealEnemy', 'onlineFogRevealedUntil',
+    'executeReconOrder', 'opMapDrawDims', 'onlineMarkPlaced', 'executeMoveOrder', 'checkEnemyEncounter',
+    'getOpMoveCost', 'getRouteToTarget', 'getOpHexNeighbors',
     // ⚡ v13.050: сквозной старт боя на гексе с реальной картой пользователя
     'startTacticalBattle'
 ];
@@ -633,12 +638,13 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     // результат доходит с передачей хода = в начале МОЕГО хода (R22#5)
     s.run('ONLINE.match.state.p2.units[0].detected = true;');
     s.run('onlineApplyCloudState();');
-    ok(s.evalCtx('ONLINE.fogVisible["e1"]') === true, 'U6c: detected=true (🔴 ОБНАРУЖЕН) — юнит в fogVisible');
+    // ⚡ v13.051 (R36#1): detected больше НЕ пишется в fogVisible «навсегда»
+    ok(!s.evalCtx('ONLINE.fogVisible["e1"]'), 'U6c: detected=true — НЕ записывается в fogVisible навсегда (v13.051)');
     ok(s.evalCtx(eVis) === true, 'U6d: обнаруженный юнит виден на моей карте');
-    // лепящийся: раз видели — остаётся видимым, даже если следующий снапшот detected=false
+    // ⚡ v13.051 (R36#1): видимость НЕ липкая — снова скрылся (detected=false) → исчез
     s.run('ONLINE.match.state.p2.units[0].detected = false;');
     s.run('onlineApplyCloudState();');
-    ok(s.evalCtx(eVis) === true, 'U6e: fogVisible лепящийся — юнит не «исчезает» после нового снапшота');
+    ok(s.evalCtx(eVis) === false, 'U6e: юнит снова скрылся (detected=false) — исчезает с карты (v13.051, не липко)');
     // свежий (ещё не раскрывался) юнит с detected=false — скрыт
     s.run('ONLINE.fogVisible = {}; ONLINE.match.state.p2.units[0].detected = false;');
     s.run('onlineApplyCloudState();');
@@ -781,7 +787,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.050'"), 'U9q: константа версии v13.050');
+    ok(HTML.includes("var APP_VERSION = 'v13.051'"), 'U9q: константа версии v13.051');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -886,9 +892,15 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     s.run('appData.campaign.enemyOpUnits = [{ name: "V1", col: 5, row: 3, isDestroyed: false }];');
     ok(s.evalCtx('unitCanBeDetected(uTest)') === true, 'U14b: враг в 2 гексах → обнаружение возможно');
     s.run('uTest.movedThisTurn = true; appData.campaign.enemyOpUnits = [{ name: "V1", col: 6, row: 3, isDestroyed: false }];');
-    ok(s.evalCtx('unitCanBeDetected(uTest)') === true, 'U14c: юнит двигался → обнаружение возможно даже далеко');
+    ok(s.evalCtx('unitCanBeDetected(uTest)') === true, 'U14c: юнит двигался → обнаружение возможно (враг в 3 гексах)');
+    // ⚡ v13.051 (R36#1): двигался, враг дальше 4 гексов — не заметен; стрелял — заметен с любой дистанции
+    s.run('appData.campaign.enemyOpUnits = [{ name: "V1", col: 9, row: 3, isDestroyed: false }];');
+    ok(s.evalCtx('unitCanBeDetected(uTest)') === false, 'U14c2: двигался, но враг в 6 гексах → НЕ обнаруживается (v13.051)');
     s.run('uTest.movedThisTurn = false; uTest.firedThisTurn = true;');
-    ok(s.evalCtx('unitCanBeDetected(uTest)') === true, 'U14d: юнит стрелял → обнаружение возможно');
+    ok(s.evalCtx('unitCanBeDetected(uTest)') === true, 'U14d: юнит стрелял → обнаружение возможно (и в 6 гексах)');
+    s.run('appData.campaign.enemyOpUnits = [];');
+    ok(s.evalCtx('unitCanBeDetected(uTest)') === false, 'U14d2: противника на карте нет → обнаруживать некому (v13.051: false)');
+    s.run('appData.campaign.enemyOpUnits = [{ name: "V1", col: 6, row: 3, isDestroyed: false }];');
     s.run('uTest.firedThisTurn = false;');
     // #14: холм/лес на линии видимости — вне зоны видимости
     s.run('appData.campaign.opMapGrid = {};');
@@ -1294,12 +1306,12 @@ console.log('\n== U18. v13.050: реальные карты гексов пол�
     // библиотека карт редактора: пути в maps/index.json существуют
     const lib = JSON.parse(fs.readFileSync(path.join(root, 'maps', 'index.json'), 'utf8'));
     const libMissing = lib.filter(e => !fs.existsSync(path.join(root, e.file)));
-    ok(lib.length === 4 && libMissing.length === 0, 'U18l: maps/index.json — 4 карты, пути существуют (8.8/8.10 → папка «Карты Валенсия»)', libMissing.map(e => e.file).join(', '));
+    ok(lib.length === 151 && libMissing.length === 0, 'U18l: maps/index.json — 151 карта (библиотека пользователя), пути существуют', libMissing.map(e => e.file).join(', '));
     ok(HTML.includes('Карты гексов (Валенсия)') && HTML.includes('loadTacticalHexIndex()') ,
         'U18m: библиотека редактора показывает карты гексов отдельной группой');
     // сервис-воркер: ядро строго, остальное мягко; карты гексов — из индекса
     const sw = fs.readFileSync(path.join(root, 'service-worker.js'), 'utf8');
-    ok(sw.includes("const CACHE_NAME = 'wargame-v13.050'"), 'U18n: SW — кэш wargame-v13.050');
+    ok(sw.includes("const CACHE_NAME = 'wargame-v13.051'"), 'U18n: SW — кэш wargame-v13.051');
     ok(sw.includes('cache.addAll(CORE_ASSETS)') && sw.includes('precacheSoft(cache, soft)') && sw.includes('precacheHexMaps(cache)') &&
        !/return cache\.addAll\(ASSETS\)/.test(sw),
         'U18o: SW — ядро (index/js/css) строго, картинки/карты мягко, карты гексов — по index.json (одна пропавшая картинка не срывает обновление)');
@@ -1351,6 +1363,231 @@ console.log('\n== U18. v13.050: реальные карты гексов пол�
            s2.evalCtx('appData.campaign.activeBattles[0].tacticalMap.grid["10,4"].rotation') === srcTypes['10,4'].rotation,
             'U18v: отряды обеих сторон в бою, на сетке никто не расставлен (вручную); в записи боя карта с поворотами автора');
     }
+}
+
+// ============================================================
+console.log('\n== V. v13.051 (R36): разведка r3, туман без утечек, десант на БТР, авторазмещение, «закрепиться», общий бой ==');
+{
+    const ad = freshAppData();
+    const s = makeSandbox(ad);
+    s.run('var RECON_RADIUS = 3; var placementLocked = false; var currentTurn = 1; var ONLINE = { match: null, fogVisible: {}, role: "p1", docRef: null };');
+    ['renderActiveOrders', 'checkMovingFire', 'hasAtGunWeapons', 'findRetreatHexFromEnemy', 'opLog']
+        .forEach(fn => s.run(`if (typeof ${fn} !== 'function') ${fn} = function(){ return false; };`));
+    s.run('var __battles = 0; startTacticalBattle = function() { __battles++; };');
+    ad.campaign.online = { code: 'ABCD', role: 'p1', playerId: 't' };
+    ad.campaign.scenario = 'valencia';
+    ad.campaign.currentTurn = 4;
+
+    // --- V1: разведка — радиус 3, подсветка сразу, зона активна текущий + следующий ход ---
+    ad.campaign.opUnits = [{ id: 'u1', name: 'Развед', type: 'infantry_platoon', col: 5, row: 5, ap: 4, maxAp: 4, mobility: 'foot', squads: [] }];
+    ad.campaign.enemyOpUnits = [
+        { id: 'e1', name: 'Враг-3', col: 8, row: 5, side: 'enemy', detected: false },   // дистанция 3 — в зоне
+        { id: 'e2', name: 'Враг-4', col: 9, row: 5, side: 'enemy', detected: false }    // дистанция 4 — вне
+    ];
+    s.run('var __ord = { targetHex: "5,5", status: "active" }; executeReconOrder(appData.campaign.opUnits[0], __ord);');
+    const u = s.evalCtx('appData.campaign.opUnits[0]');
+    ok(u.reconZoneHexes.length === 37 && u.reconRadius === 3 && u.reconActiveTurn === 5 && Array.isArray(u.reconHighlightHexes) && u.reconHighlightHexes.length === 37 && u.ap === 1,
+        'V1a: разведка — 37 гексов (радиус 3), подсветка СРАЗУ, активна до конца следующего хода, −3 ОД', JSON.stringify({ n: u.reconZoneHexes.length, t: u.reconActiveTurn, ap: u.ap }));
+    ok(s.evalCtx('appData.campaign.enemyOpUnits[0].detected') === true && s.evalCtx('appData.campaign.enemyOpUnits[1].detected') === false,
+        'V1b: враг в 3 гексах обнаружен, в 4 — нет');
+    ok(s.evalCtx('isReconZoneActive(appData.campaign.opUnits[0], 4)') === true && s.evalCtx('isReconZoneActive(appData.campaign.opUnits[0], 5)') === true &&
+       s.evalCtx('isReconZoneActive(appData.campaign.opUnits[0], 6)') === false, 'V1c: зона активна на ходах 4 и 5, на 6 — нет');
+    // снапшот оппонента перезаписал detected=false — раскрытие держится до конца следующего хода
+    s.run('appData.campaign.enemyOpUnits[0].detected = false; appData.campaign.enemyOpUnits[0].col = 1; appData.campaign.enemyOpUnits[0].row = 1;');
+    ok(s.evalCtx('onlineEnemyVisible(appData.campaign.enemyOpUnits[0])') === true, 'V1d: обнаруженный разведкой виден и после снапшота оппонента (ход 4)');
+    s.run('appData.campaign.currentTurn = 5;');
+    ok(s.evalCtx('onlineEnemyVisible(appData.campaign.enemyOpUnits[0])') === true, 'V1e: … и на следующем ходу (5)');
+    s.run('appData.campaign.currentTurn = 6;');
+    ok(s.evalCtx('onlineEnemyVisible(appData.campaign.enemyOpUnits[0])') === false, 'V1f: на ходу 6 — снова скрыт (не липко)');
+    ok(s.evalCtx('typeof appData.campaign.fogVisible') === 'object' && s.evalCtx('appData.campaign.fogVisible.e1') === 5,
+        'V1g: раскрытие сохраняется в appData.campaign.fogVisible (переживает перезагрузку)');
+
+    // --- V2: утечка «все враги видны» после перезагрузки (ONLINE.match = null) ---
+    s.run('ONLINE.match = null; appData.campaign.currentTurn = 10;');
+    ok(s.evalCtx('onlineEnemyVisible({ id: "x", name: "X", col: 2, row: 2, detected: false })') === false,
+        'V2a: ONLINE.match ещё пуст (перезагрузка) — необнаруженный враг СКРЫТ (раньше — виден)');
+    ok(s.evalCtx('onlineEnemyVisible({ id: "y", name: "Y", col: 2, row: 2, detected: true })') === true &&
+       s.evalCtx('onlineEnemyVisible({ id: "z", name: "Z", col: 2, row: 2, isDestroyed: true })') === true,
+        'V2b: обнаруженный владельцем (detected=true) и уничтоженный — видны');
+    ok(HTML.includes('function onlineEnsureSubscribed') && /function returnToCampaignFromMenu[\s\S]{0,1500}onlineEnsureSubscribed\(\)/.test(HTML),
+        'V2c: «↩️ Вернуться к кампании» переподписывается на матч (onlineEnsureSubscribed)');
+
+    // --- V3: десант на размещённом БТР = размещён ---
+    ad.campaign.opUnits = [
+        { id: 'b', name: 'БТР', type: 'btr_platoon', col: 3, row: 3, mobility: 'vehicle', embarkedUnit: 'Десант' },
+        { id: 'd', name: 'Десант', type: 'infantry_platoon', col: null, row: null, embarkedInBtr: true, btrIds: [0] },
+        { id: 'w', name: 'Пеший', type: 'infantry_platoon', col: null, row: null }
+    ];
+    ok(s.evalCtx('isOpUnitEmbarkedOnPlacedBtr(appData.campaign.opUnits[1])') === true && s.evalCtx('getUnplacedOpUnits().map(u => u.name).join()') === 'Пеший',
+        'V3a: десант в размещённом БТР считается размещённым; неразмещён только «Пеший»');
+    s.run('appData.campaign.opUnits[0].col = null; appData.campaign.opUnits[0].row = null;');
+    ok(s.evalCtx('getUnplacedOpUnits().length') === 3, 'V3b: БТР не размещён → десант тоже неразмещён');
+    ok(/function onlineMarkPlaced[\s\S]{0,1200}getUnplacedOpUnits\(\)/.test(HTML), 'V3c: онлайн «Завершить размещение» использует getUnplacedOpUnits (десант не блокирует)');
+
+    // --- V4: авторазмещение по умолчанию ---
+    ad.campaign.opUnits = [
+        { id: 'hq', name: 'Штаб батальона', type: 'battalion_hq', col: null, row: null, mobility: 'foot' },
+        { id: 'c1', name: 'Штаб роты', type: 'company_hq', col: null, row: null, mobility: 'foot' },
+        { id: 'm1', name: 'Миномет 82-мм №1', type: 'mortar_battery', col: null, row: null, mobility: 'foot' },
+        { id: 'p1', name: 'Взвод 1', type: 'infantry_platoon', col: null, row: null, mobility: 'foot' },
+        { id: 'p2', name: 'Взвод 2', type: 'infantry_platoon', col: null, row: null, mobility: 'foot' },
+        { id: 'p3', name: 'Взвод 3', type: 'infantry_platoon', col: null, row: null, mobility: 'foot' },
+        { id: 'dot', name: 'ДОТ', type: 'dots', col: null, row: null, mobility: 'static' },
+        { id: 'emb', name: 'Десант', type: 'infantry_platoon', col: null, row: null, embarkedInBtr: true, btrIds: [3] }
+    ];
+    ad.campaign.playerFaction = 'BeVe';
+    s.run('appData.campaign.currentTurn = 1; appData.campaign.autoPlacedOnce = false; __updates = []; ONLINE.docRef = { update: function(o) { __updates.push(o); return Promise.resolve(); } };');
+    const nPlaced = s.evalCtx('autoPlaceUnplacedUnits({ manual: true })');
+    const placedUnits = s.evalCtx('appData.campaign.opUnits.filter(u => u.col !== null)');
+    const inZone = placedUnits.every(pu => s.evalCtx(`isHexInPlacementZone('valencia','BeVe',${pu.col},${pu.row})`).ok && s.evalCtx(`isHexInPlayableArea('valencia',${pu.col},${pu.row})`));
+    const perHex = {}; placedUnits.forEach(pu => { perHex[pu.col + ',' + pu.row] = (perHex[pu.col + ',' + pu.row] || 0) + 1; });
+    ok(nPlaced === 7 && placedUnits.length === 7 && inZone && Object.values(perHex).every(n => n <= 2) && s.evalCtx('appData.campaign.opUnits[7].col') === null,
+        'V4a: авторазмещение — 7 юнитов в зоне BeVe (≤2 на гекс), десант в БТР не трогаем', JSON.stringify({ nPlaced, perHex }));
+    ok(placedUnits.every(pu => pu.autoPlaced === true) && s.evalCtx('appData.campaign.autoPlacedOnce') === true,
+        'V4b: авторазмещённые помечены (autoPlaced), флаг «уже делали» установлен');
+    ok(s.evalCtx('autoPlaceUnplacedUnits({ manual: true })') === 0 && s.evalCtx('getUnplacedOpUnits().length') === 0,
+        'V4c: повторный вызов — размещать нечего; неразмещённых нет → «Завершить размещение» доступно');
+    // ДОТ ближе к противнику, чем штаб батальона (по расстоянию до центра зоны AIRF)
+    const dotU = placedUnits.find(x => x.id === 'dot'), hqU = placedUnits.find(x => x.id === 'hq');
+    const dTo = (pu) => s.evalCtx(`getOpHexDistance(${pu.col},${pu.row},2,12)`);
+    ok(dTo(dotU) <= dTo(hqU), 'V4d: ДОТ — к переднему краю, штаб батальона — в тыл', JSON.stringify({ dot: dotU, hq: hqU }));
+    // maybeAutoPlaceAtStart — один раз за кампанию, не при заблокированном размещении
+    s.run('appData.campaign.opUnits.forEach(u => { if (!u.embarkedInBtr) { u.col = null; u.row = null; } }); appData.campaign.autoPlacedOnce = false;');
+    s.run('maybeAutoPlaceAtStart();');
+    ok(s.evalCtx('getUnplacedOpUnits().length') === 0, 'V4e: при первом выходе на карту все юниты получают гексы по умолчанию');
+    s.run('appData.campaign.opUnits[3].col = null; appData.campaign.opUnits[3].row = null; maybeAutoPlaceAtStart();');
+    ok(s.evalCtx('appData.campaign.opUnits[3].col') === null, 'V4f: повторно (уже делали) — юнит, снятый игроком, не расставляется сам');
+    // AIRF — 15 гексов зоны, размещаем 8 → ≤2 на гекс
+    s.run('appData.campaign.playerFaction = "A.I.R.F."; appData.campaign.autoPlacedOnce = false; appData.campaign.opUnits.forEach(u => { if (!u.embarkedInBtr) { u.col = null; u.row = null; } });');
+    const nAi = s.evalCtx('autoPlaceUnplacedUnits({})');
+    const aiUnits = s.evalCtx('appData.campaign.opUnits.filter(u => u.col !== null)');
+    ok(nAi === 7 && aiUnits.every(pu => s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',${pu.col},${pu.row})`).ok), 'V4g: AIRF — все 7 в своей зоне');
+    ok(HTML.includes('🎲 Авторазмещение') && HTML.includes('autoPlaceUnplacedUnits({ manual: true })') && /function showOperationalMap[\s\S]{0,3000}maybeAutoPlaceAtStart\(\)/.test(HTML),
+        'V4h: кнопка «🎲 Авторазмещение» и автозапуск при показе карты');
+
+    // --- V5: оперативная карта — размер холста по игровому полю (13×15), пинч-зум ---
+    const dims = s.evalCtx('opMapDrawDims()');
+    ok(dims && dims.cols === 13 && dims.rows === 15, 'V5a: Валенсия — холст 13×15 (без пустых тёмных столбцов 13..19)', JSON.stringify(dims));
+    s.run('appData.campaign.scenario = "other";');
+    const dims2 = s.evalCtx('opMapDrawDims()');
+    ok(dims2 && dims2.cols === 20 && dims2.rows === 15, 'V5b: сценарий без ограничений — полная сетка 20×15');
+    s.run('appData.campaign.scenario = "valencia";');
+    ok(HTML.includes('function setupOpMapTouchControls') && /touchmove/.test(HTML.slice(HTML.indexOf('function setupOpMapTouchControls'), HTML.indexOf('function setupOpMapTouchControls') + 4000)),
+        'V5c: пинч-зум двумя пальцами на контейнере оперативной карты');
+
+    // --- V6: «закрепиться и ждать» — не идём на видимого врага, останавливаемся при встрече ---
+    ad.campaign.playerFaction = 'BeVe';
+    ad.campaign.opUnits = [{ id: 'u1', name: 'Взвод', type: 'infantry_platoon', col: 2, row: 5, ap: 4, maxAp: 4, mobility: 'foot', squads: [] }];
+    ad.campaign.enemyOpUnits = [{ id: 'e1', name: 'Враг', col: 6, row: 5, side: 'enemy', detected: true }];
+    s.run('appData.campaign.currentTurn = 1; appData.campaign.fogVisible = {}; ONLINE.fogVisible = appData.campaign.fogVisible; __battles = 0; logs.length = 0;');
+    s.run('var __mo = { targetHex: "8,5", status: "active", behavior: "hold", waypoints: [] }; executeMoveOrder(appData.campaign.opUnits[0], __mo);');
+    let mu = s.evalCtx('appData.campaign.opUnits[0]');
+    ok(mu.col === 3 && mu.row === 5 && s.evalCtx('__mo.status') === 'completed' && s.evalCtx('__battles') === 0,
+        'V6a: hold — прошёл 1 гекс, заметил врага в 3 гексах → остановился, приказ завершён, боя нет', JSON.stringify({ col: mu.col, row: mu.row, st: s.evalCtx('__mo.status') }));
+    ok(s.logs.some(l => l.includes('закрепился')), 'V6b: в логе «закрепился и ждёт приказа»');
+    // враг уже рядом в начале — hold-юнит может сделать шаг, но НЕ входит на гекс врага
+    s.run('appData.campaign.opUnits[0].col = 5; appData.campaign.opUnits[0].row = 5; appData.campaign.opUnits[0].ap = 4; __battles = 0;');
+    s.run('var __mo2 = { targetHex: "6,5", status: "active", behavior: "hold", waypoints: [] }; executeMoveOrder(appData.campaign.opUnits[0], __mo2);');
+    mu = s.evalCtx('appData.campaign.opUnits[0]');
+    ok(mu.col === 5 && mu.row === 5 && s.evalCtx('__battles') === 0 && s.evalCtx('__mo2.status') === 'completed',
+        'V6c: hold — цель = гекс видимого врага → на него НЕ входим, боя нет, приказ закрыт («закрепился»)');
+    // скрытый (туман) враг — не «встреча»: hold-юнит идёт дальше
+    s.run('appData.campaign.enemyOpUnits[0].detected = false; appData.campaign.enemyOpUnits[0].col = 6; appData.campaign.enemyOpUnits[0].row = 8; ' +
+          'appData.campaign.opUnits[0].col = 2; appData.campaign.opUnits[0].row = 5; appData.campaign.opUnits[0].ap = 4; logs.length = 0;');
+    s.run('var __mo3 = { targetHex: "5,5", status: "active", behavior: "hold", waypoints: [] }; executeMoveOrder(appData.campaign.opUnits[0], __mo3);');
+    mu = s.evalCtx('appData.campaign.opUnits[0]');
+    ok(mu.col === 4 && mu.row === 5 && mu.ap === 0 && s.evalCtx('__mo3.status') === 'active' && !s.logs.some(l => l.includes('обнаружил врага') || l.includes('Враг')),
+        'V6d: невидимый (туман) враг не останавливает (прошёл все 2 гекса за 4 ОД) и не попадает в лог (утечка закрыта)', JSON.stringify({ col: mu.col, ap: mu.ap, st: s.evalCtx('__mo3.status') }));
+    // штурм — прежнее поведение: идёт на врага
+    s.run('appData.campaign.enemyOpUnits[0].detected = true; appData.campaign.enemyOpUnits[0].col = 6; appData.campaign.enemyOpUnits[0].row = 5; ' +
+          'appData.campaign.opUnits[0].col = 5; appData.campaign.opUnits[0].row = 5; appData.campaign.opUnits[0].ap = 4; __battles = 0;');
+    s.run('var __mo4 = { targetHex: "6,5", status: "active", behavior: "assault", ignoreArmor: false, waypoints: [] }; executeMoveOrder(appData.campaign.opUnits[0], __mo4);');
+    ok(s.evalCtx('__battles') === 1, 'V6e: «штурмовать» — по-прежнему входит на гекс врага и начинает бой');
+    ok(/function createOrder[\s\S]{0,2500}toUnit\.behavior = order\.behavior/.test(HTML), 'V6f: поведение «при встрече» из приказа записывается в юнит при выдаче');
+
+    // --- V7: общий тактический бой в онлайне (js/online_battles.js) ---
+    const obSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'online_battles.js'), 'utf8');
+    ok(HTML.includes('<script src="js/online_battles.js">') && /onlineBattleCreated\(newBattle\)/.test(HTML) && /onlineBattleFinished\(battle\)/.test(HTML) &&
+       /onlineApplyCloudBattles\(state\)/.test(HTML) && /onlineBattleOnSave\(\)/.test(HTML) && /onlinePushBattles\(true\)/.test(HTML),
+        'V7a: модуль подключён, хуки: создание/сохранение/сохранение состояния/завершение боя, приём облака');
+    ok(/opts\.silent/.test(HTML) && /onlineMirror = true/.test(HTML), 'V7b: startTacticalBattle(…, {silent}) — зеркало боя без перехода на экран');
+    // прогон модуля в песочнице: снапшот → слияние у оппонента
+    const s2 = makeSandbox(freshAppData());
+    s2.run('var ONLINE = { match: null, fogVisible: {}, role: "p1", docRef: null }; var currentTurn = 3; var __updates = [];');
+    s2.run('ONLINE.docRef = { update: function(o) { __updates.push(o); return Promise.resolve(); } };');
+    s2.run('appData.campaign.online = { code: "ABCD", role: "p1", playerId: "t" }; appData.currentBattleId = 77;');
+    s2.run('function onlineOppRole() { return "p2"; }');
+    s2.run(obSrc);
+    s2.run('appData.campaign.activeBattles = [{ id: 77, hexKey: "8,10", currentTurn: 1, playerUnitNames: ["Взвод А"], enemyUnitNames: ["Враг Б"], playerSquads: [], enemySquads: [] }];');
+    s2.run('appData.squads = [{ name: "Отд 1", faction: "BeVe", fighters: [{ name: "a1", hp: 3, maxHp: 3, weapon: "Винтовка" }, { name: "a2", hp: 3, maxHp: 3, weapon: "Винтовка" }] }];');
+    s2.run('appData.map = { grid: { "5,5": { type: "grass", squadIds: [0], enemySquadIds: [] }, "9,9": { type: "grass", squadIds: [], enemySquadIds: [0] } }, ' +
+           'enemySquads: [{ name: "Вр 1", faction: "A.I.R.F.", fighters: [{ name: "b1", hp: 3, maxHp: 3 }] }] };');
+    s2.run('onlineBattleCreated(appData.campaign.activeBattles[0]);');
+    const push1 = s2.evalCtx('__updates[__updates.length - 1]');
+    const snap = push1 && push1['state.p1.battles'] && push1['state.p1.battles'].h8_10;
+    ok(snap && snap.status === 'active' && snap.turn === 3 && snap.squads.length === 1 && snap.squads[0].pos === '5,5' && snap.squads[0].fighters.length === 2 &&
+       snap.myUnitNames[0] === 'Взвод А' && snap.oppUnitNames[0] === 'Враг Б',
+        'V7c: снапшот боя → state.p1.battles.h8_10 (гекс, ход, отряды с позициями и бойцами)', JSON.stringify(snap));
+    // я ранил врага: b1 3→1 → dmgOut
+    s2.run('appData.map.enemySquads[0].fighters[0].hp = 1; __updates.length = 0; onlinePushBattles(true);');
+    const snap2 = s2.evalCtx('__updates[__updates.length - 1]["state.p1.battles"].h8_10');
+    ok(snap2.dmgOut['Вр 1'] && snap2.dmgOut['Вр 1'][0] === 2, 'V7d: нанесённый урон — dmgOut["Вр 1"][0] = 2');
+    // оппонент (p2): получает бой p1 → зеркало создаётся через startTacticalBattle(silent), урон применяется
+    const s3 = makeSandbox(freshAppData());
+    s3.run('var ONLINE = { match: null, fogVisible: {}, role: "p2", docRef: null }; var currentTurn = 1; var __updates = []; var __alerts = [];');
+    s3.run('ONLINE.docRef = { update: function(o) { __updates.push(o); return Promise.resolve(); } }; alert = function(m) { __alerts.push(String(m)); };');
+    s3.run('appData.campaign.online = { code: "ABCD", role: "p2", playerId: "q" }; appData.campaign.currentTurn = 3;');
+    s3.run('function onlineOppRole() { return "p1"; } function onlineRevealEnemy() {}');
+    s3.run('appData.campaign.opUnits = [{ name: "Враг Б", col: 8, row: 10, faction: "A.I.R.F.", squads: [{ name: "Вр 1", fighters: [{ name: "b1", hp: 3, maxHp: 3 }] }] }];');
+    s3.run('appData.campaign.enemyOpUnits = [{ name: "Взвод А", col: 8, row: 10, faction: "BeVe", side: "enemy", squads: [{ name: "Отд 1", fighters: [{ name: "a1", hp: 3, maxHp: 3 }, { name: "a2", hp: 3, maxHp: 3 }] }] }];');
+    s3.run('var __stOpts = null; startTacticalBattle = function(my, opp, opts) { __stOpts = opts; ' +
+           ' const b = { id: 555, hexKey: "8,10", currentTurn: 1, playerUnitNames: my.map(u => u.name), enemyUnitNames: opp.map(u => u.name), ' +
+           '   playerSquads: [{ name: "Вр 1", fighters: [{ name: "b1", hp: 3, maxHp: 3 }] }], enemySquads: [], tacticalMap: { grid: { "5,5": { type: "grass", squadIds: [], enemySquadIds: [] } } } };' +
+           ' appData.campaign.activeBattles.push(b); return b; };');
+    s3.run(obSrc);
+    s3.run('onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(snap2) + ' } } });');
+    const mb = s3.evalCtx('appData.campaign.activeBattles[0]');
+    ok(mb && mb.onlineMirror === true && mb.onlineOppBattleId === 77 && s3.evalCtx('__stOpts && __stOpts.silent') === true,
+        'V7e: у атакованного создано зеркало боя (silent, ссылка на бой оппонента)');
+    ok(s3.evalCtx('__alerts.some(a => a.includes("Противник атаковал"))') === true, 'V7f: уведомление «⚔️ Противник атаковал ваши юниты на гексе (8,10)»');
+    ok(mb.enemySquads.length === 1 && mb.enemySquads[0].name === 'Отд 1' && mb.tacticalMap.grid['5,5'].enemySquadIds[0] === 0,
+        'V7g: отряды оппонента появились в зеркале на его позициях (5,5)');
+    ok(mb.playerSquads[0].fighters[0].hp === 1 && mb.onlineDmgIn['Вр 1'][0] === 2, 'V7h: урон оппонента применён к моему бойцу (3→1), учтён в dmgIn');
+    // повторная доставка того же снапшота — урон не дублируется
+    s3.run('onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(snap2) + ' } } });');
+    ok(s3.evalCtx('appData.campaign.activeBattles[0].playerSquads[0].fighters[0].hp') === 1, 'V7i: повторный снапшот — урон не применяется дважды');
+    // оппонент завершил бой
+    const snapFin = Object.assign({}, snap2, { status: 'finished' });
+    s3.run('__alerts.length = 0; onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(snapFin) + ' } } });');
+    ok(s3.evalCtx('appData.campaign.activeBattles[0].onlineOppFinished') === true && s3.evalCtx('__alerts.some(a => a.includes("завершил бой"))') === true,
+        'V7j: «противник завершил бой» — пометка и уведомление');
+    ok(s3.evalCtx('onlineBattleStatusHtml(appData.campaign.activeBattles[0])').includes('противник завершил бой') &&
+       HTML.includes('onlineBattleStatusHtml(battle)'), 'V7k: строка «🌐 Общий бой …» в списке «Текущие бои»');
+    // мой завершённый бой — не воскресает из облака
+    s3.run('onlineBattleFinished(appData.campaign.activeBattles[0]); appData.campaign.activeBattles = [];');
+    s3.run('onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(snap2) + ' } } });');
+    ok(s3.evalCtx('appData.campaign.activeBattles.length') === 0, 'V7l: после моего «Завершить бой» тот же бой из облака не создаётся заново');
+    // оппонент начал НОВЫЙ бой на том же гексе (id новее моего завершения) — зеркало создаётся заново, урон считается с нуля
+    const snapNew = Object.assign({}, snap2, { id: Date.now() + 100000, dmgOut: { 'Вр 1': [1] }, dmgIn: {} });
+    s3.run('appData.campaign.opUnits[0].squads[0].fighters[0].hp = 1; __alerts.length = 0;');
+    s3.run('onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(snapNew) + ' } } });');
+    ok(s3.evalCtx('appData.campaign.activeBattles.length') === 1 && s3.evalCtx('appData.campaign.activeBattles[0].onlineOppBattleId') === snapNew.id &&
+       s3.evalCtx('appData.campaign.activeBattles[0].playerSquads[0].fighters[0].hp') === 2 && s3.evalCtx('appData.campaign.activeBattles[0].onlineDmgIn["Вр 1"][0]') === 1,
+        'V7n: новый бой оппонента на том же гексе — новое зеркало, урон нового боя применён (3→2), старые счётчики не мешают');
+    // перепривязка живого зеркала к новому бою оппонента — счётчики обнуляются
+    const snapNew2 = Object.assign({}, snapNew, { id: snapNew.id + 5, dmgOut: { 'Вр 1': [1] } });
+    s3.run('onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(snapNew2) + ' } } });');
+    ok(s3.evalCtx('appData.campaign.activeBattles[0].onlineOppBattleId') === snapNew2.id && s3.evalCtx('appData.campaign.activeBattles[0].playerSquads[0].fighters[0].hp') === 1 &&
+       s3.evalCtx('appData.campaign.activeBattles[0].onlineDmgIn["Вр 1"][0]') === 1,
+        'V7o: перепривязка к следующему бою оппонента — dmgIn начат заново (урон 1 применён один раз)');
+    // Firestore: в снапшоте нет undefined («дырки» массивов → 0)
+    s3.run('appData.campaign.activeBattles[0].onlineDmgOut = { "Отд 1": [] }; appData.campaign.activeBattles[0].onlineDmgOut["Отд 1"][1] = 3; __updates.length = 0; onlinePushBattles(true);');
+    const lastPush = s3.evalCtx('__updates[__updates.length - 1]');
+    const pb = lastPush && lastPush['state.p2.battles'] && lastPush['state.p2.battles'].h8_10;
+    ok(pb && Array.isArray(pb.dmgOut['Отд 1']) && pb.dmgOut['Отд 1'][0] === 0 && pb.dmgOut['Отд 1'][1] === 3 && !JSON.stringify(pb).includes('null,3'),
+        'V7p: снапшот без undefined (разреженный массив урона → [0,3]) — Firestore примет запись');
+    const sw = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
+    ok(sw.includes("'./js/online_battles.js'"), 'V7m: js/online_battles.js в ядре service-worker');
 }
 
 console.log('\n====================================');

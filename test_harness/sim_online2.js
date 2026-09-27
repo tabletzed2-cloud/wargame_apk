@@ -16,6 +16,7 @@ const FNS = [
     'onlineOppRole', 'onlineMyTurnActive', 'onlineWaitBanner', 'onlineSetTurnLockUI',
     'onlineUnitSnapshot', 'onlinePushMyUnits', 'onlinePushInflictedDamage', 'onlineApplyCloudState',
     'onlineMergeUnitDamage', 'onlineScheduleInflictedPush', 'onlineEnemyVisible', 'onlineFinishTurn',
+    'onlineFogMap', 'onlineRevealEnemy', 'onlineFogRevealedUntil', 'isReconZoneActive', 'getUnplacedOpUnits', 'isOpUnitEmbarkedOnPlacedBtr',
     'onlineOnTurnChanged', 'onlineOnTurnStatusChanged', 'onlineOnSnapshotSync',
     'onlineFirstTurnRole', 'onlineCheckMatchProgress', 'onlineMarkPlaced', 'onlineOppData',
     'finishPlacement', 'endOperationalTurn', 'checkAllUnitsDetection', 'applyDamageToOpUnit'
