@@ -20,6 +20,24 @@
 
 let __onlineBattlePushTimer = null;
 let __onlineBattleLastJson = null;
+// ⚡ v13.052 (R37#4): отметка времени каждой записи меняется ТОЛЬКО когда меняется
+//    её содержимое — иначе два клиента бесконечно «пинг-понговали» пушами
+//    (каждый приём чужого updatedAt → свой пуш с новым updatedAt → …).
+const __onlineBattleEntrySig = {};
+function onlineBattleStampEntries(out) {
+    const seen = {};
+    Object.keys(out).forEach(k => {
+        const e = out[k];
+        const prevAt = e.updatedAt;
+        const sig = JSON.stringify(e, (key, v) => (key === 'updatedAt') ? undefined : v);
+        const prev = __onlineBattleEntrySig[k];
+        if (prev && prev.sig === sig) e.updatedAt = prev.at;
+        else __onlineBattleEntrySig[k] = { sig: sig, at: (e.updatedAt = (typeof prevAt === 'number' && prevAt && prev === undefined) ? prevAt : Date.now()) };
+        seen[k] = true;
+    });
+    Object.keys(__onlineBattleEntrySig).forEach(k => { if (!seen[k]) delete __onlineBattleEntrySig[k]; });
+    return out;
+}
 
 function onlineBattlesEnabled() {
     return !!(typeof appData !== 'undefined' && appData.campaign && appData.campaign.online &&
@@ -162,6 +180,7 @@ function onlinePushBattles(immediate) {
             oppBattleId: f.oppBattleId || null, updatedAt: f.at || Date.now(), squads: [],
             dmgOut: onlineDmgPlain(f.dmgOut), dmgIn: onlineDmgPlain(f.dmgIn) };
     });
+    onlineBattleStampEntries(out);
     const json = JSON.stringify(out);
     if (json === __onlineBattleLastJson) return;
     __onlineBattleLastJson = json;
@@ -221,6 +240,7 @@ function onlineApplyCloudBattles(state) {
     const oppBattles = (state[oppRole] && state[oppRole].battles) || null;
     if (!oppBattles || typeof oppBattles !== 'object') return;
     let changedAny = false;
+    let mineChanged = false; // ⚡ v13.052: ответный пуш — только если изменились мои данные
     Object.keys(oppBattles).forEach(k => {
         const e = oppBattles[k];
         if (!e || !e.hexKey) return;
@@ -235,8 +255,11 @@ function onlineApplyCloudBattles(state) {
             battle = onlineCreateMirrorBattle(e);
             if (!battle) return;
             changedAny = true;
+            mineChanged = true;
         }
+        __onlineMergeMineChanged = false;
         if (onlineMergeOppBattle(battle, e)) changedAny = true;
+        if (__onlineMergeMineChanged) mineChanged = true;
     });
     if (changedAny) {
         try { saveData(); } catch (e) {}
@@ -248,8 +271,9 @@ function onlineApplyCloudBattles(state) {
             // потери на оперативной карте + отправка своих юнитов (внутри redraw)
             try { redrawOperationalMap(); } catch (e) {}
         }
-        // подтверждение принятого урона (dmgIn) и новые данные — оппоненту
-        onlineScheduleBattlePush(1000);
+        // подтверждение принятого урона (dmgIn) / привязка боёв — оппоненту.
+        // ⚡ v13.052: только если изменилось МОЁ (иначе — вечный обмен пушами)
+        if (mineChanged) onlineScheduleBattlePush(1000);
     }
 }
 
@@ -302,6 +326,8 @@ function onlineCreateMirrorBattle(e) {
 }
 
 // Слияние данных оппонента в мой бой. Возвращает true, если что-то изменилось.
+// ⚡ v13.052: флаг «изменились мои данные (нужен ответный пуш)» — привязка боёв, принятый урон
+let __onlineMergeMineChanged = false;
 function onlineMergeOppBattle(battle, e) {
     let changed = false;
     // --- привязка боёв друг к другу (мой id ↔ id оппонента) ---
@@ -319,6 +345,7 @@ function onlineMergeOppBattle(battle, e) {
         }
         battle.onlineOppBattleId = e.id;
         changed = true;
+        __onlineMergeMineChanged = true;
     }
     const live = onlineBattleIsLive(battle);
     const enemies = onlineBattleEnemySquads(battle);
@@ -396,6 +423,7 @@ function onlineMergeOppBattle(battle, e) {
             applied[i] = (applied[i] || 0) + delta;
             if (f.hp !== before) hurt.push(`${f.name || 'боец'} (${s.name}) ${before}→${f.hp}${f.hp <= 0 ? ' 💀' : ''}`);
             changed = true;
+            __onlineMergeMineChanged = true;
         });
     });
     if (hurt.length > 0) {

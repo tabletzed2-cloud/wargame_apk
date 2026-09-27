@@ -1,6 +1,6 @@
 // ⚡ v13.024: имя кэша обязательно обновлять с каждой версией —
 //    иначе старый (устаревший) кэш продолжает отдавать старые js/data.js
-const CACHE_NAME = 'wargame-v13.051';
+const CACHE_NAME = 'wargame-v13.052';
 
 const ASSETS = [
       // ====== КОРНЕВЫЕ ФАЙЛЫ ======
@@ -369,13 +369,23 @@ const CORE_ASSETS = [
 
 const HEX_MAP_INDEX = './maps/Карты Валенсия/index.json';
 
+// ⚡ v13.052 (R37#4): не более PRECACHE_PARALLEL одновременных запросов —
+//    раньше все ~300 файлов (иконки + 149 карт гексов) запрашивались разом,
+//    и на телефоне первые минуты после обновления игра «тормозила» из-за этого.
+const PRECACHE_PARALLEL = 6;
 function precacheSoft(cache, urls) {
-  return Promise.all(urls.map((url) =>
-    cache.add(url).catch((err) => {
+  const queue = urls.slice();
+  const worker = () => {
+    const url = queue.shift();
+    if (url === undefined) return Promise.resolve(null);
+    return cache.add(url).catch((err) => {
       console.warn('[SW] не удалось закэшировать (пропущено):', url, err && err.message);
       return null;
-    })
-  ));
+    }).then(worker);
+  };
+  const workers = [];
+  for (let i = 0; i < Math.min(PRECACHE_PARALLEL, queue.length); i++) workers.push(worker());
+  return Promise.all(workers);
 }
 
 // Карты гексов оперативной карты — по индексу maps/Карты Валенсия/index.json

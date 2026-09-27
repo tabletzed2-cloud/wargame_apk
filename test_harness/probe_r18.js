@@ -44,7 +44,10 @@ const FNS = [
     'executeReconOrder', 'opMapDrawDims', 'onlineMarkPlaced', 'executeMoveOrder', 'checkEnemyEncounter',
     'getOpMoveCost', 'getRouteToTarget', 'getOpHexNeighbors',
     // ⚡ v13.050: сквозной старт боя на гексе с реальной картой пользователя
-    'startTacticalBattle'
+    'startTacticalBattle',
+    // ⚡ v13.052 (R37): Hard Mode онлайн, канвас/масштаб
+    'applyHardModeUI', 'ensureHardModeForOnline', 'toggleHardMode', 'pickCanvasDpr', 'canvasBackingScale',
+    'opMapFitZoom', 'opMapMinZoom', 'applyOpMapFitZoom', 'fitOpMapZoom', 'zoomOpMap', 'isMobileViewport'
 ];
 
 let pass = 0, fail = 0;
@@ -787,7 +790,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.051'"), 'U9q: константа версии v13.051');
+    ok(HTML.includes("var APP_VERSION = 'v13.052'"), 'U9q: константа версии v13.052');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -1311,7 +1314,7 @@ console.log('\n== U18. v13.050: реальные карты гексов пол�
         'U18m: библиотека редактора показывает карты гексов отдельной группой');
     // сервис-воркер: ядро строго, остальное мягко; карты гексов — из индекса
     const sw = fs.readFileSync(path.join(root, 'service-worker.js'), 'utf8');
-    ok(sw.includes("const CACHE_NAME = 'wargame-v13.051'"), 'U18n: SW — кэш wargame-v13.051');
+    ok(sw.includes("const CACHE_NAME = 'wargame-v13.052'"), 'U18n: SW — кэш wargame-v13.052');
     ok(sw.includes('cache.addAll(CORE_ASSETS)') && sw.includes('precacheSoft(cache, soft)') && sw.includes('precacheHexMaps(cache)') &&
        !/return cache\.addAll\(ASSETS\)/.test(sw),
         'U18o: SW — ядро (index/js/css) строго, картинки/карты мягко, карты гексов — по index.json (одна пропавшая картинка не срывает обновление)');
@@ -1588,6 +1591,147 @@ console.log('\n== V. v13.051 (R36): разведка r3, туман без ут�
         'V7p: снапшот без undefined (разреженный массив урона → [0,3]) — Firestore примет запись');
     const sw = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
     ok(sw.includes("'./js/online_battles.js'"), 'V7m: js/online_battles.js в ядре service-worker');
+}
+
+// ============================================================
+console.log('\n== W. v13.052 (R37): разведка без LOS, Hard Mode в онлайне, канвас/масштаб, пуши боёв ==');
+{
+    const ad = freshAppData();
+    const s = makeSandbox(ad);
+    s.run('var RECON_RADIUS = 3; var placementLocked = false; var currentTurn = 1; var ONLINE = { match: null, fogVisible: {}, role: "p1", docRef: null };');
+    ['renderActiveOrders', 'opLog'].forEach(fn => s.run(`if (typeof ${fn} !== 'function') ${fn} = function(){ return false; };`));
+    ad.campaign.online = { code: 'ABCD', role: 'p1', playerId: 't' };
+    ad.campaign.scenario = 'valencia';
+    ad.campaign.currentTurn = 4;
+    // --- W1: разведка показывает ВСЕХ в зоне — и за холмом/лесом (решение пользователя R37) ---
+    ad.campaign.opMapGrid = { '6,5': { types: ['hill'] }, '5,4': { types: ['forest'] } };
+    ad.campaign.opUnits = [{ id: 'u1', name: 'Развед', type: 'infantry_platoon', col: 5, row: 5, ap: 4, maxAp: 4, mobility: 'foot', squads: [] }];
+    ad.campaign.enemyOpUnits = [
+        { id: 'e1', name: 'За холмом', col: 7, row: 5, side: 'enemy', detected: false },   // дистанция 2, холм на 6,5
+        { id: 'e2', name: 'За лесом', col: 5, row: 3, side: 'enemy', detected: false },    // дистанция 2, лес на 5,4
+        { id: 'e3', name: 'Далеко', col: 9, row: 5, side: 'enemy', detected: false }      // дистанция 4 — вне зоны
+    ];
+    ok(s.evalCtx('opLineOfSightBlocked(5,5,7,5)') === true, 'W1a: (контроль) линия видимости 5,5→7,5 перекрыта холмом');
+    s.run('var __ord = { targetHex: "5,5", status: "active" }; executeReconOrder(appData.campaign.opUnits[0], __ord);');
+    ok(s.evalCtx('appData.campaign.enemyOpUnits[0].detected') === true && s.evalCtx('appData.campaign.enemyOpUnits[1].detected') === true,
+        'W1b: разведка обнаружила врагов за холмом и за лесом (в зоне — без проверки линии видимости)');
+    ok(s.evalCtx('appData.campaign.enemyOpUnits[2].detected') === false, 'W1c: враг в 4 гексах — по-прежнему не обнаружен');
+    // юнит, вошедший в зону позже (снапшот оппонента) — виден, даже за холмом
+    s.run('appData.campaign.enemyOpUnits.push({ id: "e4", name: "Вошёл", col: 7, row: 5, side: "enemy", detected: false });');
+    ok(s.evalCtx('onlineEnemyVisible(appData.campaign.enemyOpUnits[3])') === true, 'W1d: вошедший в активную зону разведки за холмом — виден (onlineEnemyVisible)');
+    const efm = /const enemiesFound = \(appData\.campaign\.enemyOpUnits \|\| \[\]\)\.filter\(e =>([\s\S]{0,300}?)\);/.exec(HTML);
+    ok(!!efm && efm[1].includes('highlightHexes.some') && !efm[1].includes('opLineOfSightBlocked'),
+        'W1e: в executeReconOrder фильтр врагов — по зоне (highlightHexes), без opLineOfSightBlocked');
+
+    // --- W2: онлайн = Hard Mode всегда ---
+    const s2 = makeSandbox(freshAppData());
+    s2.run('var __init = 0; initHardMode = function() { __init++; }; buildOperationalUnits = function() { appData.campaign.opUnits = [{ id: "x", name: "X" }]; }; var __saves = 0; saveData = function() { __saves++; };');
+    s2.run('appData.campaign.online = { code: "ABCD", role: "p1", playerId: "t" }; appData.campaign.active = true; hardMode.enabled = false;');
+    ok(s2.evalCtx('ensureHardModeForOnline("test")') === true && s2.evalCtx('hardMode.enabled') === true && s2.evalCtx('__init') === 1 && s2.evalCtx('__saves') >= 1,
+        'W2a: ensureHardModeForOnline — в онлайн-кампании включает Hard Mode (initHardMode, сохранение)');
+    ok(s2.evalCtx('ensureHardModeForOnline("again")') === false && s2.evalCtx('__init') === 1, 'W2b: повторный вызов — ничего не делает');
+    ok(s2.evalCtx('document.getElementById("showOrderPanelBtn").style.display') === 'inline-block' &&
+       s2.evalCtx('document.getElementById("showCommPanelBtn").style.display') === 'inline-block' &&
+       s2.evalCtx('document.getElementById("hardModeBtn").textContent').includes('ВКЛ') &&
+       s2.evalCtx('document.getElementById("opHardModeBtn").disabled') === true &&
+       s2.evalCtx('document.getElementById("opHardModeBtn").textContent').includes('онлайн'),
+        'W2c: applyHardModeUI — кнопки «🎯 Отдать приказ»/«📡 Связь» показаны, кнопка на карте заблокирована с подписью «онлайн — всегда»');
+    s2.run('alerts.length = 0; toggleHardMode();');
+    ok(s2.evalCtx('hardMode.enabled') === true && s2.evalCtx('alerts.some(a => a.includes("выключить его нельзя"))') === true,
+        'W2d: toggleHardMode в онлайн-матче НЕ выключает режим (предупреждение)');
+    // одиночная кампания — переключается как раньше
+    const s3 = makeSandbox(freshAppData());
+    s3.run('var __init = 0; initHardMode = function() { __init++; }; buildOperationalUnits = function() { appData.campaign.opUnits = [{ id: "x", name: "X" }]; }; saveData = function() {};');
+    s3.run('hardMode.enabled = false; toggleHardMode();');
+    ok(s3.evalCtx('hardMode.enabled') === true && s3.evalCtx('__init') === 1 && s3.evalCtx('document.getElementById("opHardModeBtn").disabled') === false,
+        'W2e: одиночная — toggleHardMode включает (кнопка на карте остаётся активной)');
+    s3.run('toggleHardMode();');
+    ok(s3.evalCtx('hardMode.enabled') === false && s3.evalCtx('document.getElementById("showOrderPanelBtn").style.display') === 'none' &&
+       s3.evalCtx('document.getElementById("opHardModeHint").style.display') === 'block',
+        'W2f: одиночная — toggleHardMode выключает (кнопки приказов скрыты, подсказка показана)');
+    ok(s3.evalCtx('ensureHardModeForOnline("x")') === false && s3.evalCtx('hardMode.enabled') === false, 'W2g: ensureHardModeForOnline в одиночной — не включает');
+    ok(/id="opHardModeBtn"/.test(HTML) && /id="opHardModeHint"/.test(HTML) && /ensureHardModeForOnline\('showOperationalMap'\)/.test(HTML) &&
+       /appData\.campaign\.online && !hardMode\.enabled\) \{\s*hardMode\.enabled = true;/.test(HTML),
+        'W2h: кнопка Hard Mode на экране карты; включение при showOperationalMap и при загрузке страницы (DOMContentLoaded)');
+
+    // --- W3: канвас — ограничение разрешения, масштаб «вся карта», щипок ---
+    const s4 = makeSandbox(freshAppData());
+    s4.run('var CANVAS_MAX_DPR = 2; var CANVAS_PIXEL_BUDGET = 5500000; var OP_HEX_SIZE = 55; var __inits = 0; initOperationalMap = function() { __inits++; }; saveData = function() {}; opMapDrawDims = function() { return { cols: 13, rows: 15 }; };');
+    s4.run('window.devicePixelRatio = 3; window.innerWidth = 390;');
+    ok(s4.evalCtx('pickCanvasDpr(400, 300)') === 2, 'W3a: pickCanvasDpr — dpr 3 ограничен до 2 для маленького холста');
+    const dBig = s4.evalCtx('pickCanvasDpr(1286, 1279)');
+    ok(dBig > 1.5 && dBig < 1.9 && Math.abs(1286 * 1279 * dBig * dBig - 5500000) < 5000, 'W3b: большой холст 1286×1279 — dpr по бюджету 5.5 Мпикс (≈1.83), а не 3', dBig);
+    s4.run('window.devicePixelRatio = 1;');
+    ok(s4.evalCtx('pickCanvasDpr(1286, 1279)') === 1, 'W3c: dpr 1 — без изменений');
+    s4.run('var __c = document.getElementById("opMapCanvas"); __c.style.width = "1000px"; __c.width = 1830;');
+    ok(Math.abs(s4.evalCtx('canvasBackingScale(__c)') - 1.83) < 0.001, 'W3d: canvasBackingScale = canvas.width / CSS-ширина (клики и отрисовка согласованы)');
+    // масштаб «вся карта по ширине»: контейнер 380px, поле 13 столбцов → zoom ≈ 0.294
+    s4.run('document.getElementById("opMapContainer").clientWidth = 380;');
+    const fit = s4.evalCtx('opMapFitZoom()');
+    ok(fit > 0.29 && fit < 0.30, 'W3e: opMapFitZoom — 13 столбцов в 380px → масштаб ≈0.294', fit);
+    s4.run('appData.campaign.opZoomLevel = 1; delete appData.campaign.opZoomFitKey; applyOpMapFitZoom({ cols: 13, rows: 15 });');
+    ok(Math.abs(s4.evalCtx('appData.campaign.opZoomLevel') - fit) < 1e-9 && s4.evalCtx('typeof appData.campaign.opZoomFitKey') === 'string',
+        'W3f: первый показ карты — масштаб подогнан под экран (вся карта видна)');
+    s4.run('appData.campaign.opZoomLevel = 1.5; applyOpMapFitZoom({ cols: 13, rows: 15 });');
+    ok(s4.evalCtx('appData.campaign.opZoomLevel') === 1.5, 'W3g: та же ширина экрана — выбранный игроком масштаб не сбрасывается');
+    s4.run('document.getElementById("opMapContainer").clientWidth = 700; applyOpMapFitZoom({ cols: 13, rows: 15 });');
+    ok(Math.abs(s4.evalCtx('appData.campaign.opZoomLevel') - s4.evalCtx('opMapFitZoom()')) < 1e-9, 'W3h: телефон, поворот экрана (ширина изменилась) — карта снова подогнана');
+    s4.run('window.innerWidth = 1400; document.getElementById("opMapContainer").clientWidth = 1200; appData.campaign.opZoomLevel = 1.2; applyOpMapFitZoom({ cols: 13, rows: 15 });');
+    ok(s4.evalCtx('appData.campaign.opZoomLevel') === 1.2, 'W3i: ПК — смена ширины окна масштаб не трогает');
+    s4.run('appData.campaign.opZoomFit = 0.294; appData.campaign.opZoomLevel = 0.5; zoomOpMap(0.5);');
+    ok(Math.abs(s4.evalCtx('appData.campaign.opZoomLevel') - 0.294) < 1e-9 && s4.evalCtx('__inits') >= 1, 'W3j: ➖ не уменьшает карту меньше «вся карта» (нижняя граница = fit-масштаб)');
+    ok(/id="opZoomBar"/.test(HTML) && /onclick="fitOpMapZoom\(\)"/.test(HTML), 'W3k: панель масштаба ➖ ➕ «⤢ Вся карта» над картой операции');
+    ok(/function setupOpMapTouchControls/.test(HTML) && /touchAction = 'pan-x pan-y'/.test(HTML) && /c\.style\.transform = 'scale\(' \+ k \+ '\)'/.test(HTML) && /setupOpMapTouchControls\(\);/.test(HTML),
+        'W3l: щипок — CSS-transform во время жеста, перерисовка по окончании; touch-action без масштабирования страницы');
+    const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'style.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    ok(!/#opMapCanvas\s*\{[^}]*width:\s*100%\s*!important/.test(css), 'W3m: CSS-правило «#opMapCanvas {width:100% !important}» (ломало зум на телефоне) удалено');
+    ok(/function redrawOperationalMapNow\(\)/.test(HTML) && /__opRedrawPending/.test(HTML) && /requestAnimationFrame\(\(\) => \{\s*__opRedrawPending = false;/.test(HTML),
+        'W3n: перерисовки оперативной карты склеиваются через requestAnimationFrame');
+    ok(/loadedOpUnitIcons\['images\/рация\.png'\]/.test(HTML), 'W3o: иконка рации кэшируется (не new Image() на каждый юнит при каждой перерисовке)');
+    ok(/const PRECACHE_PARALLEL = 6;/.test(fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8')), 'W3p: service-worker — предзагрузка карт/иконок батчами по 6');
+
+    // --- W4: пуши общих боёв без «пинг-понга» ---
+    const obSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'online_battles.js'), 'utf8');
+    const s5 = makeSandbox(freshAppData());
+    s5.run('var ONLINE = { match: null, fogVisible: {}, role: "p1", docRef: null }; var currentTurn = 3; var __updates = [];');
+    s5.run('ONLINE.docRef = { update: function(o) { __updates.push(o); return Promise.resolve(); } };');
+    s5.run('appData.campaign.online = { code: "ABCD", role: "p1", playerId: "t" }; appData.currentBattleId = 77;');
+    s5.run('function onlineOppRole() { return "p2"; }');
+    s5.run(obSrc);
+    s5.run('appData.campaign.activeBattles = [{ id: 77, hexKey: "8,10", currentTurn: 1, playerUnitNames: ["Взвод А"], enemyUnitNames: ["Враг Б"], playerSquads: [], enemySquads: [] }];');
+    s5.run('appData.squads = [{ name: "Отд 1", faction: "BeVe", fighters: [{ name: "a1", hp: 3, maxHp: 3, weapon: "Винтовка" }] }];');
+    s5.run('appData.map = { grid: { "5,5": { type: "grass", squadIds: [0], enemySquadIds: [] } }, enemySquads: [{ name: "Вр 1", faction: "A.I.R.F.", fighters: [{ name: "b1", hp: 3, maxHp: 3 }] }] };');
+    s5.run('onlinePushBattles(true); var __n1 = __updates.length; var __at1 = __updates[0]["state.p1.battles"].h8_10.updatedAt;');
+    s5.run('Date.now = (function(orig) { return function() { return orig() + 60000; }; })(Date.now); onlinePushBattles(true); onlinePushBattles(true);');
+    ok(s5.evalCtx('__updates.length') === 1, 'W4a: содержимое боя не изменилось — повторные пуши не отправляются (updatedAt не участвует)');
+    s5.run('appData.map.enemySquads[0].fighters[0].hp = 2; onlinePushBattles(true);');
+    ok(s5.evalCtx('__updates.length') === 2 && s5.evalCtx('__updates[1]["state.p1.battles"].h8_10.updatedAt') > s5.evalCtx('__at1'),
+        'W4b: изменился урон — пуш ушёл с новой отметкой времени');
+    // приём чужого снапшота, где изменилось только updatedAt/turn оппонента — ответного пуша нет
+    const s6 = makeSandbox(freshAppData());
+    s6.run('var ONLINE = { match: null, fogVisible: {}, role: "p2", docRef: null }; var currentTurn = 1; var __updates = []; var __sched = 0;');
+    s6.run('ONLINE.docRef = { update: function(o) { __updates.push(o); return Promise.resolve(); } }; alert = function() {};');
+    s6.run('appData.campaign.online = { code: "ABCD", role: "p2", playerId: "q" }; appData.campaign.currentTurn = 3;');
+    s6.run('function onlineOppRole() { return "p1"; } function onlineRevealEnemy() {}');
+    s6.run('appData.campaign.opUnits = [{ name: "Враг Б", col: 8, row: 10, faction: "A.I.R.F.", squads: [{ name: "Вр 1", fighters: [{ name: "b1", hp: 3, maxHp: 3 }] }] }];');
+    s6.run('appData.campaign.enemyOpUnits = [{ name: "Взвод А", col: 8, row: 10, faction: "BeVe", side: "enemy", squads: [{ name: "Отд 1", fighters: [{ name: "a1", hp: 3, maxHp: 3 }] }] }];');
+    s6.run('startTacticalBattle = function(my, opp, opts) { const b = { id: 555, hexKey: "8,10", currentTurn: 1, playerUnitNames: my.map(u => u.name), enemyUnitNames: opp.map(u => u.name), ' +
+           ' playerSquads: [{ name: "Вр 1", fighters: [{ name: "b1", hp: 3, maxHp: 3 }] }], enemySquads: [], tacticalMap: { grid: { "5,5": { type: "grass", squadIds: [], enemySquadIds: [] } } } };' +
+           ' appData.campaign.activeBattles.push(b); return b; };');
+    s6.run(obSrc);
+    s6.run('onlineScheduleBattlePush = function() { __sched++; };');
+    const snapA = s5.evalCtx('__updates[1]["state.p1.battles"].h8_10');
+    s6.run('onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(snapA) + ' } } });');
+    ok(s6.evalCtx('appData.campaign.activeBattles.length') === 1 && s6.evalCtx('__sched') === 1 && s6.evalCtx('appData.campaign.activeBattles[0].playerSquads[0].fighters[0].hp') === 2,
+        'W4c: новое зеркало боя (урон оппонента 3→2 применён) — ответный пуш запланирован (привязка боёв, dmgIn)');
+    const snapA2 = Object.assign({}, snapA, { updatedAt: snapA.updatedAt + 5000, turn: 4 });
+    s6.run('onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(snapA2) + ' } } });');
+    ok(s6.evalCtx('__sched') === 1 && s6.evalCtx('appData.campaign.activeBattles[0].onlineOppTurn') === 4,
+        'W4d: у оппонента изменились только updatedAt/ход — принято, но ответный пуш НЕ планируется (пинг-понг закрыт)');
+    const snapA3 = Object.assign({}, snapA2, { updatedAt: snapA2.updatedAt + 5000, dmgOut: { 'Вр 1': [2] } });
+    s6.run('onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(snapA3) + ' } } });');
+    ok(s6.evalCtx('__sched') === 2 && s6.evalCtx('appData.campaign.activeBattles[0].playerSquads[0].fighters[0].hp') === 1,
+        'W4e: оппонент нанёс урон — урон применён и ответный пуш (подтверждение dmgIn) запланирован');
 }
 
 console.log('\n====================================');

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.051 — операция</title>
+  <title>Боевой модуль v13.052 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -13,7 +13,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.051</h1>
+    <h1>⚔️ Боевой модуль v13.052</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -27,7 +27,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041: версия + принудительное обновление (старый кэш сервис-воркера) -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.051</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.052</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
   </div>
@@ -58,7 +58,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.051 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.052 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -274,7 +274,7 @@ function safeLocalStorage(method, ...args) {
     }    
 // ⚡ v13.041: текущая версия — отображается в меню/шапке/диагностике,
 //    чтобы игрок видел, свежая ли версия на его устройстве
-var APP_VERSION = 'v13.051';
+var APP_VERSION = 'v13.052';
 
 let selectedFaction = null;
 let selectedSubFaction = null; // 'belgian' | 'dutch' | null — ⚡ v13.045 (R30): влияет на выбор карт в бою
@@ -1696,15 +1696,20 @@ if (!appData.campaign.opMapGrid || Object.keys(appData.campaign.opMapGrid).lengt
   // Настройка размеров canvas
   // ⚡ v13.021: Hi-DPI (devicePixelRatio) — иначе на телефонах карта,
   //    фоновое изображение и иконки юнитов в низком качестве.
-  const zoom = appData.campaign.opZoomLevel || 1;
-  const size = OP_HEX_SIZE * zoom;
-  const dprOp = window.devicePixelRatio || 1;
   // ⚡ v13.051 (R36#6): канвас обрезан до игрового поля сценария (Валенсия —
   //    13×15): тёмных «пустых» столбцов справа больше нет. Система координат
   //    (и калибровка фоновой картинки) остаётся как для полной сетки 20×15.
   const dims = opMapDrawDims();
+  // ⚡ v13.052 (R37#1): масштаб «вся карта по ширине экрана» — при первом показе
+  //    (и на телефоне при смене ширины экрана: поворот). Дальше — щипок / ➕➖.
+  applyOpMapFitZoom(dims);
+  const zoom = appData.campaign.opZoomLevel || 1;
+  const size = OP_HEX_SIZE * zoom;
   const opCssW = (dims.cols + 0.5) * Math.sqrt(3) * size;
   const opCssH = (dims.rows + 0.5) * 1.5 * size;
+  // ⚡ v13.052 (R37#4): ограничение разрешения холста (dpr ≤ 2 и бюджет пикселей) —
+  //    на телефоне карта рисовалась в ~15 млн пикселей на каждую перерисовку
+  const dprOp = pickCanvasDpr(opCssW, opCssH);
   canvas.width = Math.round(opCssW * dprOp);
   canvas.height = Math.round(opCssH * dprOp);
   canvas.style.width = opCssW + 'px';
@@ -1739,58 +1744,118 @@ function opMapDrawDims() {
         rows: Math.max(1, Math.min(OP_MAP_ROWS, (area.maxRow || 0) + 1))
     };
 }
-// ⚡ v13.051 (R36#6): щипок двумя пальцами на оперативной карте — масштаб
-//    (раньше только ➕/➖ в скрытой панели «Вид»). Одним пальцем — обычная
-//    прокрутка контейнера. Точка между пальцами остаётся на месте.
+// ⚡ v13.052 (R37#4): разрешение холстов. dpr ограничен 2 и общим бюджетом
+//    пикселей — иначе на телефонах (dpr 3) карта 1300×1300 CSS-px рисовалась
+//    в ~15 млн пикселей на каждую перерисовку (главная причина лагов).
+const CANVAS_MAX_DPR = 2;
+const CANVAS_PIXEL_BUDGET = 5500000;
+function pickCanvasDpr(cssW, cssH) {
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    let d = Math.min(dpr, CANVAS_MAX_DPR);
+    const px = Math.max(1, cssW * cssH);
+    if (px * d * d > CANVAS_PIXEL_BUDGET) d = Math.max(0.75, Math.sqrt(CANVAS_PIXEL_BUDGET / px));
+    return d;
+}
+// фактический масштаб холста (canvas.width / CSS-ширина) — для отрисовки и кликов
+function canvasBackingScale(canvas) {
+    if (!canvas) return 1;
+    const cssW = parseFloat(canvas.style && canvas.style.width);
+    if (cssW > 0 && canvas.width > 0) return canvas.width / cssW;
+    return (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+}
+function isMobileViewport() {
+    return (typeof window !== 'undefined') && window.innerWidth > 0 && window.innerWidth <= 768;
+}
+// ⚡ v13.052 (R37#1): масштаб, при котором игровое поле целиком помещается по
+//    ширине контейнера. Применяется при первом показе карты (нет сохранённого
+//    масштаба) и на телефоне при смене ширины экрана (поворот).
+function opMapFitZoom(dims) {
+    const container = document.getElementById('opMapContainer');
+    const cw = container ? container.clientWidth : 0;
+    if (!cw) return null;
+    dims = dims || opMapDrawDims();
+    const fullW1 = (dims.cols + 0.5) * Math.sqrt(3) * OP_HEX_SIZE;
+    return Math.max(0.2, Math.min(3, (cw - 2) / fullW1));
+}
+function opMapMinZoom() {
+    const fit = (appData && appData.campaign && appData.campaign.opZoomFit) || 0.5;
+    return Math.min(0.5, fit);
+}
+function applyOpMapFitZoom(dims) {
+    if (!appData || !appData.campaign) return;
+    const fit = opMapFitZoom(dims);
+    if (!fit) return;
+    appData.campaign.opZoomFit = fit;
+    const key = Math.round(document.getElementById('opMapContainer').clientWidth) + 'x' + (dims ? dims.cols : '?');
+    const firstTime = !appData.campaign.opZoomLevel || !appData.campaign.opZoomFitKey;
+    const widthChanged = appData.campaign.opZoomFitKey !== key;
+    if (firstTime || (widthChanged && isMobileViewport())) {
+        appData.campaign.opZoomLevel = fit;
+    }
+    appData.campaign.opZoomFitKey = key;
+}
+function fitOpMapZoom() {
+    const fit = opMapFitZoom();
+    if (!fit) return;
+    appData.campaign.opZoomLevel = fit;
+    saveData();
+    initOperationalMap();
+    const c = document.getElementById('opMapContainer');
+    if (c) { c.scrollLeft = 0; c.scrollTop = 0; }
+}
+// ⚡ v13.051 → v13.052 (R37#1): щипок двумя пальцами на оперативной карте.
+//    Во время жеста холст масштабируется CSS-трансформом (дёшево и плавно),
+//    а по окончании карта один раз перерисовывается в новом масштабе.
+//    touch-action: pan-x pan-y — браузер не масштабирует страницу сам,
+//    одним пальцем — обычная прокрутка. Точка между пальцами остаётся на месте.
 function setupOpMapTouchControls() {
     const container = document.getElementById('opMapContainer');
     if (!container || container.__opTouchReady) return;
     container.__opTouchReady = true;
-    let startDist = 0, startZoom = 1, pinching = false, lastApplied = 0, dirty = false;
-    let focalContentX = 0, focalContentY = 0, focalViewX = 0, focalViewY = 0;
-    const clampZoom = (z) => Math.max(0.5, Math.min(3, z));
-    const applyZoom = (newZoom) => {
-        const oldZoom = appData.campaign.opZoomLevel || 1;
-        if (Math.abs(newZoom - oldZoom) < 0.001) return;
-        appData.campaign.opZoomLevel = newZoom;
-        initOperationalMap();
-        const k = newZoom / startZoom;
-        container.scrollLeft = Math.max(0, focalContentX * k - focalViewX);
-        container.scrollTop = Math.max(0, focalContentY * k - focalViewY);
-        dirty = true;
-    };
+    try { container.style.touchAction = 'pan-x pan-y'; } catch (e) {}
+    let pinching = false, startDist = 0, startZoom = 1, curZoom = 1;
+    let fx = 0, fy = 0, cx = 0, cy = 0;
+    const canvasEl = () => document.getElementById('opMapCanvas');
+    const clampZoom = (z) => Math.max(opMapMinZoom(), Math.min(3, z));
+    const dist2 = (e) => Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
     container.addEventListener('touchstart', (e) => {
         if (e.touches.length !== 2) return;
-        e.preventDefault();
         pinching = true;
-        const t0 = e.touches[0], t1 = e.touches[1];
-        startDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
-        startZoom = appData.campaign.opZoomLevel || 1;
+        startDist = dist2(e) || 1;
+        startZoom = curZoom = appData.campaign.opZoomLevel || 1;
         const rect = container.getBoundingClientRect();
-        focalViewX = (t0.clientX + t1.clientX) / 2 - rect.left;
-        focalViewY = (t0.clientY + t1.clientY) / 2 - rect.top;
-        focalContentX = focalViewX + container.scrollLeft;
-        focalContentY = focalViewY + container.scrollTop;
-    }, { passive: false });
+        fx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+        fy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+        cx = fx + container.scrollLeft;
+        cy = fy + container.scrollTop;
+        const c = canvasEl();
+        if (c) { c.style.transformOrigin = '0 0'; c.style.willChange = 'transform'; }
+    }, { passive: true });
     container.addEventListener('touchmove', (e) => {
-        if (!pinching || e.touches.length !== 2 || !startDist) return;
-        e.preventDefault();
-        const t0 = e.touches[0], t1 = e.touches[1];
-        const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
-        const target = clampZoom(startZoom * (dist / startDist));
-        const now = Date.now();
-        if (Math.abs(target - (appData.campaign.opZoomLevel || 1)) >= 0.06 && now - lastApplied > 90) {
-            lastApplied = now;
-            applyZoom(target);
-        }
-    }, { passive: false });
+        if (!pinching || e.touches.length !== 2) return;
+        curZoom = clampZoom(startZoom * (dist2(e) / startDist));
+        const k = curZoom / startZoom;
+        const c = canvasEl();
+        if (c) c.style.transform = 'scale(' + k + ')';
+        container.scrollLeft = Math.max(0, cx * k - fx);
+        container.scrollTop = Math.max(0, cy * k - fy);
+    }, { passive: true });
     const endPinch = () => {
         if (!pinching) return;
-        pinching = false; startDist = 0;
-        if (dirty) { dirty = false; saveData(); }
+        pinching = false;
+        const c = canvasEl();
+        if (c) { c.style.transform = ''; c.style.willChange = ''; }
+        if (Math.abs(curZoom - startZoom) > 0.01) {
+            appData.campaign.opZoomLevel = curZoom;
+            initOperationalMap();
+            const k = curZoom / startZoom;
+            container.scrollLeft = Math.max(0, cx * k - fx);
+            container.scrollTop = Math.max(0, cy * k - fy);
+            saveData();
+        }
     };
-    container.addEventListener('touchend', (e) => { if (e.touches.length < 2) endPinch(); });
-    container.addEventListener('touchcancel', endPinch);
+    container.addEventListener('touchend', (e) => { if (e.touches.length < 2) endPinch(); }, { passive: true });
+    container.addEventListener('touchcancel', endPinch, { passive: true });
 }
 // ⚡ v13.024: ДОТ — стационарное сооружение. После размещения на
 //    оперативной карте перемещаться НЕ может (0 ОД, движение запрещено).
@@ -1863,7 +1928,20 @@ function getOpHexNeighbors(col, row) {
   }
   return neighbors;
 }
+// ⚡ v13.052 (R37#4): перерисовки оперативной карты СКЛЕИВАЮТСЯ — не чаще одного
+//    раза за кадр. Раньше одно действие (клик, приказ, загрузка 30 иконок юнитов,
+//    снапшот онлайн-матча) вызывало десятки полных перерисовок подряд.
+let __opRedrawPending = false;
 function redrawOperationalMap() {
+    if (typeof requestAnimationFrame !== 'function') { redrawOperationalMapNow(); return; }
+    if (__opRedrawPending) return;
+    __opRedrawPending = true;
+    requestAnimationFrame(() => {
+        __opRedrawPending = false;
+        try { redrawOperationalMapNow(); } catch (e) { console.error('redrawOperationalMap:', e); }
+    });
+}
+function redrawOperationalMapNow() {
     if (appData.campaign.opMapMode !== 'selectTarget') {
         clearEnemyHighlight();
     }
@@ -1871,7 +1949,8 @@ function redrawOperationalMap() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     // ⚡ v13.021: Hi-DPI — рисуем в CSS-пикселях на dpr-масштабированном канвасе
-    const dprOp = window.devicePixelRatio || 1;
+    // ⚡ v13.052 (R37#4): масштаб берём с самого холста (dpr может быть ограничен)
+    const dprOp = canvasBackingScale(canvas);
     ctx.setTransform(dprOp, 0, 0, dprOp, 0, 0);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
@@ -2507,7 +2586,7 @@ function handleOpMapClick(e) {
   const rect = canvas.getBoundingClientRect();
   // ⚡ v13.021: канвас масштабирован на devicePixelRatio — переводим
   //    координаты клика в CSS-пиксели (система координат отрисовки)
-  const dprOp = window.devicePixelRatio || 1;
+  const dprOp = canvasBackingScale(canvas);
   const scaleX = (canvas.width / dprOp) / rect.width;
   const scaleY = (canvas.height / dprOp) / rect.height;
   const clickX = (e.clientX - rect.left) * scaleX;
@@ -3718,28 +3797,61 @@ appData.squads.forEach(s => assignUniqueCrewKeys(s));
     let loadedOpMapImage = null;
     let placementLocked = false;
       
-function toggleHardMode() {
-    console.log('=== toggleHardMode ВЫЗВАНА ===');
-    console.log('До переключения hardMode.enabled:', hardMode.enabled);
-    
-    // Переключаем
-    hardMode.enabled = !hardMode.enabled;
-    
-    console.log('После переключения hardMode.enabled:', hardMode.enabled);
-    
-    // Обновляем кнопку
+// ⚡ v13.052 (R37#2): кнопки/подписи Hard Mode — в ОДНОМ месте (главное меню,
+//    кнопки «🎯 Отдать приказ» / «📡 Связь» и кнопка на экране карты операции)
+function applyHardModeUI() {
+    const on = !!(hardMode && hardMode.enabled);
+    const online = !!(appData && appData.campaign && appData.campaign.online);
     const btn = document.getElementById('hardModeBtn');
     if (btn) {
-        btn.textContent = hardMode.enabled ? '🎯 Hard Mode: ВКЛ' : '🎯 Hard Mode: ВЫКЛ';
-        btn.style.background = hardMode.enabled ? '#c0392b' : '#555';
+        btn.textContent = on ? '🎯 Hard Mode: ВКЛ' : '🎯 Hard Mode: ВЫКЛ';
+        btn.style.background = on ? '#c0392b' : '#555';
     }
-    
-    // Показываем/скрываем кнопки
     const orderPanelBtn = document.getElementById('showOrderPanelBtn');
-    if (orderPanelBtn) orderPanelBtn.style.display = hardMode.enabled ? 'inline-block' : 'none';
-    
+    if (orderPanelBtn) orderPanelBtn.style.display = on ? 'inline-block' : 'none';
     const commPanelBtn = document.getElementById('showCommPanelBtn');
-    if (commPanelBtn) commPanelBtn.style.display = hardMode.enabled ? 'inline-block' : 'none';
+    if (commPanelBtn) commPanelBtn.style.display = on ? 'inline-block' : 'none';
+    const opBtn = document.getElementById('opHardModeBtn');
+    if (opBtn) {
+        opBtn.textContent = on ? (online ? '🎯 Hard Mode: ВКЛ (онлайн — всегда)' : '🎯 Hard Mode: ВКЛ') : '🎯 Включить Hard Mode (приказы, связь)';
+        opBtn.style.background = on ? '#c0392b' : '#e67e22';
+        opBtn.disabled = on && online;
+    }
+    const hint = document.getElementById('opHardModeHint');
+    if (hint) hint.style.display = on ? 'none' : 'block';
+}
+// ⚡ v13.052 (R37#2): ОНЛАЙН-МАТЧ ВСЕГДА ИДЁТ В HARD MODE — приказы, связь,
+//    посыльные. Раньше режим был настройкой устройства (кнопка в главном меню):
+//    на ПК, где его не включали, не было ни панели приказов, ни панели связи,
+//    а приказы в онлайне вообще не исполнялись.
+function ensureHardModeForOnline(reason) {
+    if (!appData || !appData.campaign || !appData.campaign.online) return false;
+    if (hardMode.enabled) { applyHardModeUI(); return false; }
+    hardMode.enabled = true;
+    try {
+        if (!appData.campaign.opUnits || appData.campaign.opUnits.length === 0) buildOperationalUnits();
+        initHardMode();
+    } catch (e) { console.warn('ensureHardModeForOnline/initHardMode:', e.message); }
+    applyHardModeUI();
+    try { updateHardModeButtons(); } catch (e) {}
+    saveData();
+    const msg = '🎯 Hard Mode включён автоматически: онлайн-матч играется приказами (🎯 Отдать приказ) и связью (📡 Связь).';
+    try { log(msg); } catch (e) {}
+    return true;
+}
+function toggleHardMode() {
+    // ⚡ v13.052 (R37#2): в онлайн-матче Hard Mode обязателен — выключить нельзя
+    if (hardMode.enabled && appData && appData.campaign && appData.campaign.online && appData.campaign.active) {
+        const msg = '🎯 В онлайн-матче Hard Mode включён всегда (приказы, связь, посыльные) — выключить его нельзя.';
+        try { alert(msg); } catch (e) {}
+        const mi = document.getElementById('mapInfo');
+        if (mi) { mi.innerHTML = msg; mi.style.color = '#e67e22'; }
+        applyHardModeUI();
+        return;
+    }
+    // Переключаем
+    hardMode.enabled = !hardMode.enabled;
+    applyHardModeUI();
     
     // Действия
     if (hardMode.enabled) {
@@ -3761,8 +3873,10 @@ function toggleHardMode() {
     
     // Сохраняем
     saveData();
-    
-    console.log('После saveData hardMode.enabled:', hardMode.enabled);
+    if (typeof redrawOperationalMap === 'function' && document.getElementById('campaignMapScreen') &&
+        document.getElementById('campaignMapScreen').style.display !== 'none') {
+        try { redrawOperationalMap(); } catch (e) {}
+    }
 }
 
 function initHardMode() {
@@ -9872,9 +9986,10 @@ async function loadInfoFile(filename, containerId) {
       const size = appData.map.baseHexSize * appData.map.zoomLevel;
       // ⚡ v13.021: Hi-DPI (devicePixelRatio) — иначе на телефонах карта
       //    и иконки в низком качестве (канвас растягивается браузером).
-      const dprT = window.devicePixelRatio || 1;
       const cssW = (TACTICAL_MAP_SIZE + 0.5) * Math.sqrt(3) * size;
       const cssH = (TACTICAL_MAP_SIZE + 0.5) * 1.5 * size;
+      // ⚡ v13.052 (R37#4): dpr ограничен (≤2 и бюджет пикселей) — см. pickCanvasDpr
+      const dprT = pickCanvasDpr(cssW, cssH);
       canvas.width = Math.round(cssW * dprT);
       canvas.height = Math.round(cssH * dprT);
       canvas.style.width = cssW + 'px';
@@ -9925,7 +10040,7 @@ async function loadInfoFile(filename, containerId) {
       
       const ctx = canvas.getContext('2d');
       // ⚡ v13.021: Hi-DPI — рисуем в CSS-пикселях на dpr-масштабированном канвасе
-      const dprT = window.devicePixelRatio || 1;
+      const dprT = canvasBackingScale(canvas); // ⚡ v13.052: фактический масштаб холста
       ctx.setTransform(dprT, 0, 0, dprT, 0, 0);
       const size = appData.map.baseHexSize * appData.map.zoomLevel;
       const gridCols = TACTICAL_MAP_SIZE, gridRows = TACTICAL_MAP_SIZE;
@@ -10180,7 +10295,7 @@ markers.forEach(type => {
       const rect = canvas.getBoundingClientRect();
       // ⚡ v13.021: канвас масштабирован на devicePixelRatio — переводим
       //    координаты клика в CSS-пиксели (система координат отрисовки)
-      const dprT = window.devicePixelRatio || 1;
+      const dprT = canvasBackingScale(canvas); // ⚡ v13.052: фактический масштаб холста
       const scaleX = (canvas.width / dprT) / rect.width;
       const scaleY = (canvas.height / dprT) / rect.height;
       const mx = (clientX - rect.left) * scaleX;
@@ -10597,7 +10712,8 @@ function setMapMode(mode) {
       
    function zoomOpMap(factor) {
   let newZoom = (appData.campaign.opZoomLevel || 1) * factor;
-  newZoom = Math.max(0.5, Math.min(3, newZoom)); // ограничение масштаба
+  // ⚡ v13.052 (R37#1): нижняя граница — «вся карта по ширине» (на телефоне < 0.5)
+  newZoom = Math.max((typeof opMapMinZoom === 'function') ? opMapMinZoom() : 0.5, Math.min(3, newZoom));
   appData.campaign.opZoomLevel = newZoom;
   saveData();
   initOperationalMap(); // переинициализируем размер и перерисуем
@@ -11158,6 +11274,9 @@ function rotateSelectedHex() {
   const epEl = document.getElementById('opEnemyPanel');
   if (epEl) epEl.style.display = appData.campaign.online ? 'none' : 'block';
   buildOperationalUnits();
+  // ⚡ v13.052 (R37#2): онлайн — Hard Mode всегда; кнопки приказов/связи — по текущему состоянию
+  try { ensureHardModeForOnline('showOperationalMap'); } catch (e) { console.warn('ensureHardModeForOnline:', e.message); }
+  try { applyHardModeUI(); } catch (e) {}
   // ⚡ v13.051 (R36#7): гексы размещения по умолчанию (один раз за кампанию)
   try { if (typeof maybeAutoPlaceAtStart === 'function') maybeAutoPlaceAtStart(); } catch (e) { console.warn('maybeAutoPlaceAtStart:', e.message); }
   initOperationalMap();
@@ -13271,12 +13390,14 @@ function executeReconOrder(unit, order) {
     unit.reconHighlightHexes = highlightHexes.slice(); // подсветка — сразу
 
     // Логируем результат разведки (врагов ищем в зоне)
-    // ⚡ v13.046 (R31#14): холм/лес на линии видимости — враг НЕ обнаружен
+    // ⚡ v13.052 (R37#3): разведгруппа ПРОЧЁСЫВАЕТ зону — показываются ВСЕ юниты
+    //    противника в радиусе 3 (лес/холм между разведчиком и врагом не мешают;
+    //    раньше правило «линии видимости» R31#14 скрывало врагов за лесом даже
+    //    внутри зоны разведки — игрок видел подсветку, но не юнитов)
     const enemiesFound = (appData.campaign.enemyOpUnits || []).filter(e =>
-        e && e.col !== null && e.row !== null &&
+        e && e.col !== null && e.col !== undefined && e.row !== null && e.row !== undefined &&
         highlightHexes.some(h => h.col === e.col && h.row === e.row) &&
-        !e.isDestroyed &&
-        !opLineOfSightBlocked(unit.col, unit.row, e.col, e.row)
+        !e.isDestroyed
     );
     if (enemiesFound.length > 0) {
         log(`🔍 [${unit.name}] Обнаружены враги в зоне разведки: ${enemiesFound.map(e => e.name).join(', ')}`);
@@ -15008,6 +15129,8 @@ function placeExistingEnemyOnHex(hex, enemyIdx, key) {
 }
 
 function returnToCampaignFromMenu() {
+    // ⚡ v13.052 (R37#2): онлайн-матч — Hard Mode обязателен
+    try { ensureHardModeForOnline('returnToCampaignFromMenu'); } catch (e) {}
   if (!appData.campaign.active || !appData.campaign.scenario) return;
   // ⚡ v13.051 (R36#1): онлайн-кампания — сначала снова подписываемся на комнату
   if (appData.campaign.online && typeof onlineEnsureSubscribed === 'function') {
@@ -19660,9 +19783,15 @@ function drawOperationalUnits(ctx) {
         //    если машина подбита — entry.isDestroyed и значок пропадает
         if (hardMode.enabled && !isEnemy && hasRadio(unit)) {
             // ⚡ ИСПОЛЬЗУЕМ ИЗОБРАЖЕНИЕ ВМЕСТО ЭМОДЗИ:
-            const radioIcon = new Image();
-            radioIcon.src = 'images/рация.png';
-            if (radioIcon.complete) {
+            // ⚡ v13.052 (R37#4): картинка кэшируется (раньше — новый Image на каждый юнит при каждой перерисовке)
+            let radioIcon = loadedOpUnitIcons['images/рация.png'];
+            if (!radioIcon) {
+                radioIcon = new Image();
+                radioIcon.onload = () => redrawOperationalMap();
+                radioIcon.src = 'images/рация.png';
+                loadedOpUnitIcons['images/рация.png'] = radioIcon;
+            }
+            if (radioIcon.complete && radioIcon.naturalWidth > 0) {
                 ctx.drawImage(radioIcon, drawX + radius, drawY - radius - 25, 25, 25);
             } else {
                 ctx.fillStyle = '#3498db';
@@ -20369,19 +20498,12 @@ function toggleCrewStatus(vehicleIdx, fighterIdx, status) {
 // ==================== ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ ====================
 
 document.addEventListener('DOMContentLoaded', function() {
-    // 1. Сначала обновляем кнопку Hard Mode
-    const btn = document.getElementById('hardModeBtn');
-    if (btn) {
-        btn.textContent = hardMode.enabled ? '🎯 Hard Mode: ВКЛ' : '🎯 Hard Mode: ВЫКЛ';
-        btn.style.background = hardMode.enabled ? '#c0392b' : '#555';
+    // ⚡ v13.052 (R37#2): онлайн-матч — Hard Mode обязателен (включаем до отрисовки кнопок)
+    if (appData && appData.campaign && appData.campaign.active && appData.campaign.online && !hardMode.enabled) {
+        hardMode.enabled = true;
     }
-    
-    // 2. Показываем/скрываем кнопки
-    const orderPanelBtn = document.getElementById('showOrderPanelBtn');
-    if (orderPanelBtn) orderPanelBtn.style.display = hardMode.enabled ? 'inline-block' : 'none';
-    
-    const commPanelBtn = document.getElementById('showCommPanelBtn');
-    if (commPanelBtn) commPanelBtn.style.display = hardMode.enabled ? 'inline-block' : 'none';
+    // 1–2. Кнопки/подписи Hard Mode
+    applyHardModeUI();
     
     // 3. Если Hard Mode включен - выдаём рации
     if (hardMode.enabled) {
@@ -21284,6 +21406,9 @@ function onlineMarkPlaced() {    if (!ONLINE.docRef) return;
         alert('⚠️ Не размещено юнитов: ' + unplaced.length + '. Разместите всех, затем «✅ Завершить размещение».');
         return;
     }
+    // ⚡ v13.052 (R37#4): позиции юнитов — явно перед отметкой «размещён»
+    //    (перерисовка карты, которая раньше их отправляла, теперь отложена до кадра)
+    try { onlinePushMyUnits(); } catch (e) {}
     ONLINE.docRef.update({ ['players.' + ONLINE.role + '.placed']: true })
         .then(() => { if (ONLINE.match) onlineCheckMatchProgress(); })
         .catch(e => alert(e.message));
@@ -21647,9 +21772,8 @@ function onlineEnemyVisible(u) {
         if (inZone || !mu || !Array.isArray(mu.reconZoneHexes) || mu.reconZoneHexes.length === 0) return;
         if (typeof isReconZoneActive === 'function' ? !isReconZoneActive(mu, t)
             : (mu.reconActiveTurn !== undefined && t > mu.reconActiveTurn)) return;
-        if (mu.reconZoneHexes.some(h => h && h.col === u.col && h.row === u.row) &&
-            !(mu.col !== null && mu.row !== null && typeof opLineOfSightBlocked === 'function' &&
-              opLineOfSightBlocked(mu.col, mu.row, u.col, u.row))) {
+        // ⚡ v13.052 (R37#3): в зоне разведки видны ВСЕ (без проверки линии видимости)
+        if (mu.reconZoneHexes.some(h => h && h.col === u.col && h.row === u.row)) {
             inZone = true;
         }
     });
@@ -22063,6 +22187,11 @@ function onlineOnSnapshotSync() {
   <button onclick="showOrderPanel()" id="showOrderPanelBtn" style="background:#f39c12; display:none;">
     🎯 Отдать приказ
   </button>
+  <!-- ⚡ v13.052 (R37#2): Hard Mode включается прямо с карты (раньше — только в главном меню) -->
+  <button onclick="toggleHardMode()" id="opHardModeBtn" style="background:#e67e22;">🎯 Включить Hard Mode (приказы, связь)</button>
+  <div id="opHardModeHint" style="display:none; color:#e67e22; font-size:0.8rem; margin-top:2px;">
+    Панели «🎯 Отдать приказ» и «📡 Связь» доступны только в Hard Mode. В онлайн-матче он включается автоматически.
+  </div>
 </div>
 
 <!-- Список активных приказов -->
@@ -22130,6 +22259,15 @@ function onlineOnSnapshotSync() {
   <h4>⚔️ Текущие бои</h4>
   <div id="activeBattlesList"></div>
 </div>
+  <!-- ⚡ v13.052 (R37#1): масштаб карты — всегда под рукой (раньше ➕/➖ были только
+       в скрытой панели «Вид»); на телефоне работает и щипок двумя пальцами -->
+  <div id="opZoomBar" style="display:flex; gap:4px; align-items:center; margin:4px 0; font-size:0.85rem; color:#aaa; flex-wrap:wrap;">
+    <span>🔍 Масштаб:</span>
+    <button onclick="zoomOpMap(0.8)" style="background:#555; padding:3px 10px;">➖</button>
+    <button onclick="zoomOpMap(1.25)" style="background:#555; padding:3px 10px;">➕</button>
+    <button onclick="fitOpMapZoom()" style="background:#555; padding:3px 8px;">⤢ Вся карта</button>
+    <span style="font-size:0.75rem; color:#777;">(на телефоне — щипок двумя пальцами)</span>
+  </div>
   <div id="opMapContainer" style="position:relative; width:100%; height:70vh; overflow: auto; border:1px solid #444; border-radius:8px; overflow:auto; background:#2c3e50;">
     <canvas id="opMapCanvas" style="display:block; width:2000px; height:1500px;"></canvas>
   </div>
