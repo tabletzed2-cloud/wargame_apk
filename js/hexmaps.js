@@ -120,7 +120,16 @@ function ensureTacticalHexMap(hexKey) {
     const p = loadTacticalHexIndex().then(list => {
         const cands = [];
         const entry = findHexMapEntry(hexKey);
-        if (entry && entry.file) cands.push(entry.file.indexOf('/') >= 0 ? entry.file : HEX_MAP_DIR + entry.file);
+        if (entry && entry.file) {
+            const f = entry.file.indexOf('/') >= 0 ? entry.file : HEX_MAP_DIR + entry.file;
+            cands.push(f);
+            // ⚡ v13.053: в maps/index.json имя может отличаться от файла числом пробелов
+            //    после номера гекса («10.8 дорога» ↔ «10.8  дорога») — пробуем оба варианта
+            const f1 = f.replace(/(\d)\s{2,}/, '$1 ');
+            const f2 = f.replace(/(\d) (?=\S)/, '$1  ');
+            if (f1 !== f) cands.push(f1);
+            if (f2 !== f) cands.push(f2);
+        }
         cands.push(HEX_MAP_DIR + c + '.' + r + '.json');
         cands.push(HEX_MAP_DIR + c + ',' + r + '.json');
         cands.push(HEX_MAP_DIR_ALT + c + '.' + r + '.json');
@@ -200,49 +209,95 @@ function getHexOverlay(hexKey, create) {
     return ov || null;
 }
 
-// Накладываем правки на сетку (и в редакторе, и в бою, у обоих игроков)
+// Накладываем правки на сетку (и в редакторе, и в бою, у обоих игроков).
+// ⚡ v13.053 (R38#2): можно вызывать ПОВТОРНО на уже идущей карте боя — клетки,
+//    наложенные раньше (cell.ov), но исчезнувшие из правок (отмена в редакторе),
+//    возвращаются к типу эталонной карты гекса; отряды на клетках не трогаем.
 function applyHexOverlays(grid, hexKey) {
+    if (!grid) return grid;
     const ov = getHexOverlay(hexKey, false);
-    if (!ov || !grid) return grid;
-    Object.keys(ov.hexEdits || {}).forEach(k => {
+    const edits = (ov && ov.hexEdits) || {};
+    const md = TACTICAL_HEX_MAPS[hexKey];
+    Object.keys(grid).forEach(k => {
+        const cell = grid[k];
+        if (!cell || !cell.ov || edits[k]) return;
+        const base = md && md.grid ? md.grid[k] : null;
+        cell.type = base ? base.type : 'grass';
+        cell.variant = base ? (base.variant || 0) : 0;
+        delete cell.ov;
+    });
+    Object.keys(edits).forEach(k => {
         const cell = grid[k];
         if (!cell) return;
-        cell.type = ov.hexEdits[k];
+        cell.type = edits[k];
         cell.variant = (ov.hexVariants && ov.hexVariants[k]) || 0;
+        cell.ov = 1;
     });
     return grid;
 }
 
-function saveHexOverlays() {
+// ⚡ v13.053 (R38#2): правки гекса → на карты УЖЕ ИДУЩИХ боёв на этом гексе
+//    (и на открытую карту боя). Раньше карта боя строилась один раз при старте:
+//    воронки от обстрела/окопы, появившиеся позже (или пришедшие от оппонента
+//    позже), в идущем бою не появлялись — у двух игроков карты расходились.
+function applyHexOverlaysToBattles(hexKey) {
+    if (!hexKey || typeof appData === 'undefined' || !appData.campaign) return 0;
+    let n = 0;
+    (appData.campaign.activeBattles || []).forEach(b => {
+        if (!b || b.hexKey !== hexKey) return;
+        if (b.tacticalMap && b.tacticalMap.grid) { applyHexOverlays(b.tacticalMap.grid, hexKey); n++; }
+        const live = appData.currentBattleId !== null && appData.currentBattleId !== undefined && appData.currentBattleId === b.id;
+        if (live && appData.map && appData.map.grid && appData.map.mode !== 'hexEdit') {
+            applyHexOverlays(appData.map.grid, hexKey);
+            const ba = document.getElementById('battleApp');
+            if (ba && ba.style.display !== 'none') { try { redrawMap(); } catch (e) {} }
+        }
+    });
+    return n;
+}
+
+function saveHexOverlays(hexKey) {
+    if (hexKey) { try { applyHexOverlaysToBattles(hexKey); } catch (e) {} }
     try { saveData(); } catch (e) {}
     if (typeof onlinePushHexOverlays === 'function') { try { onlinePushHexOverlays(); } catch (e) {} }
 }
 
-// Слияние облачных правок с локальными (локальные приоритетнее)
+// Слияние облачных правок с локальными.
+// ⚡ v13.053 (R38#2): объединение — одинаковое у обоих игроков: клетка, которую
+//    правили ОБА (например, воронки двух обстрелов легли на одну клетку с разной
+//    текстурой), берётся у игрока p1 — у обоих получается одна и та же карта.
+//    Изменившиеся гексы сразу накладываются на карты идущих боёв.
 function mergeHexOverlays(cloud) {
     if (!cloud || typeof cloud !== 'object') return false;
     const local = getHexOverlays();
+    const cloudWins = (typeof ONLINE !== 'undefined' && ONLINE && ONLINE.role === 'p2'); // облако = p1
     let changed = false;
+    const touched = [];
     Object.keys(cloud).forEach(hexKey => {
         const c = cloud[hexKey] || {};
+        let hexChanged = false;
         if (!local[hexKey]) {
-            local[hexKey] = { hexEdits: {}, trenchPoints: 0, prepPoints: 0, shellings: 0 };
-            changed = true;
+            local[hexKey] = { hexEdits: {}, hexVariants: {}, trenchPoints: 0, prepPoints: 0, shellings: 0 };
+            hexChanged = true;
         }
         const l = local[hexKey];
         if (!l.hexEdits) l.hexEdits = {};
         if (!l.hexVariants) l.hexVariants = {};
         Object.keys(c.hexEdits || {}).forEach(k => {
-            if (!(k in l.hexEdits)) { l.hexEdits[k] = c.hexEdits[k]; changed = true; }
-        });
-        Object.keys(c.hexVariants || {}).forEach(k => {
-            if (!(k in l.hexVariants)) { l.hexVariants[k] = c.hexVariants[k]; changed = true; }
+            const cv = c.hexEdits[k];
+            const cvar = (c.hexVariants && c.hexVariants[k] !== undefined) ? c.hexVariants[k] : 0;
+            if (!(k in l.hexEdits)) { l.hexEdits[k] = cv; l.hexVariants[k] = cvar; hexChanged = true; return; }
+            if (cloudWins && (l.hexEdits[k] !== cv || (l.hexVariants[k] || 0) !== cvar)) {
+                l.hexEdits[k] = cv; l.hexVariants[k] = cvar; hexChanged = true;
+            }
         });
         ['trenchPoints', 'prepPoints', 'shellings'].forEach(f => {
             const cv = c[f] || 0, lv = l[f] || 0;
-            if (cv > lv) { l[f] = cv; changed = true; }
+            if (cv > lv) { l[f] = cv; hexChanged = true; }
         });
+        if (hexChanged) { changed = true; touched.push(hexKey); }
     });
+    touched.forEach(hexKey => { try { applyHexOverlaysToBattles(hexKey); } catch (e) {} });
     return changed;
 }
 
@@ -279,31 +334,45 @@ function openHexMapForBattle(hexKey, tacticalMap) {
         if (typeof TACTICAL_MAP_SIZE !== 'undefined') TACTICAL_MAP_SIZE = built.size;
         return true;
     }
+    // ⚡ v13.053 (R38#2): карта догружается ПОЗЖЕ — обновляем именно ТОТ бой,
+    //    который создаётся сейчас (по гексу), а не «что открыто на экране»:
+    //    раньше зеркало боя оппонента, созданное в фоне, оставалось на пустом
+    //    поле 20×20, а карта гекса вписывалась в чужую открытую карту (или в
+    //    редактор окопов) — карты у двух игроков расходились.
+    const startedAt = Date.now();
     ensureTacticalHexMap(hexKey).then(md => {
         if (!md) return;
         const built2 = buildBattleGridForHex(hexKey);
         if (!built2) return;
-        // сохраняем уже размещённые отряды
-        const keep = {};
-        Object.keys(appData.map.grid || {}).forEach(k => {
-            const h = appData.map.grid[k];
-            if (h && ((h.squadIds && h.squadIds.length) || (h.enemySquadIds && h.enemySquadIds.length))) {
-                keep[k] = { squadIds: h.squadIds, enemySquadIds: h.enemySquadIds, markers: h.markers || [] };
-            }
-        });
-        Object.keys(keep).forEach(k => {
-            if (built2.grid[k]) Object.assign(built2.grid[k], keep[k]);
-        });
-        appData.map.grid = built2.grid;
-        appData.map.mapSize = built2.size;
-        try { TACTICAL_MAP_SIZE = built2.size; } catch (e) {}
-        if (appData.currentBattleId !== null && appData.currentBattleId !== undefined && appData.campaign.activeBattles) {
-            const b = appData.campaign.activeBattles.find(x => x.id === appData.currentBattleId);
-            if (b && b.tacticalMap) { b.tacticalMap.grid = JSON.parse(JSON.stringify(built2.grid)); b.tacticalMap.mapSize = built2.size; }
+        const withKeep = (srcGrid) => {
+            const g = JSON.parse(JSON.stringify(built2.grid));
+            Object.keys(srcGrid || {}).forEach(k => {
+                const h = srcGrid[k];
+                if (h && ((h.squadIds && h.squadIds.length) || (h.enemySquadIds && h.enemySquadIds.length))) {
+                    if (!g[k]) g[k] = { type: 'grass', squadIds: [], enemySquadIds: [], markers: [], rotation: 0, variant: 0, level: 0 };
+                    Object.assign(g[k], { squadIds: h.squadIds, enemySquadIds: h.enemySquadIds, markers: h.markers || [] });
+                }
+            });
+            return g;
+        };
+        const battles = (appData.campaign && appData.campaign.activeBattles) || [];
+        // бой на этом гексе, созданный этим вызовом (самый новый, но не раньше вызова)
+        const b = battles.filter(x => x && x.hexKey === hexKey && typeof x.id === 'number' && x.id >= startedAt - 1000)
+            .sort((a, c) => c.id - a.id)[0] || battles.filter(x => x && x.hexKey === hexKey).sort((a, c) => c.id - a.id)[0] || null;
+        if (b && b.tacticalMap) {
+            b.tacticalMap.grid = withKeep(b.tacticalMap.grid);
+            b.tacticalMap.mapSize = built2.size;
         }
-        try { initMap(); redrawMap(); } catch (e) {}
-        const mi = document.getElementById('mapInfo');
-        if (mi) { mi.innerHTML = '🗺️ Карта гекса (' + hexKey + ') загружена.'; mi.style.color = '#27ae60'; }
+        const live = b && appData.currentBattleId !== null && appData.currentBattleId !== undefined && appData.currentBattleId === b.id;
+        const editorOpen = (typeof hexEditorState !== 'undefined') && !!hexEditorState;
+        if (live && !editorOpen && appData.map) {
+            appData.map.grid = withKeep(appData.map.grid);
+            appData.map.mapSize = built2.size;
+            try { TACTICAL_MAP_SIZE = built2.size; } catch (e) {}
+            try { initMap(); redrawMap(); } catch (e) {}
+            const mi = document.getElementById('mapInfo');
+            if (mi) { mi.innerHTML = '🗺️ Карта гекса (' + hexKey + ') загружена.'; mi.style.color = '#27ae60'; }
+        }
         try { saveData(); } catch (e) {}
     });
     return false;
@@ -446,7 +515,7 @@ function _applyShellingCraters(hexKey, count) {
             ov.hexVariants[k] = (nVar > 1) ? Math.floor(Math.random() * nVar) : 0;
             placed++;
         }
-        saveHexOverlays();
+        saveHexOverlays(hexKey);
         log(`💥 Обстрел гекса (${hexKey}): на тактической карте появилось воронок/обстрелянного леса — ${placed} (всего обстрелов: ${ov.shellings}).`);
         return placed;
     }
@@ -459,9 +528,10 @@ function grantTrenchPoints(hexKey, squadsCount, unitName) {
     const ov = getHexOverlay(hexKey, true);
     const n = Math.max(1, squadsCount || 1);
     ov.trenchPoints = (ov.trenchPoints || 0) + n;
-    saveHexOverlays();
+    saveHexOverlays(hexKey);
     log(`🕳️ ${unitName || 'Отряд'}: доступно гексов окопов на гексе (${hexKey}) — +${n} (всего ${ov.trenchPoints}).`);
     showHexEditButton(hexKey, 'trenches');
+    queueHexEditPrompt(hexKey, 'trenches', unitName);
     return ov.trenchPoints;
 }
 
@@ -471,10 +541,81 @@ function grantPrepPoints(hexKey, squadsCount, unitName) {
     const ov = getHexOverlay(hexKey, true);
     const n = Math.max(1, squadsCount || 1);
     ov.prepPoints = (ov.prepPoints || 0) + n;
-    saveHexOverlays();
+    saveHexOverlays(hexKey);
     log(`🪓 ${unitName || 'Отряд'}: доступно правок «подготовка позиций» на гексе (${hexKey}) — +${n} (всего ${ov.prepPoints}).`);
     showHexEditButton(hexKey, 'prep');
+    queueHexEditPrompt(hexKey, 'prep', unitName);
     return ov.prepPoints;
+}
+
+// ⚡ v13.053 (R38#3): приказ выполнен → сразу предлагаем открыть карту гекса
+//    (одно окно на все приказы этого хода; из боя карту не открываем —
+//    остаётся панель «🛠️ Карты гексов» под оперативной картой)
+let __hexEditPromptQueue = [];
+let __hexEditPromptTimer = null;
+function queueHexEditPrompt(hexKey, kind, unitName) {
+    __hexEditPromptQueue.push({ hexKey, kind, unitName });
+    if (__hexEditPromptTimer) return;
+    __hexEditPromptTimer = setTimeout(() => { __hexEditPromptTimer = null; promptPendingHexEdits(); }, 50);
+}
+function promptPendingHexEdits() {
+    const q = __hexEditPromptQueue.splice(0);
+    renderHexEditsPanel();
+    if (q.length === 0) return false;
+    if (typeof confirm !== 'function') return false;
+    if (hexEditorState) return false;
+    if (typeof appData !== 'undefined' && appData.currentBattleId) return false; // идёт бой — не прерываем
+    const first = q[0];
+    const ov = getHexOverlay(first.hexKey, false) || {};
+    const left = first.kind === 'trenches' ? (ov.trenchPoints || 0) : (ov.prepPoints || 0);
+    if (left <= 0) return false;
+    const what = first.kind === 'trenches' ? `окопов: ${left}` : `правок «подготовка позиций»: ${left}`;
+    const more = q.length > 1 ? `\n(ещё гексов с правками: ${q.length - 1} — см. панель «🛠️ Карты гексов» под картой)` : '';
+    let yes = false;
+    try {
+        yes = confirm(`✅ ${first.unitName || 'Отряд'}: приказ выполнен на гексе (${first.hexKey}) — доступно ${what}.\n` +
+                      `Открыть карту гекса и расставить сейчас?${more}`);
+    } catch (e) { yes = false; }
+    if (yes) {
+        // остальные гексы предложим после «Готово»
+        __hexEditPromptQueue = q.slice(1).filter(x => x.hexKey !== first.hexKey);
+        try { openHexEditorForBattle(first.hexKey, first.kind); } catch (e) { console.warn('openHexEditorForBattle:', e.message); }
+    }
+    return yes;
+}
+
+// ⚡ v13.053 (R38#3): постоянная панель под оперативной картой — гексы с
+//    доступными правками и кнопки открытия карты (не зависит от строки сообщений)
+function renderHexEditsPanel() {
+    const all = (typeof appData !== 'undefined' && appData.campaign && appData.campaign.hexOverlays) || {};
+    const rows = Object.keys(all).filter(k => all[k] && ((all[k].trenchPoints || 0) > 0 || (all[k].prepPoints || 0) > 0));
+    const rowHtml = (k) => {
+        const ov = all[k];
+        return `· гекс <b>(${k})</b>: ` +
+            ((ov.trenchPoints || 0) ? `<button onclick="openHexEditorForBattle('${k}','trenches')" style="background:#8e44ad; font-size:0.85rem;">🕳️ Расставить окопы (${ov.trenchPoints})</button> ` : '') +
+            ((ov.prepPoints || 0) ? `<button onclick="openHexEditorForBattle('${k}','prep')" style="background:#16a085; font-size:0.85rem;">🪓 Подготовка позиций (${ov.prepPoints})</button>` : '');
+    };
+    const setPanel = (panel, html) => {
+        if (!panel) return;
+        if (!html) { if (panel.style.display !== 'none') { panel.style.display = 'none'; panel.innerHTML = ''; } return; }
+        if (panel.innerHTML !== html) panel.innerHTML = html;
+        if (panel.style.display !== 'block') panel.style.display = 'block';
+    };
+    // карта операции — все гексы с правками
+    setPanel(document.getElementById('opHexEditsPanel'), rows.length === 0 ? '' :
+        '<b style="color:#2ecc71;">🛠️ Карты гексов — доступны правки местности</b> ' +
+        '<span style="color:#aaa; font-size:0.8rem;">(приказы «Окопаться» / «Подготовка позиций» выполнены; правки увидит и противник в бою на этом гексе)</span><br>' +
+        rows.map(rowHtml).join('<br>'));
+    // экран боя — только гекс ЭТОГО боя
+    let battleHtml = '';
+    if (typeof appData !== 'undefined' && appData.currentBattleId && !hexEditorState) {
+        const b = (appData.campaign.activeBattles || []).find(x => x && x.id === appData.currentBattleId);
+        if (b && b.hexKey && rows.includes(b.hexKey)) {
+            battleHtml = `<b style="color:#2ecc71;">🛠️ На гексе этого боя (${b.hexKey}) доступны правки карты</b> ` +
+                '<span style="color:#aaa; font-size:0.8rem;">(после «✅ Готово» вернётесь в этот бой; правки увидит и противник)</span><br>' + rowHtml(b.hexKey);
+        }
+    }
+    setPanel(document.getElementById('battleHexEditsPanel'), battleHtml);
 }
 
 // ⚡ v13.051 (R36#3): кнопки редактора для гекса (если на нём есть доступные
@@ -534,14 +675,25 @@ function openHexEditorForBattle(hexKey, kind) {
         alert('Нет доступных правок. Отдайте приказ «' + (kind === 'trenches' ? 'Окопаться' : 'Подготовка позиций') + '» и дождитесь его выполнения (3 хода).');
         return;
     }
+    if (hexEditorState) {
+        alert('Уже открыт редактор карты гекса (' + hexEditorState.hexKey + '). Нажмите «✅ Готово», чтобы выйти.');
+        return;
+    }
+    // ⚡ v13.053 (R38#3): открыли из идущего боя — сначала сохраняем его состояние
+    //    в запись боя (по «Готово» вернёмся в бой через switchToBattle)
+    const prevBattleId = appData.currentBattleId;
+    if (prevBattleId && typeof saveCurrentBattleState === 'function') { try { saveCurrentBattleState(); } catch (e) {} }
+    if (!appData.map || typeof appData.map !== 'object') {
+        appData.map = { grid: {}, baseHexSize: 45, zoomLevel: 1, mode: 'view', enemySquads: [], selectedMoveSquadIdx: null, selectedEnemyMoveIdx: null, reachableHexes: [], isCrouchMode: false };
+    }
     const proceed = (md) => {
         // снимок состояния кампании для возврата
         hexEditorState = {
             hexKey, kind, rule,
             prevMap: JSON.parse(JSON.stringify(appData.map)),
             prevSize: (typeof TACTICAL_MAP_SIZE !== 'undefined') ? TACTICAL_MAP_SIZE : 20,
-            prevBattleId: appData.currentBattleId,
-            prevEnemySquads: (appData.campaign && appData.campaign.enemyOpUnits) ? null : null,
+            prevBattleId: prevBattleId,
+            prevEnemySquads: null,
             baseGrid: md ? JSON.parse(JSON.stringify(md.grid)) : {},
             undo: [],
             placed: 0
@@ -653,8 +805,9 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
       <span style="color:#f1c40f; font-size:0.9rem;">Осталось правок: <b>${left}</b> (поставлено в этой сессии: ${st.placed})</span>
       <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
         <button onclick="hexEditUndo()" style="background:#8e44ad;">↩️ Отменить последнюю</button>
-        <button onclick="closeHexEditor()" style="background:#27ae60;">✅ Готово</button>
-      </div>`;
+        <button onclick="closeHexEditor()" style="background:#27ae60;">✅ Готово — ${st.prevBattleId ? 'вернуться в бой' : 'на карту операции'}</button>
+      </div>
+      <div style="color:#888; font-size:0.8rem; margin-top:4px;">Это карта поля боя гекса (${st.hexKey}) оперативной карты. Правки сохраняются сразу и видны противнику в бою на этом гексе.</div>`;
 }
 
 // Клик по гексу в режиме 'hexEdit'
@@ -700,8 +853,8 @@ function hexEditClick(hexKeyCell) {
     ov[st.rule.pointsField] = left - 1;
     st.undo.push(hexKeyCell);
     st.placed++;
-    if (working) { working.type = newType; working.variant = variant; }
-    saveHexOverlays();
+    if (working) { working.type = newType; working.variant = variant; working.ov = 1; }
+    saveHexOverlays(st.hexKey);
     if (infoBox) {
         infoBox.innerHTML = `✅ Гекс ${hexKeyCell}: ${baseType} → ${newType}. Осталось правок: ${ov[st.rule.pointsField]}.`;
         infoBox.style.color = '#27ae60';
@@ -726,8 +879,9 @@ function hexEditUndo() {
         if (appData.map.grid[k]) {
             appData.map.grid[k].type = baseCell ? baseCell.type : 'grass';
             appData.map.grid[k].variant = 0;
+            delete appData.map.grid[k].ov;
         }
-        saveHexOverlays();
+        saveHexOverlays(st.hexKey);
     }
     showHexEditorBanner();
     try { redrawMap(); } catch (e) {}
@@ -740,21 +894,32 @@ function closeHexEditor() {
     if (banner) banner.style.display = 'none';
     if (st) {
         if (typeof TACTICAL_MAP_SIZE !== 'undefined') { try { TACTICAL_MAP_SIZE = st.prevSize; } catch (e) {} }
-        appData.currentBattleId = st.prevBattleId;
+        appData.currentBattleId = null;
         appData.map = st.prevMap;
+        if (appData.map && appData.map.mode === 'hexEdit') appData.map.mode = 'view';
     }
-    try {
-        document.getElementById('battleApp').style.display = 'none';
-        document.getElementById('campaignApp').style.display = 'block';
-        showOperationalMap();
-    } catch (e) {}
+    // ⚡ v13.053 (R38#3): открывали из боя — возвращаемся в ТОТ ЖЕ бой (состояние
+    //    берём из записи боя: туда уже наложены правки и пришедшие изменения)
+    const backBattle = st && st.prevBattleId && (appData.campaign.activeBattles || []).find(b => b && b.id === st.prevBattleId);
+    if (backBattle && typeof switchToBattle === 'function') {
+        try { switchToBattle(backBattle.id); } catch (e) { console.warn('closeHexEditor/switchToBattle:', e.message); }
+    } else {
+        try {
+            document.getElementById('battleApp').style.display = 'none';
+            document.getElementById('campaignApp').style.display = 'block';
+            showOperationalMap();
+        } catch (e) {}
+    }
     const ov = st ? getHexOverlay(st.hexKey, false) : null;
     const mi = document.getElementById('mapInfo');
     if (mi && ov) {
         mi.innerHTML = `🛠️ Правки карты гекса (${st.hexKey}) сохранены. Окопов осталось: ${ov.trenchPoints || 0}, подготовки позиций: ${ov.prepPoints || 0}.`;
         mi.style.color = '#27ae60';
     }
+    try { renderHexEditsPanel(); } catch (e) {}
     try { saveData(); } catch (e) {}
+    // оставшиеся правки по другим гексам — напомним
+    try { if (!backBattle) promptPendingHexEdits(); } catch (e) {}
 }
 
 // ─────────────────── ПРИКАЗ «ПОДГОТОВКА ПОЗИЦИЙ» (R34#3) ───────────────────
