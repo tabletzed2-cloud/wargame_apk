@@ -283,6 +283,41 @@ ok(B.eval('appData.campaign.opUnits.find(u=>u.id==="p2_u0").squads[0].fighters.r
 ok(B.alerts.some(a => a.includes('получили урон в бою')),
     'E22b: защитник уведомлён (батч-пуш одного снимка на серию выстрелов)');
 
+// 12. ⚡ v13.053 (R38#2): правки карт гексов (воронки от обстрела) — ОДИНАКОВЫ у обоих,
+//     в т.ч. на УЖЕ ИДУЩЕМ бою: A обстреливает гекс 8,10 после начала боя на нём.
+{
+    const hexSrc = fs.readFileSync(path.join(ROOT, 'js', 'hexmaps.js'), 'utf8');
+    const dataSrc = fs.readFileSync(path.join(ROOT, 'js', 'data.js'), 'utf8');
+    const pushSrc = sliceFunction(HTML, 'onlinePushHexOverlays');
+    const mapJson = JSON.stringify({ currentMap: { grid: (() => { const g = {}; for (let c = 0; c < 8; c++) for (let r = 0; r < 8; r++) g[c + ',' + r] = { type: (c % 3 === 0) ? 'forest' : 'grass' }; return g; })() } });
+    [A, B].forEach(d => {
+        d.run('var redrawMap = function(){}; var initMap = function(){};');
+        d.run(dataSrc); d.run(hexSrc); d.run(pushSrc);
+        d.run('TACTICAL_HEX_MAPS["8,10"] = normalizeTacticalMapData(' + mapJson + ');');
+        // у обоих на гексе 8,10 уже идёт бой (записи боёв) — у A он открыт на экране
+        d.run('appData.campaign.activeBattles = [{ id: 900, hexKey: "8,10", tacticalMap: { grid: buildBattleGridForHex("8,10").grid } }];');
+    });
+    A.run('appData.currentBattleId = 900; appData.map = { grid: buildBattleGridForHex("8,10").grid, mode: "view" }; document.getElementById("battleApp").style.display = "block";');
+    B.run('appData.currentBattleId = null;');
+    A.run('Math.random = (function(){ let i = 0; return function(){ i++; return ((i * 37) % 100) / 100; }; })(); _applyShellingCraters("8,10", 5);');
+    A.applySnapshot(); B.applySnapshot();
+    const cratersA = A.eval('JSON.stringify(appData.campaign.hexOverlays["8,10"].hexEdits)');
+    const cratersB = B.eval('JSON.stringify(appData.campaign.hexOverlays["8,10"].hexEdits)');
+    ok(Object.keys(JSON.parse(cratersA)).length === 5 && cratersA === cratersB, 'E23: воронки обстрела A дошли до B — правки гекса 8,10 идентичны (' + Object.keys(JSON.parse(cratersA)).length + ' клеток)');
+    const gridTypes = (d, expr) => d.eval('JSON.stringify(Object.keys(' + expr + ').filter(k => ' + expr + '[k].ov).map(k => k + ":" + ' + expr + '[k].type + "/" + (' + expr + '[k].variant||0)).sort())');
+    const aLive = gridTypes(A, 'appData.map.grid');
+    const aRec = gridTypes(A, 'appData.campaign.activeBattles[0].tacticalMap.grid');
+    const bRec = gridTypes(B, 'appData.campaign.activeBattles[0].tacticalMap.grid');
+    ok(JSON.parse(aLive).length === 5 && aLive === aRec && aRec === bRec, 'E24: карта УЖЕ ИДУЩЕГО боя: у A (открытая и запись) и у B (запись) — одни и те же воронки с теми же текстурами');
+    // B обстреливает тот же гекс во время боя — у A на открытой карте появляются и его воронки
+    B.run('Math.random = (function(){ let i = 0; return function(){ i++; return ((i * 53) % 100) / 100; }; })(); _applyShellingCraters("8,10", 5);');
+    A.applySnapshot(); B.applySnapshot();
+    const a2 = gridTypes(A, 'appData.map.grid'), b2 = gridTypes(B, 'appData.campaign.activeBattles[0].tacticalMap.grid');
+    const nA = A.eval('Object.keys(appData.campaign.hexOverlays["8,10"].hexEdits).length'), nB = B.eval('Object.keys(appData.campaign.hexOverlays["8,10"].hexEdits).length');
+    ok(nA === nB && nA >= 6 && a2 === b2 && A.eval('appData.campaign.hexOverlays["8,10"].shellings') === 2 && B.eval('appData.campaign.hexOverlays["8,10"].shellings') === 2,
+        'E25: второй обстрел (от B) — у обоих одинаковый набор воронок (' + nA + ' клеток, обстрелов: 2), у A — уже на открытой карте боя');
+}
+
 console.log('\n====================================');
 console.log('E2E PASS: ' + pass + '  FAIL: ' + fail);
 if (fail > 0) process.exitCode = 1;
