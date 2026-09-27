@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.050 — операция</title>
+  <title>Боевой модуль v13.051 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -13,7 +13,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.050</h1>
+    <h1>⚔️ Боевой модуль v13.051</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -27,7 +27,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041: версия + принудительное обновление (старый кэш сервис-воркера) -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.050</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.051</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
   </div>
@@ -58,7 +58,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.050 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.051 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -253,6 +253,7 @@
     <script src="js/data.js"></script>
     <!-- ⚡ v13.049 (R34): карты гексов оперативной карты, правки местности -->
     <script src="js/hexmaps.js"></script>
+    <script src="js/online_battles.js"></script>
     <script src="js/weapons.js"></script>
     <script src="js/cards.js"></script>
     <script src="js/templates.js"></script>
@@ -273,7 +274,7 @@ function safeLocalStorage(method, ...args) {
     }    
 // ⚡ v13.041: текущая версия — отображается в меню/шапке/диагностике,
 //    чтобы игрок видел, свежая ли версия на его устройстве
-var APP_VERSION = 'v13.050';
+var APP_VERSION = 'v13.051';
 
 let selectedFaction = null;
 let selectedSubFaction = null; // 'belgian' | 'dutch' | null — ⚡ v13.045 (R30): влияет на выбор карт в бою
@@ -783,12 +784,15 @@ function renderActiveBattlesList() {
     const eNames = battle.enemyUnitNames && battle.enemyUnitNames.length > 0
         ? battle.enemyUnitNames
         : (battle.enemyUnitName ? battle.enemyUnitName.split(', ') : ['?']);
+    // ⚡ v13.051 (R36#5): онлайн — общий бой: кто начал, ход оппонента, завершил ли он
+    const onlineLine = (typeof onlineBattleStatusHtml === 'function') ? onlineBattleStatusHtml(battle) : '';
     html += `
       <div style="background:#2c2c2c; padding:6px; margin:4px 0; border-radius:4px;">
         <div style="color:#4fc3f7; margin-bottom:2px;">Свои: ${pNames.join(', ')}</div>
         <div style="color:#ef5350; margin-bottom:4px;">Враг: ${eNames.join(', ')}</div>
+        ${onlineLine}
         <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span style="color:#aaa; font-size:0.85em;">(ход ${battle.currentTurn || 1})</span>
+          <span style="color:#aaa; font-size:0.85em;">гекс (${battle.hexKey || '?'}), ход ${battle.currentTurn || 1}</span>
           <button onclick="switchToBattle(${battle.id})">➡️ Перейти в бой</button>
         </div>
       </div>
@@ -826,6 +830,9 @@ function refreshSquadToPlaceDropdown() {
     return copy;
   });
   appData.map = JSON.parse(JSON.stringify(battle.tacticalMap));
+  // ⚡ v13.051: размер карты гекса (15×15 / 20×20) — как в бою, а не последний использованный
+  TACTICAL_MAP_SIZE = appData.map.mapSize || 20;
+  if (!Array.isArray(appData.map.enemySquads)) appData.map.enemySquads = [];
   appData.currentTurn = battle.currentTurn || 1;
   currentTurn = appData.currentTurn;
   appData.squads.forEach((_, i) => ensureAP(i));
@@ -1692,8 +1699,12 @@ if (!appData.campaign.opMapGrid || Object.keys(appData.campaign.opMapGrid).lengt
   const zoom = appData.campaign.opZoomLevel || 1;
   const size = OP_HEX_SIZE * zoom;
   const dprOp = window.devicePixelRatio || 1;
-  const opCssW = (OP_MAP_COLS + 0.5) * Math.sqrt(3) * size;
-  const opCssH = (OP_MAP_ROWS + 0.5) * 1.5 * size;
+  // ⚡ v13.051 (R36#6): канвас обрезан до игрового поля сценария (Валенсия —
+  //    13×15): тёмных «пустых» столбцов справа больше нет. Система координат
+  //    (и калибровка фоновой картинки) остаётся как для полной сетки 20×15.
+  const dims = opMapDrawDims();
+  const opCssW = (dims.cols + 0.5) * Math.sqrt(3) * size;
+  const opCssH = (dims.rows + 0.5) * 1.5 * size;
   canvas.width = Math.round(opCssW * dprOp);
   canvas.height = Math.round(opCssH * dprOp);
   canvas.style.width = opCssW + 'px';
@@ -1701,6 +1712,8 @@ if (!appData.campaign.opMapGrid || Object.keys(appData.campaign.opMapGrid).lengt
 
   // Обработчик кликов
   canvas.onclick = handleOpMapClick;
+  // ⚡ v13.051 (R36#6): масштаб двумя пальцами на телефоне
+  setupOpMapTouchControls();
 
   // 👇 ДОБАВЛЯЕМ: обновляем селектор юнитов после создания
   updateOpPlaceSelect();
@@ -1714,6 +1727,70 @@ if (!appData.campaign.opMapGrid || Object.keys(appData.campaign.opMapGrid).lengt
   updateBtrPanel();
   updateVehicleGroupInfo();
   updateVehiclePanel();
+}
+// ⚡ v13.051 (R36#6): видимая часть оперативной карты — игровое поле сценария
+//    (SCENARIO_PLAYABLE_AREA), иначе полная сетка
+function opMapDrawDims() {
+    const scenario = appData && appData.campaign ? appData.campaign.scenario : null;
+    const area = (typeof SCENARIO_PLAYABLE_AREA !== 'undefined' && scenario) ? SCENARIO_PLAYABLE_AREA[scenario] : null;
+    if (!area) return { cols: OP_MAP_COLS, rows: OP_MAP_ROWS };
+    return {
+        cols: Math.max(1, Math.min(OP_MAP_COLS, (area.maxCol || 0) + 1)),
+        rows: Math.max(1, Math.min(OP_MAP_ROWS, (area.maxRow || 0) + 1))
+    };
+}
+// ⚡ v13.051 (R36#6): щипок двумя пальцами на оперативной карте — масштаб
+//    (раньше только ➕/➖ в скрытой панели «Вид»). Одним пальцем — обычная
+//    прокрутка контейнера. Точка между пальцами остаётся на месте.
+function setupOpMapTouchControls() {
+    const container = document.getElementById('opMapContainer');
+    if (!container || container.__opTouchReady) return;
+    container.__opTouchReady = true;
+    let startDist = 0, startZoom = 1, pinching = false, lastApplied = 0, dirty = false;
+    let focalContentX = 0, focalContentY = 0, focalViewX = 0, focalViewY = 0;
+    const clampZoom = (z) => Math.max(0.5, Math.min(3, z));
+    const applyZoom = (newZoom) => {
+        const oldZoom = appData.campaign.opZoomLevel || 1;
+        if (Math.abs(newZoom - oldZoom) < 0.001) return;
+        appData.campaign.opZoomLevel = newZoom;
+        initOperationalMap();
+        const k = newZoom / startZoom;
+        container.scrollLeft = Math.max(0, focalContentX * k - focalViewX);
+        container.scrollTop = Math.max(0, focalContentY * k - focalViewY);
+        dirty = true;
+    };
+    container.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 2) return;
+        e.preventDefault();
+        pinching = true;
+        const t0 = e.touches[0], t1 = e.touches[1];
+        startDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+        startZoom = appData.campaign.opZoomLevel || 1;
+        const rect = container.getBoundingClientRect();
+        focalViewX = (t0.clientX + t1.clientX) / 2 - rect.left;
+        focalViewY = (t0.clientY + t1.clientY) / 2 - rect.top;
+        focalContentX = focalViewX + container.scrollLeft;
+        focalContentY = focalViewY + container.scrollTop;
+    }, { passive: false });
+    container.addEventListener('touchmove', (e) => {
+        if (!pinching || e.touches.length !== 2 || !startDist) return;
+        e.preventDefault();
+        const t0 = e.touches[0], t1 = e.touches[1];
+        const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+        const target = clampZoom(startZoom * (dist / startDist));
+        const now = Date.now();
+        if (Math.abs(target - (appData.campaign.opZoomLevel || 1)) >= 0.06 && now - lastApplied > 90) {
+            lastApplied = now;
+            applyZoom(target);
+        }
+    }, { passive: false });
+    const endPinch = () => {
+        if (!pinching) return;
+        pinching = false; startDist = 0;
+        if (dirty) { dirty = false; saveData(); }
+    };
+    container.addEventListener('touchend', (e) => { if (e.touches.length < 2) endPinch(); });
+    container.addEventListener('touchcancel', endPinch);
 }
 // ⚡ v13.024: ДОТ — стационарное сооружение. После размещения на
 //    оперативной карте перемещаться НЕ может (0 ОД, движение запрещено).
@@ -1809,8 +1886,10 @@ function redrawOperationalMap() {
         }
         if (loadedOpMapImage.complete && loadedOpMapImage.naturalWidth > 0) {
             // ⚡ v13.021: размеры в CSS-пикселях (канвас физически больше в dpr раз)
-            const baseWidth = canvas.width / dprOp;
-            const baseHeight = canvas.height / dprOp;
+            // ⚡ v13.051 (R36#6): ЛОГИЧЕСКИЙ размер полной сетки 20×15 — канвас
+            //    может быть обрезан до игрового поля, калибровка картинки не меняется
+            const baseWidth = (OP_MAP_COLS + 0.5) * Math.sqrt(3) * size;
+            const baseHeight = (OP_MAP_ROWS + 0.5) * 1.5 * size;
             const scaleX = appData.campaign.opMapScaleX || 1;
             const scaleY = appData.campaign.opMapScaleY || 1;
             const offsetX = appData.campaign.opMapOffsetX || 0;
@@ -1925,14 +2004,20 @@ function redrawOperationalMap() {
     }
     
 // Подсветка зоны разведки (голубым)
-// ⚡ v13.018: зона (окружность радиуса 2) показывается ТОЛЬКО в ход ПОСЛЕ
-//    проведения разведки и гаснет в следующий ход. reconHighlightHexes
-//    заполняется процессом на ход показа (reconActiveTurn) и очищается позже.
+// ⚡ v13.018 → v13.051 (R36#1): зона (окружность радиуса 3) подсвечивается
+//    СРАЗУ в ход выполнения разведки и держится до конца следующего хода
+//    (reconActiveTurn — последний активный ход), затем гаснет.
 if (appData.campaign.opUnits) {
     appData.campaign.opUnits.forEach(unit => {
+        // ⚡ v13.051: страховка — зона активна, а подсветка не выставлена
+        //    (например, ход сменился без processOrders) — берём зону как есть
+        if ((!unit.reconHighlightHexes || unit.reconHighlightHexes.length === 0) &&
+            typeof isReconZoneActive === 'function' && isReconZoneActive(unit)) {
+            unit.reconHighlightHexes = unit.reconZoneHexes;
+        }
         if (unit.reconHighlightHexes && unit.reconHighlightHexes.length > 0) {
             const [rCol, rRow] = (unit.reconHex || '0,0').split(',').map(Number);
-            const radius = unit.reconRadius || 2;
+            const radius = unit.reconRadius || RECON_RADIUS;
             
             ctx.save();
             ctx.fillStyle = 'rgba(52, 152, 219, 0.25)';
@@ -2553,6 +2638,14 @@ function handleOpMapClick(e) {
     const hexInfo = document.getElementById('opHexInfo');
     if (hexInfo) {
       hexInfo.textContent = `Гекс: ${closestKey}`;
+      // ⚡ v13.051 (R36#3): на гексе есть доступные правки карты (окопы /
+      //    подготовка позиций) — кнопки открытия редактора прямо здесь
+      if (typeof hexEditButtonsHtml === 'function') {
+        try {
+          const extra = hexEditButtonsHtml(closestKey);
+          if (extra) hexInfo.innerHTML = `Гекс: ${closestKey} · ` + extra;
+        } catch (e) { /* модуль карт гексов не загружен */ }
+      }
     }
   }
 
@@ -3863,6 +3956,16 @@ const ORDER_BEHAVIORS = {
     HOLD: 'hold',         // закрепиться и ждать
     RETREAT: 'retreat'    // отступить
 };
+// ⚡ v13.051 (R36#1): радиус зоны разведки (гексов от разведываемого гекса)
+const RECON_RADIUS = 3;
+// ⚡ v13.051 (R36#1): зона разведки юнита активна (подсвечена, раскрывает
+//    врагов) в ход выполнения приказа и в следующий ход
+function isReconZoneActive(u, turnNo) {
+    if (!u || !Array.isArray(u.reconZoneHexes) || u.reconZoneHexes.length === 0) return false;
+    if (u.reconActiveTurn === undefined || u.reconActiveTurn === null) return true;
+    const t = (turnNo !== undefined && turnNo !== null) ? turnNo : ((appData.campaign && appData.campaign.currentTurn) || 1);
+    return t <= u.reconActiveTurn && t >= u.reconActiveTurn - 1;
+}
 
 function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
     const order = {
@@ -3899,6 +4002,11 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         console.warn('createOrder: юнит не найден');
         return null;
     }
+    // ⚡ v13.051 (R36#4): поведение «при встрече с врагом» закрепляется за
+    //    юнитом СРАЗУ при отдаче приказа (а не только в момент исполнения):
+    //    пока приказ едет с посыльным, юнит не действует по старому поведению
+    //    (например, «штурмовать» из прошлого приказа → сам шёл в атаку).
+    if (order.behavior && orderType !== 'company_order') toUnit.behavior = order.behavior;
     
     // Проверяем связь
     const deliveryMethod = checkCommunication(fromUnit, toUnit);
@@ -4323,6 +4431,9 @@ function saveData() {
     } catch (e) {
         console.error('Ошибка сохранения:', e);
     }
+    // ⚡ v13.051 (R36#5): онлайн — состояние открытого тактического боя уходит
+    //    оппоненту (с задержкой ~1 с, только при изменениях)
+    if (typeof onlineBattleOnSave === 'function') { try { onlineBattleOnSave(); } catch (e) {} }
 }
 
     function resetAllData() {
@@ -4392,9 +4503,13 @@ function checkIdleUnits() {
     });
 }
       // ======== ПРИОРИТЕТ: СНА
-function startTacticalBattle(playerUnits, enemyUnits) {
+function startTacticalBattle(playerUnits, enemyUnits, opts) {
     console.log('startTacticalBattle вызван', playerUnits, enemyUnits);
     inStandaloneBattle = false; // ⚡ v13.045 (R30): контекст карт — кампания
+    // ⚡ v13.051 (R36#5): opts.silent — создать бой БЕЗ перехода на экран боя
+    //    (зеркало боя, начатого оппонентом в онлайн-матче, см. js/online_battles.js)
+    opts = opts || {};
+    const silentStart = !!opts.silent;
     
     // Если передан один юнит - превращаем в массив
     if (!Array.isArray(playerUnits)) {
@@ -4714,6 +4829,17 @@ function startTacticalBattle(playerUnits, enemyUnits) {
     };
     appData.campaign.activeBattles.push(newBattle);
     
+    // ⚡ v13.051 (R36#5): тихое создание (зеркало боя оппонента) — глобальные
+    //    тактические данные не трогаем, экран не переключаем
+    if (silentStart) {
+        newBattle.onlineMirror = true;
+        if (opts.mirrorOf && opts.mirrorOf.id !== undefined) newBattle.onlineOppBattleId = opts.mirrorOf.id;
+        saveData();
+        if (typeof renderActiveBattlesList === 'function') { try { renderActiveBattlesList(); } catch (e) {} }
+        if (typeof onlineBattleCreated === 'function') { try { onlineBattleCreated(newBattle); } catch (e) { console.warn('onlineBattleCreated:', e.message); } }
+        return newBattle;
+    }
+    
     // Подменяем глобальные данные
     appData.squads = playerSquads;
     appData.map = tacticalMap;
@@ -4726,6 +4852,8 @@ function startTacticalBattle(playerUnits, enemyUnits) {
     // ⚡ v13.024: список размещения заполняется сразу при создании боя
     refreshSquadToPlaceDropdown();
     saveData();
+    // ⚡ v13.051 (R36#5): онлайн — сообщаем оппоненту о начале боя (общий бой)
+    if (typeof onlineBattleCreated === 'function') { try { onlineBattleCreated(newBattle); } catch (e) { console.warn('onlineBattleCreated:', e.message); } }
 
     // ⚡ v13.042 (R27#11): старт боя — ФАЗА ВЫБОРА КАРТОЧЕК:
     //    до 3 бонусных (4-я бонусная → +1 случайная штрафная).
@@ -4817,6 +4945,8 @@ function saveCurrentBattleState() {
     battle.currentTurn = currentTurn;
     syncBattleLossesToCampaign(currentBattleId);
     saveData();
+    // ⚡ v13.051 (R36#5): онлайн — сразу отправляем состояние боя оппоненту
+    if (typeof onlinePushBattles === 'function') { try { onlinePushBattles(true); } catch (e) {} }
 }
 
 function returnToCampaign() {
@@ -4866,6 +4996,8 @@ function returnToCampaign() {
   updateOperationalTimeDisplay();
   renderActiveBattlesList(); 
   saveData();
+  // ⚡ v13.051 (R36#5): онлайн — бои оппонента, отложенные пока я был в этом бою
+  if (typeof onlineBattlesRecheck === 'function') { try { onlineBattlesRecheck(); } catch (e) {} }
 }
 function finishBattle() {
     const battleId = appData.currentBattleId;
@@ -4881,6 +5013,9 @@ function finishBattle() {
 
     // Синхронизируем потери
     syncBattleLossesToCampaign(battleId);
+
+    // ⚡ v13.051 (R36#5): онлайн — сообщаем оппоненту, что бой с моей стороны завершён
+    if (typeof onlineBattleFinished === 'function') { try { onlineBattleFinished(battle); } catch (e) { console.warn('onlineBattleFinished:', e.message); } }
 
     // ⚡ СНИМАЕМ ОТМЕТКУ "В БОЮ" СО ВСЕХ ЮНИТОВ
     if (appData.campaign.opUnits) {
@@ -4927,6 +5062,8 @@ function finishBattle() {
   updateOperationalTimeDisplay();
   renderActiveBattlesList();
   saveData();
+  // ⚡ v13.051 (R36#5): онлайн — бои оппонента, отложенные пока я был в этом бою
+  if (typeof onlineBattlesRecheck === 'function') { try { onlineBattlesRecheck(); } catch (e) {} }
 }
   
        
@@ -11021,6 +11158,8 @@ function rotateSelectedHex() {
   const epEl = document.getElementById('opEnemyPanel');
   if (epEl) epEl.style.display = appData.campaign.online ? 'none' : 'block';
   buildOperationalUnits();
+  // ⚡ v13.051 (R36#7): гексы размещения по умолчанию (один раз за кампанию)
+  try { if (typeof maybeAutoPlaceAtStart === 'function') maybeAutoPlaceAtStart(); } catch (e) { console.warn('maybeAutoPlaceAtStart:', e.message); }
   initOperationalMap();
   renderActiveBattlesList();
      appData.campaign.selectedOpUnit = null;
@@ -11186,15 +11325,15 @@ function processOrders() {
     healBattleFlags();
     dispatchQueuedOrders();
     
-    // ⚡ ЗОНА РАЗВЕДКИ (v13.018): показывается ТОЛЬКО в ход reconActiveTurn
-    //    (следующий за ходом проведения разведки), затем гаснет
+    // ⚡ ЗОНА РАЗВЕДКИ (v13.018 → v13.051 R36#1): подсвечена в ход выполнения
+    //    и в следующий ход (reconActiveTurn — последний активный ход), затем гаснет
     if (appData.campaign && appData.campaign.opUnits) {
         let reconChanged = false;
         const tNow = (appData.campaign.currentTurn || 1);
         appData.campaign.opUnits.forEach(u => {
             if (!u || u.reconActiveTurn === undefined) return;
-            if (tNow === u.reconActiveTurn) {
-                // В ход показа — зажигаем зону
+            if (tNow <= u.reconActiveTurn) {
+                // Зона активна — подсветка должна быть
                 if (!u.reconHighlightHexes && u.reconZoneHexes) {
                     u.reconHighlightHexes = u.reconZoneHexes;
                     reconChanged = true;
@@ -11468,9 +11607,10 @@ function executeArtilleryStrikeOrder(order) {
     // ⚡ v13.039 туман войны: вражеские юниты, по которым попал арт. обстрел,
     //    становятся видимы (эффект удара не спрячешь)
     if (isOnlineMatch && typeof ONLINE !== 'undefined' && ONLINE) {
+        // ⚡ v13.051 (R36#1): раскрытие — до конца СЛЕДУЮЩЕГО хода (не навсегда)
+        const untilT = ((appData.campaign && appData.campaign.currentTurn) || 1) + 1;
         targets.filter(t => t.isEnemy).forEach(t => {
-            if (t.unit && t.unit.id) ONLINE.fogVisible[t.unit.id] = true;
-            if (t.unit && t.unit.name) ONLINE.fogVisible[t.unit.name] = true;
+            if (typeof onlineRevealEnemy === 'function') onlineRevealEnemy(t.unit, untilT);
         });
         // ⚡ v13.042 (R27#1): отправляем защитнику данные о ПОТЕРЯХ —
         //    иначе урон виден только мне, а вкладка «Батальон» у него чистая
@@ -12798,6 +12938,19 @@ function executeMoveOrder(unit, order) {
 
  // Идём шаг за шагом, тратя все ОД
     let stepsTaken = 0;
+    // ⚡ v13.051 (R36#4): «закрепиться и ждать» / «атаковать» / «отступить» —
+    //    ИЗВЕСТНЫЙ (видимый) враг в 3 гексах проверяется ПЕРЕД КАЖДЫМ шагом, а
+    //    не после всего движения: юнит с «закрепиться» останавливается, как
+    //    только заметил врага, и никогда сам не входит на гекс видимого врага
+    //    (в атаку идёт только «штурмовать» или прямой приказ «атака»).
+    const knownEnemy = (e) => e && !e.isDestroyed && e.col !== null && e.row !== null &&
+        (!appData.campaign.online || typeof onlineEnemyVisible !== 'function' || onlineEnemyVisible(e));
+    const cautious = order.behavior && order.behavior !== 'assault' && order.behavior !== 'ignore';
+    // враги, которые были в 3 гексах уже В НАЧАЛЕ движения, — не «новая встреча»
+    // (иначе юнит рядом с известным врагом вообще не смог бы переместиться)
+    const nearAtStart = new Set((appData.campaign.enemyOpUnits || []).filter(e => knownEnemy(e) &&
+        getOpHexDistance(unit.col, unit.row, e.col, e.row) <= 3));
+    let stoppedByEnemy = false;
    for (let i = 0; i < fullRoute.length; i++) {
         const next = fullRoute[i];
         
@@ -12809,6 +12962,17 @@ function executeMoveOrder(unit, order) {
                 log(`❌ [${unit.name}] Приказ отменён: маршрут невалиден.`);
             }
             break;
+        }
+        if (cautious) {
+            const enemiesNear = (appData.campaign.enemyOpUnits || []).filter(e => knownEnemy(e) && !nearAtStart.has(e) &&
+                getOpHexDistance(unit.col, unit.row, e.col, e.row) <= 3);
+            const enemyOnNext = (appData.campaign.enemyOpUnits || []).some(e => knownEnemy(e) &&
+                e.col === next.col && e.row === next.row);
+            if (enemiesNear.length > 0 || enemyOnNext) {
+                stoppedByEnemy = true;
+                if (enemyOnNext) log(`🛑 [${unit.name}] Впереди (${next.col},${next.row}) видимый враг — без приказа «штурмовать» на его гекс не входим.`);
+                break;
+            }
         }
         
         // Стоимость шага на следующий гекс
@@ -12878,7 +13042,8 @@ function executeMoveOrder(unit, order) {
         log(`⏳ [${unit.name}] ОД закончились. Пройдено: ${stepsTaken} гексов. Цель: (${targetCol},${targetRow}). Продолжение в следующем ходу.`);
     }
     // После перемещения — проверка встречи с врагом (поведение)
-    if (stepsTaken > 0 && order.status !== 'completed' && order.status !== 'cancelled' &&
+    // ⚡ v13.051 (R36#4): и при остановке ПЕРЕД шагом из-за видимого врага
+    if ((stepsTaken > 0 || stoppedByEnemy) && order.status !== 'completed' && order.status !== 'cancelled' &&
         order.behavior && order.behavior !== 'ignore') {
         const encountered = checkEnemyEncounter(unit, order.behavior, order);
         if (encountered) {
@@ -12886,6 +13051,12 @@ function executeMoveOrder(unit, order) {
             redrawOperationalMap();
             renderActiveOrders();
             return;
+        }
+        if (stoppedByEnemy && order.behavior === 'hold') {
+            // враг виден, но checkEnemyEncounter его не взял (например, вне 3 гексов
+            // по своей метрике) — всё равно закрепляемся
+            order.status = 'completed';
+            log(`🛡️ [${unit.name}] Закрепился и ждёт приказа (замечен враг).`);
         }
     } 
     unit.movedThisTurn = true;
@@ -13074,8 +13245,11 @@ function executeReconOrder(unit, order) {
 
     unit.ap -= RECON_COST;
 
-    // ======== ЗОНА РАЗВЕДКИ: ОКРУЖНОСТЬ радиуса 2 гекса ========
-    const reconRadius = 2;
+    // ======== ЗОНА РАЗВЕДКИ: ОКРУЖНОСТЬ радиуса 3 гекса ========
+    // ⚡ v13.051 (R36#1): радиус 3 (было 2); зона подсвечивается СРАЗУ в ход
+    //    выполнения и остаётся до конца СЛЕДУЮЩЕГО хода; враги в зоне (в
+    //    пределах линии видимости) показываются сразу.
+    const reconRadius = RECON_RADIUS;
     const highlightHexes = [];
     for (let hRow = targetRow - reconRadius; hRow <= targetRow + reconRadius; hRow++) {
         for (let hCol = targetCol - reconRadius; hCol <= targetCol + reconRadius; hCol++) {
@@ -13091,26 +13265,33 @@ function executeReconOrder(unit, order) {
     unit.reconHex = `${targetCol},${targetRow}`;
     unit.reconRadius = reconRadius;
     unit.reconZoneHexes = highlightHexes;
-    // ⚡ Зона ПОДСВЕЧИВАЕТСЯ ТОЛЬКО НА СЛЕДУЮЩИЙ ход и гаснет в следующий за ним
+    // ⚡ v13.051: reconActiveTurn — ПОСЛЕДНИЙ ход, в который зона активна
+    //    (подсвечена и раскрывает врагов): текущий ход + следующий
     unit.reconActiveTurn = currentTurnNum + 1;
-    unit.reconHighlightHexes = null; // в ход проведения — ещё не показываем
+    unit.reconHighlightHexes = highlightHexes.slice(); // подсветка — сразу
 
     // Логируем результат разведки (врагов ищем в зоне)
     // ⚡ v13.046 (R31#14): холм/лес на линии видимости — враг НЕ обнаружен
     const enemiesFound = (appData.campaign.enemyOpUnits || []).filter(e =>
+        e && e.col !== null && e.row !== null &&
         highlightHexes.some(h => h.col === e.col && h.row === e.row) &&
         !e.isDestroyed &&
         !opLineOfSightBlocked(unit.col, unit.row, e.col, e.row)
     );
     if (enemiesFound.length > 0) {
         log(`🔍 [${unit.name}] Обнаружены враги в зоне разведки: ${enemiesFound.map(e => e.name).join(', ')}`);
-        enemiesFound.forEach(e => { e.detected = true; });
+        enemiesFound.forEach(e => {
+            e.detected = true;
+            // ⚡ v13.051 (R36#1): онлайн — раскрытие держится до конца следующего
+            //    хода (снапшот оппонента перезаписывает detected, но не это)
+            if (typeof onlineRevealEnemy === 'function') onlineRevealEnemy(e, currentTurnNum + 1);
+        });
     } else {
         log(`🔍 [${unit.name}] В зоне разведки врагов не обнаружено.`);
     }
 
     order.status = 'completed';
-    log(`✅ [${unit.name}] Разведка гекса (${targetCol},${targetRow}) выполнена (−${RECON_COST} ОД). Зона радиуса ${reconRadius} гекса будет подсвечена в следующем ходу.`);
+    log(`✅ [${unit.name}] Разведка гекса (${targetCol},${targetRow}) выполнена (−${RECON_COST} ОД). Зона радиуса ${reconRadius} гекса подсвечена до конца следующего хода.`);
 
     saveData();
     redrawOperationalMap();
@@ -14502,21 +14683,148 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
         default: return Infinity;
     }
 }
+// ⚡ v13.046 (R31#7) → v13.051 (R36#2): юнит, посаженный на БТР (который стоит
+//    на поле), считается РАЗМЕЩЁННЫМ — общая проверка для «Завершить
+//    размещение» (одиночка И онлайн: раньше onlineMarkPlaced делал свою
+//    проверку без этого исключения и не давал завершить размещение).
+function isOpUnitEmbarkedOnPlacedBtr(u) {
+    if (!u || !u.embarkedInBtr) return false;
+    const units = (appData.campaign && appData.campaign.opUnits) || [];
+    if (Array.isArray(u.btrIds) && u.btrIds.some(id => {
+        const b = units[id];
+        return b && b.col !== null && b.col !== undefined;
+    })) return true;
+    // страховка: БТР, у которого записан этот десант
+    return units.some(b => b && b !== u && (b.embarkedUnit === u.name || b.embarkedUnitId === units.indexOf(u)) &&
+        b.col !== null && b.col !== undefined);
+}
+function getUnplacedOpUnits() {
+    return ((appData.campaign && appData.campaign.opUnits) || []).filter(u =>
+        u && !u.isDestroyed && (u.col === null || u.col === undefined) && !isOpUnitEmbarkedOnPlacedBtr(u));
+}
+
+// ⚡ v13.051 (R36#7): АВТОРАЗМЕЩЕНИЕ — у каждого юнита есть гекс размещения по
+//    умолчанию (в зоне расстановки своей фракции); игрок может переставить
+//    любого до «✅ Завершить размещение» (📌 Размещение → юнит → гекс).
+//    ДОТы — к переднему краю зоны; штаб батальона, миномёты, артиллерия — в тыл;
+//    штабы рот — в середину; остальные — от центра зоны. Не более 2 юнитов на
+//    гекс (если места не хватило — до 4), только проходимые для юнита гексы.
+function getFactionPlacementHexes(scenario, faction) {
+    const out = [];
+    if (typeof isHexInPlacementZone !== 'function') return out;
+    const zones = (typeof SCENARIO_PLACEMENT_ZONES !== 'undefined' ? SCENARIO_PLACEMENT_ZONES : {})[scenario] || null;
+    const poly = zones ? zones[faction] : null;
+    const extras = (typeof zoneExtraHexes === 'function') ? zoneExtraHexes(scenario, faction) : [];
+    if ((!poly || !poly.length) && extras.length === 0) return out; // зоны нет — авторазмещения нет
+    for (let r = 0; r < OP_MAP_ROWS; r++) {
+        for (let c = 0; c < OP_MAP_COLS; c++) {
+            if (typeof isHexInPlayableArea === 'function' && !isHexInPlayableArea(scenario, c, r)) continue;
+            if (!isHexInPlacementZone(scenario, faction, c, r).ok) continue;
+            out.push({ col: c, row: r });
+        }
+    }
+    return out;
+}
+function autoPlaceUnplacedUnits(opts) {
+    opts = opts || {};
+    const camp = appData.campaign;
+    if (!camp || !Array.isArray(camp.opUnits)) return 0;
+    const mi = document.getElementById('mapInfo');
+    const say = (msg, color) => { if (mi) { mi.innerHTML = msg; mi.style.color = color || '#f1c40f'; } log(msg); };
+    if (typeof placementLocked !== 'undefined' && placementLocked) {
+        if (opts.manual) say('🔒 Размещение уже завершено — авторазмещение недоступно.', '#e67e22');
+        return 0;
+    }
+    const scenario = camp.scenario;
+    const faction = camp.playerFaction || ((camp.battalions && camp.battalions.player) || {}).faction;
+    const zone = getFactionPlacementHexes(scenario, faction);
+    if (zone.length === 0) {
+        if (opts.manual) say('⚠️ Для этого сценария/фракции нет зоны расстановки — разместите юнитов вручную.', '#e67e22');
+        return 0;
+    }
+    const unplaced = getUnplacedOpUnits().filter(u => !u.embarkedInBtr);
+    if (unplaced.length === 0) {
+        if (opts.manual) say('✅ Все юниты уже размещены. Переставить: 📌 Размещение → выбрать юнита → кликнуть гекс.', '#27ae60');
+        return 0;
+    }
+    const avg = (hs) => ({ col: hs.reduce((a, h) => a + h.col, 0) / hs.length, row: hs.reduce((a, h) => a + h.row, 0) / hs.length });
+    const cen = avg(zone);
+    const oppFaction = (faction === 'BeVe') ? 'A.I.R.F.' : 'BeVe';
+    const oppZone = getFactionPlacementHexes(scenario, oppFaction);
+    const front = oppZone.length ? avg(oppZone) : cen;
+    const dist2 = (h, p) => { const dc = h.col - p.col, dr = h.row - p.row; return dc * dc + dr * dr; };
+    const dFront = (h) => getOpHexDistance(h.col, h.row, Math.round(front.col), Math.round(front.row));
+    const fronts = zone.map(dFront);
+    const midFront = fronts.slice().sort((a, b) => a - b)[Math.floor(fronts.length / 2)];
+    const occ = {};
+    camp.opUnits.forEach(u => {
+        if (!u || u.isDestroyed || u.col === null || u.col === undefined) return;
+        const k = u.col + ',' + u.row;
+        occ[k] = (occ[k] || 0) + 1;
+    });
+    const isArtLike = (u) => ['mortar_battery', 'sau_battery', 'regimental_artillery', 'artillery_support'].includes(u.type) ||
+        /миномет|миномёт|САУ|артиллер/i.test(String(u.name || ''));
+    const category = (u) => {
+        if (isStaticOpUnit(u)) return 'front';
+        if (u.type === 'battalion_hq' || u.type === 'hq' || isArtLike(u)) return 'rear';
+        if (u.type === 'company_hq') return 'mid';
+        return 'center';
+    };
+    const orderFor = (cat) => {
+        const z = zone.slice();
+        if (cat === 'front') z.sort((a, b) => dFront(a) - dFront(b) || dist2(a, cen) - dist2(b, cen));
+        else if (cat === 'rear') z.sort((a, b) => dFront(b) - dFront(a) || dist2(a, cen) - dist2(b, cen));
+        else if (cat === 'mid') z.sort((a, b) => Math.abs(dFront(a) - midFront) - Math.abs(dFront(b) - midFront) || dist2(a, cen) - dist2(b, cen));
+        else z.sort((a, b) => dist2(a, cen) - dist2(b, cen) || dFront(a) - dFront(b));
+        return z;
+    };
+    const orders = { front: orderFor('front'), rear: orderFor('rear'), mid: orderFor('mid'), center: orderFor('center') };
+    const catRank = { front: 0, rear: 1, mid: 2, center: 3 };
+    const queue = unplaced.slice().sort((a, b) => catRank[category(a)] - catRank[category(b)]);
+    let placed = 0;
+    queue.forEach(u => {
+        const list = orders[category(u)];
+        const pick = (limit) => list.find(h => {
+            const k = h.col + ',' + h.row;
+            if ((occ[k] || 0) >= limit) return false;
+            let cost = Infinity;
+            try { cost = getOpMoveCost(u, h.col, h.row, h.col, h.row); } catch (e) { cost = 2; }
+            return isFinite(cost);
+        });
+        const h = pick(2) || pick(4);
+        if (!h) return;
+        u.col = h.col; u.row = h.row;
+        u.autoPlaced = true;
+        occ[h.col + ',' + h.row] = (occ[h.col + ',' + h.row] || 0) + 1;
+        placed++;
+    });
+    camp.autoPlacedOnce = true;
+    saveData();
+    if (typeof redrawOperationalMap === 'function') redrawOperationalMap();
+    if (typeof updateOpPlaceSelect === 'function') updateOpPlaceSelect();
+    if (camp.online && typeof onlinePushMyUnits === 'function') { try { onlinePushMyUnits(); } catch (e) {} }
+    const left = getUnplacedOpUnits().length;
+    say(`📍 Авторазмещение: расставлено ${placed} юнит(ов) в зоне расстановки${left ? ', не нашлось места для ' + left : ''}. ` +
+        'Переставить любого: 📌 Размещение → выбрать юнита в списке → кликнуть гекс. Затем «✅ Завершить размещение».', '#27ae60');
+    return placed;
+}
+// ⚡ v13.051 (R36#7): при первом выходе на карту (новая кампания / новый матч)
+//    все юниты получают гексы по умолчанию — один раз за кампанию
+function maybeAutoPlaceAtStart() {
+    const camp = appData.campaign;
+    if (!camp || camp.autoPlacedOnce) return 0;
+    if ((camp.currentTurn || 1) > 1) return 0;
+    if (typeof placementLocked !== 'undefined' && placementLocked) return 0;
+    if (camp.online && typeof ONLINE !== 'undefined' && ONLINE && ONLINE.match && ONLINE.match.status === 'playing') return 0;
+    if (getUnplacedOpUnits().length === 0) return 0;
+    return autoPlaceUnplacedUnits({ manual: false });
+}
 function finishPlacement() {
     // ⚡ v13.040 (R25#3): если есть неразмещённые юниты — НЕ блокируем
     //    кнопку «Разместить» и не подтверждаем готовность: просто сообщаем
     //    и даём продолжить размещение
     {
-        // ⚡ v13.046 (R31#7): юнит, посаженный на БТР (размещённый на поле),
-        //    считается РАЗМЕЩЁННЫМ — не блокирует «Завершить размещение»
-        const isEmbarkedOnPlacedBtr = (u) => {
-            if (!u.embarkedInBtr || !Array.isArray(u.btrIds)) return false;
-            return u.btrIds.some(id => {
-                const b = (appData.campaign.opUnits || [])[id];
-                return b && b.col !== null && b.col !== undefined;
-            });
-        };
-        const unplacedNow = (appData.campaign.opUnits || []).filter(u => (u.col === null || u.col === undefined) && !isEmbarkedOnPlacedBtr(u));
+        const unplacedNow = getUnplacedOpUnits();
         if (unplacedNow.length > 0) {
             const msg = '⚠️ Не размещено юнитов: ' + unplacedNow.length +
                 ((unplacedNow[0] && unplacedNow[0].name) ? ' (например: ' + unplacedNow[0].name + '...)' : '') +
@@ -14701,6 +15009,10 @@ function placeExistingEnemyOnHex(hex, enemyIdx, key) {
 
 function returnToCampaignFromMenu() {
   if (!appData.campaign.active || !appData.campaign.scenario) return;
+  // ⚡ v13.051 (R36#1): онлайн-кампания — сначала снова подписываемся на комнату
+  if (appData.campaign.online && typeof onlineEnsureSubscribed === 'function') {
+      try { onlineEnsureSubscribed(); } catch (e) { console.warn('onlineEnsureSubscribed:', e.message); }
+  }
   document.getElementById('mainMenu').style.display = 'none';
   document.getElementById('campaignApp').style.display = 'block';
   // Показываем карту операции или экран выбора сценария в зависимости от этапа
@@ -16529,7 +16841,9 @@ function unitCanBeDetected(unit) {
     if (!unit || unit.col === null || unit.row === null) return true;
     const enemies = ((appData.campaign && appData.campaign.enemyOpUnits) || []).filter(e =>
         e && !e.isDestroyed && e.col !== null && e.row !== null);
-    if (enemies.length === 0) return true; // обнаруживать некому
+    // ⚡ v13.051 (R36#1): обнаруживать некому — юнит НЕ обнаружен (раньше — «true»,
+    //    и до расстановки противника все юниты помечались обнаруженными)
+    if (enemies.length === 0) return false;
     let best = null, bestD = Infinity;
     enemies.forEach(e => {
         const d = getOpHexDistance(unit.col, unit.row, e.col, e.row);
@@ -16538,6 +16852,10 @@ function unitCanBeDetected(unit) {
     const moved = !!unit.movedThisTurn;
     const fired = !!unit.firedThisTurn;
     if (!moved && !fired && bestD > 2) return false;
+    // ⚡ v13.051 (R36#1): двигался, но не стрелял — заметен не дальше 4 гексов
+    //    (раньше — с любого расстояния: «видны все отряды противника»);
+    //    стрелял — вспышки/звук выдают с любой дистанции (при линии видимости)
+    if (!fired && bestD > 4) return false;
     if (opLineOfSightBlocked(best.col, best.row, unit.col, unit.row)) return false;
     return true;
 }
@@ -20232,10 +20550,13 @@ function checkEnemyEncounter(unit, behavior, order) {
     //    для остальных поведений — 3 гекса
     const searchRadius = (behavior === 'assault') ? 2 : 3;
     // Ищем обнаруженных врагов в радиусе
+    // ⚡ v13.051 (R36#4): только ИЗВЕСТНЫЕ (видимые сквозь туман) враги —
+    //    иначе юнит реагировал (и лог сообщал имя) на скрытых противников
     const enemies = (appData.campaign.enemyOpUnits || []).filter(e => 
-        e.col !== null && e.row !== null &&
+        e && e.col !== null && e.row !== null &&
         getOpHexDistance(unit.col, unit.row, e.col, e.row) <= searchRadius &&
-        !e.isDestroyed
+        !e.isDestroyed &&
+        (!appData.campaign.online || typeof onlineEnemyVisible !== 'function' || onlineEnemyVisible(e))
     );
     
     if (enemies.length === 0) return false;
@@ -20494,24 +20815,33 @@ function onlineBody(html) {
 }
 
 // Перейти из модалки в онлайн-кампанию (показываем campaignApp, прячем меню)
+// ⚡ v13.051 (R36#1): ре-джойн к комнате вынесен отдельно — вызывается и из
+//    «↩️ Вернуться к кампании» (раньше после перезагрузки страницы карта
+//    открывалась БЕЗ подписки на комнату: ONLINE.match был пуст, туман войны
+//    не считался — на карте были видны ВСЕ юниты противника).
+function onlineEnsureSubscribed() {
+    if (!(appData.campaign && appData.campaign.online && appData.campaign.online.code)) return false;
+    if (ONLINE.docRef) return true;
+    if (typeof onlineFirebaseReady !== 'function' || !onlineFirebaseReady()) return false;
+    const o = appData.campaign.online;
+    ONLINE.code = o.code;
+    ONLINE.role = o.role;
+    ONLINE.playerId = o.playerId || onlineGetPlayerId();
+    ONLINE.docRef = ONLINE.db.collection('matches').doc(o.code);
+    ONLINE.started = true;
+    ONLINE.lastPushedJson = null;
+    ONLINE.prevTurn = (ONLINE.match && typeof ONLINE.match.turn === 'number') ? ONLINE.match.turn : null;
+    ONLINE.advancedTurn = null;
+    ONLINE.announcedWait = false;
+    ONLINE.announcedOppDone = false;
+    onlineListen();
+    return true;
+}
+
 function onlineGoToCampaign() {
     // ⚡ v13.039: ре-джойн после перезагрузки страницы — снова подписываемся
     //    на комнату (код/роль/игрок — из сохранённого appData.campaign.online)
-    if (appData.campaign && appData.campaign.online && !ONLINE.docRef &&
-        typeof onlineFirebaseReady === 'function' && onlineFirebaseReady()) {
-        const o = appData.campaign.online;
-        ONLINE.code = o.code;
-        ONLINE.role = o.role;
-        ONLINE.playerId = o.playerId || onlineGetPlayerId();
-        ONLINE.docRef = ONLINE.db.collection('matches').doc(o.code);
-        ONLINE.started = true;
-        ONLINE.lastPushedJson = null;
-        ONLINE.prevTurn = (ONLINE.match && typeof ONLINE.match.turn === 'number') ? ONLINE.match.turn : null;
-        ONLINE.advancedTurn = null;
-        ONLINE.announcedWait = false;
-        ONLINE.announcedOppDone = false;
-        onlineListen();
-    }
+    onlineEnsureSubscribed();
     document.getElementById('onlineModal').style.display = 'none';
     document.getElementById('mainMenu').style.display = 'none';
     document.getElementById('campaignApp').style.display = 'block';
@@ -20947,7 +21277,9 @@ function onlineFirstTurnRole(players) {
 // «Завершить размещение» (закрепляется за finishPlacement)
 function onlineMarkPlaced() {    if (!ONLINE.docRef) return;
     const units = appData.campaign.opUnits || [];
-    const unplaced = units.filter(u => u.col === null || u.col === undefined);
+    // ⚡ v13.051 (R36#2): десант на БТР — размещён (общая проверка)
+    const unplaced = (typeof getUnplacedOpUnits === 'function') ? getUnplacedOpUnits()
+        : units.filter(u => u.col === null || u.col === undefined);
     if (unplaced.length > 0) {
         alert('⚠️ Не размещено юнитов: ' + unplaced.length + '. Разместите всех, затем «✅ Завершить размещение».');
         return;
@@ -21177,14 +21509,11 @@ function onlineApplyCloudState() {
         //    (нет поля — ещё не размещён / проверка ещё не делалась)  → скрыт
         //    Проверка делается в конце хода владельца юнита, поэтому результат
         //    доходит ко мне с передачей хода — юнит появляется в НАЧАЛЕ МОЕГО хода (R22#5).
-        newEnemy.forEach(u => {
-            if (!u || u.isDestroyed) return;
-            if (u.col === null || u.col === undefined) return; // ещё не размещён
-            if (u.detected === true) {
-                if (u.id) ONLINE.fogVisible[u.id] = true;   // ЛЕПЯЩИЙСЯ
-                if (u.name) ONLINE.fogVisible[u.name] = true;
-            }
-        });
+        // ⚡ v13.051 (R36#1): видимость по detected НЕ «липкая» — юнит виден,
+        //    ПОКА проверка обнаружения владельца говорит «обнаружен»; как только
+        //    он снова скрылся (detected=false в новом снапшоте) — исчезает.
+        //    (Раньше detected=true навсегда записывался в fogVisible — из-за этого
+        //    со временем становились видны ВСЕ юниты противника.)
     }
 
     // --- (b0) ⚡ v13.049 (R34): правки местности гексов от оппонента
@@ -21192,6 +21521,13 @@ function onlineApplyCloudState() {
     const oppHexOverlays = state[oppRole] && state[oppRole].hexOverlays;
     if (oppHexOverlays && typeof mergeHexOverlays === 'function') {
         try { if (mergeHexOverlays(oppHexOverlays)) saveData(); } catch (e) { console.warn('mergeHexOverlays:', e.message); }
+    }
+
+    // --- (b1) ⚡ v13.051 (R36#5): ОБЩИЕ ТАКТИЧЕСКИЕ БОИ — бой, начатый
+    //     оппонентом на гексе с моими юнитами, появляется и у меня
+    //     («⚔️ Текущие бои»); позиции/потери отрядов обеих сторон синхронны
+    if (typeof onlineApplyCloudBattles === 'function') {
+        try { onlineApplyCloudBattles(state); } catch (e) { console.warn('onlineApplyCloudBattles:', e.message); }
     }
 
     // --- (b) урон моим юнитам (из state.p<me>, который пушит оппонент) ---
@@ -21251,28 +21587,76 @@ function onlineApplyCloudState() {
 //    • уничтожен — известен
 //    Всё остальное (включая фазу размещения и detected=false) — СКРЫТО
 //    туманом войны.
+// ⚡ v13.051 (R36#1): «память» тумана — юнит оппонента раскрыт ДО КОНЦА хода N
+//    (разведка, попадание арт. обстрела). Хранится в appData.campaign.fogVisible
+//    (переживает перезагрузку страницы), ONLINE.fogVisible — ссылка на неё.
+function onlineFogMap() {
+    if (!appData.campaign) return {};
+    if (!appData.campaign.fogVisible || typeof appData.campaign.fogVisible !== 'object') {
+        appData.campaign.fogVisible = {};
+    }
+    if (typeof ONLINE !== 'undefined' && ONLINE && ONLINE.fogVisible !== appData.campaign.fogVisible) {
+        // перенос значений из старой (in-memory) карты: true → до конца следующего хода
+        const t = (appData.campaign.currentTurn || 1) + 1;
+        const oldMap = ONLINE.fogVisible || {};
+        Object.keys(oldMap).forEach(k => {
+            const v = oldMap[k];
+            const until = (typeof v === 'number') ? v : (v ? t : 0);
+            if (until && !(appData.campaign.fogVisible[k] >= until)) appData.campaign.fogVisible[k] = until;
+        });
+        ONLINE.fogVisible = appData.campaign.fogVisible;
+    }
+    return appData.campaign.fogVisible;
+}
+function onlineRevealEnemy(u, untilTurn) {
+    if (!u || !appData.campaign || !appData.campaign.online) return;
+    const fog = onlineFogMap();
+    const until = (typeof untilTurn === 'number') ? untilTurn : ((appData.campaign.currentTurn || 1) + 1);
+    [u.id, u.name].forEach(k => {
+        if (!k) return;
+        if (!(fog[k] >= until)) fog[k] = until;
+    });
+}
+function onlineFogRevealedUntil(u) {
+    if (!u) return 0;
+    const fog = onlineFogMap();
+    let best = 0;
+    [u.id, u.name].forEach(k => {
+        if (!k || fog[k] === undefined) return;
+        const v = fog[k];
+        const until = (typeof v === 'number') ? v : (v ? Infinity : 0);
+        if (until > best) best = until;
+    });
+    return best;
+}
 function onlineEnemyVisible(u) {
     if (!appData.campaign || !appData.campaign.online) return true;
-    if (typeof ONLINE === 'undefined' || !ONLINE.match) return true;
     if (!u) return false;
     if (u.isDestroyed) return true;
-    if (u.id && ONLINE.fogVisible[u.id]) return true;
-    if (u.name && ONLINE.fogVisible[u.name]) return true;
-    if (u.detected === true) return true; // 🔴 ОБНАРУЖЕН в конце хода владельца
-    // моя активная зона разведки (R20)
+    // ⚡ v13.051 (R36#1): до прихода первого снапшота (перезагрузка страницы,
+    //    возврат из меню) ONLINE.match ещё пуст — раньше здесь было
+    //    «return true», и на карте на время вспыхивали ВСЕ юниты противника.
+    //    Теперь туман считается по сохранённым данным.
     const t = appData.campaign.currentTurn || 1;
+    if (u.detected === true) return true; // 🔴 ОБНАРУЖЕН (пока не скроется снова)
+    if (onlineFogRevealedUntil(u) >= t) return true; // разведка / попадание обстрела
+    if (u.col === null || u.col === undefined || u.row === null || u.row === undefined) return false;
+    // моя активная зона разведки (R20 → v13.051: радиус 3, ход выполнения + следующий)
+    let inZone = false;
     (appData.campaign.opUnits || []).forEach(mu => {
-        if (!mu || !Array.isArray(mu.reconZoneHexes) || mu.reconZoneHexes.length === 0) return;
-        if (mu.reconActiveTurn !== undefined && mu.reconActiveTurn !== t) return;
-        mu.reconZoneHexes.forEach(h => {
-            if (h && h.col === u.col && h.row === u.row) {
-                if (u.id) ONLINE.fogVisible[u.id] = true;
-                if (u.name) ONLINE.fogVisible[u.name] = true;
-            }
-        });
+        if (inZone || !mu || !Array.isArray(mu.reconZoneHexes) || mu.reconZoneHexes.length === 0) return;
+        if (typeof isReconZoneActive === 'function' ? !isReconZoneActive(mu, t)
+            : (mu.reconActiveTurn !== undefined && t > mu.reconActiveTurn)) return;
+        if (mu.reconZoneHexes.some(h => h && h.col === u.col && h.row === u.row) &&
+            !(mu.col !== null && mu.row !== null && typeof opLineOfSightBlocked === 'function' &&
+              opLineOfSightBlocked(mu.col, mu.row, u.col, u.row))) {
+            inZone = true;
+        }
     });
-    if (u.id && ONLINE.fogVisible[u.id]) return true;
-    if (u.name && ONLINE.fogVisible[u.name]) return true;
+    if (inZone) {
+        onlineRevealEnemy(u, t); // виден до конца текущего хода (зона активна)
+        return true;
+    }
     return false;
 }
 
@@ -21687,6 +22071,8 @@ function onlineOnSnapshotSync() {
   <div id="ordersContainer" style="margin-top:4px;"></div>
 </div>
   <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Размещение</button>
+  <!-- ⚡ v13.051 (R36#7): авторазмещение неразмещённых юнитов в своей зоне -->
+  <button onclick="autoPlaceUnplacedUnits({ manual: true })" style="background:#16a085;">🎲 Авторазмещение</button>
   <button onclick="finishPlacement()" style="background:#27ae60;">✅ Завершить размещение</button>
   <button onclick="setOpMapMode('move')" style="background:#2980b9;">🚶 Перемещение</button>
   <button onclick="removeSelectedOpUnit()" style="background:#555;">🗑️ Удалить выбранного</button>
@@ -21699,6 +22085,9 @@ function onlineOnSnapshotSync() {
     <button onclick="showBtrDisembarkDialog()" id="btrDisembarkBtn" style="background:#e67e22; display:none;">🚶 Высадить из БТР</button>
 </div>
   <button onclick="checkOpDetection()" style="background:#8e44ad;">🔍 Проверить обнаружение</button>
+  <!-- ⚡ v13.051 (R36#3): вход в редактор карты гекса (окопы / подготовка позиций)
+       прямо с оперативной карты — раньше кнопка была только в скрытой панели «Вид» -->
+  <button id="opHexMapsBtn" onclick="showHexEditorsMenu()" style="background:#16a085;">🛠️ Карта гекса (окопы/подготовка)</button>
   <button id="opEndTurnBtn" onclick="endOperationalTurn()" style="background:#2980b9;">⏭️ Завершить ход</button>
 </div>
      <div id="vehiclePanel" style="display:none; margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
