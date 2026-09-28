@@ -52,7 +52,9 @@ const FNS = [
     'getConfiguredStartHex', 'buildStartPositionsCode', 'relocateMapInfo',
     // ⚡ v13.054 (R39#2/#4): уничтоженные юниты в батальоне; действия с карты боя
     'isOpUnitWipedOut', 'markOpUnitDestroyed', 'syncBattleLossesToCampaign', 'renderBattalionRoster',
-    'executeAttack', 'closeTargetModal', 'getCrewRole', 'handleHexAction', 'recalcReachable'
+    'executeAttack', 'closeTargetModal', 'getCrewRole', 'handleHexAction', 'recalcReachable',
+    // ⚡ v13.055 (R39#3): размещение перед боем — откуда вошёл юнит
+    'opRecordPrevPos', 'switchToBattle', 'placeExistingEnemyOnHex', 'nextTurn'
 ];
 
 let pass = 0, fail = 0;
@@ -795,7 +797,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.054'"), 'U9q: константа версии v13.054');
+    ok(HTML.includes("var APP_VERSION = 'v13.055'"), 'U9q: константа версии v13.055');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -1319,7 +1321,7 @@ console.log('\n== U18. v13.050: реальные карты гексов пол�
         'U18m: библиотека редактора показывает карты гексов отдельной группой');
     // сервис-воркер: ядро строго, остальное мягко; карты гексов — из индекса
     const sw = fs.readFileSync(path.join(root, 'service-worker.js'), 'utf8');
-    ok(sw.includes("const CACHE_NAME = 'wargame-v13.054'"), 'U18n: SW — кэш wargame-v13.054');
+    ok(sw.includes("const CACHE_NAME = 'wargame-v13.055'"), 'U18n: SW — кэш wargame-v13.055');
     ok(sw.includes('cache.addAll(CORE_ASSETS)') && sw.includes('precacheSoft(cache, soft)') && sw.includes('precacheHexMaps(cache)') &&
        !/return cache\.addAll\(ASSETS\)/.test(sw),
         'U18o: SW — ядро (index/js/css) строго, картинки/карты мягко, карты гексов — по index.json (одна пропавшая картинка не срывает обновление)');
@@ -2090,10 +2092,166 @@ console.log('\n== Y. v13.054 (R39#2/#4): уничтоженные юниты о�
         ok(hooks.includes(k), 'Y4b: функция атаки «' + k + '» сообщает результат (reportAttackOutcome)');
     });
     const sw = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
-    ok(/wargame-v13\.054/.test(sw) && /js\/map_actions\.js/.test(sw), 'Y4c: service-worker: кэш v13.054, map_actions.js в precache');
+    ok(/wargame-v13\.05[5-9]/.test(sw) && /js\/map_actions\.js/.test(sw), 'Y4c: service-worker: кэш ≥ v13.055, map_actions.js в precache');
     ok(/id="battleMapActionPanel"/.test(HTML), 'Y4d: панель #battleMapActionPanel есть под картой боя');
     ok(/isVehicle: !!squad\.isVehicle,\s*armor: squad\.armor \|\| null,\s*opUnitName: squad\.opUnitName \|\| null/.test(HTML), 'Y4e: враги на тактической карте несут isVehicle/armor/opUnitName (для проверок цели и пробитий)');
     ok(/appData\.map\.selectedMoveSquadIdx = selectedIdx;\s*recalcReachable\(squad, key\);/.test(HTML), 'Y4f: после перемещения отряд остаётся выбранным (можно сразу стрелять)');
+}
+
+// ============================================================
+console.log('\n== Z. v13.055 (R39#3): размещение перед боем — атакующий у края входа, обороняющийся вне зоны, онлайн скрыто до готовности обоих ==');
+{
+    const plSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'placement.js'), 'utf8');
+    const obSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'online_battles.js'), 'utf8');
+    const maSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'map_actions.js'), 'utf8');
+    // --- Z1: геометрия: направление между гексами оперативной карты (odd-r), зоны на карте боя ---
+    const g = makeSandbox(freshAppData());
+    g.run('var TACTICAL_MAP_SIZE = 15;'); g.run(plSrc);
+    const dirs = g.evalCtx('[opDirectionBetween(5,4, 6,4), opDirectionBetween(5,4, 4,4), opDirectionBetween(5,4, 5,3), opDirectionBetween(5,4, 4,3), opDirectionBetween(5,4, 5,5), opDirectionBetween(5,4, 4,5), ' +
+        'opDirectionBetween(5,5, 6,4), opDirectionBetween(5,5, 5,4), opDirectionBetween(5,5, 6,6), opDirectionBetween(5,5, 5,6), opDirectionBetween(5,5, 9,5), opDirectionBetween(5,5, 1,5), opDirectionBetween(5,5,5,5)]');
+    ok(JSON.stringify(dirs) === JSON.stringify(['E','W','NE','NW','SE','SW','NE','NW','SE','SW','E','W',null]),
+        'Z1a: направления к 6 соседям (чётный и нечётный ряд), к дальним гексам, к себе — null', JSON.stringify(dirs));
+    const zW = g.evalCtx('placementZoneKeys("W", 15)'), zE = g.evalCtx('placementZoneKeys("E", 15)'), zNE = g.evalCtx('placementZoneKeys("NE", 15)'), zSW = g.evalCtx('placementZoneKeys("SW", 20)');
+    ok(zW.length === 45 && zW.every(k => parseInt(k) < 3) && zE.length === 45 && zE.every(k => parseInt(k) >= 12), 'Z1b: вход с запада/востока — полоса 3 столбца у левого/правого края (45 клеток на 15×15)');
+    ok(zNE.length === 39 && zNE.includes('14,0') && zNE.includes('7,0') && !zNE.includes('6,0') && zNE.includes('14,7') && !zNE.includes('14,8') && zNE.includes('12,2') && !zNE.includes('11,3') && !zNE.includes('0,0'),
+        'Z1c: диагональный вход (СВ) — угол: полоса 3 ряда вдоль двух краёв у правого верхнего угла (39 клеток)', zNE.length);
+    ok(zSW.length === 51 && zSW.includes('0,19') && zSW.includes('9,19') && !zSW.includes('10,19') && zSW.includes('0,10') && !zSW.includes('0,9'), 'Z1d: ЮЗ-угол на 20×20 — 51 клетка у левого нижнего угла');
+    // --- Z2: кто атакует и откуда вошёл ---
+    g.run('var pendingBattleEntry = null; appData.campaign.opUnits = [{ name: "Свой", col: 8, row: 10, prevCol: 7, prevRow: 10 }, { name: "Штаб", col: 3, row: 10 }];' +
+          'appData.campaign.enemyOpUnits = [{ name: "Враг", col: 8, row: 10, prevCol: 8, prevRow: 9 }];');
+    const e1 = g.evalCtx('resolveBattleEntry([appData.campaign.opUnits[0]], [appData.campaign.enemyOpUnits[0]], "8,10", {})');
+    ok(e1.attackerSide === 'player' && e1.entryDir === 'W' && e1.source === 'move', 'Z2a: наш юнит пришёл с запада (prevCol/prevRow) → атакуем мы, вход с запада', JSON.stringify(e1));
+    g.run('pendingBattleEntry = { attackerSide: "enemy", unit: appData.campaign.enemyOpUnits[0] };');
+    const e2 = g.evalCtx('resolveBattleEntry([appData.campaign.opUnits[0]], [appData.campaign.enemyOpUnits[0]], "8,10", {})');
+    ok(e2.attackerSide === 'enemy' && e2.entryDir === 'NE' && g.evalCtx('pendingBattleEntry') === null, 'Z2b: враг вручную перемещён на наш гекс (pendingBattleEntry) → атакует враг, вошёл с северо-востока; метка сброшена', JSON.stringify(e2));
+    g.run('delete appData.campaign.opUnits[0].prevCol; delete appData.campaign.opUnits[0].prevRow;');
+    const e3 = g.evalCtx('resolveBattleEntry([appData.campaign.opUnits[0]], [appData.campaign.enemyOpUnits[0]], "8,10", {})');
+    ok(e3.attackerSide === 'player' && e3.entryDir === 'W' && e3.source === 'fallback', 'Z2c: предыдущий гекс неизвестен → сторона ближайшего своего юнита (штаб на западе)', JSON.stringify(e3));
+    const e4 = g.evalCtx('resolveBattleEntry([appData.campaign.opUnits[0]], [appData.campaign.enemyOpUnits[0]], "8,10", { mirrorOf: { attacker: "me", entryDir: "SE" } })');
+    ok(e4.attackerSide === 'enemy' && e4.entryDir === 'SE' && e4.source === 'online', 'Z2d: зеркало онлайн-боя: атакует оппонент (attacker=me у него), сторона входа из облака (ЮВ)', JSON.stringify(e4));
+    ok(/opRecordPrevPos\(unit\);[^\n]*\n\s*unit\.col = (nextStep|next|step)\.col;/.test(HTML) && (HTML.match(/opRecordPrevPos\(/g) || []).length >= 14 &&
+       /pendingBattleEntry = \{ attackerSide: 'enemy', unit: selectedEnemy \}/.test(HTML),
+        'Z2e: перед каждым шагом на оперативной карте запоминается предыдущий гекс; ручное перемещение врага на наш гекс → атакует враг');
+    // --- Z3: сквозной старт боя → фаза размещения, правила зон, блокировка действий, «✅ Размещение завершено» ---
+    const s2 = makeSandbox(freshAppData());
+    ['ensureAP','renderSquadSelector','updateUI','refreshSquadToPlaceDropdown','activateBattleTab','saveData','initMap','renderEnemySquads','updateTimeDisplay','renderMapTemplates','closeTargetModal','resetMapZoom','updateSquadDropdown','updateEnemyDropdown','updateEnemyFactionDropdown','populateTerrainSelect']
+        .forEach(fn => s2.run(`if (typeof ${fn} !== 'function') ${fn} = function(){};`));
+    s2.run('var TACTICAL_MAP_SIZE = 20; var currentTurn = 1; var inStandaloneBattle = false; var pendingBattleEntry = null; var pendingAttack = null; var actionPoints = {}; var currentSquadIndex = -1; var currentSquad = null;' +
+           'var __alerts = []; alert = function(m) { __alerts.push(String(m)); }; var __logs = []; log = function(m) { __logs.push(String(m)); }; var __cards = 0; openCardsTabForBattleStart = function() { __cards++; };' +
+           'function selectSquad(i) { currentSquadIndex = i; currentSquad = appData.squads[i]; } function calculateReachableHexes() { return {}; } function spendAP() { return true; } var __redraws = 0; redrawMap = function() { __redraws++; };' +
+           'setMapMode = function(m) { appData.map.mode = m; appData.map.selectedMoveSquadIdx = null; }; checkNightTime = function(){}; resetAP = function(){}; updateTimeDisplay = function(){};' +
+           'console = { log: function(){}, warn: function(){}, error: function(){} };');
+    s2.run(maSrc); s2.run(plSrc);
+    s2.run('appData.campaign.activeBattles = []; appData.campaign.hexOverlays = {};' +
+           'appData.campaign.opUnits = [{ name: "Взвод А", type: "platoon", col: 8, row: 10, prevCol: 9, prevRow: 10, faction: "BeVe", isDestroyed: false, squads: [{name:"Отд 1", faction:"BeVe", fighters:[{name:"a",hp:3,maxHp:3,weapon:"Винтовка"}]}, {name:"Отд 2", faction:"BeVe", fighters:[{name:"a2",hp:3,maxHp:3,weapon:"Винтовка"}]}] }];' +
+           'appData.campaign.enemyOpUnits = [{ name: "Враг Б", type: "platoon", col: 8, row: 10, faction: "A.I.R.F.", isDestroyed: false, squads: [{name:"Вр 1", faction:"A.I.R.F.", fighters:[{name:"b",hp:3,maxHp:3,weapon:"Винтовка"}]}] }];' +
+           'var __err = null; try { startTacticalBattle(appData.campaign.opUnits[0], appData.campaign.enemyOpUnits[0]); } catch (e) { __err = e.stack; }');
+    const pl = s2.evalCtx('appData.campaign.activeBattles[0].placement');
+    ok(s2.evalCtx('__err') === null && pl && pl.attackerSide === 'player' && pl.entryDir === 'E' && pl.phase === 'placing' && !pl.playerReady,
+        'Z3a: старт боя: юнит вошёл с востока → в записи боя placement {атакуем мы, вход E, фаза размещения}', s2.evalCtx('__err') || JSON.stringify(pl));
+    ok(s2.evalCtx('appData.map.mode') === 'place' && s2.evalCtx('__cards') === 0 && s2.evalCtx('__alerts.some(a => /Сначала разместите отряды/.test(a))') === true &&
+       s2.evalCtx('__alerts.some(a => /Вы — АТАКУЮЩИЙ/.test(a) && /с востока/.test(a))') === true,
+        'Z3b: сначала фаза размещения (режим «Разместить», подсказка «вы — атакующий, вход с востока»), карточки — потом');
+    const panel = s2.elements['battlePlacementPanel'];
+    ok(panel && panel.style.display === 'block' && /АТАКУЮЩИЙ/.test(panel.innerHTML) && /размещено <b>0\/2<\/b>/.test(panel.innerHTML) && /placementFinish\(\)/.test(panel.innerHTML) && /Отряды противника: размещено <b>0\/1<\/b>/.test(panel.innerHTML),
+        'Z3c: панель размещения: роль, счётчики своих/вражеских, кнопка «✅ Размещение завершено»');
+    // блокировки до завершения размещения
+    s2.run('appData.map.mode = "move"; handleHexAction("10,10");');
+    ok(/Сначала завершите размещение/.test(s2.elements['mapInfo'].innerHTML), 'Z3d: ход отрядом до завершения размещения — запрещён с подсказкой');
+    s2.run('appData.map.mode = "place"; currentTurn = 1; try { nextTurn(); } catch (e) {} mapAction("smallArms");');
+    ok(s2.evalCtx('currentTurn') === 1 && s2.evalCtx('__alerts.filter(a => /Сначала завершите размещение/.test(a)).length') >= 1 && /Сначала завершите размещение/.test(s2.elements['mapInfo'].innerHTML),
+        'Z3e: «Завершить ход» и действия с карты — тоже заблокированы');
+    // правила зон: атакующий — только в полосе 3 столбца у правого края (17..19)
+    s2.run('document.getElementById("squadToPlace").value = "0"; handleHexAction("10,10");');
+    ok(/⛔/.test(s2.elements['mapInfo'].innerHTML) && /зоне входа/.test(s2.elements['mapInfo'].innerHTML) && s2.evalCtx('appData.map.grid["10,10"].squadIds.length') === 0,
+        'Z3f: атакующий вне своей зоны (10,10) — отказ с пояснением');
+    s2.run('handleHexAction("18,5");');
+    ok(s2.evalCtx('appData.map.grid["18,5"].squadIds[0]') === 0 && /размещён/.test(s2.elements['mapInfo'].innerHTML), 'Z3g: атакующий в зоне (18,5) — размещён');
+    // обороняющийся (враг) — вне зоны атакующего
+    s2.run('placeExistingEnemyOnHex(appData.map.grid["19,10"], 0, "19,10");');
+    ok(s2.evalCtx('appData.map.grid["19,10"].enemySquadIds.length') === 0 && /⛔/.test(s2.elements['mapInfo'].innerHTML) && /обороняется/.test(s2.elements['mapInfo'].innerHTML),
+        'Z3h: враг-обороняющийся в зоне атакующего (19,10) — отказ');
+    s2.run('placeExistingEnemyOnHex(appData.map.grid["5,10"], 0, "5,10");');
+    ok(s2.evalCtx('appData.map.grid["5,10"].enemySquadIds[0]') === 0, 'Z3i: враг вне зоны (5,10) — размещён');
+    // завершение: нарушение → отказ; резерв → confirm; затем фаза done, действия разрешены
+    s2.run('appData.map.grid["18,5"].squadIds = []; appData.map.grid["3,3"].squadIds = [0]; var __fin1 = placementFinish();');
+    ok(s2.evalCtx('__fin1') === false && s2.evalCtx('__alerts.some(a => /Вне своей зоны: Отд 1 \\(3,3\\)/.test(a))') === true && s2.evalCtx('appData.campaign.activeBattles[0].placement.phase') === 'placing',
+        'Z3j: «Размещение завершено» при отряде вне зоны — отказ с именем и гексом');
+    s2.run('appData.map.grid["3,3"].squadIds = []; appData.map.grid["18,5"].squadIds = [0]; var __confirms = []; confirm = function(m) { __confirms.push(String(m)); return true; }; var __fin2 = placementFinish();');
+    const pl2 = s2.evalCtx('appData.campaign.activeBattles[0].placement');
+    ok(s2.evalCtx('__fin2') === true && pl2.phase === 'done' && pl2.playerReady && pl2.enemyReady && s2.evalCtx('__confirms.some(m => /Не размещены: Отд 2/.test(m))') === true &&
+       s2.evalCtx('__cards') === 1 && s2.evalCtx('__alerts.some(a => /бой на гексе \\(8,10\\) начинается/.test(a))') === true && s2.elements['battlePlacementPanel'].style.display === 'none',
+        'Z3k: офлайн: один «✅ Размещение завершено» (резерв — по подтверждению) → фаза done, объявление, панель скрыта, дальше — карточки');
+    s2.run('var __ntErr = null; try { nextTurn(); } catch (e) { __ntErr = e.message; }');
+    ok(s2.evalCtx('currentTurn') === 2 && s2.evalCtx('placementPendingReason()') === null, 'Z3l: после размещения ход завершается, действия разрешены', s2.evalCtx('__ntErr'));
+    ok(s2.evalCtx('placementCheckPlace("player", "3,3", true)') === null && /⛔/.test(s2.evalCtx('placementCheckPlace("player", "3,3", false) || ""')),
+        'Z3m: после размещения перестановка уже стоящих отрядов свободна, а новые (подкрепление) — по-прежнему в своей зоне');
+    // --- Z4: онлайн: одновременное размещение, расстановка противника скрыта до готовности обоих ---
+    const A = makeSandbox(freshAppData()), B = makeSandbox(freshAppData());
+    const setupOnline = (d, role) => {
+        d.run(`var ONLINE = { match: null, fogVisible: {}, role: "${role}", docRef: null }; var currentTurn = 1; var __updates = []; var __alerts = []; var __logs = []; var TACTICAL_MAP_SIZE = 15;`);
+        d.run('ONLINE.docRef = { update: function(o) { __updates.push(o); return Promise.resolve(); } }; alert = function(m) { __alerts.push(String(m)); }; log = function(m) { __logs.push(String(m)); };' +
+              `appData.campaign.online = { code: "ABCD", role: "${role}", playerId: "${role}" }; function onlineOppRole() { return "${role === 'p1' ? 'p2' : 'p1'}"; } function onlineRevealEnemy() {} var pendingBattleEntry = null;` +
+              'redrawMap = function(){}; updateUI = function(){}; renderActiveBattlesList = function(){}; setMapMode = function(m) { appData.map.mode = m; }; activateBattleTab = function(){}; var __cards = 0; openCardsTabForBattleStart = function() { __cards++; };');
+        d.run(plSrc); d.run(obSrc);
+    };
+    setupOnline(A, 'p1'); setupOnline(B, 'p2');
+    const mkGrid = 'var g = {}; for (var c = 0; c < 15; c++) for (var r = 0; r < 15; r++) g[c+","+r] = { type: "grass", squadIds: [], enemySquadIds: [], markers: [] }; return g';
+    A.run('appData.currentBattleId = 77; appData.campaign.activeBattles = [{ id: 77, hexKey: "8,10", currentTurn: 1, playerUnitNames: ["Взвод А"], enemyUnitNames: ["Враг Б"], playerSquads: [], enemySquads: [] }];' +
+          'initBattlePlacement(appData.campaign.activeBattles[0], "player", "E", "move");' +
+          'appData.squads = [{ name: "Отд 1", faction: "BeVe", fighters: [{ name: "a1", hp: 3, maxHp: 3 }] }];' +
+          'appData.map = { grid: (function(){ ' + mkGrid + '; })(), mapSize: 15, mode: "place", enemySquads: [{ name: "Вр 1", faction: "A.I.R.F.", fighters: [{ name: "b1", hp: 3, maxHp: 3 }] }] };' +
+          'appData.map.grid["13,7"].squadIds = [0]; onlineBattleCreated(appData.campaign.activeBattles[0]);');
+    const snapA1 = A.evalCtx('__updates[__updates.length - 1]["state.p1.battles"].h8_10');
+    ok(snapA1.placed === false && snapA1.attacker === 'me' && snapA1.entryDir === 'E' && snapA1.squads[0].pos === null,
+        'Z4a: снапшот атакующего до готовности: placed=false, attacker=me, entryDir=E, позиции отрядов НЕ передаются', JSON.stringify({ p: snapA1.placed, a: snapA1.attacker, d: snapA1.entryDir, pos: snapA1.squads[0].pos }));
+    // B: зеркало (стаб startTacticalBattle с реальными resolveBattleEntry/initBattlePlacement)
+    B.run('appData.campaign.opUnits = [{ name: "Враг Б", col: 8, row: 10, faction: "A.I.R.F.", squads: [{ name: "Вр 1", fighters: [{ name: "b1", hp: 3, maxHp: 3 }] }] }];' +
+          'appData.campaign.enemyOpUnits = [{ name: "Взвод А", col: 8, row: 10, faction: "BeVe", side: "enemy", squads: [{ name: "Отд 1", fighters: [{ name: "a1", hp: 3, maxHp: 3 }] }] }];' +
+          'startTacticalBattle = function(my, opp, opts) { const bb = { id: 555, hexKey: "8,10", currentTurn: 1, playerUnitNames: my.map(u => u.name), enemyUnitNames: opp.map(u => u.name), ' +
+          '  playerSquads: [{ name: "Вр 1", fighters: [{ name: "b1", hp: 3, maxHp: 3 }] }], enemySquads: [], tacticalMap: { mapSize: 15, grid: (function(){ ' + mkGrid + '; })(), enemySquads: [] } };' +
+          '  const en = resolveBattleEntry(my, opp, "8,10", opts); initBattlePlacement(bb, en.attackerSide, en.entryDir, en.source); appData.campaign.activeBattles.push(bb); return bb; };');
+    B.run('onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(snapA1) + ' } } });');
+    const plB = B.evalCtx('appData.campaign.activeBattles[0].placement');
+    ok(plB && plB.attackerSide === 'enemy' && plB.entryDir === 'E' && plB.phase === 'placing' && plB.enemyReady === false && B.evalCtx('placementNeedsMyAction(appData.campaign.activeBattles[0])') === true,
+        'Z4b: у атакованного зеркало боя: атакует противник, вход с востока (та же сторона карты), ждёт МОЕГО размещения', JSON.stringify(plB));
+    // B открывает бой и размещается вне зоны (E-полоса = столбцы 12..14): 3,7 — можно, 13,7 — нельзя
+    B.run('appData.currentBattleId = 555; appData.squads = appData.campaign.activeBattles[0].playerSquads; appData.map = appData.campaign.activeBattles[0].tacticalMap; appData.map.mode = "place";');
+    ok(/⛔/.test(B.evalCtx('placementCheckPlace("player", "13,7", false) || ""')) && B.evalCtx('placementCheckPlace("player", "3,7", false)') === null, 'Z4c: обороняющийся: в зоне атакующего (13,7) нельзя, вне неё (3,7) можно');
+    B.run('appData.map.grid["3,7"].squadIds = [0]; __updates.length = 0; confirm = function() { return true; }; var __finB = placementFinish();');
+    const snapB1 = B.evalCtx('__updates[__updates.length - 1]["state.p2.battles"].h8_10');
+    ok(B.evalCtx('__finB') === true && B.evalCtx('appData.campaign.activeBattles[0].placement.playerReady') === true && B.evalCtx('appData.campaign.activeBattles[0].placement.phase') === 'placing' &&
+       snapB1.placed === true && snapB1.squads[0].pos === '3,7' && B.evalCtx('__alerts.some(a => /Ждём, пока противник/.test(a))') === true && B.evalCtx('__cards') === 1,
+        'Z4d: B готов → снапшот с placed=true и позициями; фаза у B ещё «размещение» (ждём A), можно выбирать карточки');
+    // A получает готовность B, но сам ещё не готов → позиции B скрыты
+    A.run('onlineApplyCloudBattles({ p2: { battles: { h8_10: ' + JSON.stringify(snapB1) + ' } } });');
+    ok(A.evalCtx('appData.campaign.activeBattles[0].placement.enemyReady') === true && A.evalCtx('appData.campaign.activeBattles[0].placement.phase') === 'placing' &&
+       A.evalCtx('Object.keys(appData.map.grid).filter(k => appData.map.grid[k].enemySquadIds.length).length') === 0 && A.evalCtx('placementPendingReason()') !== null,
+        'Z4e: A видит «противник готов», но его расстановка скрыта (на сетке врагов нет), действия у A всё ещё заблокированы');
+    // A завершает → пуш + повторное применение облака → расстановка B видна, фаза done
+    A.run('ONLINE.match = { status: "playing", state: { p2: { battles: { h8_10: ' + JSON.stringify(snapB1) + ' } } } }; __updates.length = 0; confirm = function() { return true; }; var __finA = placementFinish();');
+    const snapA2 = A.evalCtx('__updates.map(u => u["state.p1.battles"] && u["state.p1.battles"].h8_10).filter(Boolean).pop()');
+    ok(A.evalCtx('__finA') === true && A.evalCtx('appData.campaign.activeBattles[0].placement.phase') === 'done' && A.evalCtx('appData.map.grid["3,7"].enemySquadIds[0]') === 0 &&
+       snapA2 && snapA2.placed === true && snapA2.squads[0].pos === '13,7' && A.evalCtx('placementPendingReason()') === null && A.evalCtx('__alerts.some(a => /Расстановка противника открыта/.test(a))') === true,
+        'Z4f: A готов → оба готовы: расстановка B (3,7) появилась у A, снапшот A с позициями, бой начинается');
+    // B получает готовность A → фаза done, позиции A применены
+    B.run('__alerts.length = 0; onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(snapA2) + ' } } });');
+    ok(B.evalCtx('appData.campaign.activeBattles[0].placement.phase') === 'done' && B.evalCtx('appData.map.grid["13,7"].enemySquadIds[0]') === 0 && B.evalCtx('placementPendingReason()') === null &&
+       B.evalCtx('__alerts.some(a => /бой на гексе \\(8,10\\) начинается/.test(a))') === true && /размещение/.test(B.evalCtx('onlineBattleStatusHtml(appData.campaign.activeBattles[0])')) === false,
+        'Z4g: B получил готовность A → расстановка A (13,7) видна, бой начинается у обоих; строка статуса без пометки «размещение»');
+    // старые бои без placement — без ограничений
+    const legacy = makeSandbox(freshAppData());
+    legacy.run('var TACTICAL_MAP_SIZE = 20;'); legacy.run(plSrc);
+    legacy.run('appData.currentBattleId = 1; appData.campaign.activeBattles = [{ id: 1, hexKey: "1,1" }]; appData.map = { grid: {}, mode: "place" };');
+    ok(legacy.evalCtx('placementPendingReason()') === null && legacy.evalCtx('placementCheckPlace("player", "0,0", false)') === null, 'Z4h: бой из старого сейва (без placement) — без ограничений и блокировок');
+    // --- Z5: статика ---
+    ok(/<script src="js\/placement\.js"><\/script>/.test(HTML) && /id="battlePlacementPanel"/.test(HTML) && /drawPlacementZone\(ctx, size\)/.test(HTML) && /renderPlacementPanel\(\)/.test(HTML),
+        'Z5a: модуль подключён, панель размещения и подсветка зоны на карте боя');
+    ok(/battleStartUI\(newBattle\)/.test(HTML) && /battleStartUI\(existingBattle\)/.test(HTML) && /battleStartUI\(battle\)/.test(HTML), 'Z5b: новый бой / вступление в идущий / возврат в бой — сначала размещение, потом карточки');
+    const sw = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
+    ok((sw.match(/'\.\/js\/placement\.js'/g) || []).length === 2 && /wargame-v13\.055/.test(sw), 'Z5c: service-worker: js/placement.js в обоих списках, кэш v13.055');
+    ok(/placed: myPlaced,\s*attacker:/.test(obSrc) && /pos: myPlaced \? \(pos\[i\] \|\| null\) : null/.test(obSrc) && /if \(!oppPositionsVisible\) return;/.test(obSrc),
+        'Z5d: онлайн-протокол: placed/attacker/entryDir в снапшоте, позиции — только после готовности, приём позиций — только когда готовы оба');
 }
 
 function finishProbe() {

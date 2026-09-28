@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.054 — операция</title>
+  <title>Боевой модуль v13.055 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -13,7 +13,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.054</h1>
+    <h1>⚔️ Боевой модуль v13.055</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -27,7 +27,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041: версия + принудительное обновление (старый кэш сервис-воркера) -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.054</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.055</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
   </div>
@@ -58,7 +58,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.054 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.055 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -224,6 +224,8 @@
     <div id="battleMapInfoSlot"><div id="mapInfo" style="margin-top:6px; font-size:0.9rem; color:#aaa;"></div></div>
     <!-- ⚡ v13.053 (R38#3): правки карты ИМЕННО ЭТОГО гекса боя (если есть) — из боя можно
          расставить окопы и вернуться в бой кнопкой «✅ Готово — вернуться в бой» -->
+    <!-- ⚡ v13.055 (R39#3): фаза размещения перед боем — роль (атакующий/обороняющийся), зона, готовность -->
+    <div id="battlePlacementPanel" style="display:none; margin:6px 0; padding:8px; background:#2a2314; border:1px solid #f1c40f; border-radius:8px; font-size:0.92rem;"></div>
     <div id="battleHexEditsPanel" style="display:none; margin:6px 0; padding:8px; background:#12241a; border:1px solid #27ae60; border-radius:8px; font-size:0.9rem;"></div>
     <!-- Панель меток и врагов (исправленные ID) -->
     <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
@@ -264,6 +266,8 @@
     <script src="js/hexmaps.js"></script>
     <script src="js/online_battles.js"></script>
     <script src="js/map_actions.js"></script>
+    <!-- ⚡ v13.055 (R39#3): размещение в начале боя (зоны атакующего/обороняющегося) -->
+    <script src="js/placement.js"></script>
     <script src="js/weapons.js"></script>
     <script src="js/cards.js"></script>
     <script src="js/templates.js"></script>
@@ -284,7 +288,7 @@ function safeLocalStorage(method, ...args) {
     }    
 // ⚡ v13.041: текущая версия — отображается в меню/шапке/диагностике,
 //    чтобы игрок видел, свежая ли версия на его устройстве
-var APP_VERSION = 'v13.054';
+var APP_VERSION = 'v13.055';
 
 let selectedFaction = null;
 let selectedSubFaction = null; // 'belgian' | 'dutch' | null — ⚡ v13.045 (R30): влияет на выбор карт в бою
@@ -796,11 +800,19 @@ function renderActiveBattlesList() {
         : (battle.enemyUnitName ? battle.enemyUnitName.split(', ') : ['?']);
     // ⚡ v13.051 (R36#5): онлайн — общий бой: кто начал, ход оппонента, завершил ли он
     const onlineLine = (typeof onlineBattleStatusHtml === 'function') ? onlineBattleStatusHtml(battle) : '';
+    // ⚡ v13.055 (R39#3): фаза размещения — кто атакует и откуда вошёл
+    let placeLine = '';
+    if (battle.placement && typeof PLACEMENT_DIR_LABELS !== 'undefined') {
+        const pl = battle.placement;
+        const who = pl.attackerSide === 'player' ? 'атакуете вы' : 'атакует противник';
+        placeLine = `<div style="color:#f1c40f; font-size:0.8em; margin-bottom:4px;">📍 ${who}, вход ${PLACEMENT_DIR_LABELS[pl.entryDir] || pl.entryDir}` +
+            (pl.phase !== 'done' ? (pl.playerReady ? ' · <b>ждём размещения противника</b>' : ' · <b>нужно разместить отряды</b>') : '') + '</div>';
+    }
     html += `
       <div style="background:#2c2c2c; padding:6px; margin:4px 0; border-radius:4px;">
         <div style="color:#4fc3f7; margin-bottom:2px;">Свои: ${pNames.join(', ')}</div>
         <div style="color:#ef5350; margin-bottom:4px;">Враг: ${eNames.join(', ')}</div>
-        ${onlineLine}
+        ${placeLine}${onlineLine}
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <span style="color:#aaa; font-size:0.85em;">гекс (${battle.hexKey || '?'}), ход ${battle.currentTurn || 1}</span>
           <button onclick="switchToBattle(${battle.id})">➡️ Перейти в бой</button>
@@ -880,7 +892,9 @@ function refreshSquadToPlaceDropdown() {
   document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
   // ⚡ v13.046 (R31#10): игрок вышел в кампанию и вернулся — если карты
   //    ещё не выбраны, снова показываем фазу выбора 3 карт
-  if (!battle.cardsChosen && typeof openCardsTabForBattleStart === 'function') {
+  // ⚡ v13.055 (R39#3): а если не завершено размещение — сначала его
+  if (typeof battleStartUI === 'function') battleStartUI(battle);
+  else if (!battle.cardsChosen && typeof openCardsTabForBattleStart === 'function') {
       openCardsTabForBattleStart();
   }
 }     
@@ -2556,6 +2570,7 @@ function tryMoveSelectedOpUnitToHex(clickX, clickY) {
             return true;
           }
 
+          opRecordPrevPos(selectedUnit); // ⚡ v13.055: откуда вошёл
           selectedUnit.col = h.col;
           selectedUnit.row = h.row;
           selectedUnit.isHolding = false; // ручное перемещение снимает «удержание позиции»
@@ -3039,11 +3054,13 @@ function handleOpMapClick(e) {
             u.col === h.col && u.row === h.row
           );
           
+          opRecordPrevPos(selectedEnemy); // ⚡ v13.055: откуда вошёл
           selectedEnemy.col = h.col;
           selectedEnemy.row = h.row;
           
           if (playerUnitsOnHex.length > 0) {
             saveData();
+            pendingBattleEntry = { attackerSide: 'enemy', unit: selectedEnemy }; // ⚡ v13.055 (R39#3): атакует враг
             showContactModal(playerUnitsOnHex, [selectedEnemy]);
             appData.campaign.selectedEnemyOpUnit = null;
             if (selectedEnemy.availableHexes) delete selectedEnemy.availableHexes;
@@ -3391,6 +3408,7 @@ function showContactModal(playerUnits, enemyUnits) {
 function cancelContact() {
   pendingContactPlayers = [];
   pendingContactEnemies = [];
+  pendingBattleEntry = null; // ⚡ v13.055
   document.getElementById('contactModal').style.display = 'none';
 }
 
@@ -4661,6 +4679,15 @@ function checkIdleUnits() {
     });
 }
       // ======== ПРИОРИТЕТ: СНА
+// ⚡ v13.055 (R39#3): откуда юнит вошёл на гекс — запоминаем предыдущий гекс перед
+//    каждым шагом на оперативной карте (сторона входа атакующего → зона размещения)
+var pendingBattleEntry = null; // { attackerSide: 'enemy', unit } — враг вручную перемещён на гекс с нашими юнитами
+function opRecordPrevPos(u) {
+    if (!u || typeof u.col !== 'number' || typeof u.row !== 'number') return;
+    u.prevCol = u.col;
+    u.prevRow = u.row;
+}
+
 function startTacticalBattle(playerUnits, enemyUnits, opts) {
     console.log('startTacticalBattle вызван', playerUnits, enemyUnits);
     inStandaloneBattle = false; // ⚡ v13.045 (R30): контекст карт — кампания
@@ -4849,6 +4876,9 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
     // Определяем гекс боя (берём от первого врага)
     const firstEnemy = enemyUnits[0];
     const hexKey = `${firstEnemy.col},${firstEnemy.row}`;
+    // ⚡ v13.055 (R39#3): кто атакует и с какой стороны вошёл (зона размещения)
+    let battleEntry = null;
+    try { if (typeof resolveBattleEntry === 'function') battleEntry = resolveBattleEntry(playerUnits, enemyUnits, hexKey, opts); } catch (e) { console.warn('resolveBattleEntry:', e.message); }
     
     // Проверяем, есть ли уже активный бой на этом гексе
     const existingBattle = appData.campaign.activeBattles.find(b => b.hexKey === hexKey);
@@ -4930,7 +4960,9 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
         document.getElementById('btnFinishBattle').style.display = 'inline-block';
         appData.currentBattleId = existingBattle.id;
         // ⚡ v13.046 (R31#10): карты не выбраны — снова фаза выбора карт
-        if (!existingBattle.cardsChosen && typeof openCardsTabForBattleStart === 'function') {
+        // ⚡ v13.055 (R39#3): сначала — размещение (если ещё не завершено), потом карты
+        if (typeof battleStartUI === 'function') battleStartUI(existingBattle);
+        else if (!existingBattle.cardsChosen && typeof openCardsTabForBattleStart === 'function') {
             openCardsTabForBattleStart();
         }
         saveData();
@@ -5014,6 +5046,10 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
         //    определяет доступные бонусные/штрафные карточки
         subFaction: computeSubFactionFromSquads(playerSquads)
     };
+    // ⚡ v13.055 (R39#3): фаза размещения — атакующий/обороняющийся, сторона входа
+    if (battleEntry && typeof initBattlePlacement === 'function') {
+        initBattlePlacement(newBattle, battleEntry.attackerSide, battleEntry.entryDir, battleEntry.source);
+    }
     appData.campaign.activeBattles.push(newBattle);
     
     // ⚡ v13.051 (R36#5): тихое создание (зеркало боя оппонента) — глобальные
@@ -5057,13 +5093,17 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
         const hp = String(hexKey).split(',');
         const pNames = playerUnits.map(u => u.name).join(', ');
         const eNames = enemyUnits.map(e => e.name).join(', ');
-        const msg = `⚔️ Начался тактический бой!\n\nГекс начала: (${hp[0]},${hp[1]})\n\nВаши юниты: ${pNames}\nВражеские юниты: ${eNames}\n\nВыберите до 3 бонусных карточек (или пропустите) и нажмите «⚔️ В бой».`;
+        const msg = `⚔️ Начался тактический бой!\n\nГекс начала: (${hp[0]},${hp[1]})\n\nВаши юниты: ${pNames}\nВражеские юниты: ${eNames}\n\n` +
+            (newBattle.placement ? 'Сначала разместите отряды (вкладка «🗺️ Поле боя»), затем выберите до 3 бонусных карточек (или пропустите) и нажмите «⚔️ В бой».'
+                                 : 'Выберите до 3 бонусных карточек (или пропустите) и нажмите «⚔️ В бой».');
         try { alert(msg); } catch (e) { /* WebView без alert */ }
         log(msg);
         const mi0 = document.getElementById('mapInfo');
         if (mi0) { mi0.innerHTML = `⚔️ Бой начался на гексе (${hp[0]},${hp[1]}) — ваши: ${pNames}`; mi0.style.color = '#f1c40f'; }
     }
-    openCardsTabForBattleStart();
+    // ⚡ v13.055 (R39#3): сначала размещение, затем карточки
+    if (typeof battleStartUI === 'function') battleStartUI(newBattle);
+    else openCardsTabForBattleStart();
 }
 
 // ⚡ v13.042 (R27#11): открыть вкладку «Карточки» для выбора карт в начале боя
@@ -5549,6 +5589,11 @@ function canShoot(squad) {
 }
     
 function nextTurn() {
+  // ⚡ v13.055 (R39#3): пока не завершено размещение — ход не завершить
+  if (typeof placementPendingReason === 'function') {
+    const pr = placementPendingReason();
+    if (pr) { try { alert(pr); } catch (e) {} log(pr); return; }
+  }
   appData.flareActive = false;
   appData.enemyFlareAvailable = false;
   currentTurn++;
@@ -7434,6 +7479,11 @@ function closeTargetModal() {
 }
 
 function executeAttack() {
+  // ⚡ v13.055 (R39#3): пока не завершено размещение — атаковать нельзя
+  if (typeof placementPendingReason === 'function') {
+    const pr = placementPendingReason();
+    if (pr) { closeTargetModal(); try { alert(pr); } catch (e) {} log(pr); return; }
+  }
   document.getElementById('targetDistance').value = document.getElementById('modalDistance').value;
   document.getElementById('coverTarget').value = document.getElementById('modalCover').value;
   closeTargetModal();
@@ -10245,6 +10295,9 @@ if (appData.map.mode === 'move' && appData.map.reachableHexes && appData.map.rea
       // ⚡ v13.054 (R39#4): подсветка целей (ждём выбор врага) + панель действий под картой
       try { if (typeof drawMapActionTargetHighlights === 'function') drawMapActionTargetHighlights(ctx, size); } catch (e) {}
       try { if (typeof renderMapActionPanel === 'function') renderMapActionPanel(); } catch (e) {}
+      // ⚡ v13.055 (R39#3): зона размещения атакующего + панель фазы размещения
+      try { if (typeof drawPlacementZone === 'function') drawPlacementZone(ctx, size); } catch (e) {}
+      try { if (typeof renderPlacementPanel === 'function') renderPlacementPanel(); } catch (e) {}
     }
 
     function drawHex(ctx, x, y, size, hexData) {
@@ -10561,6 +10614,12 @@ function handleHexAction(key) {
       infoBox.innerHTML = '⚠️ Сначала выберите отряд из списка!';
       return;
     }
+    // ⚡ v13.055 (R39#3): зона размещения (атакующий — 3 ряда у края входа, обороняющийся — вне неё)
+    if (typeof placementCheckPlace === 'function') {
+      const wasPlaced = Object.keys(appData.map.grid).some(k => appData.map.grid[k] && Array.isArray(appData.map.grid[k].squadIds) && appData.map.grid[k].squadIds.includes(selectedSquadIdx));
+      const deny = placementCheckPlace('player', key, wasPlaced);
+      if (deny) { infoBox.innerHTML = deny; infoBox.style.color = '#e74c3c'; return; }
+    }
 
     for (let k in appData.map.grid) {
       const cell = appData.map.grid[k];
@@ -10603,6 +10662,11 @@ function handleHexAction(key) {
 
   // ======== ПЕРЕМЕЩЕНИЕ СВОЕГО ОТРЯДА ========
 if (mode === 'move') {
+  // ⚡ v13.055 (R39#3): пока не завершено размещение — ходить нельзя
+  if (typeof placementPendingReason === 'function') {
+    const pr = placementPendingReason();
+    if (pr) { infoBox.innerHTML = pr; infoBox.style.color = '#e67e22'; return; }
+  }
   const selectedIdx = appData.map.selectedMoveSquadIdx;
   const squadIds = hex.squadIds || [];
 
@@ -10736,6 +10800,11 @@ if (mode === 'move') {
         appData.map.selectedEnemyMoveIdx = null;
         redrawMap();
         return;
+      }
+      // ⚡ v13.055 (R39#3): во время фазы размещения «перемещение врага» — это тоже размещение (зона)
+      if (typeof placementCheckPlace === 'function') {
+        const denyE = placementCheckPlace('enemy', key, true);
+        if (denyE) { infoBox.innerHTML = denyE; infoBox.style.color = '#e74c3c'; return; }
       }
       const fromHex = appData.map.grid[fromKey];
       fromHex.enemySquadIds = fromHex.enemySquadIds.filter(id => id !== enemyIdx);
@@ -12276,6 +12345,7 @@ function executeSeriesOrder(unit, order) {
                     
                     if (enemiesOnNext.length > 0) {
                         unit.ap -= moveCost;
+                        opRecordPrevPos(unit); // ⚡ v13.055: откуда вошёл
                         unit.col = nextStep.col;
                         unit.row = nextStep.row;
                         currentAction.status = 'completed';
@@ -12286,6 +12356,7 @@ function executeSeriesOrder(unit, order) {
                     
                     // Перемещаемся
                     unit.ap -= moveCost;
+                    opRecordPrevPos(unit); // ⚡ v13.055: откуда вошёл
                     unit.col = nextStep.col;
                     unit.row = nextStep.row;
                     unit.movedThisTurn = true;
@@ -12470,6 +12541,7 @@ function stepUnitTowardTarget(unit, targetCol, targetRow) {
         );
         
         unit.ap -= cost;
+        opRecordPrevPos(unit); // ⚡ v13.055: откуда вошёл
         unit.col = next.col;
         unit.row = next.row;
         unit.movedThisTurn = true;
@@ -12615,6 +12687,7 @@ function executeAttackOrder(unit, order) {
         if (enemiesOnNext.length > 0) {
             // Враг на пути - тратим ОД на вход в гекс и начинаем бой
             unit.ap -= moveCost;
+            opRecordPrevPos(unit); // ⚡ v13.055: откуда вошёл
             unit.col = step.col;
             unit.row = step.row;
             
@@ -12630,6 +12703,7 @@ function executeAttackOrder(unit, order) {
         if (step.col === targetCol && step.row === targetRow) {
             // Тратим ОД на последний шаг
             unit.ap -= moveCost;
+            opRecordPrevPos(unit); // ⚡ v13.055: откуда вошёл
             unit.col = step.col;
             unit.row = step.row;
             
@@ -12659,6 +12733,7 @@ function executeAttackOrder(unit, order) {
         unit.ap -= moveCost;
         currentCol = step.col;
         currentRow = step.row;
+        opRecordPrevPos(unit); // ⚡ v13.055: откуда вошёл
         unit.col = currentCol;
         unit.row = currentRow;
     }
@@ -13312,6 +13387,7 @@ function executeMoveOrder(unit, order) {
                
         // Перемещаемся на следующий гекс
         unit.ap -= moveCost;
+        opRecordPrevPos(unit); // ⚡ v13.055: откуда вошёл
         unit.col = next.col;
         unit.row = next.row;
         unit.movedThisTurn = true;
@@ -15379,6 +15455,12 @@ function updateOpPlaceSelect() {
     }
 }
 function placeExistingEnemyOnHex(hex, enemyIdx, key) {
+  // ⚡ v13.055 (R39#3): зона размещения противника (по тем же правилам, зеркально)
+  if (typeof placementCheckPlace === 'function') {
+    const wasPlaced = Object.keys(appData.map.grid).some(k => appData.map.grid[k] && Array.isArray(appData.map.grid[k].enemySquadIds) && appData.map.grid[k].enemySquadIds.includes(enemyIdx));
+    const deny = placementCheckPlace('enemy', key, wasPlaced);
+    if (deny) { const miD = document.getElementById('mapInfo'); if (miD) { miD.innerHTML = deny; miD.style.color = '#e74c3c'; } return; }
+  }
   if (!hex.enemySquadIds) hex.enemySquadIds = [];
   // Удаляем врага с предыдущего гекса (если был)
   for (let k in appData.map.grid) {
@@ -15894,6 +15976,7 @@ function retreatFromBattle() {
                 // Находим ближайший свой отряд (не на гексе боя)
                 const retreatHex = findRetreatHex(unit, battleCol, battleRow);
                 if (retreatHex) {
+                    opRecordPrevPos(unit); // ⚡ v13.055: откуда вошёл
                     unit.col = retreatHex.col;
                     unit.row = retreatHex.row;
                     log(`🏃 Отряд "${unit.name}" отступил на гекс (${retreatHex.col},${retreatHex.row})`);
@@ -19391,6 +19474,7 @@ function executeRetreatOrder(unit, order) {
         const cost = getOpMoveCost(unit, unit.col, unit.row, retreatHex.col, retreatHex.row);
         if (!isFinite(cost) || unit.ap < cost) break;
         unit.ap -= cost;
+        opRecordPrevPos(unit); // ⚡ v13.055: откуда вошёл
         unit.col = retreatHex.col;
         unit.row = retreatHex.row;
         moved++;
@@ -20989,6 +21073,7 @@ function checkEnemyEncounter(unit, behavior, order) {
             if (retreatHex) {
               const retreatCost = getOpMoveCost(unit, unit.col, unit.row, retreatHex.col, retreatHex.row);
                 unit.ap -= retreatCost;
+                opRecordPrevPos(unit); // ⚡ v13.055: откуда вошёл
                 unit.col = retreatHex.col;
                 unit.row = retreatHex.row;
                 unit.movedThisTurn = true;
@@ -21036,6 +21121,7 @@ function checkEnemyEncounter(unit, behavior, order) {
                 const moveCost = getOpMoveCost(unit, unit.col, unit.row, nextStep.col, nextStep.row);
                 if (!isFinite(moveCost) || unit.ap < moveCost) break;
                 unit.ap -= moveCost;
+                opRecordPrevPos(unit); // ⚡ v13.055: откуда вошёл
                 unit.col = nextStep.col;
                 unit.row = nextStep.row;
                 unit.movedThisTurn = true;

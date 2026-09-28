@@ -237,6 +237,11 @@ function mapActionInfo(msg, color) {
 
 // Кнопка действия нажата — ждём выбор цели
 function mapAction(type, extra) {
+    // ⚡ v13.055 (R39#3): пока не завершено размещение — действий нет
+    if (typeof placementPendingReason === 'function') {
+        const pr = placementPendingReason();
+        if (pr) { mapActionInfo(pr, '#e67e22'); return; }
+    }
     const idx = mapActionSelectedIdx();
     if (idx < 0) { mapActionInfo('⚠️ Сначала выберите свой отряд на карте.', '#e74c3c'); return; }
     if (!getBattleSquadHex(appData.map.grid, idx, false)) { mapActionInfo('⚠️ Отряд не размещён на карте.', '#e74c3c'); return; }
