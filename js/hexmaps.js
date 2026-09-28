@@ -1091,9 +1091,14 @@ function onModalTargetChange() {
 // Проверка перед выстрелом из стрелкового оружия (цель выбрана в модалке)
 function checkSmallArmsForestBlock() {
     try {
+        if (!appData.map || !appData.map.grid) return null;
+        // ⚡ v13.054 (R39#4): цель, выбранная на карте/в модалке (attackTargetEnemyIdx) — приоритет
+        const ti = appData.map.attackTargetEnemyIdx;
+        if (ti !== null && ti !== undefined && ti >= 0) {
+            return smallArmsBlockedByForest(appData.map.grid, currentSquadIndex, ti);
+        }
         const sel = document.getElementById('modalTargetSelect');
         if (!sel || parseInt(sel.value, 10) < 0) return null;
-        if (!appData.map || !appData.map.grid) return null;
         return smallArmsBlockedByForest(appData.map.grid, currentSquadIndex, parseInt(sel.value, 10));
     } catch (e) { return null; }
 }

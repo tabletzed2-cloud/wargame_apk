@@ -156,8 +156,20 @@ function onlineBattleSnapshot(battle, status) {
             }))
         })),
         dmgOut: onlineDmgPlain(battle.onlineDmgOut),
-        dmgIn: onlineDmgPlain(battle.onlineDmgIn)
+        dmgIn: onlineDmgPlain(battle.onlineDmgIn),
+        // ⚡ v13.054 (R39#4): подавление отрядов оппонента моим огнём с карты
+        //    {имя отряда: метка времени} — у оппонента отряд получит «Подавлен»
+        supOut: onlineSupPlain(battle.onlineSupOut)
     };
+}
+
+function onlineSupPlain(map) {
+    const out = {};
+    Object.keys(map || {}).forEach(name => {
+        const v = map[name];
+        if (typeof v === 'number' && isFinite(v)) out[name] = v;
+    });
+    return out;
 }
 
 // ---------- ПУШ ----------
@@ -409,6 +421,18 @@ function onlineMergeOppBattle(battle, e) {
     // --- урон МОИМ отрядам от оппонента (дельты) ---
     const mySquads = onlineBattleMySquads(battle);
     const theirOut = e.dmgOut || {};
+    // ⚡ v13.054 (R39#4): подавление моих отрядов огнём оппонента (supOut: имя → метка)
+    const theirSup = e.supOut || {};
+    if (!battle.onlineSupSeen) battle.onlineSupSeen = {};
+    Object.keys(theirSup).forEach(name => {
+        const ts = theirSup[name];
+        if (typeof ts !== 'number' || battle.onlineSupSeen[name] === ts) return;
+        battle.onlineSupSeen[name] = ts;
+        const s = mySquads.find(x => x && x.name === name);
+        if (!s) return;
+        if (!s.suppressed) { s.suppressed = true; changed = true; }
+        try { log(`💫 Отряд «${name}» подавлен огнём противника (действие с карты боя).`); } catch (err) {}
+    });
     const hurt = [];
     Object.keys(theirOut).forEach(name => {
         const s = mySquads.find(x => x && x.name === name);

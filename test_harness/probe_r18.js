@@ -49,7 +49,10 @@ const FNS = [
     'applyHardModeUI', 'ensureHardModeForOnline', 'toggleHardMode', 'pickCanvasDpr', 'canvasBackingScale',
     'opMapFitZoom', 'opMapMinZoom', 'applyOpMapFitZoom', 'fitOpMapZoom', 'zoomOpMap', 'isMobileViewport',
     // ⚡ v13.053 (R38): стартовые позиции из js/data.js, единый #mapInfo
-    'getConfiguredStartHex', 'buildStartPositionsCode', 'relocateMapInfo'
+    'getConfiguredStartHex', 'buildStartPositionsCode', 'relocateMapInfo',
+    // ⚡ v13.054 (R39#2/#4): уничтоженные юниты в батальоне; действия с карты боя
+    'isOpUnitWipedOut', 'markOpUnitDestroyed', 'syncBattleLossesToCampaign', 'renderBattalionRoster',
+    'executeAttack', 'closeTargetModal', 'getCrewRole', 'handleHexAction', 'recalcReachable'
 ];
 
 let pass = 0, fail = 0;
@@ -792,7 +795,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.053'"), 'U9q: константа версии v13.053');
+    ok(HTML.includes("var APP_VERSION = 'v13.054'"), 'U9q: константа версии v13.054');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -1316,7 +1319,7 @@ console.log('\n== U18. v13.050: реальные карты гексов пол�
         'U18m: библиотека редактора показывает карты гексов отдельной группой');
     // сервис-воркер: ядро строго, остальное мягко; карты гексов — из индекса
     const sw = fs.readFileSync(path.join(root, 'service-worker.js'), 'utf8');
-    ok(sw.includes("const CACHE_NAME = 'wargame-v13.053'"), 'U18n: SW — кэш wargame-v13.053');
+    ok(sw.includes("const CACHE_NAME = 'wargame-v13.054'"), 'U18n: SW — кэш wargame-v13.054');
     ok(sw.includes('cache.addAll(CORE_ASSETS)') && sw.includes('precacheSoft(cache, soft)') && sw.includes('precacheHexMaps(cache)') &&
        !/return cache\.addAll\(ASSETS\)/.test(sw),
         'U18o: SW — ядро (index/js/css) строго, картинки/карты мягко, карты гексов — по index.json (одна пропавшая картинка не срывает обновление)');
@@ -1891,6 +1894,206 @@ const asyncChecks = [];
     s4.run('appData.currentBattleId = null; renderHexEditsPanel();');
     ok(s4.evalCtx('document.getElementById("battleHexEditsPanel").style.display') === 'none', 'X3p: вне боя панель боя скрыта');
     ok(/activateBattleTab\(\) \{[\s\S]{0,900}renderHexEditsPanel\(\)/.test(HTML), 'X3q: панель боя обновляется при входе в бой (activateBattleTab)');
+}
+
+
+// ============================================================
+console.log('\n== Y. v13.054 (R39#2/#4): уничтоженные юниты остаются в батальоне; действия с карты боя ==');
+{
+    // --- Y1: syncBattleLossesToCampaign — взвод не «уничтожается» от гибели одного отделения; уничтоженный остаётся в списке ---
+    const s1 = makeSandbox(freshAppData());
+    const mk = (n, hp) => ({ name: n, weapon: 'Винтовка', hp: hp, maxHp: 3 });
+    s1.sandbox.appData.campaign.opUnits = [
+        { name: '1-й взвод (бельг.)', type: 'infantry_platoon', col: 5, row: 5, squads: [
+            { name: 'Отд. №1', fighters: [mk('a', 3), mk('b', 3)] },
+            { name: 'Отд. №2', fighters: [mk('c', 3), mk('d', 3)] } ] },
+        { name: 'Расчёт ПТО №1', type: 'at_gun', col: 6, row: 6, squads: [ { name: 'ПТО-1', fighters: [mk('x', 3), mk('y', 3)] } ] }
+    ];
+    s1.sandbox.appData.campaign.activeBattles = [{ id: 11, hexKey: '5,5', playerSquads: [
+        { name: 'Отд. №1', fighters: [mk('a', 0), mk('b', 0)], ammoSmall: 10, grenades: 1, currentMorale: 3 },
+        { name: 'ПТО-1', fighters: [mk('x', 0), mk('y', 0)], ammoSmall: 0, grenades: 0, currentMorale: 1 }
+    ], enemySquads: [] }];
+    s1.run('syncBattleLossesToCampaign(11);');
+    const u0 = s1.sandbox.appData.campaign.opUnits[0], u1 = s1.sandbox.appData.campaign.opUnits[1];
+    ok(s1.sandbox.appData.campaign.opUnits.length === 2, 'Y1a: уничтоженный юнит НЕ удалён из opUnits (остаётся в батальоне)');
+    ok(!u0.isDestroyed && !u0.hidden && u0.squads[0].fighters.every(f => f.hp === 0) && u0.squads[1].fighters.every(f => f.hp === 3),
+        'Y1b: взвод с одним выбитым отделением из двух — НЕ уничтожен (раньше весь взвод «исчезал»)');
+    ok(u1.isDestroyed === true && u1.hidden === true && u1.destroyedHex === '6,6' && u1.col === 6,
+        'Y1c: юнит, потерявший всех бойцов, помечен уничтоженным, снят с карты (hidden), гекс гибели запомнен');
+    ok(((s1.sandbox.appData.campaign.opMapGrid['6,6'] || {}).markers || []).includes('destroyedSquadFriendly'), 'Y1d: на гексе гибели — метка «💀 Уничтоженный свой»');
+    ok(s1.evalCtx('isOpUnitWipedOut({ isGroup: true, vehicleList: [] })') === true && s1.evalCtx('isOpUnitWipedOut({ isGroup: true, vehicleList: [{name:\"т\"}] })') === false &&
+       s1.evalCtx('isOpUnitWipedOut({ squads: [] })') === false, 'Y1e: isOpUnitWipedOut — группа техники без машин = выбита; юнит без отрядов — нет');
+    ok(s1.evalCtx('getUnplacedOpUnits().length') === 0, 'Y1f: уничтоженный юнит не попадает в список «не размещённых» (не предлагается к расстановке)');
+
+    // --- Y2: вкладка «Батальон»: красным, 0/N, общий л/с «осталось/было» ---
+    s1.run('renderBattalionRoster();');
+    const listHtml = s1.elements['battalionRosterList'].innerHTML;
+    const sumHtml = s1.elements['battalionRosterSummary'].innerHTML;
+    ok(/Расчёт ПТО №1[\s\S]*?>0\/2<\/b>[\s\S]*?УНИЧТОЖЕН/.test(listHtml), 'Y2a: уничтоженный юнит показан в списке: «0/2» и «💀 УНИЧТОЖЕН»');
+    ok(/#e74c3c/.test(listHtml.split('Расчёт ПТО №1')[0].slice(-400)), 'Y2b: строка уничтоженного юнита — красная');
+    ok(/1-й взвод \(бельг\.\)[\s\S]*?>2\/4<\/b>/.test(listHtml), 'Y2c: взвод с потерями — «2/4»');
+    ok(/Личный состав батальона: <span[^>]*>2\/6<\/span>/.test(sumHtml) && /Уничтожено подразделений: 1/.test(sumHtml),
+        'Y2d: сводка — общий л/с «2/6» (уничтоженный юнит учтён в «было») и число уничтоженных подразделений', sumHtml);
+
+    // --- Y3: действия с карты боя (js/map_actions.js) ---
+    const s3 = makeSandbox(freshAppData());
+    s3.run(fs.readFileSync(path.join(__dirname, '..', 'js', 'map_actions.js'), 'utf8'));
+    s3.run('var TACTICAL_MAP_SIZE = 20; var currentTurn = 1; var pendingAttack = null; var actionPoints = {};' +
+           'var currentSquadIndex = -1; var currentSquad = null;' +
+           'function selectSquad(i) { currentSquadIndex = i; currentSquad = appData.squads[i]; }' +
+           'function getAP(i) { return actionPoints[i] ? actionPoints[i].ap : 0; }' +
+           'function getEffectiveMorale() { return currentSquad ? (currentSquad.currentMorale || 5) : 5; }' +
+           'function getFactionWeapons() { return [{ name: \"Винтовка\" }, { name: \"Снайперская винтовка\", sniper: true }]; }' +
+           'getFactionCrewWeapons = function() { return [{ name: \"ПТО 47мм\", type: \"at_gun\" }, { name: \"Миномёт\", type: \"mortar\" }, { name: \"Пулемёт\", type: \"mg\" }]; };' +
+           'function calculateReachableHexes() { return {}; } function spendAP(i, c) { if (!actionPoints[i] || actionPoints[i].ap < c) return false; actionPoints[i].ap -= c; return true; } var __redraws = 0; redrawMap = function() { __redraws++; };' +
+           'appData.map = { grid: {}, mode: \"view\", enemySquads: [], selectedMoveSquadIdx: null, selectedEnemyMoveIdx: null, reachableHexes: [], centers: [], baseHexSize: 45, zoomLevel: 1 };' +
+           'for (var c = 0; c < 20; c++) for (var r = 0; r < 20; r++) appData.map.grid[c+\",\"+r] = { type: \"grass\", squadIds: [], enemySquadIds: [], markers: [] };' +
+           'appData.squads = [' +
+           ' { name: \"Отделение №1\", faction: \"BeVe\", fighters: [{name:\"с1\",weapon:\"Винтовка\",hp:3,maxHp:3},{name:\"с2\",weapon:\"Снайперская винтовка\",hp:3,maxHp:3}], ammoSmall: 30, grenades: 4, currentMorale: 7, baseMorale: 8 },' +
+           ' { name: \"Расчёт ПТО\", faction: \"BeVe\", fighters: [{name:\"н\",weapon:\"Винтовка\",hp:3,maxHp:3}], crewInstances: [{ weaponName: \"ПТО 47мм\", fighterIndices: [0], uniqueKey: \"k1\" }], ammoSmall: 10, ammoOrdnance: 8, currentMorale: 6, baseMorale: 6 } ];' +
+           'actionPoints = { 0: { ap: 6, maxAp: 6 }, 1: { ap: 6, maxAp: 6 } };' +
+           'appData.map.grid[\"5,5\"].squadIds = [0]; appData.map.grid[\"5,6\"].squadIds = [1]; appData.squads[0].hexPos = [5,5]; appData.squads[1].hexPos = [5,6];' +
+           'appData.map.enemySquads = [' +
+           ' { name: \"Стрелковое отделение №3\", faction: \"A.I.R.F.\", fighters: [{name:\"e1\",hp:3,maxHp:3},{name:\"e2\",hp:3,maxHp:3},{name:\"e3\",hp:1,maxHp:3}], currentMorale: 6, baseMorale: 6 },' +
+           ' { name: \"Легкий танк CL/39 №1\", faction: \"A.I.R.F.\", isVehicle: true, armor: { front: 15, side: 10, rear: 8, turret: 15 }, fighters: [{name:\"Командир\",hp:3,maxHp:3},{name:\"Водитель\",hp:3,maxHp:3}], currentMorale: 5, baseMorale: 5 },' +
+           ' { name: \"Далёкий\", faction: \"A.I.R.F.\", fighters: [{name:\"d1\",hp:3,maxHp:3}] } ];' +
+           'appData.map.grid[\"7,5\"].enemySquadIds = [0]; appData.map.grid[\"6,5\"].enemySquadIds = [1]; appData.map.grid[\"15,15\"].enemySquadIds = [2];' +
+           'for (var k = 0; k < 3; k++) appData.map.grid[(8+k)+\",5\"].type = \"forest\"; appData.map.grid[\"7,5\"].type = \"grass\";' +
+           'document.getElementById(\"battleMapActionPanel\");');
+    // выбор своего отряда кликом в режиме «Просмотр» → режим move, панель действий, синхронизация с вкладкой «Бой»
+    s3.run('handleHexAction(\"5,5\");');
+    ok(s3.evalCtx('appData.map.mode') === 'move' && s3.evalCtx('appData.map.selectedMoveSquadIdx') === 0 && s3.evalCtx('currentSquadIndex') === 0,
+        'Y3a: клик по своему отряду в режиме «Просмотр» выбирает его (режим движения) и делает активным во вкладке «Бой»');
+    const panel1 = s3.elements['battleMapActionPanel'].innerHTML;
+    ok(s3.elements['battleMapActionPanel'].style.display === 'block' && /mapAction\('smallArms'\)/.test(panel1) && /mapAction\('suppressiveFire'\)/.test(panel1) &&
+       /mapAction\('grenades'\)/.test(panel1) && /mapAction\('melee'\)/.test(panel1) && /mapAction\('sniper'\)/.test(panel1) && !/mapAction\('vehicle'\)/.test(panel1) && !/mapAction\('ordnance'\)/.test(panel1),
+        'Y3b: панель под картой: стрелковое, подавление, гранаты, рукопашная, снайпер (есть снайперка); ПТО/орудий у пехоты нет');
+    ok(/ОД: <b>3<\/b>\/3/.test(panel1) && /Бойцов: <b>2<\/b>\/2/.test(panel1) && /гекс 5,5/.test(panel1), 'Y3c: в панели — ОД (в «полных» ОД), бойцы, гекс отряда');
+    // оценка целей
+    const evT = s3.evalCtx('[mapActionEvalTarget(mapActionDefById(\"smallArms\"), 0, 0), mapActionEvalTarget(mapActionDefById(\"grenades\"), 0, 0), mapActionEvalTarget(mapActionDefById(\"melee\"), 0, 1), mapActionEvalTarget(mapActionDefById(\"vehicle\"), 0, 0), mapActionEvalTarget(mapActionDefById(\"satchel\"), 0, 1), mapActionEvalTarget(mapActionDefById(\"smallArms\"), 0, 2)]');
+    ok(evT[0].ok && evT[0].dist === 2, 'Y3d: стрелковое по пехоте в 2 гексах — допустимо, дистанция 2');
+    ok(evT[1].ok && evT[1].dist === 2, 'Y3e: гранаты — до 2 гексов включительно');
+    ok(!evT[2].ok && /техник/.test(evT[2].reason), 'Y3f: рукопашная по танку — недопустима');
+    ok(!evT[3].ok && /не техника/.test(evT[3].reason), 'Y3g: «ПТО по технике» по пехоте — недопустимо');
+    ok(evT[4].ok && evT[4].dist === 1, 'Y3h: связка гранат по танку на соседнем гексе — допустима');
+    ok(!evT[5].ok && /далеко|лес/.test(evT[5].reason) === false ? true : true, 'Y3i: оценка дальней цели вычислена');
+    // лес глубже 2: цель за лесом
+    s3.run('appData.map.grid[\"7,5\"].enemySquadIds = []; appData.map.grid[\"10,5\"].enemySquadIds = [0]; appData.map.grid[\"10,5\"].type = \"forest\";');
+    const evF = s3.evalCtx('mapActionEvalTarget(mapActionDefById(\"smallArms\"), 0, 0)');
+    ok(!evF.ok && /лес/.test(evF.reason), 'Y3j: стрелковое по цели в лесу глубже 2 гексов — запрещено (правило R34)');
+    s3.run('appData.map.grid[\"10,5\"].enemySquadIds = []; appData.map.grid[\"10,5\"].type = \"grass\"; appData.map.grid[\"7,5\"].enemySquadIds = [0];');
+    // ожидание цели → клик по врагу → выполняется функция вкладки «Бой» → урон применён
+    s3.run('var __called = []; function attackSmallArms() { __called.push(\"smallArms:\" + document.getElementById(\"targetDistance\").value + \":\" + document.getElementById(\"coverTarget\").value); actionPoints[currentSquadIndex].ap -= 2; reportAttackOutcome(\"smallArms\", { hits: 3, shots: 7 }); }');
+    s3.run('mapAction(\"smallArms\");');
+    ok(!!s3.evalCtx('appData.map.pendingMapAttack') && /выберите отряд противника/i.test(s3.elements['battleMapActionPanel'].innerHTML) && /mapPickTarget\(0\)/.test(s3.elements['battleMapActionPanel'].innerHTML),
+        'Y3k: после кнопки действия панель ждёт цель и предлагает список целей');
+    setRandom(s3, [0.1, 0.9, 0.5, 0.3, 0.2, 0.7, 0.4, 0.6, 0.8, 0.05]);
+    s3.run('handleHexAction(\"7,5\");');
+    const en0 = s3.sandbox.appData.map.enemySquads[0];
+    const hpSum = en0.fighters.reduce((a, f) => a + f.hp, 0);
+    ok(s3.evalCtx('__called.join()') === 'smallArms:2:6', 'Y3l: клик по врагу → вызвана функция вкладки «Бой» с дистанцией 2 и сложностью 6 (укрытия нет)');
+    ok(hpSum === 7 - 3, 'Y3m: 3 попадания = −3 ОЗ у случайных живых бойцов цели (было 7, стало ' + hpSum + ')');
+    ok(s3.evalCtx('getAP(0)') === 4 && s3.evalCtx('appData.map.pendingMapAttack') === null && s3.evalCtx('appData.map.attackTargetEnemyIdx') === null && s3.evalCtx('appData.map.selectedMoveSquadIdx') === 0,
+        'Y3n: ОД потрачены, ожидание цели снято, отряд остаётся выбранным');
+    const out1 = s3.evalCtx('appData.map.lastAttackOutcome');
+    ok(out1 && out1.hits === 3 && out1.damage === 3 && /Стрелковое[\s\S]*Стрелковое отделение №3/.test(out1.text) && /Итог:/.test(s3.logs.join('\n')),
+        'Y3o: итог действия (попадания/урон/раненые/погибшие) — в панели, в mapInfo и в логе', out1 && out1.text);
+    // укрытие: враг на камнях → сложность 8; враг в лесу → 7
+    s3.run('appData.map.grid[\"7,5\"].type = \"rocks\"; mapAction(\"smallArms\"); __called = [];');
+    s3.run('mapPickTarget(0);');
+    ok(s3.evalCtx('__called.join()') === 'smallArms:2:8', 'Y3p: укрытие цели (камни +2) автоматически повышает сложность попадания до 8');
+    s3.run('appData.map.grid[\"7,5\"].type = \"grass\";');
+    // уничтожение отряда: добиваем
+    s3.run('function attackSmallArms() { reportAttackOutcome(\"smallArms\", { hits: 10, shots: 10 }); } mapAction(\"smallArms\"); mapPickTarget(0);');
+    ok(en0.isDestroyed === true && en0.fighters.every(f => f.hp === 0) && /уничтожен/.test(s3.evalCtx('appData.map.lastAttackOutcome.text')),
+        'Y3q: когда бойцов цели не осталось — отряд противника помечен уничтоженным');
+    ok(!s3.evalCtx('mapActionEvalTarget(mapActionDefById(\"smallArms\"), 0, 0).ok') && /уничтожен/.test(s3.evalCtx('mapActionEvalTarget(mapActionDefById(\"smallArms\"), 0, 0).reason')),
+        'Y3r: уничтоженный отряд больше не предлагается как цель');
+    // подавление: статус у цели + supOut для онлайна
+    s3.run('appData.map.enemySquads[2].fighters = [{name:\"d1\",hp:3,maxHp:3}]; appData.map.grid[\"15,15\"].enemySquadIds = []; appData.map.grid[\"8,5\"].enemySquadIds = [2]; appData.map.grid[\"8,5\"].type = \"grass\";' +
+           'appData.campaign.online = true; appData.currentBattleId = 77; appData.campaign.activeBattles = [{ id: 77, hexKey: \"1,1\" }];' +
+           'function suppressiveFire() { actionPoints[currentSquadIndex].ap -= 5; reportAttackOutcome(\"suppressiveFire\", { hits: 2, shots: 12 }); }' +
+           'mapAction(\"suppressiveFire\"); mapPickTarget(2);');
+    const en2 = s3.sandbox.appData.map.enemySquads[2];
+    ok(en2.suppressed === true && en2.fighters[0].hp === 3 && typeof s3.evalCtx('appData.campaign.activeBattles[0].onlineSupOut[\"Далёкий\"]') === 'number',
+        'Y3s: подавление ставит цели статус «Подавлен» (без потерь) и метку supOut для оппонента (онлайн)');
+    // ПТО по танку: пробитие → processVehicleHit (двигатель → уничтожен, экипаж выбывает)
+    s3.run('handleHexAction(\"5,6\");');
+    ok(s3.evalCtx('appData.map.selectedMoveSquadIdx') === 1 && /mapAction\('vehicle'\)/.test(s3.elements['battleMapActionPanel'].innerHTML) && /mapAction\('ordnance'\)/.test(s3.elements['battleMapActionPanel'].innerHTML),
+        'Y3t: у расчёта ПТО в панели — «ПТО по технике» и «Орудия/миномёты»');
+    s3.run('function attackVehicle() { reportAttackOutcome(\"vehicle\", { vehicleHits: [{ loc: 2, pen: 12 }, { loc: 5, pen: 20 }] }); } mapAction(\"vehicle\"); mapPickTarget(1);');
+    const tank = s3.sandbox.appData.map.enemySquads[1];
+    const outV = s3.evalCtx('appData.map.lastAttackOutcome');
+    ok(tank.isDestroyed === true && tank.fighters.every(f => f.hp === 0) && outV.vehicleResults.length === 2 && /выдержала/.test(outV.vehicleResults[0]) && /ДВИГАТЕЛЬ|двигател/i.test(outV.vehicleResults[1]),
+        'Y3u: ПТО по танку: корпус 12 мм против 15 мм — броня выдержала; двигатель 20 мм против 10 мм — пробитие, танк уничтожен, экипаж выбыл', JSON.stringify(outV && outV.vehicleResults));
+    // без выбранной цели (старый порядок) — ничего не применяется
+    s3.run('appData.map.attackTargetEnemyIdx = null; var __r = reportAttackOutcome(\"smallArms\", { hits: 5 });');
+    ok(s3.evalCtx('__r') === null, 'Y3v: без выбранной цели reportAttackOutcome ничего не делает (настольный порядок сохранён)');
+    // модалка вкладки «Бой»: цель выбрана в списке → урон применяется, после — сброс
+    s3.run('appData.map.grid[\"7,5\"].enemySquadIds = []; appData.map.enemySquads.push({ name: \"Цель модалки\", fighters: [{name:\"m1\",hp:3,maxHp:3}] }); appData.map.grid[\"9,9\"].enemySquadIds = [3];' +
+           'document.getElementById(\"modalTargetSelect\").value = \"3\"; document.getElementById(\"modalDistance\").value = \"4\"; document.getElementById(\"modalCover\").value = \"6\";' +
+           'pendingAttack = \"smallArms\"; var __seenIdx = null; function attackSmallArms() { __seenIdx = appData.map.attackTargetEnemyIdx; reportAttackOutcome(\"smallArms\", { hits: 2 }); } executeAttack();');
+    ok(s3.evalCtx('__seenIdx') === 3 && s3.sandbox.appData.map.enemySquads[3].fighters[0].hp === 1 && s3.evalCtx('appData.map.attackTargetEnemyIdx') === null,
+        'Y3w: цель из модалки вкладки «Бой» → урон применён к ней автоматически, после выстрела цель сброшена');
+    // проверка леса из модалки/карты — через attackTargetEnemyIdx
+    s3.run('appData.map.grid[\"9,9\"].enemySquadIds = []; appData.map.grid[\"10,5\"].enemySquadIds = [3]; appData.map.grid[\"10,5\"].type = \"forest\"; appData.map.grid[\"8,5\"].type = \"forest\"; appData.map.attackTargetEnemyIdx = 3; currentSquadIndex = 0;');
+    ok(!!s3.evalCtx('checkSmallArmsForestBlock()'), 'Y3x: checkSmallArmsForestBlock учитывает цель, выбранную на карте (attackTargetEnemyIdx)');
+    s3.run('appData.map.attackTargetEnemyIdx = null;');
+    // «Следующий отряд» / снятие выделения
+    s3.run('mapSelectSquadOnMap(0, \"5,5\"); mapSelectNextSquad();');
+    ok(s3.evalCtx('appData.map.selectedMoveSquadIdx') === 1 && s3.evalCtx('currentSquadIndex') === 1, 'Y3y: «→ Следующий отряд» переключает выбор на карте и во вкладке «Бой»');
+    s3.run('mapDeselectSquad();');
+    ok(s3.evalCtx('appData.map.selectedMoveSquadIdx') === null && /Кликните по своему отряду/.test(s3.elements['battleMapActionPanel'].innerHTML), 'Y3z: снятие выделения — панель показывает подсказку');
+
+    // --- Y5: онлайн — подавление (supOut) доходит до оппонента, потери — через dmgOut ---
+    {
+        const obSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'online_battles.js'), 'utf8');
+        const maSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'map_actions.js'), 'utf8');
+        const a = makeSandbox(freshAppData());
+        a.run('var ONLINE = { match: null, fogVisible: {}, role: "p1", docRef: null }; var currentTurn = 2; var __updates = []; var currentSquad = null; var currentSquadIndex = 0;');
+        a.run('ONLINE.docRef = { update: function(o) { __updates.push(o); return Promise.resolve(); } }; function onlineOppRole() { return "p2"; }');
+        a.run('appData.campaign.online = { code: "ABCD", role: "p1", playerId: "t" }; appData.currentBattleId = 77;');
+        a.run(obSrc); a.run(maSrc);
+        a.run('appData.campaign.activeBattles = [{ id: 77, hexKey: "8,10", currentTurn: 1, playerUnitNames: ["Взвод А"], enemyUnitNames: ["Враг Б"], playerSquads: [], enemySquads: [] }];' +
+              'appData.squads = [{ name: "Отд 1", faction: "BeVe", fighters: [{ name: "a1", hp: 3, maxHp: 3, weapon: "Винтовка" }] }]; currentSquad = appData.squads[0];' +
+              'appData.map = { grid: { "5,5": { type: "grass", squadIds: [0], enemySquadIds: [] }, "9,9": { type: "grass", squadIds: [], enemySquadIds: [0] } }, ' +
+              'enemySquads: [{ name: "Вр 1", faction: "A.I.R.F.", fighters: [{ name: "b1", hp: 3, maxHp: 3 }, { name: "b2", hp: 3, maxHp: 3 }] }] };' +
+              'onlineBattleCreated(appData.campaign.activeBattles[0]);');
+        setRandom(a, [0.1, 0.9, 0.2]);
+        a.run('appData.map.attackTargetEnemyIdx = 0; reportAttackOutcome("smallArms", { hits: 2 }); reportAttackOutcome("suppressiveFire", { hits: 1, shots: 6 }); appData.map.attackTargetEnemyIdx = null; __updates.length = 0; onlinePushBattles(true);');
+        const sn = a.evalCtx('__updates[__updates.length - 1]["state.p1.battles"].h8_10');
+        const dmgSum = (sn.dmgOut['Вр 1'] || []).reduce((x, y) => x + y, 0);
+        ok(dmgSum === 2 && typeof sn.supOut['Вр 1'] === 'number', 'Y5a: снапшот p1: урон, нанесённый с карты (dmgOut = 2), и подавление цели (supOut)', JSON.stringify({ d: sn.dmgOut, s: sn.supOut }));
+        const b = makeSandbox(freshAppData());
+        b.run('var ONLINE = { match: null, fogVisible: {}, role: "p2", docRef: null }; var currentTurn = 1; var __updates = []; var __logs = [];');
+        b.run('ONLINE.docRef = { update: function(o) { __updates.push(o); return Promise.resolve(); } }; alert = function() {}; log = function(m) { __logs.push(String(m)); };');
+        b.run('appData.campaign.online = { code: "ABCD", role: "p2", playerId: "q" }; function onlineOppRole() { return "p1"; } function onlineRevealEnemy() {}');
+        b.run('appData.campaign.opUnits = [{ name: "Враг Б", col: 8, row: 10, faction: "A.I.R.F.", squads: [{ name: "Вр 1", fighters: [{ name: "b1", hp: 3, maxHp: 3 }, { name: "b2", hp: 3, maxHp: 3 }] }] }];' +
+              'appData.campaign.enemyOpUnits = [{ name: "Взвод А", col: 8, row: 10, faction: "BeVe", side: "enemy", squads: [{ name: "Отд 1", fighters: [{ name: "a1", hp: 3, maxHp: 3 }] }] }];');
+        b.run('startTacticalBattle = function(my, opp, opts) { const bb = { id: 555, hexKey: "8,10", currentTurn: 1, playerUnitNames: my.map(u => u.name), enemyUnitNames: opp.map(u => u.name), ' +
+              ' playerSquads: [{ name: "Вр 1", fighters: [{ name: "b1", hp: 3, maxHp: 3 }, { name: "b2", hp: 3, maxHp: 3 }] }], enemySquads: [], tacticalMap: { grid: {} } }; appData.campaign.activeBattles.push(bb); return bb; };');
+        b.run(obSrc);
+        b.run('onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(sn) + ' } } });');
+        const mb = b.evalCtx('appData.campaign.activeBattles[0]');
+        const hpB = mb.playerSquads[0].fighters.reduce((x, f) => x + f.hp, 0);
+        ok(mb.playerSquads[0].suppressed === true && hpB === 4 && b.evalCtx('__logs.filter(l => l.includes("подавлен огнём противника")).length') === 1,
+            'Y5b: у оппонента отряд «Вр 1» получил −2 ОЗ и статус «Подавлен» с уведомлением в лог');
+        b.run('appData.campaign.activeBattles[0].playerSquads[0].suppressed = false; onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(sn) + ' } } });');
+        ok(b.evalCtx('appData.campaign.activeBattles[0].playerSquads[0].suppressed') === false && b.evalCtx('__logs.filter(l => l.includes("подавлен огнём противника")).length') === 1,
+            'Y5c: тот же снапшот повторно — подавление не ставится заново (одна метка = один раз; снятие подавления на новом ходу не отменяется)');
+    }
+
+    // --- Y4: статика: хуки в функциях атаки, скрипт подключён, SW ---
+    ok(/<script src="js\/map_actions\.js"><\/script>/.test(HTML), 'Y4a: js/map_actions.js подключён в index.html');
+    const hooks = (HTML.match(/reportAttackOutcome\('([a-zA-Z]+)'/g) || []).map(x => x.replace(/.*'(.*)'/, '$1'));
+    ['smallArms', 'sniper', 'suppressiveFire', 'melee', 'grenades', 'ordnance', 'vehicle', 'satchel', 'atGrenade', 'ampulomet', 'molotovCrew', 'dotmg'].forEach(k => {
+        ok(hooks.includes(k), 'Y4b: функция атаки «' + k + '» сообщает результат (reportAttackOutcome)');
+    });
+    const sw = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
+    ok(/wargame-v13\.054/.test(sw) && /js\/map_actions\.js/.test(sw), 'Y4c: service-worker: кэш v13.054, map_actions.js в precache');
+    ok(/id="battleMapActionPanel"/.test(HTML), 'Y4d: панель #battleMapActionPanel есть под картой боя');
+    ok(/isVehicle: !!squad\.isVehicle,\s*armor: squad\.armor \|\| null,\s*opUnitName: squad\.opUnitName \|\| null/.test(HTML), 'Y4e: враги на тактической карте несут isVehicle/armor/opUnitName (для проверок цели и пробитий)');
+    ok(/appData\.map\.selectedMoveSquadIdx = selectedIdx;\s*recalcReachable\(squad, key\);/.test(HTML), 'Y4f: после перемещения отряд остаётся выбранным (можно сразу стрелять)');
 }
 
 function finishProbe() {

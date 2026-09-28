@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.053 — операция</title>
+  <title>Боевой модуль v13.054 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -13,7 +13,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.053</h1>
+    <h1>⚔️ Боевой модуль v13.054</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -27,7 +27,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041: версия + принудительное обновление (старый кэш сервис-воркера) -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.053</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.054</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
   </div>
@@ -58,7 +58,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.053 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.054 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -212,6 +212,10 @@
     <div id="mapContainer" style="position:relative; width:100%; height:70vh; border:1px solid #444; border-radius:8px; overflow:auto; background:#2c3e50;">
       <canvas id="gameMap" style="transform-origin: 0 0; touch-action:none; display:block; width:3000px; height:3000px;"></canvas>
     </div>
+    <!-- ⚡ v13.054 (R39#4): панель действий выбранного на карте отряда (стрельба, подавление,
+         гранаты, рукопашная…) — те же функции, что во вкладке «⚡ Бой»; цель выбирается кликом
+         по противнику на карте, урон применяется к цели автоматически (js/map_actions.js) -->
+    <div id="battleMapActionPanel" style="display:none; margin-top:6px; padding:8px; background:#1f2a36; border:1px solid #2980b9; border-radius:8px; font-size:0.92rem;"></div>
     <!-- ⚡ v13.053 (R38#3): ЕДИНСТВЕННЫЙ элемент сообщений #mapInfo. Раньше их было три
          (два здесь, один на экране кампании): document.getElementById('mapInfo') всегда
          возвращал первый — спрятанный под холстом боя, и на экране операции игрок НЕ ВИДЕЛ
@@ -259,6 +263,7 @@
     <!-- ⚡ v13.049 (R34): карты гексов оперативной карты, правки местности -->
     <script src="js/hexmaps.js"></script>
     <script src="js/online_battles.js"></script>
+    <script src="js/map_actions.js"></script>
     <script src="js/weapons.js"></script>
     <script src="js/cards.js"></script>
     <script src="js/templates.js"></script>
@@ -279,7 +284,7 @@ function safeLocalStorage(method, ...args) {
     }    
 // ⚡ v13.041: текущая версия — отображается в меню/шапке/диагностике,
 //    чтобы игрок видел, свежая ли версия на его устройстве
-var APP_VERSION = 'v13.053';
+var APP_VERSION = 'v13.054';
 
 let selectedFaction = null;
 let selectedSubFaction = null; // 'belgian' | 'dutch' | null — ⚡ v13.045 (R30): влияет на выбор карт в бою
@@ -1527,18 +1532,25 @@ function renderBattalionRoster() {
 
     if (unitTotal === 0) return;
 
-    const color = unitLost > 0 ? '#e74c3c' : '#27ae60';
-    const pos = (unit.col !== null && unit.col !== undefined) ? `(${unit.col},${unit.row})` : '(не размещён)';
+    // ⚡ v13.054 (R39#2): уничтоженный юнит остаётся в списке — красным,
+    //    «осталось/было» (0/24), учитывается в общем личном составе
+    const destroyed = !!unit.isDestroyed || (unitAlive === 0 && unitTotal > 0);
+    const color = destroyed ? '#e74c3c' : (unitLost > 0 ? '#e67e22' : '#27ae60');
+    const bg = destroyed ? '#3a1f1f' : '#2c2c2c';
+    const pos = destroyed
+        ? (unit.destroyedHex ? `(погиб на гексе ${unit.destroyedHex})` : '')
+        : ((unit.col !== null && unit.col !== undefined) ? `(${unit.col},${unit.row})` : '(не размещён)');
+    const unitLabel = unit.isGroup ? 'машин' : 'бойцов';
     
     html += `
-      <div style="background:#2c2c2c; padding:10px; margin:6px 0; border-radius:6px; border-left:4px solid ${color};">
+      <div style="background:${bg}; padding:10px; margin:6px 0; border-radius:6px; border-left:4px solid ${color};">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-          <div>
-            <strong>${unit.name}</strong> (${unit.type}) — бойцов: ${unitAlive}/${unitTotal}${unitLost > 0 ? `, потерь: ${unitLost}` : ''} ${pos}
-            ${unit.isDestroyed ? ' <span style="color:#e74c3c;">💀 УНИЧТОЖЕН</span>' : ''}
+          <div style="${destroyed ? 'color:#e74c3c;' : ''}">
+            <strong>${unit.name}</strong> (${unit.type}) — ${unitLabel}: <b style="color:${destroyed ? '#e74c3c' : '#fff'};">${unitAlive}/${unitTotal}</b>${unitLost > 0 ? `, потерь: ${unitLost}` : ''} ${pos}
+            ${destroyed ? ' <span style="color:#e74c3c; font-weight:bold;">💀 УНИЧТОЖЕН</span>' : ''}
             ${unit.embarkedInBtr ? ' 🚌 В БТР' : ''}
           </div>
-            <div style="display:flex; align-items:center; gap:4px;">
+            <div style="display:flex; align-items:center; gap:4px; ${destroyed ? 'display:none;' : ''}">
             <label style="color:#aaa; font-size:0.85rem;">Урон:</label>
             <input type="number" id="damage_input_${index}" value="0" min="0" max="${unitAlive}" style="width:60px; background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:4px;">
             <button onclick="applyDamageToUnit(${index})" style="background:#c0392b; font-size:0.8rem; padding:4px 8px;">Получить</button>
@@ -1550,7 +1562,11 @@ function renderBattalionRoster() {
       </div>`;
   });
 
-  summaryDiv.innerHTML = `Всего бойцов: ${totalFighters} | Живых: ${totalAlive} | Потерь: ${totalLost}`;
+  // ⚡ v13.054 (R39#2): общий личный состав «осталось/было» — с учётом уничтоженных юнитов
+  const destroyedCount = opUnits.filter(u => u && u.isDestroyed).length;
+  summaryDiv.innerHTML = `<b style="font-size:1.05rem;">👥 Личный состав батальона: <span style="color:${totalLost > 0 ? '#e67e22' : '#2ecc71'};">${totalAlive}/${totalFighters}</span></b>` +
+      ` | Потерь: <span style="color:${totalLost > 0 ? '#e74c3c' : '#aaa'};">${totalLost}</span>` +
+      (destroyedCount > 0 ? ` | <span style="color:#e74c3c;">💀 Уничтожено подразделений: ${destroyedCount}</span>` : '');
   listDiv.innerHTML = html;
   
   // Добавляем кнопку применения урона
@@ -4966,12 +4982,19 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
     }
     
     // Добавляем врагов на тактическую карту
+    // ⚡ v13.054 (R39#4): + техника/броня/юнит/дух — чтобы действия с карты могли
+    //    проверять тип цели и применять пробития к машинам противника
     enemySquads.forEach(squad => {
         tacticalMap.enemySquads.push({
             name: squad.name,
             faction: squad.faction || 'A.I.R.F.',
             icon: squad.icon || null,
-            fighters: squad.fighters || []
+            fighters: squad.fighters || [],
+            isVehicle: !!squad.isVehicle,
+            armor: squad.armor || null,
+            opUnitName: squad.opUnitName || null,
+            currentMorale: (squad.currentMorale !== undefined && squad.currentMorale !== null) ? squad.currentMorale : (squad.baseMorale || 5),
+            baseMorale: squad.baseMorale || 5
         });
     });
     
@@ -5233,6 +5256,47 @@ function finishBattle() {
 }
   
        
+// ⚡ v13.054 (R39#2): юнит «выбит» — нет ни одного живого бойца ни в одном
+//    отделении (группа техники — нет живых машин)
+function isOpUnitWipedOut(unit) {
+    if (!unit) return false;
+    if (unit.isGroup && Array.isArray(unit.vehicleList)) {
+        return unit.vehicleList.filter(v => v && !v.isDestroyed && !v.destroyed).length === 0;
+    }
+    const squads = (unit.squads || []).filter(sq => sq && Array.isArray(sq.fighters) && sq.fighters.length > 0);
+    if (squads.length === 0) return false;
+    return squads.every(sq => sq.fighters.every(f => !f || (f.hp || 0) <= 0));
+}
+
+// ⚡ v13.054 (R39#2): пометить юнит уничтоженным, НЕ удаляя его из списка
+//    батальона: снимаем с карты (hidden), ставим метку на гексе, снимаем
+//    отметку «в бою»; позиция (col,row) сохраняется для сводки потерь
+function markOpUnitDestroyed(unit, markerType) {
+    if (!unit) return;
+    unit.isDestroyed = true;
+    unit.hidden = true;
+    unit.isInBattle = false;
+    if (!unit.destroyedAt) unit.destroyedAt = Date.now();
+    if (unit.col !== null && unit.col !== undefined && unit.row !== null && unit.row !== undefined) {
+        unit.destroyedHex = `${unit.col},${unit.row}`;
+        try {
+            if (appData.campaign.opMapGrid) {
+                const hexKey = `${unit.col},${unit.row}`;
+                if (!appData.campaign.opMapGrid[hexKey]) {
+                    appData.campaign.opMapGrid[hexKey] = { types: ['grass'], markers: [] };
+                }
+                const hx = appData.campaign.opMapGrid[hexKey];
+                if (Array.isArray(hx)) appData.campaign.opMapGrid[hexKey] = { types: hx, markers: [] };
+                if (!appData.campaign.opMapGrid[hexKey].markers) appData.campaign.opMapGrid[hexKey].markers = [];
+                const mk = markerType || 'destroyedSquadFriendly';
+                if (!appData.campaign.opMapGrid[hexKey].markers.includes(mk)) {
+                    appData.campaign.opMapGrid[hexKey].markers.push(mk);
+                }
+            }
+        } catch (e) {}
+    }
+}
+
 function syncBattleLossesToCampaign(battleId) {
     const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
     if (!battle) return;
@@ -5294,40 +5358,26 @@ function syncBattleLossesToCampaign(battleId) {
                     targetSquad.grenades = battleSquad.grenades;
                     targetSquad.currentMorale = battleSquad.currentMorale;
                     
-                    // Проверяем, уничтожен ли отряд (все бойцы hp = 0)
-                    const allDead = targetSquad.fighters.every(f => f.hp <= 0);
-                    if (allDead) {
-                        // Отряд уничтожен - помечаем юнит как уничтоженный
+                    // ⚡ v13.054 (R39#2): юнит уничтожен, только когда погибли бойцы
+                    //    ВСЕХ его отделений (раньше — гибель одного отделения
+                    //    «уничтожала» весь взвод)
+                    const allDead = isOpUnitWipedOut(unit);
+                    if (allDead && !unit.isDestroyed) {
                         unit.isDestroyed = true;
-                        log(`💀 Отряд "${unit.name}" полностью уничтожен в тактическом бою!`);
+                        log(`💀 Юнит "${unit.name}" полностью уничтожен в тактическом бою!`);
                     }
                     break;
                 }
             }
         });
         
-        // Удаляем уничтоженные юниты с карты
-        appData.campaign.opUnits = appData.campaign.opUnits.filter(unit => {
-            if (unit.isDestroyed) {
-                // Устанавливаем метку уничтоженного отряда на гексе
-                if (unit.col !== null && unit.col !== undefined && 
-                    unit.row !== null && unit.row !== undefined) {
-                    const hexKey = `${unit.col},${unit.row}`;
-                    if (appData.campaign.opMapGrid) {
-                        if (!appData.campaign.opMapGrid[hexKey]) {
-                            appData.campaign.opMapGrid[hexKey] = { types: ['grass'], markers: [] }; // ⚡ v13.021: с сохранением формата {types, markers}
-                        }
-                        if (!appData.campaign.opMapGrid[hexKey].markers) {
-                            appData.campaign.opMapGrid[hexKey].markers = [];
-                        }
-                        if (!appData.campaign.opMapGrid[hexKey].markers.includes('destroyedSquadFriendly')) {
-                            appData.campaign.opMapGrid[hexKey].markers.push('destroyedSquadFriendly');
-                        }
-                    }
-                }
-                return false; // Удаляем юнит
-            }
-            return true; // Оставляем юнит
+        // ⚡ v13.054 (R39#2): уничтоженные юниты НЕ удаляются из батальона —
+        //    остаются во вкладке «👥 Батальон» (красным, 0/24) и учитываются
+        //    в общем личном составе (576/600). С карты операции они снимаются
+        //    (hidden), на гексе — метка «💀 Уничтоженный свой».
+        appData.campaign.opUnits.forEach(unit => {
+            if (!unit || !unit.isDestroyed || unit.hidden) return;
+            markOpUnitDestroyed(unit, 'destroyedSquadFriendly');
         });
     }
     
@@ -5380,10 +5430,11 @@ function syncBattleLossesToCampaign(battleId) {
                     targetSquad.fighters = enemySquad.fighters.map(f => ({ ...f }));
                     targetSquad.currentMorale = enemySquad.currentMorale;
                     
-                    const allDead = targetSquad.fighters.every(f => f.hp <= 0);
-                    if (allDead) {
+                    // ⚡ v13.054 (R39#2): уничтожен — когда погибли ВСЕ отделения юнита
+                    const allDead = isOpUnitWipedOut(unit);
+                    if (allDead && !unit.isDestroyed) {
                         unit.isDestroyed = true;
-                        log(`💀 Вражеский отряд "${unit.name}" полностью уничтожен!`);
+                        log(`💀 Вражеский юнит "${unit.name}" полностью уничтожен!`);
                     }
                     break;
                 }
@@ -5501,6 +5552,14 @@ function nextTurn() {
   appData.flareActive = false;
   appData.enemyFlareAvailable = false;
   currentTurn++;
+  // ⚡ v13.054 (R39#4): подавление отрядов противника (поставленное с карты) — на один ход
+  try {
+    (appData.map && appData.map.enemySquads || []).forEach(e => {
+      if (e && e.suppressed && e.suppressedTurn !== undefined && e.suppressedTurn < currentTurn - 1) { e.suppressed = false; delete e.suppressedTurn; }
+      if (e && e.blinded) delete e.blinded;
+    });
+    if (appData.map) appData.map.pendingMapAttack = null;
+  } catch (e) {}
     // сброс флагов лечения
   appData.squads.forEach(s => s.fighters.forEach(f => { f.healedThisTurn = false; }));
     appData.currentTurn = currentTurn;
@@ -6137,6 +6196,8 @@ if (modParts.length) log(`🎯 Модификаторы: ${modParts.join(', ')}`
   } else {
     log(`❌ Промах (d10=${roll}+${accMod}=${effRoll}).`);
   }
+  // ⚡ v13.054 (R39#4): цель выбрана на карте/в модалке — применяем результат к ней
+  if (typeof reportAttackOutcome === 'function') reportAttackOutcome('sniper', { hits: (effRoll >= cover) ? 1 : 0, damage: damage });
 
   saveData();
   updateUI();
@@ -6473,6 +6534,7 @@ function rollD12() { return Math.floor(Math.random() * 12) + 1; }
     if (effRoll >= cover) hits++;
   }
   log(`${cw.name}: ${shots} выстр., попаданий ${hits}.`);
+  if (typeof reportAttackOutcome === 'function') reportAttackOutcome('dotmg', { hits: hits, shots: shots }); // ⚡ v13.054
   saveData();
   updateUI();
 }
@@ -6810,6 +6872,8 @@ shots = Math.max(0, shots);
   }
   log(`🔫 Всего выстрелов: ${totalShots}, попаданий: ${totalHits}`);
   log('Цель подавлена (противник должен включить состояние «Подавлен» на своём отряде).');
+  // ⚡ v13.054 (R39#4): цель выбрана на карте/в модалке — применяем результат к ней
+  if (typeof reportAttackOutcome === 'function') reportAttackOutcome('suppressiveFire', { hits: totalHits, shots: totalShots });
   saveData();
   updateUI();
 }
@@ -6847,11 +6911,15 @@ function useATGrenade() {
   currentSquad.atRifleGrenades--;
   log('=== КУМУЛЯТИВНАЯ ВИНТОВОЧНАЯ ГРАНАТА (50 мм) ===');
   const roll = rollD10();
+  const __atgHits = []; // ⚡ v13.054 (R39#4): локация — как у ПТО (d6)
   if (roll >= 4) {
-    log(`✅ Попадание! (d10=${roll}) Пробитие 50 мм.`);
+    const loc = rollD6(); const locName = ['Рикошет','Корпус','Гусеницы','Башня','Двигатель','Укладка/бак'][loc-1];
+    log(`✅ Попадание! (d10=${roll}) Локация: ${locName}. Пробитие 50 мм.`);
+    __atgHits.push({ loc: loc, pen: 50 });
   } else {
     log(`❌ Промах (d10=${roll}).`);
   }
+  if (typeof reportAttackOutcome === 'function') reportAttackOutcome('atGrenade', { vehicleHits: __atgHits });
   saveData();
   updateUI();
 }
@@ -7002,12 +7070,15 @@ function satchelCharge() {
   const penetration = count * 7; // 7 мм за гранату
   log(`=== СВЯЗКА ГРАНАТ (${count} шт., пробитие ${penetration} мм) ===`);
   const roll = rollD10();
+  const __satchelHits = []; // ⚡ v13.054 (R39#4)
   if (roll >= 4) { // как атака по неподвижной цели
     const loc = rollD6(); const locName = ['Рикошет','Корпус','Гусеницы','Башня','Двигатель','Укладка/бак'][loc-1];
     log(`✅ Попадание! (d10=${roll}) Локация: ${locName}. Пробитие ${penetration} мм.`);
+    __satchelHits.push({ loc: loc, pen: penetration });
   } else {
     log(`❌ Промах (d10=${roll})`);
   }
+  if (typeof reportAttackOutcome === 'function') reportAttackOutcome('satchel', { vehicleHits: __satchelHits });
   saveData();
   updateUI();
 }
@@ -7305,6 +7376,8 @@ function meleeAttack() {
     }
   });
   log(`Раунд: попаданий ${hits}, урон ${totalDamage}. Враг -1 дух.`);
+  // ⚡ v13.054 (R39#4): цель выбрана на карте/в модалке — применяем результат к ней
+  if (typeof reportAttackOutcome === 'function') reportAttackOutcome('melee', { hits: hits, damage: totalDamage });
   saveData();
   updateUI();
 }
@@ -7364,6 +7437,14 @@ function executeAttack() {
   document.getElementById('targetDistance').value = document.getElementById('modalDistance').value;
   document.getElementById('coverTarget').value = document.getElementById('modalCover').value;
   closeTargetModal();
+  // ⚡ v13.054 (R39#4): цель выбрана в модалке — результат применится к ней автоматически
+  //    (как при действии с карты); без цели — как раньше, только лог
+  try {
+    const tsel = document.getElementById('modalTargetSelect');
+    const tIdx = tsel ? parseInt(tsel.value, 10) : -1;
+    if (appData.map) appData.map.attackTargetEnemyIdx = (!isNaN(tIdx) && tIdx >= 0) ? tIdx : null;
+    if (appData.map) appData.map.lastAttackOutcome = null;
+  } catch (e) {}
   switch (pendingAttack) {
     case 'smallArms': attackSmallArms(); break;
     case 'ordnance': attackOrdnance(); break;
@@ -7376,6 +7457,10 @@ function executeAttack() {
     // гранаты и связка обрабатываются без модалки
   }
   pendingAttack = null;
+  if (appData.map) {
+    appData.map.attackTargetEnemyIdx = null;
+    if (appData.map.lastAttackOutcome && typeof redrawMap === 'function') { try { redrawMap(); } catch (e) {} }
+  }
 }
     
 function showDetectionDialog(mode) {
@@ -7599,6 +7684,7 @@ if (accMod) modParts.push(`точность ${accMod > 0 ? '+' + accMod : accMod
 if (modParts.length) log(`🎯 Модификаторы: ${modParts.join(', ')}`);
 
   
+  const __vehHits = []; // ⚡ v13.054 (R39#4): попадания {loc, pen} — для автоприменения к цели
   atGuns.forEach(ci => {
     const cw = crewWeapons.find(w => w.name === ci.weaponName);
     if (!cw) return;
@@ -7617,6 +7703,7 @@ if (modParts.length) log(`🎯 Модификаторы: ${modParts.join(', ')}`
       if (effRoll >= hitTarget) {
         const loc = rollD6(); const locName = ['Рикошет','Корпус','Гусеницы','Башня','Двигатель','Укладка/бак'][loc-1];
         log(`✅ ${cw.name}: Попадание! (d10=${roll}+${accMod}=${effRoll}) Локация: ${locName}. Пробитие ${penMM} мм.`);
+        __vehHits.push({ loc: loc, pen: penMM });
       } else {
         log(`❌ ${cw.name}: Промах (d10=${roll}+${accMod}=${effRoll})`);
       }
@@ -7627,6 +7714,8 @@ if (modParts.length) log(`🎯 Модификаторы: ${modParts.join(', ')}`
   if (currentSquad.actionsThisTurn && !currentSquad.name.includes('ДОТ') && !currentSquad.name.includes('САУ')) {
     currentSquad.actionsThisTurn.shots = (currentSquad.actionsThisTurn.shots || 0) + 1;
   }
+  // ⚡ v13.054 (R39#4): цель выбрана на карте/в модалке — применяем результат к ней
+  if (typeof reportAttackOutcome === 'function') reportAttackOutcome('vehicle', { vehicleHits: __vehHits });
   updateUI();
   saveData();
 }
@@ -7646,6 +7735,7 @@ if (!spendAP(currentSquadIndex, getActionCost(currentSquad, 'shoot'))) {
   const shotMod = activeMods.reduce((s, m) => s + (m.shotMod || 0), 0);
   const accMod = activeMods.reduce((s, m) => s + (m.accuracyMod || 0), 0);
 
+  let __ampDmg = 0; // ⚡ v13.054 (R39#4): суммарный урон d4 — для автоприменения к цели
   const ampulometCrews = (currentSquad.crewInstances || []).filter(ci => {
     if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') return false;
     if (ci.deployed === false) return;
@@ -7696,6 +7786,7 @@ if (!spendAP(currentSquadIndex, getActionCost(currentSquad, 'shoot'))) {
         totalHits++;
         // Урон d4
         const damage = rollD4();
+        __ampDmg += damage;
         log(`💥 Попадание! Урон ${damage} (d4).`);
         // Поджог техники при 9-10
         if (roll >= 9) {
@@ -7710,6 +7801,7 @@ if (!spendAP(currentSquadIndex, getActionCost(currentSquad, 'shoot'))) {
 
   log(`───────────────`);
   log(`💥 Выстрелов: ${totalShots}, попаданий: ${totalHits}, поджогов: ${fireCount}`);
+  if (typeof reportAttackOutcome === 'function') reportAttackOutcome('ampulomet', { hits: totalHits, damage: __ampDmg, fires: fireCount }); // ⚡ v13.054
   log(`───────────────`);
 if (currentSquad.actionsThisTurn) {
     currentSquad.actionsThisTurn.shots = (currentSquad.actionsThisTurn.shots || 0) + 1;
@@ -7858,6 +7950,8 @@ function throwGrenades() {
   }
   
   log(`Всего попаданий: ${totalHits}, суммарный урон: ${totalDamage}.`);
+  // ⚡ v13.054 (R39#4): цель выбрана на карте/в модалке — применяем результат к ней
+  if (typeof reportAttackOutcome === 'function') reportAttackOutcome('grenades', { hits: totalHits, damage: totalDamage });
   saveData();
   updateUI();
 }
@@ -8022,6 +8116,7 @@ if (appData.flareActive && appData.flareTurn === currentTurn) {
 
   log(`───────────────`);
   log(`🔥 Всего выстрелов: ${totalShots}, попаданий: ${totalHits}, возгораний: ${fireCount}, ослеплений: ${blindCount}`);
+  if (typeof reportAttackOutcome === 'function') reportAttackOutcome('molotovCrew', { hits: totalHits, fires: fireCount, blinds: blindCount }); // ⚡ v13.054
   log(`───────────────`);
        if (currentSquad.actionsThisTurn) {
   currentSquad.actionsThisTurn.shots = (currentSquad.actionsThisTurn.shots || 0) + 1;
@@ -8303,6 +8398,7 @@ if (modParts.length) log(`🎯 Модификаторы: ${modParts.join(', ')}`
       else { log(`${f.name}: залп отчаяния d10=${roll} -> мимо`); }
     });
     delete currentSquad.effects.desperateSalvo;
+    if (typeof reportAttackOutcome === 'function') reportAttackOutcome('smallArms', { hits: totalHits, shots: totalShots || 1 }); // ⚡ v13.054
     if (currentSquad.actionsThisTurn) {
       currentSquad.actionsThisTurn.shots = (currentSquad.actionsThisTurn.shots || 0) + 1;
     }
@@ -8402,6 +8498,8 @@ shots = Math.max(0, shots);
     log(`🔫 Всего выстрелов: ${totalShots}, попаданий: ${totalHits}`);
     log(`───────────────`);
   }
+  // ⚡ v13.054 (R39#4): цель выбрана на карте/в модалке — применяем результат к ней
+  if (typeof reportAttackOutcome === 'function') reportAttackOutcome('smallArms', { hits: totalHits, shots: totalShots });
 
   // Эффект "Кальвинистская бережливость"
   if (currentSquad.effects?.ammoRegen) {
@@ -8521,6 +8619,8 @@ if (!spendAP(currentSquadIndex, apCost)) {
     log(`💥 Всего выстрелов: ${totalShots}, попаданий: ${totalHits}, суммарный урон: ${totalDamage}`);
     log(`───────────────`);
   }
+  // ⚡ v13.054 (R39#4): цель выбрана на карте/в модалке — применяем результат к ней
+  if (typeof reportAttackOutcome === 'function') reportAttackOutcome('ordnance', { hits: totalHits, damage: totalDamage, shots: totalShots });
 
 // Не увеличиваем общий счётчик для ДОТ/САУ, у них свои лимиты на каждое орудие
 if (currentSquad.actionsThisTurn && !currentSquad.name.includes('ДОТ') && !currentSquad.name.includes('САУ')) {
@@ -10142,6 +10242,9 @@ if (appData.map.mode === 'move' && appData.map.reachableHexes && appData.map.rea
   }
   ctx.restore();
 }
+      // ⚡ v13.054 (R39#4): подсветка целей (ждём выбор врага) + панель действий под картой
+      try { if (typeof drawMapActionTargetHighlights === 'function') drawMapActionTargetHighlights(ctx, size); } catch (e) {}
+      try { if (typeof renderMapActionPanel === 'function') renderMapActionPanel(); } catch (e) {}
     }
 
     function drawHex(ctx, x, y, size, hexData) {
@@ -10297,6 +10400,23 @@ if (enemy.name) {
             ctx.fillText('☠️', drawX, drawY);
           }
 
+          // ⚡ v13.054 (R39#4): уничтоженный отряд противника — крест поверх иконки
+          if (enemy.isDestroyed || ((enemy.fighters || []).length > 0 && !(enemy.fighters || []).some(f => f && f.hp > 0))) {
+            ctx.save();
+            ctx.strokeStyle = '#ff3b30';
+            ctx.lineWidth = Math.max(3, size * 0.07);
+            ctx.beginPath();
+            ctx.moveTo(drawX - iconSize/2, drawY - iconSize/2); ctx.lineTo(drawX + iconSize/2, drawY + iconSize/2);
+            ctx.moveTo(drawX + iconSize/2, drawY - iconSize/2); ctx.lineTo(drawX - iconSize/2, drawY + iconSize/2);
+            ctx.stroke();
+            ctx.restore();
+          } else if (enemy.suppressed) {
+            ctx.fillStyle = '#f39c12';
+            ctx.font = (size * 0.3) + 'px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('💫', drawX + iconSize/2, drawY - iconSize/2);
+          }
           // Подсветка выбранного врага
           if (appData.map.selectedEnemyMoveIdx === enemyId) {
             ctx.strokeStyle = '#ff0';
@@ -10386,6 +10506,17 @@ function handleHexAction(key) {
   // ======== ⚡ v13.049 (R34): РЕДАКТОР КАРТЫ ГЕКСА (окопы / подготовка) ========
   if (mode === 'hexEdit') {
     if (typeof hexEditClick === 'function') hexEditClick(key);
+    return;
+  }
+
+  // ======== ⚡ v13.054 (R39#4): ждём выбор цели для действия с карты ========
+  if (appData.map.pendingMapAttack && typeof mapHexClickDuringAttack === 'function') {
+    if (mapHexClickDuringAttack(key)) return;
+  }
+  // ⚡ v13.054 (R39#4): в режиме «Просмотр» клик по своему отряду сразу выбирает его
+  //    (режим движения + панель действий под картой)
+  if (mode === 'view' && hex && hex.squadIds && hex.squadIds.length > 0 && typeof mapSelectSquadOnMap === 'function') {
+    mapSelectSquadOnMap(hex.squadIds[0], key);
     return;
   }
 
@@ -10511,9 +10642,10 @@ if (mode === 'move') {
       squad.movedThisTurn = true;
 
       infoBox.innerHTML = `Отряд "${squad.name}" перемещён на ${key} (потрачено ${moveCost/2} ОД).`;
-      appData.map.selectedMoveSquadIdx = null;
-      appData.map.reachableHexes = [];
-      appData.map.reachableCosts = null;  // очищаем стоимости
+      // ⚡ v13.054 (R39#4): отряд остаётся выбранным — можно сразу стрелять/идти дальше
+      //    (панель действий под картой); подсветка — от новой позиции
+      appData.map.selectedMoveSquadIdx = selectedIdx;
+      recalcReachable(squad, key);
       saveData();
       updateUI();
       redrawMap();
@@ -10528,7 +10660,8 @@ if (mode === 'move') {
         if (newSquad) {
           appData.map.selectedMoveSquadIdx = newIdx;
           recalcReachable(newSquad, key);
-          infoBox.innerHTML = `Выбран отряд "${newSquad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
+          infoBox.innerHTML = `Выбран отряд "${newSquad.name}" (гекс ${key}). Кликните на другой гекс для перемещения или выберите действие под картой.`;
+          if (typeof mapActionsOnSelect === 'function') mapActionsOnSelect(newIdx); // ⚡ v13.054 (R39#4)
           redrawMap();
           return;
         }
@@ -10542,8 +10675,9 @@ if (mode === 'move') {
         const nextPos = (curPos + 1) % squadIds.length;
         appData.map.selectedMoveSquadIdx = squadIds[nextPos];
         const nextSquad = appData.squads[squadIds[nextPos]];
-        infoBox.innerHTML = `Выбран отряд "${nextSquad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
+        infoBox.innerHTML = `Выбран отряд "${nextSquad.name}" (гекс ${key}). Кликните на другой гекс для перемещения или выберите действие под картой.`;
         recalcReachable(nextSquad, key);
+        if (typeof mapActionsOnSelect === 'function') mapActionsOnSelect(squadIds[nextPos]); // ⚡ v13.054 (R39#4)
         redrawMap();
       } else {
         infoBox.innerHTML = `Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
@@ -10568,7 +10702,8 @@ if (mode === 'move') {
     if (squad) {
       appData.map.selectedMoveSquadIdx = idx;
       recalcReachable(squad, key);
-      infoBox.innerHTML = `Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
+      infoBox.innerHTML = `Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения или выберите действие под картой.`;
+      if (typeof mapActionsOnSelect === 'function') mapActionsOnSelect(idx); // ⚡ v13.054 (R39#4)
       redrawMap();
       return;
     }
@@ -15236,8 +15371,10 @@ function updateOpPlaceSelect() {
         units = appData.campaign.opUnits || [];
     }
 
-    sel.innerHTML = units.map((u, i) => `<option value="${i}">${u.name}</option>`).join('');
-    if (units.length === 0) {
+    // ⚡ v13.054 (R39#2): уничтоженные юниты остаются в батальоне (для сводки),
+    //    но разместить их нельзя — в списке не показываем (индексы сохраняются)
+    sel.innerHTML = units.map((u, i) => (u && u.isDestroyed) ? '' : `<option value="${i}">${u.name}</option>`).join('');
+    if (units.length === 0 || !sel.innerHTML) {
         sel.innerHTML = '<option value="-1">Нет юнитов</option>';
     }
 }
@@ -17807,8 +17944,8 @@ function applyDamageToOpUnit(unit, damage) {
     }
 
     if (allDead && killed > 0) {
-        unit.isDestroyed = true;
-        unit.hidden = true;
+        // ⚡ v13.054 (R39#2): остаётся в списке батальона (0/N), с карты снимается
+        markOpUnitDestroyed(unit, isEnemyUnit ? 'destroyedSquadEnemy' : 'destroyedSquadFriendly');
         log(`☠️ ${unit.name} полностью уничтожен!`);
     }
 
