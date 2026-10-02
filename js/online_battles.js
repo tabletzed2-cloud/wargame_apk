@@ -127,7 +127,14 @@ function onlineBattleSnapshot(battle, status) {
     const squads = onlineBattleMySquads(battle);
     const pos = onlineSquadPositions(onlineBattleGrid(battle), 'squadIds');
     onlineAccumulateDmgOut(battle);
+    // ⚡ v13.055 (R39#3): фаза размещения — позиции своих отрядов уходят оппоненту
+    //    только после «✅ Размещение завершено» (расстановка скрыта до готовности обоих)
+    const pl = battle.placement || null;
+    const myPlaced = !pl || !!pl.playerReady;
     return {
+        placed: myPlaced,
+        attacker: pl ? (pl.attackerSide === 'player' ? 'me' : 'opp') : null,
+        entryDir: pl ? (pl.entryDir || null) : null,
         id: battle.id,
         hexKey: battle.hexKey,
         status: status || (battle.onlineFinished ? 'finished' : 'active'),
@@ -144,7 +151,7 @@ function onlineBattleSnapshot(battle, status) {
             icon: s.icon || s.vehicleIcon || null,
             isVehicle: !!s.isVehicle,
             armor: s.armor || null,
-            pos: pos[i] || null,
+            pos: myPlaced ? (pos[i] || null) : null,
             hidden: !!s.hidden,
             isDestroyed: !!s.isDestroyed,
             suppressed: !!s.suppressed,
@@ -156,8 +163,20 @@ function onlineBattleSnapshot(battle, status) {
             }))
         })),
         dmgOut: onlineDmgPlain(battle.onlineDmgOut),
-        dmgIn: onlineDmgPlain(battle.onlineDmgIn)
+        dmgIn: onlineDmgPlain(battle.onlineDmgIn),
+        // ⚡ v13.054 (R39#4): подавление отрядов оппонента моим огнём с карты
+        //    {имя отряда: метка времени} — у оппонента отряд получит «Подавлен»
+        supOut: onlineSupPlain(battle.onlineSupOut)
     };
+}
+
+function onlineSupPlain(map) {
+    const out = {};
+    Object.keys(map || {}).forEach(name => {
+        const v = map[name];
+        if (typeof v === 'number' && isFinite(v)) out[name] = v;
+    });
+    return out;
 }
 
 // ---------- ПУШ ----------
@@ -356,6 +375,36 @@ function onlineMergeOppBattle(battle, e) {
     // сначала учтём урон, который я уже нанёс локально (чтобы не потерять его при слиянии hp)
     onlineAccumulateDmgOut(battle);
 
+    // --- ⚡ v13.055 (R39#3): фаза размещения ---
+    //     кто атакует / сторона входа — от того, кто начал бой (зеркало берёт из облака);
+    //     готовность оппонента (placed); позиции его отрядов видны только когда готовы ОБА
+    if (e.attacker && (battle.onlineMirror || (typeof e.id === 'number' && typeof battle.id === 'number' && e.id < battle.id))) {
+        const side = (e.attacker === 'me') ? 'enemy' : 'player';
+        const dir = e.entryDir || null;
+        if (!battle.placement) {
+            if (typeof initBattlePlacement === 'function') { initBattlePlacement(battle, side, dir, 'online'); changed = true; }
+        } else if (battle.placement.attackerSide !== side || (dir && battle.placement.entryDir !== dir)) {
+            battle.placement.attackerSide = side;
+            if (dir) battle.placement.entryDir = dir;
+            changed = true;
+        }
+    }
+    const oppPlaced = (e.placed === undefined || e.placed === null) ? true : !!e.placed;
+    const myPl = battle.placement || null;
+    if (myPl) {
+        if (!!myPl.enemyReady !== oppPlaced) {
+            myPl.enemyReady = oppPlaced;
+            changed = true;
+            if (oppPlaced && myPl.phase !== 'done') { try { log(`📍 Противник завершил размещение на гексе (${battle.hexKey}).`); } catch (err) {} }
+        }
+        if (myPl.phase !== 'done' && myPl.playerReady && myPl.enemyReady) {
+            myPl.phase = 'done';
+            changed = true;
+            try { if (typeof placementAnnounceDone === 'function') placementAnnounceDone(battle); } catch (err) {}
+        }
+    }
+    const oppPositionsVisible = !myPl || myPl.phase === 'done' || (!!myPl.playerReady && oppPlaced);
+
     // --- отряды оппонента: состав, позиции, hp ---
     const theirDmgIn = e.dmgIn || {};
     (Array.isArray(e.squads) ? e.squads : []).forEach(cs => {
@@ -392,7 +441,8 @@ function onlineMergeOppBattle(battle, e) {
             if (!!s[k] !== v) { s[k] = v; changed = true; }
         });
         if (cs.currentMorale !== null && cs.currentMorale !== undefined && s.currentMorale !== cs.currentMorale) { s.currentMorale = cs.currentMorale; changed = true; }
-        // позиция на карте боя
+        // позиция на карте боя (⚡ v13.055: до готовности обоих расстановка оппонента скрыта)
+        if (!oppPositionsVisible) return;
         const curPos = Object.keys(grid).find(k => grid[k] && Array.isArray(grid[k].enemySquadIds) && grid[k].enemySquadIds.includes(idx)) || null;
         const newPos = cs.pos || null;
         if (curPos !== newPos) {
@@ -409,6 +459,18 @@ function onlineMergeOppBattle(battle, e) {
     // --- урон МОИМ отрядам от оппонента (дельты) ---
     const mySquads = onlineBattleMySquads(battle);
     const theirOut = e.dmgOut || {};
+    // ⚡ v13.054 (R39#4): подавление моих отрядов огнём оппонента (supOut: имя → метка)
+    const theirSup = e.supOut || {};
+    if (!battle.onlineSupSeen) battle.onlineSupSeen = {};
+    Object.keys(theirSup).forEach(name => {
+        const ts = theirSup[name];
+        if (typeof ts !== 'number' || battle.onlineSupSeen[name] === ts) return;
+        battle.onlineSupSeen[name] = ts;
+        const s = mySquads.find(x => x && x.name === name);
+        if (!s) return;
+        if (!s.suppressed) { s.suppressed = true; changed = true; }
+        try { log(`💫 Отряд «${name}» подавлен огнём противника (действие с карты боя).`); } catch (err) {}
+    });
     const hurt = [];
     Object.keys(theirOut).forEach(name => {
         const s = mySquads.find(x => x && x.name === name);
@@ -462,6 +524,10 @@ function onlineBattleStatusHtml(battle) {
         s += ` · обновлено ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     }
     if (battle.onlineOppFinished) s += ' · <b style="color:#e67e22;">противник завершил бой</b>';
+    // ⚡ v13.055 (R39#3): фаза размещения
+    if (battle.placement && battle.placement.phase !== 'done') {
+        s += ' · 📍 размещение: вы ' + (battle.placement.playerReady ? '✅' : '⏳') + ', противник ' + (battle.placement.enemyReady ? '✅' : '⏳');
+    }
     s += '</div>';
     return s;
 }
