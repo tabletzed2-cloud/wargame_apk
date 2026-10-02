@@ -1,6 +1,6 @@
 // ⚡ v13.024: имя кэша обязательно обновлять с каждой версией —
 //    иначе старый (устаревший) кэш продолжает отдавать старые js/data.js
-const CACHE_NAME = 'wargame-v13.053';
+const CACHE_NAME = 'wargame-v13.055';
 
 const ASSETS = [
       // ====== КОРНЕВЫЕ ФАЙЛЫ ======
@@ -13,6 +13,8 @@ const ASSETS = [
     './js/templates.js',
     './js/hexmaps.js',
     './js/online_battles.js',
+    './js/map_actions.js',
+    './js/placement.js',
     './manifest.json',
 
     // ====== ОБЩИЕ ИЗОБРАЖЕНИЯ (images/) ======
@@ -365,6 +367,8 @@ const CORE_ASSETS = [
     './js/templates.js',
     './js/hexmaps.js',
     './js/online_battles.js',
+    './js/map_actions.js',
+    './js/placement.js',
 ];
 
 const HEX_MAP_INDEX = './maps/Карты Валенсия/index.json';
