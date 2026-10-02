@@ -1,5 +1,5 @@
-// ⚡ dev-пробник R18: v13.025 (AIRF), v13.026 (Van Hees), v13.027 (HQ +20%),
-//    v13.028 (BeVe без пушек + автопересборка сейвов) + regression обстрела
+// ⚡ dev-пробник R18: v13.025–v13.058 regression-покрытие.
+// ⚡ v13.058: версия SW и проверки интерфейса синхронизированы с релизом.
 const fs = require('fs');
 const path = require('path');
 const { sliceFunction, HTML } = require('./extract');
@@ -18,7 +18,14 @@ const FNS = [
     'onlineUnitSnapshot', 'onlinePushMyUnits', 'onlineApplyCloudState',
     'onlineEnemyVisible', 'onlineFinishTurn', 'onlineOnTurnChanged', 'onlineOnTurnStatusChanged',
           'onlineMergeUnitDamage', 'onlinePushInflictedDamage', 'onlineScheduleInflictedPush', 'onlineOnSnapshotSync',
-    'endOperationalTurn', 'updateActiveCardsBattle', 'syncFactionCatalogs', 'getDefaultData',
+    'endOperationalTurn', 'getOpUnitByName', 'getBattleUnitNames', 'isCardSelectableOpUnit',
+    'isTacticalHealthEditTestMode', 'getCurrentCampaignBattle', 'ensureBattleSquadOwnership',
+    'ensureBattleCardSelectionQueue', 'getCurrentBattleCardSelectionUnit', 'getLiveSquadsForOpUnit',
+    'getUnitCardFactionContext', 'computeSubFactionFromSquads', 'getCardDefinitionByName', 'getCardTargetSpec',
+    'getScopedActiveCardsForSquad', 'getScopedActiveModifiersForSquad',
+    'getCardTargetCandidates', 'isCardAvailableToUnit', 'cardSelectionTargetNames', 'escapeCardHtml', 'collectCardLibraryForContext',
+    'getScopedCardRecordsForUnit', 'makeScopedActiveCard', 'refreshAssignedCardEffectsForNewBattle', 'syncScopedActiveCardsForBattle',
+    'updateActiveCardsBattle', 'syncFactionCatalogs', 'getDefaultData',
     'openOnlineMenu', 'onlineDiagnostics', 'onlineFirebaseReady', 'onlineCreateRoom', 'onlineJoinRoom',
     'onlineBody', 'onlineGoToCampaign', 'closeOnlineModal', 'onlineShowJoin',
     'onlineSelfTest', 'onlineSelfTestMeaning',
@@ -26,11 +33,11 @@ const FNS = [
     'showOperationalMap', 'setOpMapMode', 'renderTemplateSelection', 'selectFaction', 'selectSubFaction',
     'computeSubFactionFromSquads', 'getBattleCardContext', 'renderCardSelectionForBattle',
     'opLineOfSightBlocked', 'unitCanBeDetected', 'artilleryCaliberMm', 'dotEmbrasureHp', 'dotEmbrasureDestroyed',
-    'getRelayCompanyForOrder', 'findParentCompany', 'checkCommunication', 'hasRadio', 'hasPhoneLine', 'isInRadioRange',
+    'getRelayCompanyForOrder', 'findParentCompany', 'ensureSignalPlatoonState', 'hasActivePhoneAt', 'checkCommunication', 'hasRadio', 'hasPhoneLine', 'isInRadioRange',
     'renderAwardsReference', 'executeMortarSalvo', 'finishPlacement',
     'updateAssemblySupportCheck', 'orderShouldExecuteNow', 'executeOrder', 'executeDigInOrder', 'rollD12',
     // ⚡ v13.047 (R32): миномёты/ДОТ, залп ∝ живому составу, авто. винтовка = 2
-    'isMortarUnit', 'mortarRoundsForUnit', 'unitAutoFire', 'canUnitShoot',
+'isMortarUnit', 'mortarRoundsForUnit', 'unitAutoFire', 'canUnitShoot',
     'isMediumArtillery', 'getNearestOpUnit', 'isArmoredUnit',
     // ⚡ v13.048 (R33): бонусы фракций на экране выбора стороны
     'showScenarioDetails', 'factionBonusHtml',
@@ -44,7 +51,9 @@ const FNS = [
     'executeReconOrder', 'opMapDrawDims', 'onlineMarkPlaced', 'executeMoveOrder', 'checkEnemyEncounter',
     'getOpMoveCost', 'getRouteToTarget', 'getOpHexNeighbors',
     // ⚡ v13.050: сквозной старт боя на гексе с реальной картой пользователя
-    'startTacticalBattle',
+    // ⚡ v13.057: функции-хелперы боя нужны для изолированного запуска startTacticalBattle.
+    'deepCloneGameData', 'getMaxAP', 'getTacticalBattleAnchor', 'battleUnitNamesForSide',
+    'sameBattleUnitNames', 'findDuplicateBattleByParticipants', 'startTacticalBattle',
     // ⚡ v13.052 (R37): Hard Mode онлайн, канвас/масштаб
     'applyHardModeUI', 'ensureHardModeForOnline', 'toggleHardMode', 'pickCanvasDpr', 'canvasBackingScale',
     'opMapFitZoom', 'opMapMinZoom', 'applyOpMapFitZoom', 'fitOpMapZoom', 'zoomOpMap', 'isMobileViewport',
@@ -797,7 +806,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.055'"), 'U9q: константа версии v13.055');
+    ok(HTML.includes("var APP_VERSION = 'v13.058'"), 'U9q: константа версии v13.058');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -871,16 +880,23 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     // кампания: тактический бой — подфракция по отрядам (бельгийцы 2:1)
     s.run('inStandaloneBattle = false;');
     s.run('appData.currentBattleId = 77; selectedFaction = null; appData.campaign.online = null; ' +
-          'appData.campaign.activeBattles = [{ id: 77, playerSquads: ' +
-          '[{ name: "С1", faction: "BeVe", subfaction: "belgian" }, { name: "С2", faction: "BeVe", subfaction: "belgian" }, { name: "С3", faction: "BeVe", subfaction: "dutch" }], enemySquads: [] }]; ' +
-          'renderCardSelectionForBattle();');
+          'var __sfSquads = [{ name: "С1", faction: "BeVe", subfaction: "belgian", fighters: [{ name: "Б1", hp: 3, maxHp: 3 }] }, ' +
+          '{ name: "С2", faction: "BeVe", subfaction: "belgian", fighters: [{ name: "Б2", hp: 3, maxHp: 3 }] }, ' +
+          '{ name: "С3", faction: "BeVe", subfaction: "dutch", fighters: [{ name: "Г1", hp: 3, maxHp: 3 }] }]; ' +
+          'appData.campaign.activeBattles = [{ id: 77, playerUnitNames: ["Взвод кампании"], playerSquads: __sfSquads, enemySquads: [] }]; ' +
+          'appData.campaign.opUnits = [{ name: "Взвод кампании", type: "infantry_platoon", squads: __sfSquads.map(s => ({ name: s.name, faction: s.faction, subfaction: s.subfaction, fighters: s.fighters })) }]; ' +
+          'appData.squads = []; renderCardSelectionForBattle();');
     cardsHtmlR30 = s.elements.cardSelectionForBattle.innerHTML;
     const leak3 = dutNames.filter(n => cardsHtmlR30.includes('data-name="' + n + '"')).length;
     const pres3 = belNames.filter(n => cardsHtmlR30.includes('data-name="' + n + '"')).length;
     ok(leak3 === 0 && pres3 === belNames.length && cardsHtmlR30.includes('Подфракция: Бельгийцы'),
         'U13e: кампания — бельгийские взводы (2:1) в бою → карт голландцев НЕТ');
     // ничья 1:1 — без ограничения
-    s.run('appData.campaign.activeBattles[0].playerSquads = [{ name: "С1", faction: "BeVe", subfaction: "belgian" }, { name: "С3", faction: "BeVe", subfaction: "dutch" }]; renderCardSelectionForBattle();');
+    s.run('var __tieSquads = [{ name: "С1", faction: "BeVe", subfaction: "belgian", fighters: [{ name: "Б1", hp: 3, maxHp: 3 }] }, ' +
+          '{ name: "С3", faction: "BeVe", subfaction: "dutch", fighters: [{ name: "Г1", hp: 3, maxHp: 3 }] }]; ' +
+          'appData.campaign.activeBattles[0].playerSquads = __tieSquads; ' +
+          'appData.campaign.opUnits[0].squads = __tieSquads.map(s => ({ name: s.name, faction: s.faction, subfaction: s.subfaction, fighters: s.fighters })); ' +
+          'renderCardSelectionForBattle();');
     cardsHtmlR30 = s.elements.cardSelectionForBattle.innerHTML;
     const pres4 = dutNames.filter(n => cardsHtmlR30.includes('data-name="' + n + '"')).length +
                   belNames.filter(n => cardsHtmlR30.includes('data-name="' + n + '"')).length;
@@ -1040,7 +1056,9 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     s.run('appData.factions.BeVe.cardLibrary = []; appData.factions["A.I.R.F."].cardLibrary = []; ' +
           'appData.factions._global = { icon: "", cardLibrary: [], awards: [] }; syncFactionCatalogs();');
     s.run('appData.currentBattleId = 88; inStandaloneBattle = false; selectedFaction = null; ' +
-          'appData.campaign.activeBattles = [{ id: 88, playerSquads: [{ name: "С1", faction: "BeVe", subfaction: "belgian" }], subFaction: "belgian" }]; ' +
+          'var __cardsUnit = { name: "Взвод карт", type: "infantry_platoon", squads: [{ name: "С1", faction: "BeVe", subfaction: "belgian", fighters: [{ name: "Боец", hp: 3, maxHp: 3 }] }] }; ' +
+          'appData.campaign.opUnits = [__cardsUnit]; appData.squads = []; ' +
+          'appData.campaign.activeBattles = [{ id: 88, playerUnitNames: [__cardsUnit.name], playerSquads: __cardsUnit.squads.map(s => ({ ...s })), subFaction: "belgian" }]; ' +
           'renderCardSelectionForBattle();');
     let htmlU16 = s.elements.cardSelectionForBattle.innerHTML;
     {
@@ -1049,7 +1067,9 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
             'U16a: BeVe (бельгийцы) — 21 карта без дублей (24 − 3 голландских)', namesU16.join(','));
         ok(!htmlU16.includes('data-faction="A.I.R.F."'), 'U16b: у BeVe-игрока карт AIRF НЕТ');
     }
-    s.run('appData.campaign.activeBattles[0].playerSquads = [{ name: "С1", faction: "A.I.R.F." }]; appData.campaign.activeBattles[0].subFaction = null; renderCardSelectionForBattle();');
+    s.run('appData.campaign.activeBattles[0].playerSquads = [{ name: "С1", faction: "A.I.R.F.", fighters: [{ name: "А", hp: 3, maxHp: 3 }] }]; ' +
+          'appData.campaign.activeBattles[0].subFaction = null; appData.campaign.opUnits[0].squads = [{ name: "С1", faction: "A.I.R.F.", fighters: [{ name: "А", hp: 3, maxHp: 3 }] }]; ' +
+          'renderCardSelectionForBattle();');
     htmlU16 = s.elements.cardSelectionForBattle.innerHTML;
     {
         const namesU16c = [...htmlU16.matchAll(/data-name="([^"]+)"/g)].map(m => m[1]);
@@ -1061,7 +1081,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
             'U16e: у AIRF нет карт BeVe из общей библиотеки (Велоблиц/Кальвинистская эффективность/Велостоянка)');
         // метка «Общие» показывается только для _global-карт, которых нет у противника — сейчас таких нет,
         // но код метки на месте
-        ok(HTML.includes("c.faction === '_global' ? 'Общие' : c.faction"), 'U16e2: метка «Общие» для общих карт в коде сохранена');
+        ok(HTML.includes("c.faction === '_global' ? 'Общие' : escapeCardHtml(c.faction)"), 'U16e2: метка «Общие» для общих карт в коде сохранена с HTML-экранированием');
     }
     // #2: экран «Выберите сторону» — бонусы/дебафсы фракций с иконками
     s.run('showScenarioDetails("valencia");');
@@ -1321,7 +1341,7 @@ console.log('\n== U18. v13.050: реальные карты гексов пол�
         'U18m: библиотека редактора показывает карты гексов отдельной группой');
     // сервис-воркер: ядро строго, остальное мягко; карты гексов — из индекса
     const sw = fs.readFileSync(path.join(root, 'service-worker.js'), 'utf8');
-    ok(sw.includes("const CACHE_NAME = 'wargame-v13.055'"), 'U18n: SW — кэш wargame-v13.055');
+    ok(sw.includes("const CACHE_NAME = 'wargame-v13.058'"), 'U18n: SW — кэш wargame-v13.058');
     ok(sw.includes('cache.addAll(CORE_ASSETS)') && sw.includes('precacheSoft(cache, soft)') && sw.includes('precacheHexMaps(cache)') &&
        !/return cache\.addAll\(ASSETS\)/.test(sw),
         'U18o: SW — ядро (index/js/css) строго, картинки/карты мягко, карты гексов — по index.json (одна пропавшая картинка не срывает обновление)');
@@ -1342,7 +1362,7 @@ console.log('\n== U18. v13.050: реальные карты гексов пол�
     ok(s.evalCtx('__pl') === true && s.evalCtx('_hexPreloadStarted') === true,
         'U18s: preloadTacticalHexMaps — очередь по 3, приоритет гексам с юнитами, повторно не запускается');
     // подфракции: ничья у BeVe — карты обеих подфракций (R30) сохранены при правке пользователя (v13.049 в index.html)
-    ok(HTML.includes("const subFactionTie = (ctx.faction === 'BeVe' && !ctx.subFaction)") && HTML.includes('otherLibNames.has(card.name)'),
+    ok(HTML.includes("const subFactionTie = ctx.faction === 'BeVe' && !ctx.subFaction") && HTML.includes('otherLibNames.has(card.name)'),
         'U18t: карточки — правка пользователя (общие карты противника скрыты) + ничья подфракций BeVe без ограничения');
     // Сквозной сценарий: свой взвод и взвод противника на гексе 8,10 → startTacticalBattle
     //    → бой открывается на карте «8.10 холм-болото» (+ правки), отряды не расставлены (вручную)
@@ -2143,7 +2163,7 @@ console.log('\n== Z. v13.055 (R39#3): размещение перед боем �
            'console = { log: function(){}, warn: function(){}, error: function(){} };');
     s2.run(maSrc); s2.run(plSrc);
     s2.run('appData.campaign.activeBattles = []; appData.campaign.hexOverlays = {};' +
-           'appData.campaign.opUnits = [{ name: "Взвод А", type: "platoon", col: 8, row: 10, prevCol: 9, prevRow: 10, faction: "BeVe", isDestroyed: false, squads: [{name:"Отд 1", faction:"BeVe", fighters:[{name:"a",hp:3,maxHp:3,weapon:"Винтовка"}]}, {name:"Отд 2", faction:"BeVe", fighters:[{name:"a2",hp:3,maxHp:3,weapon:"Винтовка"}]}] }];' +
+           'appData.campaign.opUnits = [{ name: "Взвод А", type: "infantry_platoon", col: 8, row: 10, prevCol: 9, prevRow: 10, faction: "BeVe", isDestroyed: false, squads: [{name:"Отд 1", faction:"BeVe", fighters:[{name:"a",hp:3,maxHp:3,weapon:"Винтовка"}]}, {name:"Отд 2", faction:"BeVe", fighters:[{name:"a2",hp:3,maxHp:3,weapon:"Винтовка"}]}] }];' +
            'appData.campaign.enemyOpUnits = [{ name: "Враг Б", type: "platoon", col: 8, row: 10, faction: "A.I.R.F.", isDestroyed: false, squads: [{name:"Вр 1", faction:"A.I.R.F.", fighters:[{name:"b",hp:3,maxHp:3,weapon:"Винтовка"}]}] }];' +
            'var __err = null; try { startTacticalBattle(appData.campaign.opUnits[0], appData.campaign.enemyOpUnits[0]); } catch (e) { __err = e.stack; }');
     const pl = s2.evalCtx('appData.campaign.activeBattles[0].placement');
@@ -2249,7 +2269,7 @@ console.log('\n== Z. v13.055 (R39#3): размещение перед боем �
         'Z5a: модуль подключён, панель размещения и подсветка зоны на карте боя');
     ok(/battleStartUI\(newBattle\)/.test(HTML) && /battleStartUI\(existingBattle\)/.test(HTML) && /battleStartUI\(battle\)/.test(HTML), 'Z5b: новый бой / вступление в идущий / возврат в бой — сначала размещение, потом карточки');
     const sw = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
-    ok((sw.match(/'\.\/js\/placement\.js'/g) || []).length === 2 && /wargame-v13\.055/.test(sw), 'Z5c: service-worker: js/placement.js в обоих списках, кэш v13.055');
+    ok((sw.match(/'\.\/js\/placement\.js'/g) || []).length === 2 && /wargame-v13\.058/.test(sw), 'Z5c: service-worker: js/placement.js в обоих списках, кэш v13.058');
     ok(/placed: myPlaced,\s*attacker:/.test(obSrc) && /pos: myPlaced \? \(pos\[i\] \|\| null\) : null/.test(obSrc) && /if \(!oppPositionsVisible\) return;/.test(obSrc),
         'Z5d: онлайн-протокол: placed/attacker/entryDir в снапшоте, позиции — только после готовности, приём позиций — только когда готовы оба');
 }
