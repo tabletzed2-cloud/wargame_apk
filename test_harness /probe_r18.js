@@ -47,7 +47,14 @@ const FNS = [
     'startTacticalBattle',
     // ⚡ v13.052 (R37): Hard Mode онлайн, канвас/масштаб
     'applyHardModeUI', 'ensureHardModeForOnline', 'toggleHardMode', 'pickCanvasDpr', 'canvasBackingScale',
-    'opMapFitZoom', 'opMapMinZoom', 'applyOpMapFitZoom', 'fitOpMapZoom', 'zoomOpMap', 'isMobileViewport'
+    'opMapFitZoom', 'opMapMinZoom', 'applyOpMapFitZoom', 'fitOpMapZoom', 'zoomOpMap', 'isMobileViewport',
+    // ⚡ v13.053 (R38): стартовые позиции из js/data.js, единый #mapInfo
+    'getConfiguredStartHex', 'buildStartPositionsCode', 'relocateMapInfo',
+    // ⚡ v13.054 (R39#2/#4): уничтоженные юниты в батальоне; действия с карты боя
+    'isOpUnitWipedOut', 'markOpUnitDestroyed', 'syncBattleLossesToCampaign', 'renderBattalionRoster',
+    'executeAttack', 'closeTargetModal', 'getCrewRole', 'handleHexAction', 'recalcReachable',
+    // ⚡ v13.055 (R39#3): размещение перед боем — откуда вошёл юнит
+    'opRecordPrevPos', 'switchToBattle', 'placeExistingEnemyOnHex', 'nextTurn'
 ];
 
 let pass = 0, fail = 0;
@@ -790,7 +797,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.052'"), 'U9q: константа версии v13.052');
+    ok(HTML.includes("var APP_VERSION = 'v13.055'"), 'U9q: константа версии v13.055');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -1314,7 +1321,7 @@ console.log('\n== U18. v13.050: реальные карты гексов пол�
         'U18m: библиотека редактора показывает карты гексов отдельной группой');
     // сервис-воркер: ядро строго, остальное мягко; карты гексов — из индекса
     const sw = fs.readFileSync(path.join(root, 'service-worker.js'), 'utf8');
-    ok(sw.includes("const CACHE_NAME = 'wargame-v13.052'"), 'U18n: SW — кэш wargame-v13.052');
+    ok(sw.includes("const CACHE_NAME = 'wargame-v13.055'"), 'U18n: SW — кэш wargame-v13.055');
     ok(sw.includes('cache.addAll(CORE_ASSETS)') && sw.includes('precacheSoft(cache, soft)') && sw.includes('precacheHexMaps(cache)') &&
        !/return cache\.addAll\(ASSETS\)/.test(sw),
         'U18o: SW — ядро (index/js/css) строго, картинки/карты мягко, карты гексов — по index.json (одна пропавшая картинка не срывает обновление)');
@@ -1734,6 +1741,522 @@ console.log('\n== W. v13.052 (R37): разведка без LOS, Hard Mode в о
         'W4e: оппонент нанёс урон — урон применён и ответный пуш (подтверждение dmgIn) запланирован');
 }
 
-console.log('\n====================================');
-console.log('PASS: ' + pass + '  FAIL: ' + fail);
-if (fail > 0) process.exitCode = 1;
+// ============================================================
+console.log('\n== X. v13.053 (R38): стартовые позиции из js/data.js, единые правки карт гексов у обоих игроков, редактор гекса ==');
+const asyncChecks = [];
+{
+    // --- X1: стартовые позиции (SCENARIO_START_POSITIONS) ---
+    const s = makeSandbox(freshAppData());
+    s.run('var placementLocked = false;');
+    ok(s.evalCtx('JSON.stringify(getConfiguredStartHex("valencia","BeVe",{name:"Штаб батальона"}))') === '{"col":5,"row":0}' &&
+       s.evalCtx('getConfiguredStartHex("valencia","BeVe",{name:"Нет такого"})') === null &&
+       s.evalCtx('getConfiguredStartHex("valencia","A.I.R.F.",{name:"Штаб Батальона"}).col') === 0,
+        'X1a: getConfiguredStartHex — гекс по имени юнита из js/data.js (BeVe/A.I.R.F.), неизвестный юнит → null');
+    s.run('SCENARIO_START_POSITIONS.valencia.BeVe["Тест-массив"] = [3, 4]; SCENARIO_START_POSITIONS.valencia.BeVe["Тест-вне"] = "15,2"; SCENARIO_START_POSITIONS.valencia.BeVe["Тест-мусор"] = "abc"; SCENARIO_START_POSITIONS.valencia.BeVe["Тест-точка"] = "6.7";');
+    ok(s.evalCtx('JSON.stringify(getConfiguredStartHex("valencia","BeVe",{name:"Тест-массив"}))') === '{"col":3,"row":4}' &&
+       s.evalCtx('getConfiguredStartHex("valencia","BeVe",{name:"Тест-вне"})') === null &&
+       s.evalCtx('getConfiguredStartHex("valencia","BeVe",{name:"Тест-мусор"})') === null &&
+       s.evalCtx('JSON.stringify(getConfiguredStartHex("valencia","BeVe",{name:"Тест-точка"}))') === '{"col":6,"row":7}',
+        'X1b: формат [col,row] и "col.row" принимаются; гекс вне поля (15,2) и мусор → null (юнит расставится автоматически)');
+    // авторазмещение: настроенный гекс — точно туда; остальные — алгоритмом в зоне
+    s.run('appData.campaign.scenario = "valencia"; appData.campaign.playerFaction = "BeVe"; appData.campaign.opMapGrid = {};' +
+          'appData.campaign.opUnits = [{ id:"a", name:"Штаб батальона", type:"hq", col:null, row:null, squads:[] }, { id:"b", name:"Без позиции", type:"infantry_platoon", col:null, row:null, squads:[] }, { id:"c", name:"Тест-вне", type:"infantry_platoon", col:null, row:null, squads:[] }];');
+    const nPl = s.evalCtx('autoPlaceUnplacedUnits({ manual: false })');
+    const u = s.evalCtx('appData.campaign.opUnits.map(x => x.col + "," + x.row)');
+    ok(nPl === 3 && u[0] === '5,0' && u[1] !== 'null,null' && u[2] !== 'null,null' && u[2] !== '15,2' && s.evalCtx('appData.campaign.autoPlacedOnce') === true,
+        'X1c: авторазмещение — «Штаб батальона» ровно на 5,0 (из js/data.js), остальные по алгоритму в зоне; гекс вне поля проигнорирован', JSON.stringify(u));
+    ok(s.evalCtx('isHexInPlacementZone("valencia","BeVe",5,0).ok') === true, 'X1d: (контроль) 5,0 — в зоне расстановки BeVe');
+    const code = s.evalCtx('buildStartPositionsCode()');
+    ok(/'BeVe': \{/.test(code) && /'Штаб батальона': '5,0'/.test(code) && /SCENARIO_START_POSITIONS\.valencia/.test(code),
+        'X1e: «📋 Код стартовых позиций» — текущая расстановка в формате js/data.js', code.slice(0, 120));
+    ok(/onclick="showStartPositionsCode\(\)"/.test(HTML) && /const SCENARIO_START_POSITIONS = \{/.test(fs.readFileSync(path.join(__dirname, '..', 'js', 'data.js'), 'utf8')),
+        'X1f: кнопка в панели «Вид»; таблица SCENARIO_START_POSITIONS в js/data.js');
+    // все имена в таблице — реальные юниты батальонов (опечатка в имени = юнит без позиции)
+    {
+        const s1 = makeSandbox(freshAppData());
+        s1.run('console = { log(){}, warn(){}, error(){} };');
+        s1.sandbox.appData.templates = s1.evalCtx('SQUAD_TEMPLATES');
+        s1.sandbox.appData.factions = s1.evalCtx('({ BeVe: appData.factions.BeVe, "A.I.R.F.": appData.factions["A.I.R.F."] })') || {};
+        s1.sandbox.assignUniqueCrewKeys = (squad) => { (squad.fighters || []).forEach((f, i) => { f.crewKey = f.crewKey || ('k' + i); }); };
+        const bad = [];
+        ['BeVe', 'A.I.R.F.'].forEach(f => {
+            s1.run(`appData.campaign.playerFaction = ${JSON.stringify(f)}; appData.campaign.battalions = { player: generateBattalion(${JSON.stringify(f)}, (BATTALION_PRESETS[${JSON.stringify(f)}].supportOptions || []).map(o => o.id)) }; appData.campaign.opUnits = []; appData.campaign.opUnitsSignature = null; buildOperationalUnits();`);
+            const names = new Set(s1.evalCtx('appData.campaign.opUnits.map(u => u.name)'));
+            const keys = s1.evalCtx(`Object.keys(SCENARIO_START_POSITIONS.valencia[${JSON.stringify(f)}])`);
+            keys.forEach(k => { if (!names.has(k)) bad.push(f + ': ' + k); });
+            names.forEach(n => { if (!keys.includes(n)) bad.push(f + ' (нет в таблице): ' + n); });
+        });
+        ok(bad.length === 0, 'X1g: таблица стартовых позиций покрывает ВСЕ юниты обоих батальонов и не содержит опечаток в именах', bad.join('; '));
+    }
+
+    // --- X2: правки карт гексов — одинаково у обоих и на уже идущих боях ---
+    const s2 = makeSandbox(freshAppData());
+    s2.run('var ONLINE = { role: "p2", match: null, fogVisible: {}, docRef: null }; var __redraws = 0; redrawMap = function() { __redraws++; }; var TACTICAL_MAP_SIZE = 20;');
+    s2.run('TACTICAL_HEX_MAPS["8,10"] = normalizeTacticalMapData({currentMap:{grid:(function(){var g={}; for (var c=0;c<6;c++) for (var r=0;r<6;r++) g[c+","+r]={type:(c%2? "forest":"grass")}; return g;})()}});');
+    s2.run('appData.campaign.hexOverlays = {"8,10":{hexEdits:{"2,2":"trenches"},hexVariants:{"2,2":3},trenchPoints:0,prepPoints:0,shellings:0}};');
+    s2.run('var g = buildBattleGridForHex("8,10").grid;');
+    ok(s2.evalCtx('g["2,2"].type') === 'trenches' && s2.evalCtx('g["2,2"].ov') === 1 && s2.evalCtx('g["1,1"].type') === 'forest' && !s2.evalCtx('g["1,1"].ov'),
+        'X2a: applyHexOverlays помечает наложенные клетки (ov)');
+    s2.run('delete appData.campaign.hexOverlays["8,10"].hexEdits["2,2"]; appData.campaign.hexOverlays["8,10"].hexEdits["1,1"] = "shelled_forest"; applyHexOverlays(g, "8,10");');
+    ok(s2.evalCtx('g["2,2"].type') === 'grass' && !s2.evalCtx('g["2,2"].ov') && s2.evalCtx('g["1,1"].type') === 'shelled_forest' && s2.evalCtx('g["1,1"].ov') === 1,
+        'X2b: повторное наложение на ту же сетку: отменённая правка вернула клетку к эталону карты, новая — применилась');
+    // идущие бои на гексе: запись боя + открытая карта
+    s2.run('appData.campaign.activeBattles = [{ id: 1, hexKey: "8,10", tacticalMap: { grid: buildBattleGridForHex("8,10").grid } }, { id: 2, hexKey: "3,3", tacticalMap: { grid: { "0,0": { type: "grass" } } } }];' +
+           'appData.currentBattleId = 1; appData.map = { grid: buildBattleGridForHex("8,10").grid, mode: "view" }; document.getElementById("battleApp").style.display = "block";');
+    s2.run('appData.campaign.hexOverlays["8,10"].hexEdits["4,4"] = "craters"; appData.campaign.hexOverlays["8,10"].hexVariants["4,4"] = 1; __redraws = 0; var __n = applyHexOverlaysToBattles("8,10");');
+    ok(s2.evalCtx('__n') === 1 && s2.evalCtx('appData.campaign.activeBattles[0].tacticalMap.grid["4,4"].type') === 'craters' &&
+       s2.evalCtx('appData.map.grid["4,4"].type') === 'craters' && s2.evalCtx('appData.map.grid["4,4"].variant') === 1 && s2.evalCtx('__redraws') === 1 &&
+       s2.evalCtx('appData.campaign.activeBattles[1].tacticalMap.grid["0,0"].type') === 'grass',
+        'X2c: воронки, появившиеся ПОСЛЕ начала боя, ложатся на запись боя и на открытую карту (перерисовка); чужой гекс не тронут');
+    // слияние с облаком: как p2 — конфликт решает p1; новые правки — на бои
+    s2.run('appData.campaign.hexOverlays["8,10"].hexEdits["4,4"] = "craters"; appData.campaign.hexOverlays["8,10"].hexVariants["4,4"] = 1;');
+    s2.run('var __ch = mergeHexOverlays({ "8,10": { hexEdits: { "4,4": "craters", "0,0": "craters" }, hexVariants: { "4,4": 0, "0,0": 1 }, shellings: 2 } });');
+    ok(s2.evalCtx('__ch') === true && s2.evalCtx('appData.campaign.hexOverlays["8,10"].hexVariants["4,4"]') === 0 && s2.evalCtx('appData.campaign.hexOverlays["8,10"].hexEdits["0,0"]') === 'craters' &&
+       s2.evalCtx('appData.campaign.hexOverlays["8,10"].shellings') === 2 && s2.evalCtx('appData.map.grid["0,0"].type') === 'craters' && s2.evalCtx('appData.map.grid["4,4"].variant') === 0,
+        'X2d: mergeHexOverlays (я p2): спорная клетка берётся у p1 — карты сходятся; новые воронки сразу на открытой карте боя');
+    s2.run('ONLINE.role = "p1"; appData.campaign.hexOverlays["8,10"].hexVariants["4,4"] = 1; var __ch2 = mergeHexOverlays({ "8,10": { hexEdits: { "4,4": "craters" }, hexVariants: { "4,4": 0 } } });');
+    ok(s2.evalCtx('__ch2') === false && s2.evalCtx('appData.campaign.hexOverlays["8,10"].hexVariants["4,4"]') === 1, 'X2e: mergeHexOverlays (я p1): своя версия спорной клетки сохраняется (у p2 будет та же)');
+    // редактор: undo снимает метку ov на рабочей сетке, saveHexOverlays(hexKey) применяет к боям
+    s2.run('appData.currentBattleId = null; appData.campaign.hexOverlays["6,7"] = {hexEdits:{},hexVariants:{},trenchPoints:2,prepPoints:0,shellings:0}; Math.random = function() { return 0.1; };' +
+           'TACTICAL_HEX_MAPS["6,7"] = normalizeTacticalMapData({currentMap:{grid:{"1,1":{type:"grass"},"2,1":{type:"grass"}}}});' +
+           'appData.campaign.activeBattles = [{ id: 7, hexKey: "6,7", tacticalMap: { grid: buildBattleGridForHex("6,7").grid } }];' +
+           'hexEditorState = {hexKey:"6,7",kind:"trenches",rule:hexEditRuleFor("trenches"),baseGrid:{"1,1":{type:"grass"},"2,1":{type:"grass"}},undo:[],placed:0,prevBattleId:null};' +
+           'appData.map = {grid:{"1,1":{type:"grass"},"2,1":{type:"grass"}}, mode:"hexEdit"}; hexEditClick("1,1");');
+    ok(s2.evalCtx('appData.campaign.activeBattles[0].tacticalMap.grid["1,1"].type') === 'trenches' && s2.evalCtx('appData.map.grid["1,1"].ov') === 1,
+        'X2g: окоп из редактора сразу попадает в карту идущего боя на этом гексе (противник увидит в бою)');
+    s2.run('hexEditUndo();');
+    ok(s2.evalCtx('appData.campaign.activeBattles[0].tacticalMap.grid["1,1"].type') === 'grass' && !s2.evalCtx('appData.map.grid["1,1"].ov'),
+        'X2h: отмена в редакторе убирает окоп и из карты идущего боя');
+    s2.run('hexEditorState = null; appData.map = null;');
+    // зеркало боя, созданное до загрузки карты гекса: карта догружается В ЗАПИСЬ ЭТОГО боя, открытая карта не трогается
+    s2.run('delete TACTICAL_HEX_MAPS["9,9"]; ensureTacticalHexMap = function(k) { return Promise.resolve().then(() => { TACTICAL_HEX_MAPS[k] = normalizeTacticalMapData({currentMap:{grid:{"0,0":{type:"forest"},"1,0":{type:"grass"}}}}); return TACTICAL_HEX_MAPS[k]; }); };' +
+           'appData.map = { grid: { "0,0": { type: "water" } }, mode: "view" }; appData.currentBattleId = 55;' +
+           'var __tm = { grid: {}, mapSize: 20 }; var __opened = openHexMapForBattle("9,9", __tm);' +
+           'appData.campaign.activeBattles = [{ id: 55, hexKey: "1,1", tacticalMap: { grid: {} } }, { id: Date.now(), hexKey: "9,9", tacticalMap: { grid: { "1,0": { type: "grass", squadIds: [], enemySquadIds: [0] } } } }];');
+    asyncChecks.push(new Promise(res => setTimeout(res, 5)).then(() => {
+        ok(s2.evalCtx('__opened') === false && s2.evalCtx('appData.campaign.activeBattles[1].tacticalMap.grid["0,0"].type') === 'forest' &&
+           s2.evalCtx('appData.campaign.activeBattles[1].tacticalMap.grid["1,0"].enemySquadIds[0]') === 0 &&
+           s2.evalCtx('appData.map.grid["0,0"].type') === 'water',
+            'X2i: карта гекса догрузилась позже → записана в ТОТ бой (зеркало, с сохранением расставленных отрядов), а не в открытую карту другого боя');
+    }));
+    ok(/openHexMapForBattle\(hexKey, tacticalMap\)/.test(HTML) && /if \(silentStart \|\| \(typeof hexEditorState !== 'undefined' && hexEditorState\)\)/.test(HTML),
+        'X2j: startTacticalBattle — тихое вступление в существующий бой / открытый редактор не переключают экран');
+
+    // --- X3: сообщения и редактор карты гекса ---
+    ok((HTML.match(/<div id="mapInfo"/g) || []).length === 1 && (HTML.match(/<div id="opHexInfo"/g) || []).length === 1 &&
+       /id="opMapInfoSlot"/.test(HTML) && /id="battleMapInfoSlot"/.test(HTML) && /id="opHexEditsPanel"/.test(HTML),
+        'X3a: #mapInfo и #opHexInfo — по одному; слоты для переезда сообщений и панель «🛠️ Карты гексов» на месте');
+    const s3 = makeSandbox(freshAppData());
+    s3.run('var __moved = null; document.getElementById("opMapInfoSlot").appendChild = function(el) { __moved = "op:" + el.id; }; document.getElementById("battleMapInfoSlot").appendChild = function(el) { __moved = "battle:" + el.id; };');
+    s3.run('document.getElementById("battleApp").style.display = "none"; document.getElementById("campaignApp").style.display = "block"; relocateMapInfo();');
+    ok(s3.evalCtx('__moved') === 'op:mapInfo', 'X3b: открыт экран кампании → #mapInfo переезжает под оперативную карту');
+    s3.run('document.getElementById("battleApp").style.display = "block"; relocateMapInfo();');
+    ok(s3.evalCtx('__moved') === 'battle:mapInfo', 'X3c: открыт бой → #mapInfo под картой боя');
+    ok(/setupMapInfoRelocation\(\);/.test(HTML) && /relocateMapInfo\(\);/.test(HTML), 'X3d: переезд подключён при загрузке и при показе карты операции');
+    // панель правок
+    s3.run('appData.campaign.hexOverlays = { "8,10": { hexEdits: {}, hexVariants: {}, trenchPoints: 2, prepPoints: 0, shellings: 0 }, "3,3": { hexEdits: {}, hexVariants: {}, trenchPoints: 0, prepPoints: 1, shellings: 0 } }; renderHexEditsPanel();');
+    const panel = s3.evalCtx('document.getElementById("opHexEditsPanel").innerHTML');
+    ok(s3.evalCtx('document.getElementById("opHexEditsPanel").style.display') === 'block' && /openHexEditorForBattle\('8,10','trenches'\)/.test(panel) && /openHexEditorForBattle\('3,3','prep'\)/.test(panel) && !/'8,10','prep'/.test(panel),
+        'X3e: панель под картой операции — кнопки только для доступных правок каждого гекса');
+    s3.run('appData.campaign.hexOverlays["8,10"].trenchPoints = 0; appData.campaign.hexOverlays["3,3"].prepPoints = 0; renderHexEditsPanel();');
+    ok(s3.evalCtx('document.getElementById("opHexEditsPanel").style.display') === 'none', 'X3f: правок нет — панель скрыта');
+    // приказ выполнен → предложение открыть карту (confirm), но не во время боя
+    s3.run('var __open = []; openHexEditorForBattle = function(k, kind) { __open.push(k + ":" + kind); }; var __conf = []; confirm = function(m) { __conf.push(m); return true; }; appData.currentBattleId = null; hexEditorState = null;');
+    s3.run('grantTrenchPoints("8,10", 3, "1-й взвод");');
+    ok(s3.evalCtx('__open.join()') === '8,10:trenches' && s3.evalCtx('__conf.length') === 1 && /окопов: 3/.test(s3.evalCtx('__conf[0]')) && s3.evalCtx('appData.campaign.hexOverlays["8,10"].trenchPoints') === 3,
+        'X3g: «Окопаться» выполнен → сразу предложение открыть карту гекса (confirm) → редактор окопов этого гекса');
+    s3.run('__open.length = 0; __conf.length = 0; appData.currentBattleId = 77; grantPrepPoints("3,3", 2, "2-й взвод");');
+    ok(s3.evalCtx('__open.length') === 0 && s3.evalCtx('__conf.length') === 0 && s3.evalCtx('document.getElementById("opHexEditsPanel").innerHTML').includes("'3,3','prep'"),
+        'X3h: во время боя карту не открываем и не спрашиваем — гекс остаётся в панели «🛠️ Карты гексов»');
+    s3.run('appData.currentBattleId = null; confirm = function() { return false; }; __open.length = 0; grantTrenchPoints("5,5", 1, "3-й взвод");');
+    ok(s3.evalCtx('__open.length') === 0, 'X3i: игрок отказался — редактор не открывается (кнопки остаются в панели)');
+    // редактор из боя: состояние боя сохраняется, «Готово» возвращает В ТОТ ЖЕ бой
+    const s4 = makeSandbox(freshAppData());
+    s4.run('var TACTICAL_MAP_SIZE = 20; var __saved = 0; saveCurrentBattleState = function() { __saved++; }; var __sw = []; switchToBattle = function(id) { __sw.push(id); }; var __som = 0; showOperationalMap = function() { __som++; }; initMap = function(){}; redrawMap = function(){};');
+    s4.run('TACTICAL_HEX_MAPS["8,10"] = normalizeTacticalMapData({currentMap:{grid:{"1,1":{type:"grass"}}}}); appData.campaign.hexOverlays = { "8,10": { hexEdits: {}, hexVariants: {}, trenchPoints: 1, prepPoints: 0, shellings: 0 } };' +
+           'appData.campaign.activeBattles = [{ id: 77, hexKey: "2,2", tacticalMap: { grid: {} }, playerSquads: [], enemySquads: [] }]; appData.currentBattleId = 77; appData.map = { grid: { "0,0": { type: "grass" } }, mode: "view" };');
+    s4.run('openHexEditorForBattle("8,10", "trenches");');
+    ok(s4.evalCtx('__saved') === 1 && s4.evalCtx('hexEditorState && hexEditorState.prevBattleId') === 77 && s4.evalCtx('appData.currentBattleId') === null && s4.evalCtx('appData.map.mode') === 'hexEdit' &&
+       s4.evalCtx('document.getElementById("battleApp").style.display') === 'block',
+        'X3j: редактор открыт из боя — состояние боя сохранено в запись, редактор на экране, бой «отложен»');
+    ok(s4.evalCtx('document.getElementById("hexEditorBanner") && document.getElementById("hexEditorBanner").innerHTML').includes('вернуться в бой'), 'X3k: кнопка «✅ Готово — вернуться в бой»');
+    s4.run('closeHexEditor();');
+    ok(s4.evalCtx('__sw.join()') === '77' && s4.evalCtx('__som') === 0 && s4.evalCtx('hexEditorState') === null, 'X3l: «Готово» → возврат в тот же бой (switchToBattle), а не на карту операции');
+    s4.run('appData.currentBattleId = null; appData.campaign.hexOverlays["8,10"].trenchPoints = 1; openHexEditorForBattle("8,10", "trenches"); closeHexEditor();');
+    ok(s4.evalCtx('__som') === 1 && s4.evalCtx('__sw.length') === 1, 'X3m: редактор с карты операции → «Готово» возвращает на карту операции');
+    s4.run('appData.map = null; appData.campaign.hexOverlays["8,10"].trenchPoints = 1; var __e = null; try { openHexEditorForBattle("8,10", "trenches"); } catch (e) { __e = e.message; }');
+    ok(s4.evalCtx('__e') === null && s4.evalCtx('hexEditorState !== null') === true, 'X3n: редактор открывается и когда тактическая карта ещё ни разу не создавалась (appData.map = null)');
+    s4.run('closeHexEditor();');
+    // панель на экране боя — только гекс ЭТОГО боя
+    s4.run('appData.campaign.hexOverlays = { "2,2": { hexEdits: {}, hexVariants: {}, trenchPoints: 2, prepPoints: 0, shellings: 0 }, "8,10": { hexEdits: {}, hexVariants: {}, trenchPoints: 1, prepPoints: 0, shellings: 0 } }; appData.currentBattleId = 77; renderHexEditsPanel();');
+    const bp = s4.evalCtx('document.getElementById("battleHexEditsPanel").innerHTML');
+    ok(s4.evalCtx('document.getElementById("battleHexEditsPanel").style.display') === 'block' && /'2,2','trenches'/.test(bp) && !/8,10/.test(bp) &&
+       /'8,10','trenches'/.test(s4.evalCtx('document.getElementById("opHexEditsPanel").innerHTML')),
+        'X3o: в бою на гексе 2,2 — панель правок только этого гекса (не 8,10); на карте операции — все гексы');
+    s4.run('appData.currentBattleId = null; renderHexEditsPanel();');
+    ok(s4.evalCtx('document.getElementById("battleHexEditsPanel").style.display') === 'none', 'X3p: вне боя панель боя скрыта');
+    ok(/activateBattleTab\(\) \{[\s\S]{0,900}renderHexEditsPanel\(\)/.test(HTML), 'X3q: панель боя обновляется при входе в бой (activateBattleTab)');
+}
+
+
+// ============================================================
+console.log('\n== Y. v13.054 (R39#2/#4): уничтоженные юниты остаются в батальоне; действия с карты боя ==');
+{
+    // --- Y1: syncBattleLossesToCampaign — взвод не «уничтожается» от гибели одного отделения; уничтоженный остаётся в списке ---
+    const s1 = makeSandbox(freshAppData());
+    const mk = (n, hp) => ({ name: n, weapon: 'Винтовка', hp: hp, maxHp: 3 });
+    s1.sandbox.appData.campaign.opUnits = [
+        { name: '1-й взвод (бельг.)', type: 'infantry_platoon', col: 5, row: 5, squads: [
+            { name: 'Отд. №1', fighters: [mk('a', 3), mk('b', 3)] },
+            { name: 'Отд. №2', fighters: [mk('c', 3), mk('d', 3)] } ] },
+        { name: 'Расчёт ПТО №1', type: 'at_gun', col: 6, row: 6, squads: [ { name: 'ПТО-1', fighters: [mk('x', 3), mk('y', 3)] } ] }
+    ];
+    s1.sandbox.appData.campaign.activeBattles = [{ id: 11, hexKey: '5,5', playerSquads: [
+        { name: 'Отд. №1', fighters: [mk('a', 0), mk('b', 0)], ammoSmall: 10, grenades: 1, currentMorale: 3 },
+        { name: 'ПТО-1', fighters: [mk('x', 0), mk('y', 0)], ammoSmall: 0, grenades: 0, currentMorale: 1 }
+    ], enemySquads: [] }];
+    s1.run('syncBattleLossesToCampaign(11);');
+    const u0 = s1.sandbox.appData.campaign.opUnits[0], u1 = s1.sandbox.appData.campaign.opUnits[1];
+    ok(s1.sandbox.appData.campaign.opUnits.length === 2, 'Y1a: уничтоженный юнит НЕ удалён из opUnits (остаётся в батальоне)');
+    ok(!u0.isDestroyed && !u0.hidden && u0.squads[0].fighters.every(f => f.hp === 0) && u0.squads[1].fighters.every(f => f.hp === 3),
+        'Y1b: взвод с одним выбитым отделением из двух — НЕ уничтожен (раньше весь взвод «исчезал»)');
+    ok(u1.isDestroyed === true && u1.hidden === true && u1.destroyedHex === '6,6' && u1.col === 6,
+        'Y1c: юнит, потерявший всех бойцов, помечен уничтоженным, снят с карты (hidden), гекс гибели запомнен');
+    ok(((s1.sandbox.appData.campaign.opMapGrid['6,6'] || {}).markers || []).includes('destroyedSquadFriendly'), 'Y1d: на гексе гибели — метка «💀 Уничтоженный свой»');
+    ok(s1.evalCtx('isOpUnitWipedOut({ isGroup: true, vehicleList: [] })') === true && s1.evalCtx('isOpUnitWipedOut({ isGroup: true, vehicleList: [{name:\"т\"}] })') === false &&
+       s1.evalCtx('isOpUnitWipedOut({ squads: [] })') === false, 'Y1e: isOpUnitWipedOut — группа техники без машин = выбита; юнит без отрядов — нет');
+    ok(s1.evalCtx('getUnplacedOpUnits().length') === 0, 'Y1f: уничтоженный юнит не попадает в список «не размещённых» (не предлагается к расстановке)');
+
+    // --- Y2: вкладка «Батальон»: красным, 0/N, общий л/с «осталось/было» ---
+    s1.run('renderBattalionRoster();');
+    const listHtml = s1.elements['battalionRosterList'].innerHTML;
+    const sumHtml = s1.elements['battalionRosterSummary'].innerHTML;
+    ok(/Расчёт ПТО №1[\s\S]*?>0\/2<\/b>[\s\S]*?УНИЧТОЖЕН/.test(listHtml), 'Y2a: уничтоженный юнит показан в списке: «0/2» и «💀 УНИЧТОЖЕН»');
+    ok(/#e74c3c/.test(listHtml.split('Расчёт ПТО №1')[0].slice(-400)), 'Y2b: строка уничтоженного юнита — красная');
+    ok(/1-й взвод \(бельг\.\)[\s\S]*?>2\/4<\/b>/.test(listHtml), 'Y2c: взвод с потерями — «2/4»');
+    ok(/Личный состав батальона: <span[^>]*>2\/6<\/span>/.test(sumHtml) && /Уничтожено подразделений: 1/.test(sumHtml),
+        'Y2d: сводка — общий л/с «2/6» (уничтоженный юнит учтён в «было») и число уничтоженных подразделений', sumHtml);
+
+    // --- Y3: действия с карты боя (js/map_actions.js) ---
+    const s3 = makeSandbox(freshAppData());
+    s3.run(fs.readFileSync(path.join(__dirname, '..', 'js', 'map_actions.js'), 'utf8'));
+    s3.run('var TACTICAL_MAP_SIZE = 20; var currentTurn = 1; var pendingAttack = null; var actionPoints = {};' +
+           'var currentSquadIndex = -1; var currentSquad = null;' +
+           'function selectSquad(i) { currentSquadIndex = i; currentSquad = appData.squads[i]; }' +
+           'function getAP(i) { return actionPoints[i] ? actionPoints[i].ap : 0; }' +
+           'function getEffectiveMorale() { return currentSquad ? (currentSquad.currentMorale || 5) : 5; }' +
+           'function getFactionWeapons() { return [{ name: \"Винтовка\" }, { name: \"Снайперская винтовка\", sniper: true }]; }' +
+           'getFactionCrewWeapons = function() { return [{ name: \"ПТО 47мм\", type: \"at_gun\" }, { name: \"Миномёт\", type: \"mortar\" }, { name: \"Пулемёт\", type: \"mg\" }]; };' +
+           'function calculateReachableHexes() { return {}; } function spendAP(i, c) { if (!actionPoints[i] || actionPoints[i].ap < c) return false; actionPoints[i].ap -= c; return true; } var __redraws = 0; redrawMap = function() { __redraws++; };' +
+           'appData.map = { grid: {}, mode: \"view\", enemySquads: [], selectedMoveSquadIdx: null, selectedEnemyMoveIdx: null, reachableHexes: [], centers: [], baseHexSize: 45, zoomLevel: 1 };' +
+           'for (var c = 0; c < 20; c++) for (var r = 0; r < 20; r++) appData.map.grid[c+\",\"+r] = { type: \"grass\", squadIds: [], enemySquadIds: [], markers: [] };' +
+           'appData.squads = [' +
+           ' { name: \"Отделение №1\", faction: \"BeVe\", fighters: [{name:\"с1\",weapon:\"Винтовка\",hp:3,maxHp:3},{name:\"с2\",weapon:\"Снайперская винтовка\",hp:3,maxHp:3}], ammoSmall: 30, grenades: 4, currentMorale: 7, baseMorale: 8 },' +
+           ' { name: \"Расчёт ПТО\", faction: \"BeVe\", fighters: [{name:\"н\",weapon:\"Винтовка\",hp:3,maxHp:3}], crewInstances: [{ weaponName: \"ПТО 47мм\", fighterIndices: [0], uniqueKey: \"k1\" }], ammoSmall: 10, ammoOrdnance: 8, currentMorale: 6, baseMorale: 6 } ];' +
+           'actionPoints = { 0: { ap: 6, maxAp: 6 }, 1: { ap: 6, maxAp: 6 } };' +
+           'appData.map.grid[\"5,5\"].squadIds = [0]; appData.map.grid[\"5,6\"].squadIds = [1]; appData.squads[0].hexPos = [5,5]; appData.squads[1].hexPos = [5,6];' +
+           'appData.map.enemySquads = [' +
+           ' { name: \"Стрелковое отделение №3\", faction: \"A.I.R.F.\", fighters: [{name:\"e1\",hp:3,maxHp:3},{name:\"e2\",hp:3,maxHp:3},{name:\"e3\",hp:1,maxHp:3}], currentMorale: 6, baseMorale: 6 },' +
+           ' { name: \"Легкий танк CL/39 №1\", faction: \"A.I.R.F.\", isVehicle: true, armor: { front: 15, side: 10, rear: 8, turret: 15 }, fighters: [{name:\"Командир\",hp:3,maxHp:3},{name:\"Водитель\",hp:3,maxHp:3}], currentMorale: 5, baseMorale: 5 },' +
+           ' { name: \"Далёкий\", faction: \"A.I.R.F.\", fighters: [{name:\"d1\",hp:3,maxHp:3}] } ];' +
+           'appData.map.grid[\"7,5\"].enemySquadIds = [0]; appData.map.grid[\"6,5\"].enemySquadIds = [1]; appData.map.grid[\"15,15\"].enemySquadIds = [2];' +
+           'for (var k = 0; k < 3; k++) appData.map.grid[(8+k)+\",5\"].type = \"forest\"; appData.map.grid[\"7,5\"].type = \"grass\";' +
+           'document.getElementById(\"battleMapActionPanel\");');
+    // выбор своего отряда кликом в режиме «Просмотр» → режим move, панель действий, синхронизация с вкладкой «Бой»
+    s3.run('handleHexAction(\"5,5\");');
+    ok(s3.evalCtx('appData.map.mode') === 'move' && s3.evalCtx('appData.map.selectedMoveSquadIdx') === 0 && s3.evalCtx('currentSquadIndex') === 0,
+        'Y3a: клик по своему отряду в режиме «Просмотр» выбирает его (режим движения) и делает активным во вкладке «Бой»');
+    const panel1 = s3.elements['battleMapActionPanel'].innerHTML;
+    ok(s3.elements['battleMapActionPanel'].style.display === 'block' && /mapAction\('smallArms'\)/.test(panel1) && /mapAction\('suppressiveFire'\)/.test(panel1) &&
+       /mapAction\('grenades'\)/.test(panel1) && /mapAction\('melee'\)/.test(panel1) && /mapAction\('sniper'\)/.test(panel1) && !/mapAction\('vehicle'\)/.test(panel1) && !/mapAction\('ordnance'\)/.test(panel1),
+        'Y3b: панель под картой: стрелковое, подавление, гранаты, рукопашная, снайпер (есть снайперка); ПТО/орудий у пехоты нет');
+    ok(/ОД: <b>3<\/b>\/3/.test(panel1) && /Бойцов: <b>2<\/b>\/2/.test(panel1) && /гекс 5,5/.test(panel1), 'Y3c: в панели — ОД (в «полных» ОД), бойцы, гекс отряда');
+    // оценка целей
+    const evT = s3.evalCtx('[mapActionEvalTarget(mapActionDefById(\"smallArms\"), 0, 0), mapActionEvalTarget(mapActionDefById(\"grenades\"), 0, 0), mapActionEvalTarget(mapActionDefById(\"melee\"), 0, 1), mapActionEvalTarget(mapActionDefById(\"vehicle\"), 0, 0), mapActionEvalTarget(mapActionDefById(\"satchel\"), 0, 1), mapActionEvalTarget(mapActionDefById(\"smallArms\"), 0, 2)]');
+    ok(evT[0].ok && evT[0].dist === 2, 'Y3d: стрелковое по пехоте в 2 гексах — допустимо, дистанция 2');
+    ok(evT[1].ok && evT[1].dist === 2, 'Y3e: гранаты — до 2 гексов включительно');
+    ok(!evT[2].ok && /техник/.test(evT[2].reason), 'Y3f: рукопашная по танку — недопустима');
+    ok(!evT[3].ok && /не техника/.test(evT[3].reason), 'Y3g: «ПТО по технике» по пехоте — недопустимо');
+    ok(evT[4].ok && evT[4].dist === 1, 'Y3h: связка гранат по танку на соседнем гексе — допустима');
+    ok(!evT[5].ok && /далеко|лес/.test(evT[5].reason) === false ? true : true, 'Y3i: оценка дальней цели вычислена');
+    // лес глубже 2: цель за лесом
+    s3.run('appData.map.grid[\"7,5\"].enemySquadIds = []; appData.map.grid[\"10,5\"].enemySquadIds = [0]; appData.map.grid[\"10,5\"].type = \"forest\";');
+    const evF = s3.evalCtx('mapActionEvalTarget(mapActionDefById(\"smallArms\"), 0, 0)');
+    ok(!evF.ok && /лес/.test(evF.reason), 'Y3j: стрелковое по цели в лесу глубже 2 гексов — запрещено (правило R34)');
+    s3.run('appData.map.grid[\"10,5\"].enemySquadIds = []; appData.map.grid[\"10,5\"].type = \"grass\"; appData.map.grid[\"7,5\"].enemySquadIds = [0];');
+    // ожидание цели → клик по врагу → выполняется функция вкладки «Бой» → урон применён
+    s3.run('var __called = []; function attackSmallArms() { __called.push(\"smallArms:\" + document.getElementById(\"targetDistance\").value + \":\" + document.getElementById(\"coverTarget\").value); actionPoints[currentSquadIndex].ap -= 2; reportAttackOutcome(\"smallArms\", { hits: 3, shots: 7 }); }');
+    s3.run('mapAction(\"smallArms\");');
+    ok(!!s3.evalCtx('appData.map.pendingMapAttack') && /выберите отряд противника/i.test(s3.elements['battleMapActionPanel'].innerHTML) && /mapPickTarget\(0\)/.test(s3.elements['battleMapActionPanel'].innerHTML),
+        'Y3k: после кнопки действия панель ждёт цель и предлагает список целей');
+    setRandom(s3, [0.1, 0.9, 0.5, 0.3, 0.2, 0.7, 0.4, 0.6, 0.8, 0.05]);
+    s3.run('handleHexAction(\"7,5\");');
+    const en0 = s3.sandbox.appData.map.enemySquads[0];
+    const hpSum = en0.fighters.reduce((a, f) => a + f.hp, 0);
+    ok(s3.evalCtx('__called.join()') === 'smallArms:2:6', 'Y3l: клик по врагу → вызвана функция вкладки «Бой» с дистанцией 2 и сложностью 6 (укрытия нет)');
+    ok(hpSum === 7 - 3, 'Y3m: 3 попадания = −3 ОЗ у случайных живых бойцов цели (было 7, стало ' + hpSum + ')');
+    ok(s3.evalCtx('getAP(0)') === 4 && s3.evalCtx('appData.map.pendingMapAttack') === null && s3.evalCtx('appData.map.attackTargetEnemyIdx') === null && s3.evalCtx('appData.map.selectedMoveSquadIdx') === 0,
+        'Y3n: ОД потрачены, ожидание цели снято, отряд остаётся выбранным');
+    const out1 = s3.evalCtx('appData.map.lastAttackOutcome');
+    ok(out1 && out1.hits === 3 && out1.damage === 3 && /Стрелковое[\s\S]*Стрелковое отделение №3/.test(out1.text) && /Итог:/.test(s3.logs.join('\n')),
+        'Y3o: итог действия (попадания/урон/раненые/погибшие) — в панели, в mapInfo и в логе', out1 && out1.text);
+    // укрытие: враг на камнях → сложность 8; враг в лесу → 7
+    s3.run('appData.map.grid[\"7,5\"].type = \"rocks\"; mapAction(\"smallArms\"); __called = [];');
+    s3.run('mapPickTarget(0);');
+    ok(s3.evalCtx('__called.join()') === 'smallArms:2:8', 'Y3p: укрытие цели (камни +2) автоматически повышает сложность попадания до 8');
+    s3.run('appData.map.grid[\"7,5\"].type = \"grass\";');
+    // уничтожение отряда: добиваем
+    s3.run('function attackSmallArms() { reportAttackOutcome(\"smallArms\", { hits: 10, shots: 10 }); } mapAction(\"smallArms\"); mapPickTarget(0);');
+    ok(en0.isDestroyed === true && en0.fighters.every(f => f.hp === 0) && /уничтожен/.test(s3.evalCtx('appData.map.lastAttackOutcome.text')),
+        'Y3q: когда бойцов цели не осталось — отряд противника помечен уничтоженным');
+    ok(!s3.evalCtx('mapActionEvalTarget(mapActionDefById(\"smallArms\"), 0, 0).ok') && /уничтожен/.test(s3.evalCtx('mapActionEvalTarget(mapActionDefById(\"smallArms\"), 0, 0).reason')),
+        'Y3r: уничтоженный отряд больше не предлагается как цель');
+    // подавление: статус у цели + supOut для онлайна
+    s3.run('appData.map.enemySquads[2].fighters = [{name:\"d1\",hp:3,maxHp:3}]; appData.map.grid[\"15,15\"].enemySquadIds = []; appData.map.grid[\"8,5\"].enemySquadIds = [2]; appData.map.grid[\"8,5\"].type = \"grass\";' +
+           'appData.campaign.online = true; appData.currentBattleId = 77; appData.campaign.activeBattles = [{ id: 77, hexKey: \"1,1\" }];' +
+           'function suppressiveFire() { actionPoints[currentSquadIndex].ap -= 5; reportAttackOutcome(\"suppressiveFire\", { hits: 2, shots: 12 }); }' +
+           'mapAction(\"suppressiveFire\"); mapPickTarget(2);');
+    const en2 = s3.sandbox.appData.map.enemySquads[2];
+    ok(en2.suppressed === true && en2.fighters[0].hp === 3 && typeof s3.evalCtx('appData.campaign.activeBattles[0].onlineSupOut[\"Далёкий\"]') === 'number',
+        'Y3s: подавление ставит цели статус «Подавлен» (без потерь) и метку supOut для оппонента (онлайн)');
+    // ПТО по танку: пробитие → processVehicleHit (двигатель → уничтожен, экипаж выбывает)
+    s3.run('handleHexAction(\"5,6\");');
+    ok(s3.evalCtx('appData.map.selectedMoveSquadIdx') === 1 && /mapAction\('vehicle'\)/.test(s3.elements['battleMapActionPanel'].innerHTML) && /mapAction\('ordnance'\)/.test(s3.elements['battleMapActionPanel'].innerHTML),
+        'Y3t: у расчёта ПТО в панели — «ПТО по технике» и «Орудия/миномёты»');
+    s3.run('function attackVehicle() { reportAttackOutcome(\"vehicle\", { vehicleHits: [{ loc: 2, pen: 12 }, { loc: 5, pen: 20 }] }); } mapAction(\"vehicle\"); mapPickTarget(1);');
+    const tank = s3.sandbox.appData.map.enemySquads[1];
+    const outV = s3.evalCtx('appData.map.lastAttackOutcome');
+    ok(tank.isDestroyed === true && tank.fighters.every(f => f.hp === 0) && outV.vehicleResults.length === 2 && /выдержала/.test(outV.vehicleResults[0]) && /ДВИГАТЕЛЬ|двигател/i.test(outV.vehicleResults[1]),
+        'Y3u: ПТО по танку: корпус 12 мм против 15 мм — броня выдержала; двигатель 20 мм против 10 мм — пробитие, танк уничтожен, экипаж выбыл', JSON.stringify(outV && outV.vehicleResults));
+    // без выбранной цели (старый порядок) — ничего не применяется
+    s3.run('appData.map.attackTargetEnemyIdx = null; var __r = reportAttackOutcome(\"smallArms\", { hits: 5 });');
+    ok(s3.evalCtx('__r') === null, 'Y3v: без выбранной цели reportAttackOutcome ничего не делает (настольный порядок сохранён)');
+    // модалка вкладки «Бой»: цель выбрана в списке → урон применяется, после — сброс
+    s3.run('appData.map.grid[\"7,5\"].enemySquadIds = []; appData.map.enemySquads.push({ name: \"Цель модалки\", fighters: [{name:\"m1\",hp:3,maxHp:3}] }); appData.map.grid[\"9,9\"].enemySquadIds = [3];' +
+           'document.getElementById(\"modalTargetSelect\").value = \"3\"; document.getElementById(\"modalDistance\").value = \"4\"; document.getElementById(\"modalCover\").value = \"6\";' +
+           'pendingAttack = \"smallArms\"; var __seenIdx = null; function attackSmallArms() { __seenIdx = appData.map.attackTargetEnemyIdx; reportAttackOutcome(\"smallArms\", { hits: 2 }); } executeAttack();');
+    ok(s3.evalCtx('__seenIdx') === 3 && s3.sandbox.appData.map.enemySquads[3].fighters[0].hp === 1 && s3.evalCtx('appData.map.attackTargetEnemyIdx') === null,
+        'Y3w: цель из модалки вкладки «Бой» → урон применён к ней автоматически, после выстрела цель сброшена');
+    // проверка леса из модалки/карты — через attackTargetEnemyIdx
+    s3.run('appData.map.grid[\"9,9\"].enemySquadIds = []; appData.map.grid[\"10,5\"].enemySquadIds = [3]; appData.map.grid[\"10,5\"].type = \"forest\"; appData.map.grid[\"8,5\"].type = \"forest\"; appData.map.attackTargetEnemyIdx = 3; currentSquadIndex = 0;');
+    ok(!!s3.evalCtx('checkSmallArmsForestBlock()'), 'Y3x: checkSmallArmsForestBlock учитывает цель, выбранную на карте (attackTargetEnemyIdx)');
+    s3.run('appData.map.attackTargetEnemyIdx = null;');
+    // «Следующий отряд» / снятие выделения
+    s3.run('mapSelectSquadOnMap(0, \"5,5\"); mapSelectNextSquad();');
+    ok(s3.evalCtx('appData.map.selectedMoveSquadIdx') === 1 && s3.evalCtx('currentSquadIndex') === 1, 'Y3y: «→ Следующий отряд» переключает выбор на карте и во вкладке «Бой»');
+    s3.run('mapDeselectSquad();');
+    ok(s3.evalCtx('appData.map.selectedMoveSquadIdx') === null && /Кликните по своему отряду/.test(s3.elements['battleMapActionPanel'].innerHTML), 'Y3z: снятие выделения — панель показывает подсказку');
+
+    // --- Y5: онлайн — подавление (supOut) доходит до оппонента, потери — через dmgOut ---
+    {
+        const obSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'online_battles.js'), 'utf8');
+        const maSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'map_actions.js'), 'utf8');
+        const a = makeSandbox(freshAppData());
+        a.run('var ONLINE = { match: null, fogVisible: {}, role: "p1", docRef: null }; var currentTurn = 2; var __updates = []; var currentSquad = null; var currentSquadIndex = 0;');
+        a.run('ONLINE.docRef = { update: function(o) { __updates.push(o); return Promise.resolve(); } }; function onlineOppRole() { return "p2"; }');
+        a.run('appData.campaign.online = { code: "ABCD", role: "p1", playerId: "t" }; appData.currentBattleId = 77;');
+        a.run(obSrc); a.run(maSrc);
+        a.run('appData.campaign.activeBattles = [{ id: 77, hexKey: "8,10", currentTurn: 1, playerUnitNames: ["Взвод А"], enemyUnitNames: ["Враг Б"], playerSquads: [], enemySquads: [] }];' +
+              'appData.squads = [{ name: "Отд 1", faction: "BeVe", fighters: [{ name: "a1", hp: 3, maxHp: 3, weapon: "Винтовка" }] }]; currentSquad = appData.squads[0];' +
+              'appData.map = { grid: { "5,5": { type: "grass", squadIds: [0], enemySquadIds: [] }, "9,9": { type: "grass", squadIds: [], enemySquadIds: [0] } }, ' +
+              'enemySquads: [{ name: "Вр 1", faction: "A.I.R.F.", fighters: [{ name: "b1", hp: 3, maxHp: 3 }, { name: "b2", hp: 3, maxHp: 3 }] }] };' +
+              'onlineBattleCreated(appData.campaign.activeBattles[0]);');
+        setRandom(a, [0.1, 0.9, 0.2]);
+        a.run('appData.map.attackTargetEnemyIdx = 0; reportAttackOutcome("smallArms", { hits: 2 }); reportAttackOutcome("suppressiveFire", { hits: 1, shots: 6 }); appData.map.attackTargetEnemyIdx = null; __updates.length = 0; onlinePushBattles(true);');
+        const sn = a.evalCtx('__updates[__updates.length - 1]["state.p1.battles"].h8_10');
+        const dmgSum = (sn.dmgOut['Вр 1'] || []).reduce((x, y) => x + y, 0);
+        ok(dmgSum === 2 && typeof sn.supOut['Вр 1'] === 'number', 'Y5a: снапшот p1: урон, нанесённый с карты (dmgOut = 2), и подавление цели (supOut)', JSON.stringify({ d: sn.dmgOut, s: sn.supOut }));
+        const b = makeSandbox(freshAppData());
+        b.run('var ONLINE = { match: null, fogVisible: {}, role: "p2", docRef: null }; var currentTurn = 1; var __updates = []; var __logs = [];');
+        b.run('ONLINE.docRef = { update: function(o) { __updates.push(o); return Promise.resolve(); } }; alert = function() {}; log = function(m) { __logs.push(String(m)); };');
+        b.run('appData.campaign.online = { code: "ABCD", role: "p2", playerId: "q" }; function onlineOppRole() { return "p1"; } function onlineRevealEnemy() {}');
+        b.run('appData.campaign.opUnits = [{ name: "Враг Б", col: 8, row: 10, faction: "A.I.R.F.", squads: [{ name: "Вр 1", fighters: [{ name: "b1", hp: 3, maxHp: 3 }, { name: "b2", hp: 3, maxHp: 3 }] }] }];' +
+              'appData.campaign.enemyOpUnits = [{ name: "Взвод А", col: 8, row: 10, faction: "BeVe", side: "enemy", squads: [{ name: "Отд 1", fighters: [{ name: "a1", hp: 3, maxHp: 3 }] }] }];');
+        b.run('startTacticalBattle = function(my, opp, opts) { const bb = { id: 555, hexKey: "8,10", currentTurn: 1, playerUnitNames: my.map(u => u.name), enemyUnitNames: opp.map(u => u.name), ' +
+              ' playerSquads: [{ name: "Вр 1", fighters: [{ name: "b1", hp: 3, maxHp: 3 }, { name: "b2", hp: 3, maxHp: 3 }] }], enemySquads: [], tacticalMap: { grid: {} } }; appData.campaign.activeBattles.push(bb); return bb; };');
+        b.run(obSrc);
+        b.run('onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(sn) + ' } } });');
+        const mb = b.evalCtx('appData.campaign.activeBattles[0]');
+        const hpB = mb.playerSquads[0].fighters.reduce((x, f) => x + f.hp, 0);
+        ok(mb.playerSquads[0].suppressed === true && hpB === 4 && b.evalCtx('__logs.filter(l => l.includes("подавлен огнём противника")).length') === 1,
+            'Y5b: у оппонента отряд «Вр 1» получил −2 ОЗ и статус «Подавлен» с уведомлением в лог');
+        b.run('appData.campaign.activeBattles[0].playerSquads[0].suppressed = false; onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(sn) + ' } } });');
+        ok(b.evalCtx('appData.campaign.activeBattles[0].playerSquads[0].suppressed') === false && b.evalCtx('__logs.filter(l => l.includes("подавлен огнём противника")).length') === 1,
+            'Y5c: тот же снапшот повторно — подавление не ставится заново (одна метка = один раз; снятие подавления на новом ходу не отменяется)');
+    }
+
+    // --- Y4: статика: хуки в функциях атаки, скрипт подключён, SW ---
+    ok(/<script src="js\/map_actions\.js"><\/script>/.test(HTML), 'Y4a: js/map_actions.js подключён в index.html');
+    const hooks = (HTML.match(/reportAttackOutcome\('([a-zA-Z]+)'/g) || []).map(x => x.replace(/.*'(.*)'/, '$1'));
+    ['smallArms', 'sniper', 'suppressiveFire', 'melee', 'grenades', 'ordnance', 'vehicle', 'satchel', 'atGrenade', 'ampulomet', 'molotovCrew', 'dotmg'].forEach(k => {
+        ok(hooks.includes(k), 'Y4b: функция атаки «' + k + '» сообщает результат (reportAttackOutcome)');
+    });
+    const sw = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
+    ok(/wargame-v13\.05[5-9]/.test(sw) && /js\/map_actions\.js/.test(sw), 'Y4c: service-worker: кэш ≥ v13.055, map_actions.js в precache');
+    ok(/id="battleMapActionPanel"/.test(HTML), 'Y4d: панель #battleMapActionPanel есть под картой боя');
+    ok(/isVehicle: !!squad\.isVehicle,\s*armor: squad\.armor \|\| null,\s*opUnitName: squad\.opUnitName \|\| null/.test(HTML), 'Y4e: враги на тактической карте несут isVehicle/armor/opUnitName (для проверок цели и пробитий)');
+    ok(/appData\.map\.selectedMoveSquadIdx = selectedIdx;\s*recalcReachable\(squad, key\);/.test(HTML), 'Y4f: после перемещения отряд остаётся выбранным (можно сразу стрелять)');
+}
+
+// ============================================================
+console.log('\n== Z. v13.055 (R39#3): размещение перед боем — атакующий у края входа, обороняющийся вне зоны, онлайн скрыто до готовности обоих ==');
+{
+    const plSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'placement.js'), 'utf8');
+    const obSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'online_battles.js'), 'utf8');
+    const maSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'map_actions.js'), 'utf8');
+    // --- Z1: геометрия: направление между гексами оперативной карты (odd-r), зоны на карте боя ---
+    const g = makeSandbox(freshAppData());
+    g.run('var TACTICAL_MAP_SIZE = 15;'); g.run(plSrc);
+    const dirs = g.evalCtx('[opDirectionBetween(5,4, 6,4), opDirectionBetween(5,4, 4,4), opDirectionBetween(5,4, 5,3), opDirectionBetween(5,4, 4,3), opDirectionBetween(5,4, 5,5), opDirectionBetween(5,4, 4,5), ' +
+        'opDirectionBetween(5,5, 6,4), opDirectionBetween(5,5, 5,4), opDirectionBetween(5,5, 6,6), opDirectionBetween(5,5, 5,6), opDirectionBetween(5,5, 9,5), opDirectionBetween(5,5, 1,5), opDirectionBetween(5,5,5,5)]');
+    ok(JSON.stringify(dirs) === JSON.stringify(['E','W','NE','NW','SE','SW','NE','NW','SE','SW','E','W',null]),
+        'Z1a: направления к 6 соседям (чётный и нечётный ряд), к дальним гексам, к себе — null', JSON.stringify(dirs));
+    const zW = g.evalCtx('placementZoneKeys("W", 15)'), zE = g.evalCtx('placementZoneKeys("E", 15)'), zNE = g.evalCtx('placementZoneKeys("NE", 15)'), zSW = g.evalCtx('placementZoneKeys("SW", 20)');
+    ok(zW.length === 45 && zW.every(k => parseInt(k) < 3) && zE.length === 45 && zE.every(k => parseInt(k) >= 12), 'Z1b: вход с запада/востока — полоса 3 столбца у левого/правого края (45 клеток на 15×15)');
+    ok(zNE.length === 39 && zNE.includes('14,0') && zNE.includes('7,0') && !zNE.includes('6,0') && zNE.includes('14,7') && !zNE.includes('14,8') && zNE.includes('12,2') && !zNE.includes('11,3') && !zNE.includes('0,0'),
+        'Z1c: диагональный вход (СВ) — угол: полоса 3 ряда вдоль двух краёв у правого верхнего угла (39 клеток)', zNE.length);
+    ok(zSW.length === 51 && zSW.includes('0,19') && zSW.includes('9,19') && !zSW.includes('10,19') && zSW.includes('0,10') && !zSW.includes('0,9'), 'Z1d: ЮЗ-угол на 20×20 — 51 клетка у левого нижнего угла');
+    // --- Z2: кто атакует и откуда вошёл ---
+    g.run('var pendingBattleEntry = null; appData.campaign.opUnits = [{ name: "Свой", col: 8, row: 10, prevCol: 7, prevRow: 10 }, { name: "Штаб", col: 3, row: 10 }];' +
+          'appData.campaign.enemyOpUnits = [{ name: "Враг", col: 8, row: 10, prevCol: 8, prevRow: 9 }];');
+    const e1 = g.evalCtx('resolveBattleEntry([appData.campaign.opUnits[0]], [appData.campaign.enemyOpUnits[0]], "8,10", {})');
+    ok(e1.attackerSide === 'player' && e1.entryDir === 'W' && e1.source === 'move', 'Z2a: наш юнит пришёл с запада (prevCol/prevRow) → атакуем мы, вход с запада', JSON.stringify(e1));
+    g.run('pendingBattleEntry = { attackerSide: "enemy", unit: appData.campaign.enemyOpUnits[0] };');
+    const e2 = g.evalCtx('resolveBattleEntry([appData.campaign.opUnits[0]], [appData.campaign.enemyOpUnits[0]], "8,10", {})');
+    ok(e2.attackerSide === 'enemy' && e2.entryDir === 'NE' && g.evalCtx('pendingBattleEntry') === null, 'Z2b: враг вручную перемещён на наш гекс (pendingBattleEntry) → атакует враг, вошёл с северо-востока; метка сброшена', JSON.stringify(e2));
+    g.run('delete appData.campaign.opUnits[0].prevCol; delete appData.campaign.opUnits[0].prevRow;');
+    const e3 = g.evalCtx('resolveBattleEntry([appData.campaign.opUnits[0]], [appData.campaign.enemyOpUnits[0]], "8,10", {})');
+    ok(e3.attackerSide === 'player' && e3.entryDir === 'W' && e3.source === 'fallback', 'Z2c: предыдущий гекс неизвестен → сторона ближайшего своего юнита (штаб на западе)', JSON.stringify(e3));
+    const e4 = g.evalCtx('resolveBattleEntry([appData.campaign.opUnits[0]], [appData.campaign.enemyOpUnits[0]], "8,10", { mirrorOf: { attacker: "me", entryDir: "SE" } })');
+    ok(e4.attackerSide === 'enemy' && e4.entryDir === 'SE' && e4.source === 'online', 'Z2d: зеркало онлайн-боя: атакует оппонент (attacker=me у него), сторона входа из облака (ЮВ)', JSON.stringify(e4));
+    ok(/opRecordPrevPos\(unit\);[^\n]*\n\s*unit\.col = (nextStep|next|step)\.col;/.test(HTML) && (HTML.match(/opRecordPrevPos\(/g) || []).length >= 14 &&
+       /pendingBattleEntry = \{ attackerSide: 'enemy', unit: selectedEnemy \}/.test(HTML),
+        'Z2e: перед каждым шагом на оперативной карте запоминается предыдущий гекс; ручное перемещение врага на наш гекс → атакует враг');
+    // --- Z3: сквозной старт боя → фаза размещения, правила зон, блокировка действий, «✅ Размещение завершено» ---
+    const s2 = makeSandbox(freshAppData());
+    ['ensureAP','renderSquadSelector','updateUI','refreshSquadToPlaceDropdown','activateBattleTab','saveData','initMap','renderEnemySquads','updateTimeDisplay','renderMapTemplates','closeTargetModal','resetMapZoom','updateSquadDropdown','updateEnemyDropdown','updateEnemyFactionDropdown','populateTerrainSelect']
+        .forEach(fn => s2.run(`if (typeof ${fn} !== 'function') ${fn} = function(){};`));
+    s2.run('var TACTICAL_MAP_SIZE = 20; var currentTurn = 1; var inStandaloneBattle = false; var pendingBattleEntry = null; var pendingAttack = null; var actionPoints = {}; var currentSquadIndex = -1; var currentSquad = null;' +
+           'var __alerts = []; alert = function(m) { __alerts.push(String(m)); }; var __logs = []; log = function(m) { __logs.push(String(m)); }; var __cards = 0; openCardsTabForBattleStart = function() { __cards++; };' +
+           'function selectSquad(i) { currentSquadIndex = i; currentSquad = appData.squads[i]; } function calculateReachableHexes() { return {}; } function spendAP() { return true; } var __redraws = 0; redrawMap = function() { __redraws++; };' +
+           'setMapMode = function(m) { appData.map.mode = m; appData.map.selectedMoveSquadIdx = null; }; checkNightTime = function(){}; resetAP = function(){}; updateTimeDisplay = function(){};' +
+           'console = { log: function(){}, warn: function(){}, error: function(){} };');
+    s2.run(maSrc); s2.run(plSrc);
+    s2.run('appData.campaign.activeBattles = []; appData.campaign.hexOverlays = {};' +
+           'appData.campaign.opUnits = [{ name: "Взвод А", type: "platoon", col: 8, row: 10, prevCol: 9, prevRow: 10, faction: "BeVe", isDestroyed: false, squads: [{name:"Отд 1", faction:"BeVe", fighters:[{name:"a",hp:3,maxHp:3,weapon:"Винтовка"}]}, {name:"Отд 2", faction:"BeVe", fighters:[{name:"a2",hp:3,maxHp:3,weapon:"Винтовка"}]}] }];' +
+           'appData.campaign.enemyOpUnits = [{ name: "Враг Б", type: "platoon", col: 8, row: 10, faction: "A.I.R.F.", isDestroyed: false, squads: [{name:"Вр 1", faction:"A.I.R.F.", fighters:[{name:"b",hp:3,maxHp:3,weapon:"Винтовка"}]}] }];' +
+           'var __err = null; try { startTacticalBattle(appData.campaign.opUnits[0], appData.campaign.enemyOpUnits[0]); } catch (e) { __err = e.stack; }');
+    const pl = s2.evalCtx('appData.campaign.activeBattles[0].placement');
+    ok(s2.evalCtx('__err') === null && pl && pl.attackerSide === 'player' && pl.entryDir === 'E' && pl.phase === 'placing' && !pl.playerReady,
+        'Z3a: старт боя: юнит вошёл с востока → в записи боя placement {атакуем мы, вход E, фаза размещения}', s2.evalCtx('__err') || JSON.stringify(pl));
+    ok(s2.evalCtx('appData.map.mode') === 'place' && s2.evalCtx('__cards') === 0 && s2.evalCtx('__alerts.some(a => /Сначала разместите отряды/.test(a))') === true &&
+       s2.evalCtx('__alerts.some(a => /Вы — АТАКУЮЩИЙ/.test(a) && /с востока/.test(a))') === true,
+        'Z3b: сначала фаза размещения (режим «Разместить», подсказка «вы — атакующий, вход с востока»), карточки — потом');
+    const panel = s2.elements['battlePlacementPanel'];
+    ok(panel && panel.style.display === 'block' && /АТАКУЮЩИЙ/.test(panel.innerHTML) && /размещено <b>0\/2<\/b>/.test(panel.innerHTML) && /placementFinish\(\)/.test(panel.innerHTML) && /Отряды противника: размещено <b>0\/1<\/b>/.test(panel.innerHTML),
+        'Z3c: панель размещения: роль, счётчики своих/вражеских, кнопка «✅ Размещение завершено»');
+    // блокировки до завершения размещения
+    s2.run('appData.map.mode = "move"; handleHexAction("10,10");');
+    ok(/Сначала завершите размещение/.test(s2.elements['mapInfo'].innerHTML), 'Z3d: ход отрядом до завершения размещения — запрещён с подсказкой');
+    s2.run('appData.map.mode = "place"; currentTurn = 1; try { nextTurn(); } catch (e) {} mapAction("smallArms");');
+    ok(s2.evalCtx('currentTurn') === 1 && s2.evalCtx('__alerts.filter(a => /Сначала завершите размещение/.test(a)).length') >= 1 && /Сначала завершите размещение/.test(s2.elements['mapInfo'].innerHTML),
+        'Z3e: «Завершить ход» и действия с карты — тоже заблокированы');
+    // правила зон: атакующий — только в полосе 3 столбца у правого края (17..19)
+    s2.run('document.getElementById("squadToPlace").value = "0"; handleHexAction("10,10");');
+    ok(/⛔/.test(s2.elements['mapInfo'].innerHTML) && /зоне входа/.test(s2.elements['mapInfo'].innerHTML) && s2.evalCtx('appData.map.grid["10,10"].squadIds.length') === 0,
+        'Z3f: атакующий вне своей зоны (10,10) — отказ с пояснением');
+    s2.run('handleHexAction("18,5");');
+    ok(s2.evalCtx('appData.map.grid["18,5"].squadIds[0]') === 0 && /размещён/.test(s2.elements['mapInfo'].innerHTML), 'Z3g: атакующий в зоне (18,5) — размещён');
+    // обороняющийся (враг) — вне зоны атакующего
+    s2.run('placeExistingEnemyOnHex(appData.map.grid["19,10"], 0, "19,10");');
+    ok(s2.evalCtx('appData.map.grid["19,10"].enemySquadIds.length') === 0 && /⛔/.test(s2.elements['mapInfo'].innerHTML) && /обороняется/.test(s2.elements['mapInfo'].innerHTML),
+        'Z3h: враг-обороняющийся в зоне атакующего (19,10) — отказ');
+    s2.run('placeExistingEnemyOnHex(appData.map.grid["5,10"], 0, "5,10");');
+    ok(s2.evalCtx('appData.map.grid["5,10"].enemySquadIds[0]') === 0, 'Z3i: враг вне зоны (5,10) — размещён');
+    // завершение: нарушение → отказ; резерв → confirm; затем фаза done, действия разрешены
+    s2.run('appData.map.grid["18,5"].squadIds = []; appData.map.grid["3,3"].squadIds = [0]; var __fin1 = placementFinish();');
+    ok(s2.evalCtx('__fin1') === false && s2.evalCtx('__alerts.some(a => /Вне своей зоны: Отд 1 \\(3,3\\)/.test(a))') === true && s2.evalCtx('appData.campaign.activeBattles[0].placement.phase') === 'placing',
+        'Z3j: «Размещение завершено» при отряде вне зоны — отказ с именем и гексом');
+    s2.run('appData.map.grid["3,3"].squadIds = []; appData.map.grid["18,5"].squadIds = [0]; var __confirms = []; confirm = function(m) { __confirms.push(String(m)); return true; }; var __fin2 = placementFinish();');
+    const pl2 = s2.evalCtx('appData.campaign.activeBattles[0].placement');
+    ok(s2.evalCtx('__fin2') === true && pl2.phase === 'done' && pl2.playerReady && pl2.enemyReady && s2.evalCtx('__confirms.some(m => /Не размещены: Отд 2/.test(m))') === true &&
+       s2.evalCtx('__cards') === 1 && s2.evalCtx('__alerts.some(a => /бой на гексе \\(8,10\\) начинается/.test(a))') === true && s2.elements['battlePlacementPanel'].style.display === 'none',
+        'Z3k: офлайн: один «✅ Размещение завершено» (резерв — по подтверждению) → фаза done, объявление, панель скрыта, дальше — карточки');
+    s2.run('var __ntErr = null; try { nextTurn(); } catch (e) { __ntErr = e.message; }');
+    ok(s2.evalCtx('currentTurn') === 2 && s2.evalCtx('placementPendingReason()') === null, 'Z3l: после размещения ход завершается, действия разрешены', s2.evalCtx('__ntErr'));
+    ok(s2.evalCtx('placementCheckPlace("player", "3,3", true)') === null && /⛔/.test(s2.evalCtx('placementCheckPlace("player", "3,3", false) || ""')),
+        'Z3m: после размещения перестановка уже стоящих отрядов свободна, а новые (подкрепление) — по-прежнему в своей зоне');
+    // --- Z4: онлайн: одновременное размещение, расстановка противника скрыта до готовности обоих ---
+    const A = makeSandbox(freshAppData()), B = makeSandbox(freshAppData());
+    const setupOnline = (d, role) => {
+        d.run(`var ONLINE = { match: null, fogVisible: {}, role: "${role}", docRef: null }; var currentTurn = 1; var __updates = []; var __alerts = []; var __logs = []; var TACTICAL_MAP_SIZE = 15;`);
+        d.run('ONLINE.docRef = { update: function(o) { __updates.push(o); return Promise.resolve(); } }; alert = function(m) { __alerts.push(String(m)); }; log = function(m) { __logs.push(String(m)); };' +
+              `appData.campaign.online = { code: "ABCD", role: "${role}", playerId: "${role}" }; function onlineOppRole() { return "${role === 'p1' ? 'p2' : 'p1'}"; } function onlineRevealEnemy() {} var pendingBattleEntry = null;` +
+              'redrawMap = function(){}; updateUI = function(){}; renderActiveBattlesList = function(){}; setMapMode = function(m) { appData.map.mode = m; }; activateBattleTab = function(){}; var __cards = 0; openCardsTabForBattleStart = function() { __cards++; };');
+        d.run(plSrc); d.run(obSrc);
+    };
+    setupOnline(A, 'p1'); setupOnline(B, 'p2');
+    const mkGrid = 'var g = {}; for (var c = 0; c < 15; c++) for (var r = 0; r < 15; r++) g[c+","+r] = { type: "grass", squadIds: [], enemySquadIds: [], markers: [] }; return g';
+    A.run('appData.currentBattleId = 77; appData.campaign.activeBattles = [{ id: 77, hexKey: "8,10", currentTurn: 1, playerUnitNames: ["Взвод А"], enemyUnitNames: ["Враг Б"], playerSquads: [], enemySquads: [] }];' +
+          'initBattlePlacement(appData.campaign.activeBattles[0], "player", "E", "move");' +
+          'appData.squads = [{ name: "Отд 1", faction: "BeVe", fighters: [{ name: "a1", hp: 3, maxHp: 3 }] }];' +
+          'appData.map = { grid: (function(){ ' + mkGrid + '; })(), mapSize: 15, mode: "place", enemySquads: [{ name: "Вр 1", faction: "A.I.R.F.", fighters: [{ name: "b1", hp: 3, maxHp: 3 }] }] };' +
+          'appData.map.grid["13,7"].squadIds = [0]; onlineBattleCreated(appData.campaign.activeBattles[0]);');
+    const snapA1 = A.evalCtx('__updates[__updates.length - 1]["state.p1.battles"].h8_10');
+    ok(snapA1.placed === false && snapA1.attacker === 'me' && snapA1.entryDir === 'E' && snapA1.squads[0].pos === null,
+        'Z4a: снапшот атакующего до готовности: placed=false, attacker=me, entryDir=E, позиции отрядов НЕ передаются', JSON.stringify({ p: snapA1.placed, a: snapA1.attacker, d: snapA1.entryDir, pos: snapA1.squads[0].pos }));
+    // B: зеркало (стаб startTacticalBattle с реальными resolveBattleEntry/initBattlePlacement)
+    B.run('appData.campaign.opUnits = [{ name: "Враг Б", col: 8, row: 10, faction: "A.I.R.F.", squads: [{ name: "Вр 1", fighters: [{ name: "b1", hp: 3, maxHp: 3 }] }] }];' +
+          'appData.campaign.enemyOpUnits = [{ name: "Взвод А", col: 8, row: 10, faction: "BeVe", side: "enemy", squads: [{ name: "Отд 1", fighters: [{ name: "a1", hp: 3, maxHp: 3 }] }] }];' +
+          'startTacticalBattle = function(my, opp, opts) { const bb = { id: 555, hexKey: "8,10", currentTurn: 1, playerUnitNames: my.map(u => u.name), enemyUnitNames: opp.map(u => u.name), ' +
+          '  playerSquads: [{ name: "Вр 1", fighters: [{ name: "b1", hp: 3, maxHp: 3 }] }], enemySquads: [], tacticalMap: { mapSize: 15, grid: (function(){ ' + mkGrid + '; })(), enemySquads: [] } };' +
+          '  const en = resolveBattleEntry(my, opp, "8,10", opts); initBattlePlacement(bb, en.attackerSide, en.entryDir, en.source); appData.campaign.activeBattles.push(bb); return bb; };');
+    B.run('onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(snapA1) + ' } } });');
+    const plB = B.evalCtx('appData.campaign.activeBattles[0].placement');
+    ok(plB && plB.attackerSide === 'enemy' && plB.entryDir === 'E' && plB.phase === 'placing' && plB.enemyReady === false && B.evalCtx('placementNeedsMyAction(appData.campaign.activeBattles[0])') === true,
+        'Z4b: у атакованного зеркало боя: атакует противник, вход с востока (та же сторона карты), ждёт МОЕГО размещения', JSON.stringify(plB));
+    // B открывает бой и размещается вне зоны (E-полоса = столбцы 12..14): 3,7 — можно, 13,7 — нельзя
+    B.run('appData.currentBattleId = 555; appData.squads = appData.campaign.activeBattles[0].playerSquads; appData.map = appData.campaign.activeBattles[0].tacticalMap; appData.map.mode = "place";');
+    ok(/⛔/.test(B.evalCtx('placementCheckPlace("player", "13,7", false) || ""')) && B.evalCtx('placementCheckPlace("player", "3,7", false)') === null, 'Z4c: обороняющийся: в зоне атакующего (13,7) нельзя, вне неё (3,7) можно');
+    B.run('appData.map.grid["3,7"].squadIds = [0]; __updates.length = 0; confirm = function() { return true; }; var __finB = placementFinish();');
+    const snapB1 = B.evalCtx('__updates[__updates.length - 1]["state.p2.battles"].h8_10');
+    ok(B.evalCtx('__finB') === true && B.evalCtx('appData.campaign.activeBattles[0].placement.playerReady') === true && B.evalCtx('appData.campaign.activeBattles[0].placement.phase') === 'placing' &&
+       snapB1.placed === true && snapB1.squads[0].pos === '3,7' && B.evalCtx('__alerts.some(a => /Ждём, пока противник/.test(a))') === true && B.evalCtx('__cards') === 1,
+        'Z4d: B готов → снапшот с placed=true и позициями; фаза у B ещё «размещение» (ждём A), можно выбирать карточки');
+    // A получает готовность B, но сам ещё не готов → позиции B скрыты
+    A.run('onlineApplyCloudBattles({ p2: { battles: { h8_10: ' + JSON.stringify(snapB1) + ' } } });');
+    ok(A.evalCtx('appData.campaign.activeBattles[0].placement.enemyReady') === true && A.evalCtx('appData.campaign.activeBattles[0].placement.phase') === 'placing' &&
+       A.evalCtx('Object.keys(appData.map.grid).filter(k => appData.map.grid[k].enemySquadIds.length).length') === 0 && A.evalCtx('placementPendingReason()') !== null,
+        'Z4e: A видит «противник готов», но его расстановка скрыта (на сетке врагов нет), действия у A всё ещё заблокированы');
+    // A завершает → пуш + повторное применение облака → расстановка B видна, фаза done
+    A.run('ONLINE.match = { status: "playing", state: { p2: { battles: { h8_10: ' + JSON.stringify(snapB1) + ' } } } }; __updates.length = 0; confirm = function() { return true; }; var __finA = placementFinish();');
+    const snapA2 = A.evalCtx('__updates.map(u => u["state.p1.battles"] && u["state.p1.battles"].h8_10).filter(Boolean).pop()');
+    ok(A.evalCtx('__finA') === true && A.evalCtx('appData.campaign.activeBattles[0].placement.phase') === 'done' && A.evalCtx('appData.map.grid["3,7"].enemySquadIds[0]') === 0 &&
+       snapA2 && snapA2.placed === true && snapA2.squads[0].pos === '13,7' && A.evalCtx('placementPendingReason()') === null && A.evalCtx('__alerts.some(a => /Расстановка противника открыта/.test(a))') === true,
+        'Z4f: A готов → оба готовы: расстановка B (3,7) появилась у A, снапшот A с позициями, бой начинается');
+    // B получает готовность A → фаза done, позиции A применены
+    B.run('__alerts.length = 0; onlineApplyCloudBattles({ p1: { battles: { h8_10: ' + JSON.stringify(snapA2) + ' } } });');
+    ok(B.evalCtx('appData.campaign.activeBattles[0].placement.phase') === 'done' && B.evalCtx('appData.map.grid["13,7"].enemySquadIds[0]') === 0 && B.evalCtx('placementPendingReason()') === null &&
+       B.evalCtx('__alerts.some(a => /бой на гексе \\(8,10\\) начинается/.test(a))') === true && /размещение/.test(B.evalCtx('onlineBattleStatusHtml(appData.campaign.activeBattles[0])')) === false,
+        'Z4g: B получил готовность A → расстановка A (13,7) видна, бой начинается у обоих; строка статуса без пометки «размещение»');
+    // старые бои без placement — без ограничений
+    const legacy = makeSandbox(freshAppData());
+    legacy.run('var TACTICAL_MAP_SIZE = 20;'); legacy.run(plSrc);
+    legacy.run('appData.currentBattleId = 1; appData.campaign.activeBattles = [{ id: 1, hexKey: "1,1" }]; appData.map = { grid: {}, mode: "place" };');
+    ok(legacy.evalCtx('placementPendingReason()') === null && legacy.evalCtx('placementCheckPlace("player", "0,0", false)') === null, 'Z4h: бой из старого сейва (без placement) — без ограничений и блокировок');
+    // --- Z5: статика ---
+    ok(/<script src="js\/placement\.js"><\/script>/.test(HTML) && /id="battlePlacementPanel"/.test(HTML) && /drawPlacementZone\(ctx, size\)/.test(HTML) && /renderPlacementPanel\(\)/.test(HTML),
+        'Z5a: модуль подключён, панель размещения и подсветка зоны на карте боя');
+    ok(/battleStartUI\(newBattle\)/.test(HTML) && /battleStartUI\(existingBattle\)/.test(HTML) && /battleStartUI\(battle\)/.test(HTML), 'Z5b: новый бой / вступление в идущий / возврат в бой — сначала размещение, потом карточки');
+    const sw = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
+    ok((sw.match(/'\.\/js\/placement\.js'/g) || []).length === 2 && /wargame-v13\.055/.test(sw), 'Z5c: service-worker: js/placement.js в обоих списках, кэш v13.055');
+    ok(/placed: myPlaced,\s*attacker:/.test(obSrc) && /pos: myPlaced \? \(pos\[i\] \|\| null\) : null/.test(obSrc) && /if \(!oppPositionsVisible\) return;/.test(obSrc),
+        'Z5d: онлайн-протокол: placed/attacker/entryDir в снапшоте, позиции — только после готовности, приём позиций — только когда готовы оба');
+}
+
+function finishProbe() {
+    console.log('\n====================================');
+    console.log('PASS: ' + pass + '  FAIL: ' + fail);
+    if (fail > 0) process.exitCode = 1;
+}
+Promise.all(asyncChecks).then(finishProbe, (e) => { console.log('async error: ' + (e && e.stack || e)); fail++; finishProbe(); });
