@@ -1,9 +1,10 @@
+// ⚡ v13.057: include the direct action-point dependency so this probe can run cleanly.
 const fs = require('fs');
 const { sliceFunction, HTML } = require('./extract');
 const { createSandbox, freshAppData } = require('./sandbox');
 
-const FNS = ['renderTemplateSelection', 'addSelectedTemplatesToBattle', 'renderSquadSelector',
-  'updateUI', 'resetAP', 'selectSquad', 'ensureAP', 'renderFactionInfo', 'renderCardSelectionForBattle'];
+const FNS = ['getMaxAP', 'renderTemplateSelection', 'addSelectedTemplatesToBattle', 'renderSquadSelector',
+  'updateUI', 'resetAP', 'selectSquad', 'ensureAP', 'isTacticalHealthEditTestMode', 'renderFactionInfo', 'renderCardSelectionForBattle'];
 fs.writeFileSync('/tmp/wg_part.js', FNS.map(f => sliceFunction(HTML, f)).join('\n\n'));
 
 const ad = freshAppData();
@@ -11,12 +12,20 @@ const s = createSandbox(ad);
 s.sandbox.appData.templates = s.evalCtx('SQUAD_TEMPLATES');
 s.sandbox.assignUniqueCrewKeys = (sq) => (sq.fighters || []).forEach((f, i) => { f.crewKey = f.crewKey || ('k' + i); });
 s.sandbox.getAP = () => 4;
+s.sandbox.getMaxShots = () => 1;
+s.sandbox.getShotsUsed = () => 0;
+s.sandbox.formatTime = () => '00:00';
+s.sandbox.updateMainButtons = () => {};
+s.sandbox.renderActiveCardButtons = () => {};
+s.sandbox.getScopedActiveModifiersForSquad = () => [];
+s.sandbox.updateActiveCardsBattle = () => {};
 s.sandbox.renderModifiersList = () => {};
 s.sandbox.renderVehicleStatus = () => {};
+s.sandbox.renderEmbarkPanel = () => {};
 s.sandbox.updateEmbarkPanel = () => {};
 
 s.run('var currentSquad = null, currentSquadIndex = -1, morale = 0, actionPoints = [], currentTurn = 1, ' +
-      'hardMode = { enabled: false }, opMoveAnim = { playing: false }, detectionOptions = { auto: false };');
+      'inStandaloneBattle = true, hardMode = { enabled: false }, opMoveAnim = { playing: false }, detectionOptions = { auto: false };');
 
 s.run('selectedFaction = "BeVe"; selectedSubFaction = "belgian";');
 s.run('resetAP(); renderTemplateSelection();');

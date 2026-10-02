@@ -759,31 +759,42 @@ function showHexEditorMapTab() {
     if (btn && btn.classList) btn.classList.add('active');
 }
 
-// Пункт меню оперативной карты: «🛠️ Карты гексов» — какие гексы ждут правок
+// ⚡ v13.057: пункт меню «Карты гексов» всегда пишет результат в отдельный,
+// постоянно видимый статус; сообщение не зависит от наличия #mapInfo.
 function showHexEditorsMenu() {
     const all = getHexOverlays();
-    const rows = Object.keys(all).filter(k => (all[k].trenchPoints || 0) > 0 || (all[k].prepPoints || 0) > 0);
-    if (rows.length === 0) {
-        const mi = document.getElementById('mapInfo');
-        if (mi) {
-            // ⚡ v13.051 (R36#3): подсказка — где именно копятся правки
-            const sel = (typeof appData !== 'undefined' && appData.campaign) ? appData.campaign.selectedOpUnit : null;
-            const selTxt = (sel && sel.col !== null && sel.col !== undefined) ? ` Выбран юнит «${sel.name}» на гексе (${sel.col},${sel.row}) — правок для этого гекса пока нет.` : '';
-            mi.innerHTML = '🛠️ Нет доступных правок карт гексов. Отдайте приказ «🕳️ Окопаться» или «🪓 Подготовка позиций» (🎯 Отдать приказ) — ' +
-                'через 3 хода после выполнения здесь и в строке «Гекс: …» под картой появятся кнопки «Расставить окопы» / «Подготовка позиций».' + selTxt;
-            mi.style.color = '#f1c40f';
-        }
-        return;
-    }
+    const rows = Object.keys(all).filter(k => all[k] && ((all[k].trenchPoints || 0) > 0 || (all[k].prepPoints || 0) > 0));
+    const status = document.getElementById('opHexMenuStatus');
     const mi = document.getElementById('mapInfo');
-    if (!mi) return;
-    mi.innerHTML = '🛠️ Гексы с доступными правками карты:<br>' + rows.map(k => {
+    const safeKey = value => String(value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+
+    if (rows.length === 0) {
+        renderHexEditsPanel();
+        const sel = (typeof appData !== 'undefined' && appData.campaign) ? appData.campaign.selectedOpUnit : null;
+        const selTxt = (sel && sel.col !== null && sel.col !== undefined) ? ` Выбран юнит «${sel.name}» на гексе (${sel.col},${sel.row}) — правок для этого гекса пока нет.` : '';
+        const message = '🛠️ Нет доступных правок карт гексов. Отдайте приказ «🕳️ Окопаться» или «🪓 Подготовка позиций» (🎯 Отдать приказ) — через 3 хода после выполнения здесь и в строке «Гекс: …» под картой появятся кнопки «Расставить окопы» / «Подготовка позиций».' + selTxt;
+        if (status) { status.innerHTML = message; status.style.display = 'block'; }
+        if (mi) { mi.innerHTML = message; mi.style.color = '#f1c40f'; }
+        return false;
+    }
+
+    renderHexEditsPanel();
+    const summary = '🛠️ Найдены правки на гексах: ' + rows.map(k => {
         const ov = all[k];
-        return `· гекс (${k}): окопов ${ov.trenchPoints || 0}, подготовка позиций ${ov.prepPoints || 0} — ` +
-            `<button onclick="openHexEditorForBattle('${k}','trenches')" ${(ov.trenchPoints || 0) ? '' : 'disabled'} style="background:#8e44ad;">🕳️ окопы</button> ` +
-            `<button onclick="openHexEditorForBattle('${k}','prep')" ${(ov.prepPoints || 0) ? '' : 'disabled'} style="background:#16a085;">🪓 подготовка</button>`;
-    }).join('<br>');
-    mi.style.color = '#f1c40f';
+        return `<b>(${safeKey(k)})</b> — окопы: ${ov.trenchPoints || 0}, подготовка: ${ov.prepPoints || 0}`;
+    }).join('; ') + '. Кнопки открытия карты расположены ниже оперативной карты.';
+    if (status) { status.innerHTML = summary; status.style.display = 'block'; }
+    if (mi) {
+        mi.innerHTML = '🛠️ Гексы с доступными правками карты:<br>' + rows.map(k => {
+            const ov = all[k];
+            const key = safeKey(k);
+            return `· гекс (${key}): окопов ${ov.trenchPoints || 0}, подготовка позиций ${ov.prepPoints || 0} — ` +
+                `<button onclick="openHexEditorForBattle('${key}','trenches')" ${(ov.trenchPoints || 0) ? '' : 'disabled'} style="background:#8e44ad;">🕳️ окопы</button> ` +
+                `<button onclick="openHexEditorForBattle('${key}','prep')" ${(ov.prepPoints || 0) ? '' : 'disabled'} style="background:#16a085;">🪓 подготовка</button>`;
+        }).join('<br>');
+        mi.style.color = '#f1c40f';
+    }
+    return true;
 }
 
 function showHexEditorBanner() {    let banner = document.getElementById('hexEditorBanner');

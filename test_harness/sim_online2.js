@@ -1,4 +1,5 @@
 // ⚡ v13.042 (R27#6): E2E-симуляция ОНЛАЙН-МАТЧА на ДВУХ «устройствах»
+// ⚡ v13.057: добавлена отсутствовавшая прямая зависимость тестовой песочницы.
 //    (два vm-контекста + общий фейковый Firestore).
 //    ПАРАЛЛЕЛЬНЫЕ ХОДЫ: оба игрока выполняют один и тот же номер хода
 //    одновременно; следующий ход начинается, когда ОБА завершили текущий.
@@ -19,7 +20,8 @@ const FNS = [
     'onlineFogMap', 'onlineRevealEnemy', 'onlineFogRevealedUntil', 'isReconZoneActive', 'getUnplacedOpUnits', 'isOpUnitEmbarkedOnPlacedBtr',
     'onlineOnTurnChanged', 'onlineOnTurnStatusChanged', 'onlineOnSnapshotSync',
     'onlineFirstTurnRole', 'onlineCheckMatchProgress', 'onlineMarkPlaced', 'onlineOppData',
-    'finishPlacement', 'endOperationalTurn', 'checkAllUnitsDetection', 'applyDamageToOpUnit'
+    // ⚡ v13.057: destroy-state helper used by applyDamageToOpUnit in the real app.
+    'isOpUnitWipedOut', 'finishPlacement', 'endOperationalTurn', 'checkAllUnitsDetection', 'applyDamageToOpUnit'
 ];
 fs.writeFileSync('/tmp/wg_part.js', FNS.map(f => sliceFunction(HTML, f)).join('\n\n'));
 

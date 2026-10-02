@@ -1,6 +1,7 @@
 // ⚡ v13.024: имя кэша обязательно обновлять с каждой версией —
 //    иначе старый (устаревший) кэш продолжает отдавать старые js/data.js
-const CACHE_NAME = 'wargame-v13.055';
+// ⚡ v13.058: обновлён кэш для физической передачи связи и ручного телефонного маршрута.
+const CACHE_NAME = 'wargame-v13.058';
 
 const ASSETS = [
       // ====== КОРНЕВЫЕ ФАЙЛЫ ======
@@ -423,6 +424,13 @@ self.addEventListener('install', (event) => {
   //    не дожидаясь закрытия всех вкладок (иначе старые файлы
   //    продолжали отдаваться старым SW)
   if ('skipWaiting' in self) self.skipWaiting();
+});
+
+// ⚡ v13.057: ручная кнопка может запросить активацию уже скачанного SW.
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING' && 'skipWaiting' in self) {
+    self.skipWaiting();
+  }
 });
 
 // ⚡ v13.024: при активации удаляем ВСЕ старые кэши.
