@@ -1,3 +1,4 @@
+// ⚡ v13.059: current release weapons and awards.
 // ==================== ОРУЖИЕ И НАГРАДЫ ====================
 const BEVE_WEAPONS = [
 { "name": "Винтовка FN model 24/30", "values": [1,1,1,1,1,1], "effectiveRange": 5, "meleeBonus": 1, "icon": "images/BeVe/Fn24.png", "iconSize": "30px"},
@@ -44,9 +45,9 @@ const AIRF_CREW_WEAPONS  = [
  { "type": "mg", "name": "Станковый пулемет Hotchkiss Mle 1914", "crewSize": 3, "shotRule": "sum_d6", "fullCrewDice": 3, "minCrewDice": 1, "effectiveRange": 6, "icon": "images/Hotchkis.png" },
  { "type": "mg", "name": "Танковый пулемет Hotchkiss Mle 1914", "crewSize": 1, "shotRule": "sum_d6", "fullCrewDice": 1, "minCrewDice": 1, "effectiveRange": 5, "icon": "" },
  { "type": "at_gun", "name": "45-мм 53К танковая", "crewSize": 2, "shotRule": "fixed_per_crew", "shotsFull": 2, "shotsReduced2": 1, "shotsReduced1": 1, "effectiveRange": 15, "penetration": {"1":60,"2":60,"3":60,"4":55,"5":55,"6":50,"7":50,"8":45,"9":45,"10":42,"11":42,"12":42,"13":40,"14":40,"15":40,"16":40,"17":40,"18":35,"19":33,"20":33,"21":33,"22":33,"23":30,"24":30,"25":30,"26":30,"27":30,"28":30,"29":30,"30":28}, "icon": "" },
- { "type": "mortar", "name": "Бутылкомет Цукермана", "crewSize": 2, "shotRule": "fixed_per_crew", "shotsFull": 3, "shotsReduced2": 2, "shotsReduced1": 1, "effectiveRange": 3, "splashDamageDice": 3, "isMolotov": true, "icon": "" },
+ { "type": "mortar", "name": "Бутылкомет Цукермана", "crewSize": 2, "shotRule": "fixed_per_crew", "shotsFull": 3, "shotsReduced2": 2, "shotsReduced1": 1, "effectiveRange": 3, "splashDamageDice": 3, "isMolotov": true, "icon": "images/AIRF/Бутылкомет расчет.jpg" },
  { "type": "mortar", "name": "Минометный расчёт 82мм", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 3, "shotsReduced2": 2, "shotsReduced1": 1, "effectiveRange": 15, "icon": "" },
- { "type": "mortar", "name": "Ампуломёт АМ-1", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 3, "shotsReduced2": 2, "shotsReduced1": 1, "effectiveRange": 8, "splashDamageDice": 1, "isAmpulomet": true, "damageType": "d4", "icon": "" },
+ { "type": "mortar", "name": "Ампуломёт АМ-1", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 3, "shotsReduced2": 2, "shotsReduced1": 1, "effectiveRange": 8, "splashDamageDice": 1, "isAmpulomet": true, "damageType": "d4", "icon": "images/AIRF/Ампуломет расчет.jpg" },
 { "type": "mortar", "name": "Полковое орудие 75-мм", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 5, "shotsReduced2": 3, "shotsReduced1": 2, "effectiveRange": 15, "icon": "" }];
 
   const AIRF_AWARDS = [
