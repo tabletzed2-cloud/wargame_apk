@@ -1,5 +1,5 @@
 // ⚡ dev-пробник R18: v13.025–v13.058 regression-покрытие.
-// ⚡ v13.058: версия SW и проверки интерфейса синхронизированы с релизом.
+// ⚡ v13.059: проверки версии приложения и SW обновлены для нового релиза.
 const fs = require('fs');
 const path = require('path');
 const { sliceFunction, HTML } = require('./extract');
@@ -37,7 +37,9 @@ const FNS = [
     'renderAwardsReference', 'executeMortarSalvo', 'finishPlacement',
     'updateAssemblySupportCheck', 'orderShouldExecuteNow', 'executeOrder', 'executeDigInOrder', 'rollD12',
     // ⚡ v13.047 (R32): миномёты/ДОТ, залп ∝ живому составу, авто. винтовка = 2
-'isMortarUnit', 'mortarRoundsForUnit', 'unitAutoFire', 'canUnitShoot',
+    // ⚡ v13.057: morale helpers are direct artillery-strike dependencies.
+    'isOperationalMoraleUnit', 'getOperationalMorale', 'operationalMoraleMarkup', 'changeOperationalMorale', 'triggerOperationalRetreat',
+    'cancelOrdersForMoraleRetreat', 'isMortarUnit', 'mortarRoundsForUnit', 'unitAutoFire', 'canUnitShoot',
     'isMediumArtillery', 'getNearestOpUnit', 'isArmoredUnit',
     // ⚡ v13.048 (R33): бонусы фракций на экране выбора стороны
     'showScenarioDetails', 'factionBonusHtml',
@@ -45,14 +47,17 @@ const FNS = [
     //    (executePrepPositionsOrder и весь модуль карт гексов — в js/hexmaps.js,
     //     его песочница грузит целиком)
     'getMovementCost',
+    // ⚡ v13.059: helpers for bicycle-blitz card eligibility, movement and flank bonus.
+    'isBicycleTacticalSquad', 'hasBicycleBlitz', 'refreshTacticalAPForSquad',
+    'getBicycleBlitzFlankBonus', 'applyBicycleBlitzToSquad',
     // ⚡ v13.051 (R36): десант на БТР = размещён; авторазмещение; разведка r3; туман без «липкости»
     'isOpUnitEmbarkedOnPlacedBtr', 'getUnplacedOpUnits', 'getFactionPlacementHexes', 'autoPlaceUnplacedUnits',
     'maybeAutoPlaceAtStart', 'isReconZoneActive', 'onlineFogMap', 'onlineRevealEnemy', 'onlineFogRevealedUntil',
     'executeReconOrder', 'opMapDrawDims', 'onlineMarkPlaced', 'executeMoveOrder', 'checkEnemyEncounter',
     'getOpMoveCost', 'getRouteToTarget', 'getOpHexNeighbors',
     // ⚡ v13.050: сквозной старт боя на гексе с реальной картой пользователя
-    // ⚡ v13.057: функции-хелперы боя нужны для изолированного запуска startTacticalBattle.
-    'deepCloneGameData', 'getMaxAP', 'getTacticalBattleAnchor', 'battleUnitNamesForSide',
+    // ⚡ v13.057: функции-хелперы боя/морали нужны для изолированного запуска startTacticalBattle.
+    'deepCloneGameData', 'getMaxAP', 'getOperationalCombatFighters', 'getTacticalBattleAnchor', 'battleUnitNamesForSide',
     'sameBattleUnitNames', 'findDuplicateBattleByParticipants', 'startTacticalBattle',
     // ⚡ v13.052 (R37): Hard Mode онлайн, канвас/масштаб
     'applyHardModeUI', 'ensureHardModeForOnline', 'toggleHardMode', 'pickCanvasDpr', 'canvasBackingScale',
@@ -806,7 +811,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.058'"), 'U9q: константа версии v13.058');
+    ok(HTML.includes("var APP_VERSION = 'v13.059'"), 'U9q: константа версии v13.059');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -1341,7 +1346,7 @@ console.log('\n== U18. v13.050: реальные карты гексов пол�
         'U18m: библиотека редактора показывает карты гексов отдельной группой');
     // сервис-воркер: ядро строго, остальное мягко; карты гексов — из индекса
     const sw = fs.readFileSync(path.join(root, 'service-worker.js'), 'utf8');
-    ok(sw.includes("const CACHE_NAME = 'wargame-v13.058'"), 'U18n: SW — кэш wargame-v13.058');
+    ok(sw.includes("const CACHE_NAME = 'wargame-v13.059'"), 'U18n: SW — кэш wargame-v13.059');
     ok(sw.includes('cache.addAll(CORE_ASSETS)') && sw.includes('precacheSoft(cache, soft)') && sw.includes('precacheHexMaps(cache)') &&
        !/return cache\.addAll\(ASSETS\)/.test(sw),
         'U18o: SW — ядро (index/js/css) строго, картинки/карты мягко, карты гексов — по index.json (одна пропавшая картинка не срывает обновление)');
@@ -2269,7 +2274,7 @@ console.log('\n== Z. v13.055 (R39#3): размещение перед боем �
         'Z5a: модуль подключён, панель размещения и подсветка зоны на карте боя');
     ok(/battleStartUI\(newBattle\)/.test(HTML) && /battleStartUI\(existingBattle\)/.test(HTML) && /battleStartUI\(battle\)/.test(HTML), 'Z5b: новый бой / вступление в идущий / возврат в бой — сначала размещение, потом карточки');
     const sw = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
-    ok((sw.match(/'\.\/js\/placement\.js'/g) || []).length === 2 && /wargame-v13\.058/.test(sw), 'Z5c: service-worker: js/placement.js в обоих списках, кэш v13.058');
+    ok((sw.match(/'\.\/js\/placement\.js'/g) || []).length === 2 && /wargame-v13\.059/.test(sw), 'Z5c: service-worker: js/placement.js в обоих списках, кэш v13.059');
     ok(/placed: myPlaced,\s*attacker:/.test(obSrc) && /pos: myPlaced \? \(pos\[i\] \|\| null\) : null/.test(obSrc) && /if \(!oppPositionsVisible\) return;/.test(obSrc),
         'Z5d: онлайн-протокол: placed/attacker/entryDir в снапшоте, позиции — только после готовности, приём позиций — только когда готовы оба');
 }
