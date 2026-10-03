@@ -1,3 +1,4 @@
+// ⚡ v13.059: current release data and terrain definitions.
 // ==================== КОНСТАНТЫ И ДАННЫЕ ==================== 
 // Типы местности
   const TERRAIN_DATA = {

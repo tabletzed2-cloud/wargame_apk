@@ -1,3 +1,4 @@
+// ⚡ v13.059: current release squad templates.
 // ==================== ШАБЛОНЫ ОТРЯДОВ ====================
 const SQUAD_TEMPLATES = [
           {"name":"Пехотное отделение №1 Бельгийцы",

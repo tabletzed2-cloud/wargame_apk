@@ -1,4 +1,5 @@
-// ⚡ v13.058: targeted regressions for campaign cards, battle hexes, save/restore, and hex-map status.
+// ⚡ v13.059: version assertions track the current application and cache.
+// ⚡ v13.059: targeted regressions for campaign cards, battle hexes, save/restore, and hex-map status.
 const fs = require('fs');
 const path = require('path');
 const { sliceFunction, HTML } = require('./extract');
@@ -150,11 +151,11 @@ ok(s.evalCtx('__availableHexResult === true') && s.elements.opHexMenuStatus.styl
 // 9. Destroyed operational units remain omitted; version and SW cache are aligned.
 ok(/if\s*\(!unit\s*\|\|\s*unit\.isDestroyed\)\s*return/.test(HTML),
    'Отрисовка карты кампании пропускает уничтоженные юниты');
-ok(HTML.includes("var APP_VERSION = 'v13.058'") && HTML.includes('>v13.058</p>') &&
-   fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8').includes("const CACHE_NAME = 'wargame-v13.058'"),
-   'Отображаемая версия, APP_VERSION и кэш service worker согласованы на v13.058');
+ok(HTML.includes("var APP_VERSION = 'v13.059'") && HTML.includes('>v13.059</p>') &&
+   fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8').includes("const CACHE_NAME = 'wargame-v13.059'"),
+   'Отображаемая версия, APP_VERSION и кэш service worker согласованы на v13.059');
 ok(HTML.includes('function forceAppUpdate()') && HTML.includes("sw.getRegistration()") && HTML.includes("sw.register('./service-worker.js', { updateViaCache: 'none' })"),
    'Кнопка обновления проверяет/обновляет service worker, а не только меняет надпись');
 
-console.log(`\nИтог v13.058: PASS ${pass} · FAIL ${fail}`);
+console.log(`\nИтог v13.059: PASS ${pass} · FAIL ${fail}`);
 if (fail) process.exitCode = 1;

@@ -1,3 +1,4 @@
+<!-- ⚡ v13.059: online setup instructions for this release. -->
 # ⚔️ Онлайн-режим: настройка Firebase (5 шагов, ~5 минут)
 
 Онлайн-матчи работают на **Firebase Firestore** (бесплатный тариф Spark).

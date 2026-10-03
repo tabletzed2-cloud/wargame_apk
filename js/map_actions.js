@@ -1,3 +1,4 @@
+// ⚡ v13.059: скрытые вражеские отряды исключены из тактических целей.
 // ═══════════════════════════════════════════════════════════════════════════
 // ⚡ v13.054 (R39#4): ДЕЙСТВИЯ ОТРЯДА ПРЯМО НА ТАКТИЧЕСКОЙ КАРТЕ
 //
@@ -88,6 +89,9 @@ function mapActionEnemyAlive(enemy) {
     if (!enemy || enemy.isDestroyed) return 0;
     return (enemy.fighters || []).filter(f => f && f.hp > 0).length;
 }
+function mapActionEnemyTargetable(enemy) {
+    return !!enemy && enemy.hidden !== true && mapActionEnemyAlive(enemy) > 0;
+}
 function mapActionEnemyIsVehicle(enemy) {
     return !!(enemy && (enemy.isVehicle || enemy.armor));
 }
@@ -107,6 +111,7 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx) {
     const enemy = (appData.map.enemySquads || [])[enemyIdx];
     const out = { idx: enemyIdx, enemy, ok: false, reason: '', dist: null, cover: null };
     if (!enemy) { out.reason = 'нет отряда'; return out; }
+    if (enemy.hidden === true) { out.reason = 'скрыт'; return out; }
     if (mapActionEnemyAlive(enemy) === 0) { out.reason = 'уничтожен'; return out; }
     const sPos = getBattleSquadHex(grid, shooterIdx, false);
     const tPos = getBattleSquadHex(grid, enemyIdx, true);
@@ -174,7 +179,7 @@ function renderMapActionPanel() {
             `<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">`;
         const enemies = appData.map.enemySquads || [];
         const evals = enemies.map((e, i) => mapActionEvalTarget(def || { targets: 'any' }, idx, i))
-            .filter(ev => ev.enemy && ev.dist !== null)
+            .filter(ev => ev.enemy && ev.enemy.hidden !== true && ev.dist !== null)
             .sort((a, b) => a.dist - b.dist);
         if (evals.length === 0) html += '<span style="color:#e74c3c;">Отрядов противника на карте нет.</span>';
         evals.forEach(ev => {
@@ -307,7 +312,7 @@ function mapHexClickDuringAttack(key) {
     const pa = appData.map.pendingMapAttack;
     if (!pa) return false;
     const hex = appData.map.grid[key];
-    const ids = (hex && hex.enemySquadIds) ? hex.enemySquadIds.filter(i => mapActionEnemyAlive((appData.map.enemySquads || [])[i]) > 0) : [];
+    const ids = (hex && hex.enemySquadIds) ? hex.enemySquadIds.filter(i => mapActionEnemyTargetable((appData.map.enemySquads || [])[i])) : [];
     if (ids.length === 0) {
         // клик по своему отряду — переключаем выбор
         if (hex && hex.squadIds && hex.squadIds.length > 0) {
@@ -550,6 +555,7 @@ function drawMapActionTargetHighlights(ctx, size) {
     const enemies = appData.map.enemySquads || [];
     ctx.save();
     enemies.forEach((e, i) => {
+        if (!mapActionEnemyTargetable(e)) return;
         const pos = getBattleSquadHex(appData.map.grid, i, true);
         if (!pos) return;
         const c = (appData.map.centers || []).find(cc => cc.key === pos.key);

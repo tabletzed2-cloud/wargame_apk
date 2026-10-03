@@ -1,3 +1,4 @@
+// ⚡ v13.059: current release weapons and awards.
 // ==================== ОРУЖИЕ И НАГРАДЫ ====================
 const BEVE_WEAPONS = [
 { "name": "Винтовка FN model 24/30", "values": [1,1,1,1,1,1], "effectiveRange": 5, "meleeBonus": 1, "icon": "images/BeVe/Fn24.png", "iconSize": "30px"},

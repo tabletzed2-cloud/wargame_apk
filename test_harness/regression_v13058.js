@@ -1,4 +1,5 @@
-// ⚡ v13.058: regressions for physical signal teams and hand-routed telephone cable.
+// ⚡ v13.059: version assertions track the current application and cache.
+// ⚡ v13.059: regressions for physical signal teams and hand-routed telephone cable.
 const fs = require('fs');
 const path = require('path');
 const { sliceFunction, HTML } = require('./extract');
@@ -185,11 +186,11 @@ ok(s.evalCtx('signalTeamAlive({ type: "tank_platoon", name: "Танк" }, { sign
 
 // Static integration checks: version, route-click interception and actual path rendering.
 const sw = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
-ok(HTML.includes("var APP_VERSION = 'v13.058'") && sw.includes("const CACHE_NAME = 'wargame-v13.058'"),
-   'Версия интерфейса и service-worker cache синхронизированы на v13.058');
+ok(HTML.includes("var APP_VERSION = 'v13.059'") && sw.includes("const CACHE_NAME = 'wargame-v13.059'"),
+   'Версия интерфейса и service-worker cache синхронизированы на v13.059');
 ok(HTML.includes('handlePhoneRouteDraftClick(clickX, clickY, size)') && HTML.includes('lineTo(point.x, point.y)') &&
    HTML.includes('line.path = t.route.slice(0, t.routeIndex + 1)'),
    'Карта перехватывает ручные клики, рисует выбранную трассу и кабель следует за связистами');
 
-console.log(`\nИтог v13.058 — связь: PASS ${pass} · FAIL ${fail}`);
+console.log(`\nИтог v13.059 — связь: PASS ${pass} · FAIL ${fail}`);
 if (fail) process.exitCode = 1;

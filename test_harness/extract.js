@@ -1,3 +1,4 @@
+// ⚡ v13.059: helpers for current-release regression tests.
 // ⚡ dev-инструмент: извлекает функции из index.html для тестов в node
 const fs = require('fs');
 const path = require('path');

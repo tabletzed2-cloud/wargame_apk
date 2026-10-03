@@ -1,3 +1,4 @@
+// ⚡ v13.059: trench texture cycling, elevation preservation and hidden-target filtering.
 // ═══════════════════════════════════════════════════════════════════════════
 // ⚡ v13.049 (R34): КАРТЫ ГЕКСОВ ОПЕРАТИВНОЙ КАРТЫ ДЛЯ ТАКТИЧЕСКОГО БОЯ
 //
@@ -828,10 +829,6 @@ function hexEditClick(hexKeyCell) {
     const ov = getHexOverlay(st.hexKey, true);
     const left = ov[st.rule.pointsField] || 0;
     const infoBox = document.getElementById('mapInfo');
-    if (left <= 0) {
-        if (infoBox) { infoBox.innerHTML = '✅ Правки закончились — нажмите «Готово», чтобы вернуться в кампанию.'; infoBox.style.color = '#f1c40f'; }
-        return true;
-    }
     const baseCell = st.baseGrid[hexKeyCell];
     const baseType = baseCell ? baseCell.type : 'grass';
     const working = appData.map.grid[hexKeyCell];
@@ -839,8 +836,29 @@ function hexEditClick(hexKeyCell) {
         if (infoBox) { infoBox.innerHTML = '⚠️ Гекс ' + hexKeyCell + ' вне карты этого гекса.'; infoBox.style.color = '#e67e22'; }
         return true;
     }
+
+    // Окоп уже поставлен: повторный клик листает его текстуры, не расходуя правку.
     if (ov.hexEdits[hexKeyCell]) {
+        if (st.kind === 'trenches' && ov.hexEdits[hexKeyCell] === 'trenches') {
+            const trenchData = (typeof TERRAIN_DATA !== 'undefined') ? TERRAIN_DATA.trenches : null;
+            const nVar = (trenchData && trenchData.images && trenchData.images.length) ? trenchData.images.length : 1;
+            const currentVariant = (ov.hexVariants && Number.isFinite(ov.hexVariants[hexKeyCell]))
+                ? ov.hexVariants[hexKeyCell] : (Number.isFinite(working.variant) ? working.variant : 0);
+            const variant = (currentVariant + 1) % nVar;
+            ov.hexVariants[hexKeyCell] = variant;
+            working.variant = variant;
+            if (baseCell && Number.isFinite(baseCell.level)) working.level = baseCell.level;
+            saveHexOverlays(st.hexKey);
+            if (infoBox) { infoBox.innerHTML = `🕳️ Гекс ${hexKeyCell}: текстура окопа ${variant + 1}/${nVar}. Правки не потрачены.`; infoBox.style.color = '#27ae60'; }
+            showHexEditorBanner();
+            try { redrawMap(); } catch (e) {}
+            return true;
+        }
         if (infoBox) { infoBox.innerHTML = `⚠️ Гекс ${hexKeyCell} уже правили (${ov.hexEdits[hexKeyCell]}). Выберите другой.`; infoBox.style.color = '#e67e22'; }
+        return true;
+    }
+    if (left <= 0) {
+        if (infoBox) { infoBox.innerHTML = '✅ Правки закончились — нажмите «Готово», чтобы вернуться в кампанию.'; infoBox.style.color = '#f1c40f'; }
         return true;
     }
     if (!st.rule.allowed(baseType)) {
@@ -856,15 +874,18 @@ function hexEditClick(hexKeyCell) {
     const newType = (st.kind === 'trenches') ? 'trenches'
         : (isForestHexType(baseType) ? 'fallen_forest' : 'grass');
     ov.hexEdits[hexKeyCell] = newType;
-    // ⚡ случайная текстура из набора типа (окопы 1..7 и т.п.)
     const tData = (typeof TERRAIN_DATA !== 'undefined') ? TERRAIN_DATA[newType] : null;
-    const nVar = (tData && tData.images) ? tData.images.length : 1;
-    const variant = (nVar > 1) ? Math.floor(Math.random() * nVar) : 0;
+    const nVar = (tData && tData.images && tData.images.length) ? tData.images.length : 1;
+    // Для окопа начинаем с первой текстуры: дальнейшие клики идут циклом, как в редакторе.
+    const variant = st.kind === 'trenches' ? 0 : ((nVar > 1) ? Math.floor(Math.random() * nVar) : 0);
     ov.hexVariants[hexKeyCell] = variant;
     ov[st.rule.pointsField] = left - 1;
     st.undo.push(hexKeyCell);
     st.placed++;
-    if (working) { working.type = newType; working.variant = variant; working.ov = 1; }
+    working.type = newType;
+    working.variant = variant;
+    if (baseCell && Number.isFinite(baseCell.level)) working.level = baseCell.level;
+    working.ov = 1;
     saveHexOverlays(st.hexKey);
     if (infoBox) {
         infoBox.innerHTML = `✅ Гекс ${hexKeyCell}: ${baseType} → ${newType}. Осталось правок: ${ov[st.rule.pointsField]}.`;
@@ -889,7 +910,8 @@ function hexEditUndo() {
         const baseCell = st.baseGrid[k];
         if (appData.map.grid[k]) {
             appData.map.grid[k].type = baseCell ? baseCell.type : 'grass';
-            appData.map.grid[k].variant = 0;
+            appData.map.grid[k].variant = (baseCell && Number.isFinite(baseCell.variant)) ? baseCell.variant : 0;
+            appData.map.grid[k].level = (baseCell && Number.isFinite(baseCell.level)) ? baseCell.level : 0;
             delete appData.map.grid[k].ov;
         }
         saveHexOverlays(st.hexKey);
@@ -1047,6 +1069,7 @@ function fillModalTargets(attackType) {
     if (!shooterPos || enemies.length === 0) { row.style.display = 'none'; return; }
     let html = '<option value="-1">— не выбрана (ввести вручную) —</option>';
     enemies.forEach((e, idx) => {
+        if (!e || e.hidden || e.isDestroyed || !(e.fighters || []).some(f => f && f.hp > 0)) return;
         const pos = getBattleSquadHex(appData.map.grid, idx, true);
         if (!pos) return;
         const d = hexGridDistance(shooterPos.col, shooterPos.row, pos.col, pos.row);
@@ -1056,7 +1079,8 @@ function fillModalTargets(attackType) {
     });
     sel.innerHTML = html;
     sel.value = '-1';
-    row.style.display = (enemies.some((e, idx) => getBattleSquadHex(appData.map.grid, idx, true))) ? 'block' : 'none';
+    row.style.display = (enemies.some((e, idx) => e && !e.hidden && !e.isDestroyed &&
+        (e.fighters || []).some(f => f && f.hp > 0) && getBattleSquadHex(appData.map.grid, idx, true))) ? 'block' : 'none';
     const info = document.getElementById('modalTargetInfo');
     if (info) info.innerHTML = '';
     // правила для стрелкового оружия
