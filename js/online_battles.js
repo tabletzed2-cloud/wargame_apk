@@ -1,3 +1,4 @@
+// ⚡ v13.059: incoming casualties are persisted and marked on the live tactical map.
 // ============================================================
 // ⚡ v13.051 (R36#5): ОБЩИЕ ТАКТИЧЕСКИЕ БОИ В ОНЛАЙН-МАТЧЕ
 //   Раньше тактический бой существовал только на устройстве того, кто его
@@ -472,6 +473,7 @@ function onlineMergeOppBattle(battle, e) {
         try { log(`💫 Отряд «${name}» подавлен огнём противника (действие с карты боя).`); } catch (err) {}
     });
     const hurt = [];
+    let lossesChanged = false;
     Object.keys(theirOut).forEach(name => {
         const s = mySquads.find(x => x && x.name === name);
         if (!s || !Array.isArray(s.fighters)) return;
@@ -483,10 +485,20 @@ function onlineMergeOppBattle(battle, e) {
             const before = (typeof f.hp === 'number') ? f.hp : 0;
             f.hp = Math.max(0, before - delta);
             applied[i] = (applied[i] || 0) + delta;
-            if (f.hp !== before) hurt.push(`${f.name || 'боец'} (${s.name}) ${before}→${f.hp}${f.hp <= 0 ? ' 💀' : ''}`);
+            if (f.hp !== before) {
+                lossesChanged = true;
+                hurt.push(`${f.name || 'боец'} (${s.name}) ${before}→${f.hp}${f.hp <= 0 ? ' 💀' : ''}`);
+            }
             changed = true;
             __onlineMergeMineChanged = true;
         });
+        const wipedOut = (s.fighters || []).length > 0 && (s.fighters || []).every(f => !f || f.hp <= 0);
+        if (wipedOut && !s.isDestroyed) {
+            s.isDestroyed = true;
+            lossesChanged = true;
+            changed = true;
+            try { log(`💀 Ваш отряд «${s.name}» уничтожен огнём противника.`); } catch (err) {}
+        }
     });
     if (hurt.length > 0) {
         const msg = `💥 Бой на гексе (${battle.hexKey}): противник нанёс урон — ` + hurt.join(', ');
@@ -505,7 +517,17 @@ function onlineMergeOppBattle(battle, e) {
         try { log(msg); } catch (err) {}
         try { alert(msg); } catch (err) {}
     }
-    // потери своих в оперативные юниты — если бой не открыт (открытый — при выходе/завершении)
+    if (changed && live) {
+        // Сохраняем входящий урон в запись боя немедленно, а не только при выходе.
+        battle.playerSquads = mySquads.map(s => JSON.parse(JSON.stringify(s)));
+        battle.tacticalMap = JSON.parse(JSON.stringify(appData.map));
+        battle.enemySquads = (appData.map.enemySquads || []).map(s => JSON.parse(JSON.stringify(s)));
+        if (lossesChanged && typeof syncBattleLossesToCampaign === 'function') {
+            try { syncBattleLossesToCampaign(battle.id); } catch (err) {}
+        }
+    }
+    // Потери в оперативные юниты: незакрытый бой обновляем сразу; открытый — выше,
+    // чтобы уничтожение было видно и на тактической карте текущего хода.
     if (changed && !live) {
         onlineSyncBattleEnemyCopy(battle);
         if (typeof syncBattleLossesToCampaign === 'function') { try { syncBattleLossesToCampaign(battle.id); } catch (err) {} }
