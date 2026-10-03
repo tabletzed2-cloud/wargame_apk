@@ -1,3 +1,4 @@
+// ⚡ v13.059: online two-device regression baseline.
 // ⚡ v13.042 (R27#6): E2E-симуляция ОНЛАЙН-МАТЧА на ДВУХ «устройствах»
 // ⚡ v13.057: добавлена отсутствовавшая прямая зависимость тестовой песочницы.
 //    (два vm-контекста + общий фейковый Firestore).
@@ -20,8 +21,8 @@ const FNS = [
     'onlineFogMap', 'onlineRevealEnemy', 'onlineFogRevealedUntil', 'isReconZoneActive', 'getUnplacedOpUnits', 'isOpUnitEmbarkedOnPlacedBtr',
     'onlineOnTurnChanged', 'onlineOnTurnStatusChanged', 'onlineOnSnapshotSync',
     'onlineFirstTurnRole', 'onlineCheckMatchProgress', 'onlineMarkPlaced', 'onlineOppData',
-    // ⚡ v13.057: destroy-state helper used by applyDamageToOpUnit in the real app.
-    'isOpUnitWipedOut', 'finishPlacement', 'endOperationalTurn', 'checkAllUnitsDetection', 'applyDamageToOpUnit'
+    // ⚡ v13.057: operational morale helpers used by applyDamageToOpUnit in the real app.
+    'getOperationalCombatFighters', 'isOperationalMoraleUnit', 'getOperationalMorale', 'changeOperationalMorale', 'isOpUnitWipedOut', 'finishPlacement', 'endOperationalTurn', 'checkAllUnitsDetection', 'applyDamageToOpUnit'
 ];
 fs.writeFileSync('/tmp/wg_part.js', FNS.map(f => sliceFunction(HTML, f)).join('\n\n'));
 
