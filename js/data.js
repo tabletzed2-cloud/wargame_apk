@@ -18,8 +18,8 @@
       //    v13.050: текстуры — авторские файлы пользователя (лес поваленный /
       //    лес обстрелянный / воронки в поле); в варианты обычной травы и леса
       //    они НЕ входят (воронки и обстрелянный лес появляются только после обстрела).
-      fallen_forest:    { color: '#8D6E63', baseCost: 3,  icon: '🪵', level: 0, images: ['images/лес поваленный.png'] },
-      shelled_forest:   { color: '#4E342E', baseCost: 3,  icon: '🌲', level: 0, images: ['images/лес обстрелянный.png', 'images/лес обстрелянный1.png'] },
+      fallen_forest:    { color: '#8D6E63', baseCost: 3,  icon: '🪵', level: 0, images: ['images/лес поваленный.png', 'images/лес поваленный1.png'] },
+      shelled_forest:   { color: '#4E342E', baseCost: 3,  icon: '🌲', level: 0, images: ['images/лес обстрелянный.png', 'images/лес обстрелянный1.png', 'images/лес обстрелянный2.png', 'images/лес обстрелянный3.png'] },
       craters:          { color: '#795548', baseCost: 4,  icon: '💥', level: 0, images: ['images/воронки в поле.png', 'images/воронки в поле1.png'] },
    };
 
