@@ -1,4 +1,4 @@
-// ⚡ v13.059: trench texture cycling, elevation preservation and hidden-target filtering.
+// ⚡ v13.061: initial five-hex fortification setup with trench and DOT overlays.
 // ═══════════════════════════════════════════════════════════════════════════
 // ⚡ v13.049 (R34): КАРТЫ ГЕКСОВ ОПЕРАТИВНОЙ КАРТЫ ДЛЯ ТАКТИЧЕСКОГО БОЯ
 //
@@ -197,17 +197,142 @@ function getHexOverlay(hexKey, create) {
     const all = getHexOverlays();
     let ov = all[hexKey];
     if (!ov && create) {
-        ov = { hexEdits: {}, hexVariants: {}, trenchPoints: 0, prepPoints: 0, shellings: 0 };
+        ov = { hexEdits: {}, hexVariants: {}, hexRotations: {}, trenchPoints: 0, prepPoints: 0, shellings: 0 };
         all[hexKey] = ov;
     }
     if (ov) {
         if (!ov.hexEdits) ov.hexEdits = {};
         if (!ov.hexVariants) ov.hexVariants = {};
+        if (!ov.hexRotations || typeof ov.hexRotations !== 'object') ov.hexRotations = {};
         if (typeof ov.trenchPoints !== 'number') ov.trenchPoints = 0;
         if (typeof ov.prepPoints !== 'number') ov.prepPoints = 0;
         if (typeof ov.shellings !== 'number') ov.shellings = 0;
+        if (!ov.initialFortifications || typeof ov.initialFortifications !== 'object') {
+            ov.initialFortifications = { trenchCells: [], dotCells: [] };
+        }
+        if (!Array.isArray(ov.initialFortifications.trenchCells)) ov.initialFortifications.trenchCells = [];
+        if (!Array.isArray(ov.initialFortifications.dotCells)) ov.initialFortifications.dotCells = [];
     }
     return ov || null;
+}
+
+const INITIAL_FORTIFICATION_HEX_COUNT = 5;
+const INITIAL_FORTIFICATION_TRENCH_LIMIT = 8;
+function countHexTrenchCells(ov) {
+    ov = ov || {};
+    const initial = ov.initialFortifications || {};
+    const legacy = Object.keys(ov.hexEdits || {}).filter(k => ov.hexEdits[k] === 'trenches');
+    return new Set([...(Array.isArray(initial.trenchCells) ? initial.trenchCells : []), ...legacy].map(String)).size;
+}
+function normalizeHexRotation(value, fallback) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return Number.isFinite(fallback) ? fallback : 0;
+    return ((Math.round(n / 60) * 60) % 360 + 360) % 360;
+}
+function isEnemyOperationalUnit(unitOrName) {
+    const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || {};
+    const name = typeof unitOrName === 'string' ? unitOrName : (unitOrName && unitOrName.name);
+    return (camp.enemyOpUnits || []).some(enemy => enemy && (
+        enemy === unitOrName || (name && enemy.name === name &&
+            (typeof unitOrName === 'string' || !unitOrName.faction || !enemy.faction || enemy.faction === unitOrName.faction))
+    ));
+}
+function getInitialFortificationData(hexKey, create) {
+    const ov = getHexOverlay(hexKey, !!create);
+    return ov ? ov.initialFortifications : null;
+}
+function renderInitialFortificationStatus() {
+    const panel = (typeof document !== 'undefined') ? document.getElementById('initialFortificationStatus') : null;
+    if (!panel || !appData || !appData.campaign) return;
+    const camp = appData.campaign;
+    const state = camp.initialFortificationSetup || {};
+    if (!state.phase && !state.complete && ((camp.currentTurn || 1) > 1 || (typeof placementLocked !== 'undefined' && placementLocked))) {
+        panel.style.display = 'none';
+        return;
+    }
+    const keys = Array.isArray(state.hexKeys) ? state.hexKeys : (camp.initialFortificationHexes || []);
+    const safeKeys = keys.map(k => String(k).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])));
+    let text = '';
+    if (state.complete) {
+        text = `✅ Укрепления сохранены для пяти оперативных гексов: ${safeKeys.map(k => `(${k})`).join(', ')}. Можно открыть их редактор повторно.`;
+    } else if (state.phase === 'edit') {
+        text = `🛠️ Последовательно редактируются карты ${Math.min((state.nextIndex || 0) + 1, INITIAL_FORTIFICATION_HEX_COUNT)}/${INITIAL_FORTIFICATION_HEX_COUNT}: ${safeKeys.map(k => `(${k})`).join(', ')}.`;
+    } else if (state.phase === 'select' || camp.opMapMode === 'selectInitialFortificationHexes') {
+        text = `🪖 Выбрано гексов: ${safeKeys.length}/${INITIAL_FORTIFICATION_HEX_COUNT}. Кликните по оперативной карте, чтобы выбрать ещё ${INITIAL_FORTIFICATION_HEX_COUNT - safeKeys.length}. Повторный клик снимает выбор.`;
+    } else {
+        text = 'Перед завершением начальной расстановки выберите пять гексов оперативной карты и по очереди задайте их окопы и ДОТы.';
+    }
+    panel.innerHTML = text;
+    panel.style.display = 'block';
+}
+function startInitialFortificationSetup() {
+    const camp = appData && appData.campaign;
+    if (!camp) return false;
+    if (appData.currentBattleId || hexEditorState) {
+        alert('Сначала выйдите из редактора карты гекса или тактического боя.');
+        return false;
+    }
+    if ((camp.currentTurn || 1) > 1 || (typeof placementLocked !== 'undefined' && placementLocked)) {
+        alert('Пять гексов укреплений выбираются только при начальной расстановке.');
+        return false;
+    }
+    let state = camp.initialFortificationSetup;
+    if (!state || !Array.isArray(state.hexKeys)) {
+        state = { phase: 'select', hexKeys: (camp.initialFortificationHexes || []).slice(0, INITIAL_FORTIFICATION_HEX_COUNT), nextIndex: 0, complete: false };
+        camp.initialFortificationSetup = state;
+    }
+    if (state.complete && state.hexKeys.length === INITIAL_FORTIFICATION_HEX_COUNT) {
+        state.phase = 'edit';
+        state.nextIndex = 0;
+        state.complete = false;
+    }
+    if (state.phase === 'edit' && state.hexKeys.length === INITIAL_FORTIFICATION_HEX_COUNT) {
+        const index = Math.max(0, Math.min(state.nextIndex || 0, INITIAL_FORTIFICATION_HEX_COUNT - 1));
+        state.nextIndex = index;
+        renderInitialFortificationStatus();
+        saveData();
+        openHexEditorForBattle(state.hexKeys[index], 'initialFortification');
+        return true;
+    }
+    state.phase = 'select';
+    state.complete = false;
+    if (typeof setOpMapMode === 'function') setOpMapMode('selectInitialFortificationHexes');
+    else camp.opMapMode = 'selectInitialFortificationHexes';
+    renderInitialFortificationStatus();
+    const mi = document.getElementById('mapInfo');
+    if (mi) { mi.innerHTML = `🪖 Выберите ровно ${INITIAL_FORTIFICATION_HEX_COUNT} оперативных гекса. Повторный клик снимает отметку.`; mi.style.color = '#f1c40f'; }
+    saveData();
+    return true;
+}
+function selectInitialFortificationHex(hexKey) {
+    const camp = appData && appData.campaign;
+    const state = camp && camp.initialFortificationSetup;
+    if (!state || state.phase !== 'select' || !hexKey) return false;
+    const keys = Array.isArray(state.hexKeys) ? state.hexKeys : (state.hexKeys = []);
+    const idx = keys.indexOf(hexKey);
+    if (idx >= 0) keys.splice(idx, 1);
+    else if (keys.length >= INITIAL_FORTIFICATION_HEX_COUNT) {
+        const mi = document.getElementById('mapInfo');
+        if (mi) { mi.innerHTML = `Уже выбрано пять гексов. Повторно кликните выбранный, чтобы заменить его.`; mi.style.color = '#e67e22'; }
+        return true;
+    } else keys.push(hexKey);
+    camp.initialFortificationHexes = keys.slice();
+    if (keys.length === INITIAL_FORTIFICATION_HEX_COUNT) {
+        state.phase = 'edit';
+        state.nextIndex = 0;
+        state.complete = false;
+        camp.opMapMode = 'view';
+        saveData();
+        renderInitialFortificationStatus();
+        openHexEditorForBattle(keys[0], 'initialFortification');
+    } else {
+        saveData();
+        renderInitialFortificationStatus();
+        const mi = document.getElementById('mapInfo');
+        if (mi) { mi.innerHTML = `✅ Отмечен гекс (${hexKey}). Выбрано ${keys.length}/${INITIAL_FORTIFICATION_HEX_COUNT}.`; mi.style.color = '#27ae60'; }
+        try { redrawOperationalMap(); } catch (e) {}
+    }
+    return true;
 }
 
 // Накладываем правки на сетку (и в редакторе, и в бою, у обоих игроков).
@@ -218,14 +343,32 @@ function applyHexOverlays(grid, hexKey) {
     if (!grid) return grid;
     const ov = getHexOverlay(hexKey, false);
     const edits = (ov && ov.hexEdits) || {};
+    const rotations = (ov && ov.hexRotations) || {};
+    const fort = (ov && ov.initialFortifications) || { trenchCells: [], dotCells: [] };
+    const trenches = new Set(Array.isArray(fort.trenchCells) ? fort.trenchCells : []);
+    const dots = new Set(Array.isArray(fort.dotCells) ? fort.dotCells : []);
     const md = TACTICAL_HEX_MAPS[hexKey];
     Object.keys(grid).forEach(k => {
         const cell = grid[k];
-        if (!cell || !cell.ov || edits[k]) return;
+        if (!cell) return;
         const base = md && md.grid ? md.grid[k] : null;
-        cell.type = base ? base.type : 'grass';
-        cell.variant = base ? (base.variant || 0) : 0;
-        delete cell.ov;
+        if (cell._deploymentTrenchOverlay) {
+            cell.type = edits[k] || (base ? base.type : 'grass');
+            cell.variant = edits[k] ? ((ov.hexVariants && ov.hexVariants[k]) || 0) : (base ? (base.variant || 0) : 0);
+            cell.rotation = (rotations[k] !== undefined) ? normalizeHexRotation(rotations[k]) : normalizeHexRotation(base && base.rotation, 0);
+            delete cell._deploymentTrenchOverlay;
+        }
+        if (cell._deploymentDotOverlay) {
+            if (Array.isArray(cell.markers)) cell.markers = cell.markers.filter(m => m !== 'dot');
+            delete cell._deploymentDotOverlay;
+        }
+        // Старые hexEdits удалённые редактором возвращаются к эталонной клетке.
+        if (cell.ov && !edits[k] && !trenches.has(k)) {
+            cell.type = base ? base.type : 'grass';
+            cell.variant = base ? (base.variant || 0) : 0;
+            if (rotations[k] === undefined) cell.rotation = normalizeHexRotation(base && base.rotation, 0);
+            delete cell.ov;
+        }
     });
     Object.keys(edits).forEach(k => {
         const cell = grid[k];
@@ -233,6 +376,24 @@ function applyHexOverlays(grid, hexKey) {
         cell.type = edits[k];
         cell.variant = (ov.hexVariants && ov.hexVariants[k]) || 0;
         cell.ov = 1;
+    });
+    trenches.forEach(k => {
+        const cell = grid[k];
+        if (!cell) return;
+        cell.type = 'trenches';
+        cell.variant = (ov.hexVariants && ov.hexVariants[k]) || 0;
+        cell.ov = 1;
+        cell._deploymentTrenchOverlay = 1;
+    });
+    dots.forEach(k => {
+        const cell = grid[k];
+        if (!cell) return;
+        if (!Array.isArray(cell.markers)) cell.markers = [];
+        if (!cell.markers.includes('dot')) cell.markers.push('dot');
+        cell._deploymentDotOverlay = 1;
+    });
+    Object.keys(rotations).forEach(k => {
+        if (grid[k]) grid[k].rotation = normalizeHexRotation(rotations[k], grid[k].rotation || 0);
     });
     return grid;
 }
@@ -278,12 +439,16 @@ function mergeHexOverlays(cloud) {
         const c = cloud[hexKey] || {};
         let hexChanged = false;
         if (!local[hexKey]) {
-            local[hexKey] = { hexEdits: {}, hexVariants: {}, trenchPoints: 0, prepPoints: 0, shellings: 0 };
+            local[hexKey] = { hexEdits: {}, hexVariants: {}, hexRotations: {}, trenchPoints: 0, prepPoints: 0, shellings: 0 };
             hexChanged = true;
         }
         const l = local[hexKey];
         if (!l.hexEdits) l.hexEdits = {};
         if (!l.hexVariants) l.hexVariants = {};
+        if (!l.hexRotations || typeof l.hexRotations !== 'object') l.hexRotations = {};
+        if (!l.initialFortifications || typeof l.initialFortifications !== 'object') l.initialFortifications = { trenchCells: [], dotCells: [] };
+        if (!Array.isArray(l.initialFortifications.trenchCells)) l.initialFortifications.trenchCells = [];
+        if (!Array.isArray(l.initialFortifications.dotCells)) l.initialFortifications.dotCells = [];
         Object.keys(c.hexEdits || {}).forEach(k => {
             const cv = c.hexEdits[k];
             const cvar = (c.hexVariants && c.hexVariants[k] !== undefined) ? c.hexVariants[k] : 0;
@@ -292,10 +457,31 @@ function mergeHexOverlays(cloud) {
                 l.hexEdits[k] = cv; l.hexVariants[k] = cvar; hexChanged = true;
             }
         });
-        ['trenchPoints', 'prepPoints', 'shellings'].forEach(f => {
-            const cv = c[f] || 0, lv = l[f] || 0;
-            if (cv > lv) { l[f] = cv; hexChanged = true; }
+        Object.keys(c.hexRotations || {}).forEach(k => {
+            const value = normalizeHexRotation(c.hexRotations[k]);
+            if (!(k in l.hexRotations)) { l.hexRotations[k] = value; hexChanged = true; return; }
+            if (cloudWins && normalizeHexRotation(l.hexRotations[k]) !== value) {
+                l.hexRotations[k] = value;
+                hexChanged = true;
+            }
         });
+        const cf = c.initialFortifications || {};
+        ['trenchCells', 'dotCells'].forEach(field => {
+            const merged = Array.from(new Set([...(l.initialFortifications[field] || []), ...(Array.isArray(cf[field]) ? cf[field] : [])].map(String))).sort();
+            const bounded = field === 'trenchCells' ? merged.slice(0, INITIAL_FORTIFICATION_TRENCH_LIMIT) : merged;
+            if (JSON.stringify(l.initialFortifications[field]) !== JSON.stringify(bounded)) {
+                l.initialFortifications[field] = bounded;
+                hexChanged = true;
+            }
+        });
+        // Бюджеты приказов — локальные: право размещать окопы/позиции
+        // принадлежит игроку, чей оперативный отряд выполнил приказ.
+        // Сопернику синхронизируем только уже внесённые правки и число обстрелов.
+        const cloudShellings = Number(c.shellings) || 0;
+        if (cloudShellings > (Number(l.shellings) || 0)) {
+            l.shellings = cloudShellings;
+            hexChanged = true;
+        }
         if (hexChanged) { changed = true; touched.push(hexKey); }
     });
     touched.forEach(hexKey => { try { applyHexOverlaysToBattles(hexKey); } catch (e) {} });
@@ -525,22 +711,39 @@ function _applyShellingCraters(hexKey, count) {
 // ─────────────────── ВЫДАЧА ПРАВОК ПО ПРИКАЗАМ ───────────────────
 
 // Окопы: за каждый отряд взвода, который окапывался на гексе, — 1 гекс окопа
-function grantTrenchPoints(hexKey, squadsCount, unitName) {
+function grantTrenchPoints(hexKey, squadsCount, unitName, enemySide) {
     const ov = getHexOverlay(hexKey, true);
-    const n = Math.max(1, squadsCount || 1);
-    ov.trenchPoints = (ov.trenchPoints || 0) + n;
+    const n = Math.max(1, Math.floor(Number(squadsCount) || 1));
+    if (enemySide === undefined) enemySide = isEnemyOperationalUnit(unitName);
+    if (enemySide) {
+        log(`🕳️ ${unitName || 'Вражеский отряд'} завершил окапывание на гексе (${hexKey}); бюджет редактирования игроку не выдаётся.`);
+        return ov.trenchPoints || 0;
+    }
+    const room = Math.max(0, INITIAL_FORTIFICATION_TRENCH_LIMIT - countHexTrenchCells(ov));
+    const currentBudget = Math.min(Math.max(0, Math.floor(Number(ov.trenchPoints) || 0)), room);
+    const granted = Math.min(n, Math.max(0, room - currentBudget));
+    ov.trenchPoints = currentBudget + granted;
     saveHexOverlays(hexKey);
-    log(`🕳️ ${unitName || 'Отряд'}: доступно гексов окопов на гексе (${hexKey}) — +${n} (всего ${ov.trenchPoints}).`);
-    showHexEditButton(hexKey, 'trenches');
-    queueHexEditPrompt(hexKey, 'trenches', unitName);
+    if (granted > 0) {
+        log(`🕳️ ${unitName || 'Отряд'}: доступно гексов окопов на гексе (${hexKey}) — +${granted} (всего ${ov.trenchPoints}; лимит ${INITIAL_FORTIFICATION_TRENCH_LIMIT}).`);
+        showHexEditButton(hexKey, 'trenches');
+        queueHexEditPrompt(hexKey, 'trenches', unitName);
+    } else {
+        log(`🕳️ ${unitName || 'Отряд'}: лимит ${INITIAL_FORTIFICATION_TRENCH_LIMIT} клеток окопов на гексе (${hexKey}) уже исчерпан.`);
+    }
     return ov.trenchPoints;
 }
 
 // Подготовка позиций: за каждый отряд взвода — 1 правка местности
 // (лес → поваленный лес, кусты → трава)
-function grantPrepPoints(hexKey, squadsCount, unitName) {
+function grantPrepPoints(hexKey, squadsCount, unitName, enemySide) {
     const ov = getHexOverlay(hexKey, true);
-    const n = Math.max(1, squadsCount || 1);
+    if (enemySide === undefined) enemySide = isEnemyOperationalUnit(unitName);
+    if (enemySide) {
+        log(`🪓 ${unitName || 'Вражеский отряд'} завершил подготовку позиций на гексе (${hexKey}); бюджет редактирования игроку не выдаётся.`);
+        return ov.prepPoints || 0;
+    }
+    const n = Math.max(1, Math.floor(Number(squadsCount) || 1));
     ov.prepPoints = (ov.prepPoints || 0) + n;
     saveHexOverlays(hexKey);
     log(`🪓 ${unitName || 'Отряд'}: доступно правок «подготовка позиций» на гексе (${hexKey}) — +${n} (всего ${ov.prepPoints}).`);
@@ -555,6 +758,7 @@ function grantPrepPoints(hexKey, squadsCount, unitName) {
 let __hexEditPromptQueue = [];
 let __hexEditPromptTimer = null;
 function queueHexEditPrompt(hexKey, kind, unitName) {
+    if (isEnemyOperationalUnit(unitName)) return;
     __hexEditPromptQueue.push({ hexKey, kind, unitName });
     if (__hexEditPromptTimer) return;
     __hexEditPromptTimer = setTimeout(() => { __hexEditPromptTimer = null; promptPendingHexEdits(); }, 50);
@@ -589,11 +793,12 @@ function promptPendingHexEdits() {
 //    доступными правками и кнопки открытия карты (не зависит от строки сообщений)
 function renderHexEditsPanel() {
     const all = (typeof appData !== 'undefined' && appData.campaign && appData.campaign.hexOverlays) || {};
-    const rows = Object.keys(all).filter(k => all[k] && ((all[k].trenchPoints || 0) > 0 || (all[k].prepPoints || 0) > 0));
+    const rows = Object.keys(all).filter(k => all[k] && ((all[k].trenchPoints || 0) > 0 || (all[k].prepPoints || 0) > 0 || countHexTrenchCells(all[k]) > 0));
     const rowHtml = (k) => {
         const ov = all[k];
+        const placed = countHexTrenchCells(ov);
         return `· гекс <b>(${k})</b>: ` +
-            ((ov.trenchPoints || 0) ? `<button onclick="openHexEditorForBattle('${k}','trenches')" style="background:#8e44ad; font-size:0.85rem;">🕳️ Расставить окопы (${ov.trenchPoints})</button> ` : '') +
+            ((ov.trenchPoints || 0) || placed ? `<button onclick="openHexEditorForBattle('${k}','trenches')" style="background:#8e44ad; font-size:0.85rem;">🕳️ ${ov.trenchPoints ? `Расставить окопы (${ov.trenchPoints})` : `Текстура/поворот окопов (${placed})`}</button> ` : '') +
             ((ov.prepPoints || 0) ? `<button onclick="openHexEditorForBattle('${k}','prep')" style="background:#16a085; font-size:0.85rem;">🪓 Подготовка позиций (${ov.prepPoints})</button>` : '');
     };
     const setPanel = (panel, html) => {
@@ -626,9 +831,10 @@ function hexEditButtonsHtml(hexKey) {
     if (!hexKey) return '';
     const ov = getHexOverlay(hexKey, false) || {};
     const t = ov.trenchPoints || 0, p = ov.prepPoints || 0;
-    if (!t && !p) return '';
-    let html = '<span style="color:#f1c40f;">🛠️ правки карты гекса — окопов: <b>' + t + '</b>, подготовка позиций: <b>' + p + '</b></span> ';
-    if (t) html += `<button onclick="openHexEditorForBattle('${hexKey}','trenches')" style="background:#8e44ad; font-size:0.8rem;">🕳️ Расставить окопы</button> `;
+    const placedTrenches = countHexTrenchCells(ov);
+    if (!t && !p && !placedTrenches) return '';
+    let html = '<span style="color:#f1c40f;">🛠️ правки карты гекса — окопов к размещению: <b>' + t + '</b>, уже на карте: <b>' + placedTrenches + '</b>, подготовка позиций: <b>' + p + '</b></span> ';
+    if (t || placedTrenches) html += `<button onclick="openHexEditorForBattle('${hexKey}','trenches')" style="background:#8e44ad; font-size:0.8rem;">${t ? '🕳️ Расставить/текстура окопов' : '🕳️ Текстура/поворот окопов'}</button> `;
     if (p) html += `<button onclick="openHexEditorForBattle('${hexKey}','prep')" style="background:#16a085; font-size:0.8rem;">🪓 Подготовка позиций</button>`;
     return html;
 }
@@ -648,10 +854,19 @@ function showHexEditButton(hexKey, kind) {
 // ─────────────────── РЕДАКТОР КАРТЫ ГЕКСА (окопы / подготовка) ───────────────────
 
 function hexEditRuleFor(kind) {
+    if (kind === 'initialFortification') {
+        return {
+            title: '🪖 Начальные укрепления',
+            hint: 'Выберите инструмент и кликайте по клеткам: не более восьми клеток окопов на оперативный гекс; ДОТы сохраняются как отдельные метки. Кнопка «Готово» откроет следующую карту из пяти.',
+            allowed: () => true,
+            targetType: null,
+            pointsField: null
+        };
+    }
     if (kind === 'trenches') {
         return {
             title: '🕳️ Расстановка окопов',
-            hint: 'Клик по гексу — сделать его окопом. Можно менять только «траву» и «дорогу»; кусты, лес, болото, камни и склон холма — нельзя.',
+            hint: 'Клик по траве/дороге ставит окоп; повторные клики по нему листают текстуры. Выберите клетку и нажмите «Повернуть» для поворота на 60°. Не более восьми клеток окопов на оперативный гекс.' ,
             allowed: (baseType) => baseType === 'grass' || baseType === 'road',
             targetType: 'trenches',
             pointsField: 'trenchPoints'
@@ -671,8 +886,9 @@ function openHexEditorForBattle(hexKey, kind) {
     kind = kind || 'trenches';
     const ov = getHexOverlay(hexKey, true);
     const rule = hexEditRuleFor(kind);
-    const budget = ov[rule.pointsField] || 0;
-    if (budget <= 0) {
+    const budget = rule.pointsField ? (ov[rule.pointsField] || 0) : 0;
+    const existingTrenchesCanBeEdited = kind === 'trenches' && countHexTrenchCells(ov) > 0;
+    if (kind !== 'initialFortification' && budget <= 0 && !existingTrenchesCanBeEdited) {
         alert('Нет доступных правок. Отдайте приказ «' + (kind === 'trenches' ? 'Окопаться' : 'Подготовка позиций') + '» и дождитесь его выполнения (3 хода).');
         return;
     }
@@ -691,6 +907,9 @@ function openHexEditorForBattle(hexKey, kind) {
         // снимок состояния кампании для возврата
         hexEditorState = {
             hexKey, kind, rule,
+            tool: kind === 'initialFortification' ? 'trenches' : null,
+            initialSetupIndex: kind === 'initialFortification' && appData.campaign.initialFortificationSetup
+                ? appData.campaign.initialFortificationSetup.nextIndex || 0 : null,
             prevMap: JSON.parse(JSON.stringify(appData.map)),
             prevSize: (typeof TACTICAL_MAP_SIZE !== 'undefined') ? TACTICAL_MAP_SIZE : 20,
             prevBattleId: prevBattleId,
@@ -741,6 +960,14 @@ function openHexEditorForBattle(hexKey, kind) {
         proceed(TACTICAL_HEX_MAPS[hexKey]);
     } else {
         ensureTacticalHexMap(hexKey).then(md => {
+            if (!md && kind === 'initialFortification') {
+                const grid = {};
+                for (let row = 0; row < 20; row++) for (let col = 0; col < 20; col++) {
+                    grid[col + ',' + row] = { type: 'grass', squadIds: [], enemySquadIds: [], markers: [], rotation: 0, variant: 0, level: 0 };
+                }
+                proceed({ grid, w: 20, h: 20 });
+                return;
+            }
             if (!md) {
                 alert('Карта для гекса (' + hexKey + ') не найдена в папке «' + HEX_MAP_DIR + '». Файл должен называться, например, «' +
                       hexKey.replace(',', '.') + ' ...json».');
@@ -808,18 +1035,101 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
     }
     const st = hexEditorState;
     if (!st) { banner.style.display = 'none'; return; }
+    banner.style.cssText = 'display:block; background:#12241a; border:2px solid #27ae60; border-radius:8px; padding:10px; margin-bottom:8px;';
+    if (st.kind === 'initialFortification') {
+        const ov = getHexOverlay(st.hexKey, true);
+        const fort = ov.initialFortifications;
+        const trenchCount = countHexTrenchCells(ov);
+        const setup = appData.campaign.initialFortificationSetup || {};
+        const index = Number.isInteger(st.initialSetupIndex) ? st.initialSetupIndex : (setup.nextIndex || 0);
+        const active = tool => st.tool === tool ? 'background:#27ae60;' : 'background:#555;';
+        banner.innerHTML = `<b style="color:#2ecc71;">🪖 Начальные укрепления — оперативный гекс (${st.hexKey}), карта ${index + 1}/${INITIAL_FORTIFICATION_HEX_COUNT}</b><br>` +
+          `<span style="color:#ccc; font-size:.85rem;">${st.rule.hint}</span><br>` +
+          `<span style="color:#f1c40f;">Окопов: <b>${trenchCount}/${INITIAL_FORTIFICATION_TRENCH_LIMIT}</b> · ДОТы: <b>${fort.dotCells.length}</b> · Инструмент: <b>${st.tool === 'dot' ? 'ДОТ' : st.tool === 'erase' ? 'ластик' : 'окоп'}</b></span>` +
+          `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">` +
+            `<button onclick="setInitialFortificationTool('trenches')" style="${active('trenches')}">🕳️ Окоп</button>` +
+            `<button onclick="setInitialFortificationTool('dot')" style="${active('dot')}">🏰 ДОТ</button>` +
+            `<button onclick="setInitialFortificationTool('erase')" style="${active('erase')}">🧹 Стереть</button>` +
+            `<button onclick="rotateSelectedHex()" style="background:#8e44ad;">↻ Повернуть выбранную клетку</button>` +
+            `<button onclick="closeHexEditor()" style="background:#27ae60;">✅ Готово — следующий гекс</button>` +
+          `</div><div style="color:#888; font-size:.8rem; margin-top:4px;">Координаты сохраняются автоматически и применяются в бою на этом оперативном гексе.</div>`;
+        return;
+    }
     const ov = getHexOverlay(st.hexKey, true);
     const left = ov[st.rule.pointsField] || 0;
-    banner.style.cssText = 'display:block; background:#12241a; border:2px solid #27ae60; border-radius:8px; padding:10px; margin-bottom:8px;';
     banner.innerHTML = `
       <b style="color:#2ecc71;">${st.rule.title} — гекс (${st.hexKey})</b><br>
       <span style="color:#ccc; font-size:0.85rem;">${st.rule.hint}</span><br>
       <span style="color:#f1c40f; font-size:0.9rem;">Осталось правок: <b>${left}</b> (поставлено в этой сессии: ${st.placed})</span>
       <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
         <button onclick="hexEditUndo()" style="background:#8e44ad;">↩️ Отменить последнюю</button>
+        <button onclick="rotateSelectedHex()" style="background:#8e44ad;">↻ Повернуть выбранную клетку (60°)</button>
         <button onclick="closeHexEditor()" style="background:#27ae60;">✅ Готово — ${st.prevBattleId ? 'вернуться в бой' : 'на карту операции'}</button>
       </div>
       <div style="color:#888; font-size:0.8rem; margin-top:4px;">Это карта поля боя гекса (${st.hexKey}) оперативной карты. Правки сохраняются сразу и видны противнику в бою на этом гексе.</div>`;
+}
+
+function setInitialFortificationTool(tool) {
+    if (!hexEditorState || hexEditorState.kind !== 'initialFortification') return;
+    if (!['trenches', 'dot', 'erase'].includes(tool)) return;
+    hexEditorState.tool = tool;
+    showHexEditorBanner();
+}
+
+function initialFortificationEditClick(st, hexKeyCell, baseCell, working) {
+    const ov = getHexOverlay(st.hexKey, true);
+    const fort = ov.initialFortifications;
+    const trenchIndex = fort.trenchCells.indexOf(hexKeyCell);
+    const dotIndex = fort.dotCells.indexOf(hexKeyCell);
+    const baseType = baseCell ? baseCell.type : 'grass';
+    const infoBox = document.getElementById('mapInfo');
+    let message = '';
+    if (st.tool === 'trenches') {
+        if (trenchIndex >= 0) {
+            const trenchData = (typeof TERRAIN_DATA !== 'undefined') ? TERRAIN_DATA.trenches : null;
+            const variants = (trenchData && trenchData.images && trenchData.images.length) ? trenchData.images.length : 1;
+            const current = Number.isFinite(ov.hexVariants[hexKeyCell]) ? ov.hexVariants[hexKeyCell] : 0;
+            const variant = (current + 1) % variants;
+            ov.hexVariants[hexKeyCell] = variant;
+            working.variant = variant;
+            message = `🕳️ Текстура окопа на клетке ${hexKeyCell}: ${variant + 1}/${variants}. Повторный клик листает варианты; для удаления выберите «Стереть».`;
+        } else if (ov.hexEdits[hexKeyCell] === 'trenches') {
+            message = `На клетке ${hexKeyCell} уже есть окоп из другой правки.`;
+        } else {
+            const used = new Set([...(fort.trenchCells || []), ...Object.keys(ov.hexEdits || {}).filter(k => ov.hexEdits[k] === 'trenches')]).size;
+            if (used >= INITIAL_FORTIFICATION_TRENCH_LIMIT) {
+                message = `⛔ Лимит достигнут: не более ${INITIAL_FORTIFICATION_TRENCH_LIMIT} клеток окопов на одном оперативном гексе.`;
+            } else if (baseType !== 'grass' && baseType !== 'road') {
+                message = 'Окопы можно размещать только на траве или дороге.';
+            } else {
+                fort.trenchCells.push(hexKeyCell);
+                message = `✅ Окоп размещён на клетке ${hexKeyCell} (${used + 1}/${INITIAL_FORTIFICATION_TRENCH_LIMIT}).`;
+            }
+        }
+    } else if (st.tool === 'dot') {
+        if (dotIndex >= 0) {
+            fort.dotCells.splice(dotIndex, 1);
+            message = `🏰 ДОТ убран с клетки ${hexKeyCell}.`;
+        } else {
+            fort.dotCells.push(hexKeyCell);
+            message = `✅ ДОТ размещён на клетке ${hexKeyCell}.`;
+        }
+    } else {
+        let changed = false;
+        if (trenchIndex >= 0) { fort.trenchCells.splice(trenchIndex, 1); changed = true; }
+        if (dotIndex >= 0) { fort.dotCells.splice(dotIndex, 1); changed = true; }
+        if (changed && !ov.hexEdits[hexKeyCell]) {
+            delete ov.hexVariants[hexKeyCell];
+            delete ov.hexRotations[hexKeyCell];
+        }
+        message = changed ? `🧹 Укрепление убрано с клетки ${hexKeyCell}.` : `На клетке ${hexKeyCell} нет начального укрепления.`;
+    }
+    applyHexOverlays(appData.map.grid, st.hexKey);
+    saveHexOverlays(st.hexKey);
+    if (infoBox) { infoBox.innerHTML = message; infoBox.style.color = message.startsWith('⛔') ? '#e74c3c' : '#27ae60'; }
+    showHexEditorBanner();
+    try { redrawMap(); } catch (e) {}
+    return true;
 }
 
 // Клик по гексу в режиме 'hexEdit'
@@ -836,6 +1146,8 @@ function hexEditClick(hexKeyCell) {
         if (infoBox) { infoBox.innerHTML = '⚠️ Гекс ' + hexKeyCell + ' вне карты этого гекса.'; infoBox.style.color = '#e67e22'; }
         return true;
     }
+    appData.map.lastEditedHex = hexKeyCell;
+    if (st.kind === 'initialFortification') return initialFortificationEditClick(st, hexKeyCell, baseCell, working);
 
     // Окоп уже поставлен: повторный клик листает его текстуры, не расходуя правку.
     if (ov.hexEdits[hexKeyCell]) {
@@ -855,6 +1167,10 @@ function hexEditClick(hexKeyCell) {
             return true;
         }
         if (infoBox) { infoBox.innerHTML = `⚠️ Гекс ${hexKeyCell} уже правили (${ov.hexEdits[hexKeyCell]}). Выберите другой.`; infoBox.style.color = '#e67e22'; }
+        return true;
+    }
+    if (st.kind === 'trenches' && countHexTrenchCells(ov) >= INITIAL_FORTIFICATION_TRENCH_LIMIT) {
+        if (infoBox) { infoBox.innerHTML = `⛔ На карте этого оперативного гекса уже достигнут лимит: ${INITIAL_FORTIFICATION_TRENCH_LIMIT} клеток окопов.`; infoBox.style.color = '#e74c3c'; }
         return true;
     }
     if (left <= 0) {
@@ -904,6 +1220,7 @@ function hexEditUndo() {
     if (k in ov.hexEdits) {
         delete ov.hexEdits[k];
         if (ov.hexVariants) delete ov.hexVariants[k];
+        if (ov.hexRotations) delete ov.hexRotations[k];
         ov[st.rule.pointsField] = (ov[st.rule.pointsField] || 0) + 1;
         st.placed = Math.max(0, st.placed - 1);
         // восстанавливаем исходный тип на рабочей сетке
@@ -942,6 +1259,30 @@ function closeHexEditor() {
             document.getElementById('campaignApp').style.display = 'block';
             showOperationalMap();
         } catch (e) {}
+    }
+    if (st && st.kind === 'initialFortification') {
+        const setup = appData.campaign.initialFortificationSetup || {};
+        setup.nextIndex = Math.max(setup.nextIndex || 0, (st.initialSetupIndex || 0) + 1);
+        appData.campaign.initialFortificationSetup = setup;
+        if (setup.nextIndex < INITIAL_FORTIFICATION_HEX_COUNT) {
+            setup.phase = 'edit';
+            setup.complete = false;
+            renderInitialFortificationStatus();
+            saveData();
+            const nextKey = setup.hexKeys[setup.nextIndex];
+            if (nextKey) setTimeout(() => openHexEditorForBattle(nextKey, 'initialFortification'), 0);
+            return;
+        }
+        setup.nextIndex = INITIAL_FORTIFICATION_HEX_COUNT;
+        setup.phase = 'complete';
+        setup.complete = true;
+        appData.campaign.initialFortificationHexes = setup.hexKeys.slice(0, INITIAL_FORTIFICATION_HEX_COUNT);
+        renderInitialFortificationStatus();
+        const done = document.getElementById('mapInfo');
+        if (done) { done.innerHTML = '✅ Начальные карты укреплений для пяти оперативных гексов сохранены.'; done.style.color = '#27ae60'; }
+        saveData();
+        try { renderHexEditsPanel(); } catch (e) {}
+        return;
     }
     const ov = st ? getHexOverlay(st.hexKey, false) : null;
     const mi = document.getElementById('mapInfo');
@@ -1041,7 +1382,8 @@ function executePrepPositionsOrder(unit, order) {
         } catch (e) {}
         order.status = 'completed';
         log(`✅ ${unit.name} завершил подготовку позиций на гексе (${unit.col},${unit.row})!`);
-        grantPrepPoints(hexKey, countSquadsForHexEdit(unit), unit.name);
+        const enemySide = isEnemyOperationalUnit(unit);
+        grantPrepPoints(hexKey, countSquadsForHexEdit(unit), unit.name, enemySide);
         saveData();
         redrawOperationalMap();
         try { renderActiveOrders(); } catch (e) {}
