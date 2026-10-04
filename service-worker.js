@@ -1,276 +1,470 @@
-/* ⚡ v13.059: release marker for the current UI styles. */
-    /* ⚡ v13.021: канвасы не должны «жать» браузером по тапу (двойной зум),
-       а на телефоне карты в низком качестве были из-за растягивания канваса */
-    canvas { touch-action: manipulation; }
-    @media (max-width: 768px) {
-  #campaignMapScreen {
-    padding: 0 !important;
-  }
-  #opMapContainer {
-    width: 100vw !important;
-    height: 80vh !important;
-    margin-left: calc(-50vw + 50%) !important;
-    border: none !important;
-    border-radius: 0 !important;
-  }
-  /* ⚡ v13.052 (R37#1): правило «#opMapCanvas { width:100% !important }» УБРАНО —
-     оно сжимало холст до ширины экрана независимо от масштаба, поэтому на
-     телефоне ни щипок, ни ➕/➖ ничего не меняли, а карта рисовалась в
-     огромном разрешении (лаги). Теперь размер холста = масштаб карты,
-     при первом показе карта подгоняется под ширину экрана целиком. */
-  /* ⚡ v13.021: компактный интерфейс кампании на телефоне */
-  #campaignMapScreen {
-    font-size: 0.85rem;
-  }
-  #campaignMapScreen h2 {
-    font-size: 1.05rem;
-    margin: 4px 0;
-  }
-  #campaignMapScreen button {
-    font-size: 0.78rem;
-    padding: 6px 9px;
-  }
-  #campaignMapScreen select,
-  #campaignMapScreen input[type="text"],
-  #campaignMapScreen input[type="number"] {
-    font-size: 0.8rem;
-  }
-  #campaignMapScreen .log {
-    max-height: 100px;
-    font-size: 0.72rem;
-  }
-  body {
-    margin: 4px;
-  }
-}
-    body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:10px}
-    button,select,input,textarea{font-size:.9rem;padding:5px 8px;margin:2px;border-radius:4px;border:none}
-    button{background:#c0392b;color:#fff;font-weight:bold;cursor:pointer}
-    button:disabled {opacity: 0.5; cursor: not-allowed; background: #555 !important;}
-    button:active{background:#e74c3c}
-    .card{background:#2c2c2c;padding:6px;margin:4px 0;border-radius:6px}
-    .dead{background:#7f0000;color:#ccc;text-decoration:line-through}
-    .morale-bar{height:8px;background:#27ae60;border-radius:4px;margin:2px 0}
-    .log{background:#111;color:#aaa;font-family:monospace;font-size:.8rem;padding:6px;margin-top:8px;border-radius:4px;max-height:150px;overflow-y:auto}
-    .tab{overflow:hidden;border-bottom:2px solid #555;margin-bottom:8px}
-    .tab button{background-color:inherit;float:left;border:none;padding:8px 14px;font-size:.85rem;color:#aaa}
-    .tab button.active{background-color:#c0392b;color:#fff}
-    .tabcontent{display:none}
-    .section{margin:8px 0}
-    .squad-header{display:flex;align-items:center;gap:8px;margin-bottom:6px}
-    .squad-header img{max-height:110px;border-radius:4px}
-    .modifier-row,.weapon-entry,.fighter-row,.crew-row{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
-    .card-item{border:1px solid #555;background:#2a2a2a;padding:8px;margin:6px 0;border-radius:6px;display:flex;gap:10px;align-items:flex-start}
-    .card-item img{max-width:150px;max-height:150px;border-radius:6px}
-    .card-info{flex:1}
-    .card-info h4{margin:0 0 4px}
-    .card-info .desc{font-size:.8rem;color:#aaa;margin-bottom:4px}
-    .card-info .effect{font-size:.9rem;color:#f1c40f}
-    .active-card{background:#3a2a2a;border-color:#c0392b}
-    .squad-select-card {
-      background:#2c2c2c; border:1px solid #555; border-radius:8px; padding:10px; margin:6px 0;
-      display:flex; justify-content:space-between; align-items:center;
-    }
-    .squad-select-card.active-squad {
-      border:2px solid #e74c3c; background:#3a2a2a;
-    }
-    .squad-select-info { flex:1; }
-    .armor-badge {
-      background:#555; color:#fff; padding:2px 6px; border-radius:3px; font-size:0.8rem; margin-right:4px;
-    }
-    .embarked-info {
-      background:#2a2a2a; padding:6px; border-radius:4px; margin-top:8px; display:inline-block;
-    }
-    .faction-modal {
-  display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%;
-  background-color: rgba(0,0,0,0.75); justify-content: center; align-items: center;
-}
-.faction-modal.active { display: flex; }
-.faction-card {
-  background: #2c2c2c; border: 2px solid #555; border-radius: 12px; padding: 15px;
-  margin: 15px; cursor: pointer; text-align: center; transition: all 0.2s ease;
-  width: 160px; min-height: 220px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-}
-    .faction-modal {
-  pointer-events: auto !important;
-}
-    .faction-modal-content {
-  pointer-events: auto !important;
-}
-.faction-card:hover {
-  border-color: #c0392b; background: #3a2a2a; transform: scale(1.05);
-  box-shadow: 0 0 20px rgba(192,57,43,0.5);
-}
-.faction-card img {
-  max-height: 100px; max-width: 140px; margin-bottom: 15px;
-  border-radius: 8px; object-fit: contain;
-}
-.faction-card .faction-name {
-  font-size: 1.1rem; font-weight: bold; color: #fff; margin-top: 8px;
-}
-    .detection-modal {
-  display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%;
-  background-color: rgba(0,0,0,0.8); justify-content: center; align-items: center;
-}
-.detection-modal.active { display: flex; }
-.detection-modal-content {
-  background: #2c2c2c; border: 2px solid #555; border-radius: 12px; padding: 20px;
-  min-width: 320px; max-width: 90%; color: #ddd;
-}
-.detection-modal-content h3 { margin-top: 0; }
-.detection-option { margin: 8px 0; }
-.detection-option label { margin-left: 6px; }
-    .card-item.selectable {
-  cursor: pointer;
-  user-select: none;
-  transition: all 0.2s;
-}
-.card-item.selectable:hover {
-  border-color: #e74c3c;
-  background: #3a2a2a;
-}
-.card-item.selected {
-  border-color: #c0392b !important;
-  background: #3e2a2a !important;
-  box-shadow: 0 0 12px rgba(192,57,43,0.6);
-}
-    .card-type-badge {
-  display: inline-block;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: bold;
-  margin-right: 4px;
-  color: #fff;
-}
-.card-type-badge.bonus { background: #27ae60; }
-.card-type-badge.negative { background: #c0392b; }
+// ⚡ v13.024: имя кэша обязательно обновлять с каждой версией —
+//    иначе старый (устаревший) кэш продолжает отдавать старые js/data.js
+// ⚡ v13.061: cache update for retreat, turn-order and initial fortification fixes.
+const CACHE_NAME = 'wargame-v13.061';
 
-/* Стили для кнопок главного меню */
-.menu-btn {
-  display: inline-block;
-  width: 220px;
-  margin: 12px auto;
-  padding: 16px 0;
-  font-size: 1.4rem;
-  font-weight: bold;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  border: none;
-  border-radius: 12px;
-  background: linear-gradient(145deg, #c0392b, #a93226);
-  color: #fff;
-  box-shadow: 0 6px 12px rgba(0,0,0,0.4);
-  cursor: pointer;
-  transition: all 0.3s ease;
-  text-decoration: none;
-}
-.menu-btn:hover {
-  background: linear-gradient(145deg, #e74c3c, #c0392b);
-  box-shadow: 0 8px 18px rgba(0,0,0,0.6);
-  transform: translateY(-2px);
-}
-.menu-btn:active {
-  transform: translateY(1px);
-  box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+const ASSETS = [
+      // ====== КОРНЕВЫЕ ФАЙЛЫ ======
+    './',
+    './index.html',
+    './css/style.css',
+    './js/data.js',
+    './js/weapons.js',
+    './js/cards.js',
+    './js/templates.js',
+    './js/hexmaps.js',
+    './js/online_battles.js',
+    './js/map_actions.js',
+    './js/placement.js',
+    './manifest.json',
+
+    // ====== ОБЩИЕ ИЗОБРАЖЕНИЯ (images/) ======
+    './images/Hotchkis.png',
+    './images/Star Si-35.png',
+    './images/Vz.24.png',
+    './images/Zb.26.png',
+    './images/commisar AIRF.png',
+    './images/Аварийный тормоз.png',
+    './images/Скоординированный заградительный огонь.png',
+    './images/Залп отчаяния.png',
+    './images/Ампуломет.png',
+    './images/Бельгийское упрямтсво.png',
+    './images/Бутылкомет.png',
+    './images/Бюрократия.png',
+    './images/Велоблиц.png',
+    './images/Горное пончо.png',
+    './images/Горные охотники.png',
+    './images/Дисковый магазин к FN model D.png',
+    './images/Длинное дыхание.png',
+    './images/За республику.png',
+    './images/Знак колониальной службы.png',
+    './images/ИПП БеВе.png',
+    './images/ИПП аирф.png',
+    './images/Кальвинистская сдержанность.png',
+    './images/Кальвинистская эффективность.png',
+    './images/Клинок риспублики.png',
+    './images/Марадерство.png',
+    './images/Нашивка за ранение АИРФ.png',
+    './images/Нестабильные гранаты.png',
+    './images/Но пасаран.png',
+    './images/Орден преданности республике.png',
+    './images/Плохой порох.png',
+    './images/РОКС-3.png',
+    './images/Снайперская винтовка.jpg',
+    './images/Снайперская винтовка.png',
+    './images/Торговый дух.png',
+    './images/Усиленный паек Беве.png',
+    './images/Фламандская фурия.png',
+    './images/Хрупкая оптика.png',
+    './images/Хуэлга.png',
+    './images/Шахтерский динамит.png',
+    './images/Языковой барьер.png',
+    './images/анархисты.png',
+    './images/бат аирф.png',
+    './images/болото 1.png',
+    './images/болото 2.png',
+    './images/воронки в поле.png',
+    './images/воронки в поле1.png',
+    './images/бтр1.jpg',
+    './images/бтр2.jpg',
+    './images/бтр3.jpg',
+    './images/бутылки с зажигательной смесью.png',
+    './images/велосипедная стоянка.png',
+    './images/горный туризм.png',
+    './images/дорога развилка.png',
+    './images/дорога.png',
+    './images/дорога1.png',
+    './images/дымы.png',
+    './images/знаг заслуг бенелюкс.png',
+    './images/знак за ближний бой Беве.png',
+    './images/знак интербригады.png',
+    './images/интербригада.png',
+    './images/кальвинистская бережливость.png',
+    './images/камни.png',
+    './images/камни1.png',
+    './images/камни2.png',
+    './images/кумулятивная граната.png',
+    './images/кусты.png',
+    './images/кусты1.png',
+    './images/кусты2.png',
+    './images/лес.png',
+    './images/лес1.png',
+    './images/лес2.png',
+    './images/медаль леопольда.png',
+    './images/мин аирф 82.png',
+    './images/ни шагу назад бельгийцы.png',
+    './images/ночь.png',
+    './images/огненное поле аирф.png',
+    './images/окоп1.png',
+    './images/окоп2.png',
+    './images/окоп3.png',
+    './images/окоп4.png',
+    './images/окоп5.png',
+    './images/окоп6.png',
+    './images/орден солнца.png',
+    './images/оружие солидарности.png',
+    './images/ослепляющая граната.png',
+    './images/паек аирф.png',
+    './images/пистолет Star.png',
+    './images/пто2.jpg',
+    './images/пуль1.jpg',
+    './images/развед аирф.png',
+    './images/рота аирф 1.png',
+    './images/рота аирф 2.png',
+    './images/рота аирф 3.png',
+    './images/санитары беве.png',
+    './images/сапер1.jpg',
+    './images/сапер2.jpg',
+    './images/сапер3.jpg',
+    './images/саперная доблесть.png',
+    './images/склон1.png',
+    './images/склон2.png',
+    './images/склон3.png',
+    './images/склон4.png',
+    './images/склон5.png',
+    './images/склон6.png',
+    './images/склон7.png',
+    './images/склон8.png',
+    './images/склон9.png',
+    './images/склон10.png',
+    './images/склон11.png',
+    './images/склон12.png',
+    './images/склон13.png',
+    './images/склон14.png',
+    './images/собачья упряжка.jpg',
+    './images/стрел 1.jpg',
+    './images/стрел 2.jpg',
+    './images/стрелковый взвод аирф №1.png',
+    './images/стрелковый взвод аирф №2.png',
+    './images/стрелковый взвод аирф №4.png',
+    './images/стрелковый взвод аирф №5.png',
+    './images/стрелковый взвод аирф №7.png',
+    './images/стрелковый взвод аирф №8.png',
+    './images/талреп-якорь.png',
+    './images/термитный заряд.png',
+    './images/трава.png',
+    './images/трава1.png',
+    './images/устаревшие патроны.png',
+    './images/фосфорная граната аирф.png',
+    './images/шеврон беве за ранение.png',
+    './images/штаб1 саперский.png',
+    './images/штаб1.jpg',
+    './images/штурм 1.jpg',
+    './images/штурм 2.jpg',
+    './images/штурмовой взвод аирф №3.png',
+    './images/штурмовой взвод аирф №6.png',
+    './images/штурмовой взвод аирф №9.png',
+
+    // ====== AIRF (images/AIRF/) ======
+    './images/AIRF/AIRF.png',
+    './images/AIRF/БТР аирф Llanero группа из 2.png',
+    './images/AIRF/БТР аирф Llanero группа из 3.png',
+    './images/AIRF/БТР аирф Llanero группа из 4.png',
+    './images/AIRF/БТР аирф Llanero группа из 5.png',
+    './images/AIRF/бтр4.png',
+    './images/AIRF/бтр5.png',
+    './images/AIRF/лт аирф CL39 группа из 2.png',
+    './images/AIRF/лт аирф CL39 группа из 3.png',
+    './images/AIRF/лт аирф CL39 группа из 4.png',
+    './images/AIRF/лт аирф CL39 группа из 5.png',
+    './images/AIRF/лт аирф CL39 №1.png',
+    './images/AIRF/лт аирф CL39 №2.png',
+    './images/AIRF/лт аирф CL39 №3.png',
+    './images/AIRF/лт аирф CL39 №4.png',
+    './images/AIRF/лт аирф CL39 №5.png',
+    './images/AIRF/развед аирф 1.png',
+    './images/AIRF/развед аирф 2.png',
+    './images/AIRF/рота аирф 1.png',
+    './images/AIRF/рота аирф 2.png',
+    './images/AIRF/рота аирф 3.png',
+
+    // ====== BeVe (images/BeVe/) ======
+    './images/BeVe/BeVe.png',
+    './images/BeVe/Belgian Beve.png',
+    './images/BeVe/Fn24.png',
+    './images/BeVe/Geweer m95.png',
+    './images/BeVe/Landsverk 183 группа из 2.png',
+    './images/BeVe/Landsverk 183 группа из 3.png',
+    './images/BeVe/OIP.png',
+    './images/BeVe/Schwarcloze.png',
+    './images/BeVe/fn d exp.png',
+    './images/BeVe/fn md.png',
+    './images/BeVe/johnson41.png',
+    './images/BeVe/БА Landsverk 183 №1.jpg',
+    './images/BeVe/БА Landsverk 183 №2.jpg',
+    './images/BeVe/БА Landsverk 183 №3.jpg',
+    './images/BeVe/ДОТ Bosh.png',
+    './images/BeVe/САУ Brugge группа из 2.png',
+    './images/BeVe/САУ Brugge группа из 3.png',
+    './images/BeVe/САУ Brugge №1.jpg',
+    './images/BeVe/САУ Brugge №2.jpg',
+    './images/BeVe/САУ Brugge №3.jpg',
+    './images/BeVe/браунинг хай пауэр.png',
+    './images/BeVe/велостоянка метка.png',
+    './images/BeVe/влосипедисты 1.png',
+    './images/BeVe/влосипедисты 2.png',
+    './images/BeVe/влосипедисты 3.png',
+    './images/BeVe/влосипедисты 4.png',
+    './images/BeVe/влосипедисты 5.png',
+    './images/BeVe/влосипедисты 6.png',
+    './images/BeVe/влосипедисты 7.png',
+    './images/BeVe/влосипедисты 8.png',
+    './images/BeVe/влосипедисты 9.png',
+    './images/BeVe/влосипедисты 10.png',
+    './images/BeVe/влосипедисты 11.png',
+    './images/BeVe/влосипедисты 12.png',
+    './images/BeVe/влосипедисты поддержка 1.png',
+    './images/BeVe/влосипедисты поддержка 2.png',
+    './images/BeVe/влосипедисты поддержка 3.png',
+    './images/BeVe/горящее поле.png',
+    './images/BeVe/мина 82 1.jpg',
+    './images/BeVe/мина 82 2.jpg',
+    './images/BeVe/мина 82 3.jpg',
+    './images/BeVe/мотоцикл беве 1.jpg',
+    './images/BeVe/мотоцикл беве 2.jpg',
+    './images/BeVe/мотоцикл беве 3.jpg',
+    './images/BeVe/отделение бе1 бельг.jpg',
+    './images/BeVe/отделение бе1.jpg',
+    './images/BeVe/отделение бе2 бельг.jpg',
+    './images/BeVe/отделение бе2.jpg',
+    './images/BeVe/отделение бе3 бельг.jpg',
+    './images/BeVe/отделение бе3.jpg',
+    './images/BeVe/отделение бе4 бельг.jpg',
+    './images/BeVe/отделение бе4.jpg',
+    './images/BeVe/отделение бе5 бельг.jpg',
+    './images/BeVe/отделение бе5.jpg',
+    './images/BeVe/отделение бе6 бельг.jpg',
+    './images/BeVe/отделение бе6.jpg',
+    './images/BeVe/отделение бе7 бельг.jpg',
+    './images/BeVe/отделение бе7.jpg',
+    './images/BeVe/отделение бе8 бельг.jpg',
+    './images/BeVe/отделение бе8.jpg',
+    './images/BeVe/отделение бе9 бельг.jpg',
+    './images/BeVe/отделение бе9.jpg',
+    './images/BeVe/отделение под1 бель.jpg',
+    './images/BeVe/отделение под1.jpg',
+    './images/BeVe/отделение под2 бель.jpg',
+    './images/BeVe/отделение под2.jpg',
+    './images/BeVe/отделение под3 бель.jpg',
+    './images/BeVe/отделение под3.jpg',
+    './images/BeVe/отделение пуль1.jpg',
+    './images/BeVe/отделение пуль2.jpg',
+    './images/BeVe/отделение пуль3.jpg',
+    './images/BeVe/отделение пуль4.jpg',
+    './images/BeVe/отделение пуль5.jpg',
+    './images/BeVe/отделение пуль6.jpg',
+    './images/BeVe/пто.jpg',
+    './images/BeVe/пто2.jpg',
+    './images/BeVe/снайпер Беве 1.png',
+    './images/BeVe/снайпер беве 1.jpg',
+    './images/BeVe/снайпер беве 2.jpg',
+    './images/BeVe/снайпер беве 3.jpg',
+    './images/BeVe/штаб батальона BeVe.jpg',
+    './images/BeVe/штаб бел вззод 2.jpg',
+    './images/BeVe/штаб бел вззод 3.jpg',
+    './images/BeVe/штаб бел.jpg',
+    './images/BeVe/штаб гол взв 2.jpg',
+    './images/BeVe/штаб гол взв 3.jpg',
+    './images/BeVe/штаб гол.jpg',
+    './images/BeVe/штаб мин.jpg',
+    './images/BeVe/штаб мин2.jpg',
+    './images/BeVe/штаб мин3.jpg',
+    './images/BeVe/штаб мин4.jpg',
+    './images/BeVe/штаб мин5.jpg',
+    './images/BeVe/штаб мин6.jpg',
+    './images/BeVe/штаб роты  BeVe гол.jpg',
+    './images/BeVe/штаб роты BeVe бел.jpg',
+    './images/BeVe/штаб роты BeVe сам.jpg',
+    './images/BeVe/штаб самокат вззод 1.jpg',
+    './images/BeVe/штаб самокат вззод 2.jpg',
+    './images/BeVe/штаб самокат вззод 3.jpg',
+
+
+    // ====== v13.050: новые иконки/текстуры/метки (файлы пользователя) ======
+    './images/AIRF/Стрелковое отделение №10.png',
+    './images/AIRF/Стрелковое отделение №11.png',
+    './images/AIRF/Стрелковое отделение №12.png',
+    './images/AIRF/Стрелковое отделение №13.png',
+    './images/AIRF/Стрелковое отделение №14.png',
+    './images/AIRF/Стрелковое отделение №15.png',
+    './images/AIRF/Стрелковое отделение №16.png',
+    './images/AIRF/Стрелковое отделение №17.png',
+    './images/AIRF/Стрелковое отделение №18.png',
+    './images/AIRF/Стрелковое отделение №19.png',
+    './images/AIRF/Стрелковое отделение №20.png',
+    './images/AIRF/Стрелковое отделение №21.png',
+    './images/AIRF/Стрелковое отделение №22.png',
+    './images/AIRF/Стрелковое отделение №23.png',
+    './images/AIRF/Стрелковое отделение №24.png',
+    './images/AIRF/Стрелковое отделение №3.png',
+    './images/AIRF/Стрелковое отделение №4.png',
+    './images/AIRF/Стрелковое отделение №5.png',
+    './images/AIRF/Стрелковое отделение №6.png',
+    './images/AIRF/Стрелковое отделение №7.png',
+    './images/AIRF/Стрелковое отделение №8.png',
+    './images/AIRF/Стрелковое отделение №9.png',
+    './images/AIRF/Штурмовое отделение №10.png',
+    './images/AIRF/Штурмовое отделение №11.png',
+    './images/AIRF/Штурмовое отделение №12.png',
+    './images/AIRF/Штурмовое отделение №3.png',
+    './images/AIRF/Штурмовое отделение №4.png',
+    './images/AIRF/Штурмовое отделение №5.png',
+    './images/AIRF/Штурмовое отделение №6.png',
+    './images/AIRF/Штурмовое отделение №7.png',
+    './images/AIRF/Штурмовое отделение №8.png',
+    './images/AIRF/Штурмовое отделение №9.png',
+    './images/AIRF/пулеметное отделение АИРФ2.png',
+    './images/AIRF/пулеметное отделение АИРФ3.png',
+    './images/AIRF/пулеметное отделение АИРФ4.png',
+    './images/AIRF/пулеметное отделение АИРФ5.png',
+    './images/AIRF/пулеметное отделение АИРФ6.png',
+    './images/AIRF/пулеметное отделение АИРФ7.png',
+    './images/AIRF/пулеметное отделение АИРФ8.png',
+    './images/AIRF/пулеметное отделение АИРФ9.png',
+    './images/BeVe/ДОТ Van Hees.png',
+    './images/Бегун часки.png',
+    './images/Портативный комплекс управления огнем.png',
+    './images/Радио филипс.png',
+    './images/болото непроходимое.png',
+    './images/болото непроходимое1.png',
+    './images/болото непроходимое2.png',
+    './images/валуны.png',
+    './images/лес обстрелянный.png',
+    './images/лес обстрелянный1.png',
+    './images/лес поваленный.png',
+    './images/мотогонец.png',
+    './images/окоп оп.png',
+    './images/окоп7.png',
+    './images/подбитый танк аирф.png',
+    './images/полевой телефон.png',
+    './images/пшено.png',
+    './images/рация.png',
+    './images/сиеста1.png',
+
+    // ====== КАРТЫ ======
+    './maps/Валенсия.png',
+    './maps/valencia_terrain.json',
+    './maps/index.json',
+    './maps/высота_142.json',
+    './maps/Высота 63.json',
+    // карты полей боя для гексов оперативной карты: список берётся из
+    // индекса (node tools/build_hex_map_index.js) — см. precacheHexMaps()
+    './maps/Карты Валенсия/index.json',
+];
+
+// ⚡ v13.050: файлы, без которых приложение не работает. Только они кэшируются
+//    «строго» (cache.addAll) — если хоть одного нет, установка новой версии
+//    прерывается. Всё остальное (картинки, карты) кэшируется «мягко»: одна
+//    пропавшая/переименованная картинка больше НЕ блокирует обновление
+//    приложения (раньше любой 404 в списке ASSETS срывал установку всего
+//    сервис-воркера, и устройства оставались на старой версии).
+const CORE_ASSETS = [
+    './',
+    './index.html',
+    './css/style.css',
+    './js/data.js',
+    './js/weapons.js',
+    './js/cards.js',
+    './js/templates.js',
+    './js/hexmaps.js',
+    './js/online_battles.js',
+    './js/map_actions.js',
+    './js/placement.js',
+];
+
+const HEX_MAP_INDEX = './maps/Карты Валенсия/index.json';
+
+// ⚡ v13.052 (R37#4): не более PRECACHE_PARALLEL одновременных запросов —
+//    раньше все ~300 файлов (иконки + 149 карт гексов) запрашивались разом,
+//    и на телефоне первые минуты после обновления игра «тормозила» из-за этого.
+const PRECACHE_PARALLEL = 6;
+function precacheSoft(cache, urls) {
+  const queue = urls.slice();
+  const worker = () => {
+    const url = queue.shift();
+    if (url === undefined) return Promise.resolve(null);
+    return cache.add(url).catch((err) => {
+      console.warn('[SW] не удалось закэшировать (пропущено):', url, err && err.message);
+      return null;
+    }).then(worker);
+  };
+  const workers = [];
+  for (let i = 0; i < Math.min(PRECACHE_PARALLEL, queue.length); i++) workers.push(worker());
+  return Promise.all(workers);
 }
 
-/* Стили для контента правил и истории */
-.word-doc {
-  max-width: 900px;
-  margin: 30px auto;
-  padding: 40px 50px;
-  background: #fafafa;
-  color: #1a1a1a;
-  font-family: 'Times New Roman', Georgia, serif;
-  font-size: 18px;
-  line-height: 1.7;
-  box-shadow: 0 0 25px rgba(0,0,0,0.3);
-  border-radius: 8px;
-  text-align: justify;
+// Карты гексов оперативной карты — по индексу maps/Карты Валенсия/index.json
+function precacheHexMaps(cache) {
+  return fetch(HEX_MAP_INDEX, { cache: 'no-cache' })
+    .then((r) => (r.ok ? r.json() : []))
+    .then((list) => {
+      const urls = (Array.isArray(list) ? list : [])
+        .map((item) => item && item.file)
+        .filter(Boolean)
+        .map((file) => './' + String(file).replace(/^\.?\//, ''));
+      return precacheSoft(cache, urls);
+    })
+    .catch((err) => {
+      console.warn('[SW] индекс карт гексов недоступен:', err && err.message);
+      return null;
+    });
 }
-.word-doc h1, .word-doc h2, .word-doc h3 {
-  font-family: 'Arial', sans-serif;
-  color: #8b0000;
-  margin-top: 1.2em;
-  margin-bottom: 0.5em;
-}
-.word-doc h1 { font-size: 2em; text-align: center; }
-.word-doc h2 { font-size: 1.6em; border-bottom: 2px solid #8b0000; padding-bottom: 4px; }
-.word-doc h3 { font-size: 1.3em; }
-.word-doc p {
-  margin-bottom: 1em;
-  text-indent: 30px;
-}
-.word-doc img {
-  max-width: 100%;
-  height: auto;
-  margin: 20px 0;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  display: block;
-}
-/* Для обтекания картинок */
-.word-doc .img-left {
-  float: left;
-  margin: 10px 20px 10px 0;
-  max-width: 45%;
-}
-.word-doc .img-right {
-  float: right;
-  margin: 10px 0 10px 20px;
-  max-width: 45%;
-}
-.word-doc .clearfix::after {
-  content: "";
-  display: table;
-  clear: both;
-}
-/* Убираем отступ у первого абзаца после заголовка */
-.word-doc h1 + p,
-.word-doc h2 + p,
-.word-doc h3 + p {
-  text-indent: 0;
-}
-    .faction-modal.active {
-  display: flex !important;
-}
-    #campaignApp {
-  padding: 20px;
-  background: #1e1e1e;
-  color: #ddd;
-  min-height: 100vh;
-}
-.campaign-scenario-card {
-  background: #2c2c2c;
-  border: 1px solid #555;
-  border-radius: 12px;
-  padding: 20px;
-  margin: 15px auto;
-  max-width: 600px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.campaign-scenario-card:hover {
-  border-color: #c0392b;
-  background: #3a2a2a;
-}
-    .op-unit-icon {
-  position: absolute;
-  width: 30px;
-  height: 30px;
-  background: #c0392b;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.8rem;
-  cursor: pointer;
-  user-select: none;
-}
-.op-enemy-icon {
-  background: #555;
-  border-color: #e74c3c;
-}
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      const core = new Set(CORE_ASSETS);
+      const soft = ASSETS.filter((u) => !core.has(u));
+      return cache.addAll(CORE_ASSETS)
+        .then(() => precacheSoft(cache, soft))
+        .then(() => precacheHexMaps(cache));
+    })
+  );
+  // ⚡ v13.024: новый SW перехватывает управление сразу,
+  //    не дожидаясь закрытия всех вкладок (иначе старые файлы
+  //    продолжали отдаваться старым SW)
+  if ('skipWaiting' in self) self.skipWaiting();
+});
+
+// ⚡ v13.057: ручная кнопка может запросить активацию уже скачанного SW.
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING' && 'skipWaiting' in self) {
+    self.skipWaiting();
+  }
+});
+
+// ⚡ v13.024: при активации удаляем ВСЕ старые кэши.
+//    Критично: caches.match() ищет по ВСЕМ кэшам, поэтому без этой
+//    очистки даже с новым именем кэша отдавались бы старые файлы
+//    из старого кэша (корневая причина «старого» data.js на устройствах).
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(
+        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+      )
+    ).then(() => {
+      if ('clients' in self) return self.clients.claim();
+    })
+  );
+});
+
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+  event.respondWith(
+    // ⚡ v13.024: ищем ответ ТОЛЬКО в текущем кэше (caches.open(CACHE_NAME)),
+    //    а не во всех кэшах (caches.match)
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.match(event.request).then((cached) => {
+        if (cached) return cached;
+        return fetch(event.request).then((response) => {
+          // обновляем кэш свежей версией из сети (если доступна)
+          if (response && response.status === 200 && response.type === 'basic') {
+            cache.put(event.request, response.clone());
+          }
+          return response;
+        });
+      })
+    )
+  );
+});
