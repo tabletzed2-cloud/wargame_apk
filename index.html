@@ -2036,22 +2036,6 @@ function ensureOpHexCell(key) {
     return cell;
 }
 
-// ⚡ v13.021: ячейка гекса в объектной форме {types, markers}
-//    (для меток местности). Местность гекса при этом сохраняется.
-function ensureOpHexCell(key) {
-    const grid = appData.campaign.opMapGrid;
-    let cell = grid[key];
-    if (!cell) {
-        cell = { types: ['grass'], markers: [] };
-    } else if (Array.isArray(cell)) {
-        cell = { types: cell.slice(), markers: [] };
-    }
-    if (!Array.isArray(cell.types) || cell.types.length === 0) cell.types = ['grass'];
-    if (!Array.isArray(cell.markers)) cell.markers = [];
-    grid[key] = cell;
-    return cell;
-}
-
 function getOpHexNeighbors(col, row) {
     const parity = row % 2;
   const offsets = parity === 0
@@ -6696,6 +6680,14 @@ function getTacticalTargetDistance(fallback) {
   if (raw.trim() === '') return fallback === undefined ? 5 : fallback;
   const value = Number(raw);
   return Number.isFinite(value) && value >= 0 ? value : (fallback === undefined ? 5 : fallback);
+}
+// ⚡ v13.061: 82-мм миномёты имеют тактическую дальность ровно пять гексов.
+function getTacticalCrewWeaponRange(crewWeapon) {
+  if (!crewWeapon) return Infinity;
+  const name = String(crewWeapon.name || '');
+  if (crewWeapon.type === 'mortar' && /(?:^|\D)82\s*-?\s*(?:мм|mm)/i.test(name)) return 5;
+  const range = Number(crewWeapon.effectiveRange);
+  return Number.isFinite(range) && range > 0 ? range : Infinity;
 }
 function shouldShowTacticalReachability() {
   const map = appData && appData.map;
@@ -13515,12 +13507,6 @@ function placeEnemyOnHex(hex, template, faction, key) {
   ).join('');
 }
 function rotateSelectedHex() {
-  // ⚡ v13.061: в редакторе карт гексов поворот записывается в общий overlay,
-  //    поэтому он сохранится и появится в следующем тактическом бою.
-  if (appData.map && appData.map.mode === 'hexEdit' && typeof rotateHexEditorCell === 'function') {
-    rotateHexEditorCell(appData.map.lastEditedHex);
-    return;
-  }
   const key = appData.map.lastEditedHex;
   if (!key) {
     document.getElementById('mapInfo').innerHTML = '⚠️ Сначала кликните по гексу в режиме редактирования!';

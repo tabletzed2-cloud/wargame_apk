@@ -8,7 +8,8 @@ const { sliceFunction, HTML, ROOT } = require('./extract');
 const { createSandbox, freshAppData } = require('./sandbox');
 
 const FNS = [
-    'maybeAutoPlaceAtStart', 'rotateSelectedHex', 'executeOpShoot', 'is82mmMortarSquad',
+    'maybeAutoPlaceAtStart', 'rotateSelectedHex', 'executeOpShoot', 'attackOrdnance',
+    'getTacticalTargetDistance', 'getTacticalCrewWeaponRange', 'is82mmMortarSquad',
     'operationalMediumArtilleryRange', 'isMediumArtillery', 'isMortarUnit', 'artilleryCaliberMm',
     'onlinePushHexOverlays'
 ];
@@ -141,6 +142,40 @@ console.log('== v13.061 field regressions ==');
        /const maxRange = isMediumArt \? operationalMediumArtilleryRange\(unit\) : 3/.test(shootOrderBody) &&
        /effectiveRange": 5/.test(fs.readFileSync(path.join(ROOT, 'js/weapons.js'), 'utf8')),
        'Пять гексов проверяются в атаке и операционном приказе, оружейная дальность 82-мм обновлена');
+
+    // Execute the tactical path at the boundary: five hexes must fire without a missing-helper error;
+    // six hexes must be rejected before AP or ammunition is spent.
+    s.sandbox.getFactionCrewWeapons = () => [{
+        type: 'mortar', name: 'Минометный расчёт 82мм', effectiveRange: 10,
+        shotRule: 'fixed_per_crew', crewSize: 3, shotsFull: 1
+    }];
+    s.run(`
+      var currentSquadIndex = 0, tacticalShots = 0, tacticalApSpent = 0;
+      var currentSquad = {
+        name: 'Миномётный взвод', faction: 'BeVe', ammoOrdnance: 12, actionsThisTurn: {},
+        fighters: [{ hp: 3 }, { hp: 3 }, { hp: 3 }],
+        crewInstances: [{ weaponName: 'Минометный расчёт 82мм', fighterIndices: [0,1,2], uniqueKey: 'mortar82', active: true }]
+      };
+      appData.squads = [currentSquad];
+      function getEffectiveMorale() { return 8; }
+      function getSuppressionThreshold() { return 2; }
+      function getScopedActiveModifiersForSquad() { return []; }
+      function getWeaponShotCount() { return 0; }
+      function getWeaponMaxShots() { return 1; }
+      function incrementWeaponShotCount() { tacticalShots++; }
+      function spendAP() { tacticalApSpent++; return true; }
+      function getActionCost() { return 1; }
+      function rollD10() { return 1; }
+      function rollD6() { return 1; }
+      function reportAttackOutcome() {}
+    `);
+    s.run("document.getElementById('targetDistance').value = '5'; attackOrdnance();");
+    const atFive = JSON.parse(s.evalCtx('JSON.stringify({ shots: tacticalShots, ap: tacticalApSpent, ammo: currentSquad.ammoOrdnance })'));
+    s.run("document.getElementById('targetDistance').value = '6'; attackOrdnance();");
+    const atSix = JSON.parse(s.evalCtx('JSON.stringify({ shots: tacticalShots, ap: tacticalApSpent, ammo: currentSquad.ammoOrdnance })'));
+    ok(atFive.shots === 1 && atFive.ap === 1 && atFive.ammo === 11 &&
+       atSix.shots === 1 && atSix.ap === 1 && atSix.ammo === 11,
+       'Тактический выстрел 82-мм разрешён на пяти гексах и не расходует ОД/боеприпасы за пределом');
 }
 
 console.log(`\nИтог v13.061: PASS ${pass} · FAIL ${fail}`);
