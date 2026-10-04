@@ -1,5 +1,5 @@
 // ⚡ dev-пробник R18: v13.025–v13.058 regression-покрытие.
-// ⚡ v13.059: проверки версии приложения и SW обновлены для нового релиза.
+// ⚡ v13.061: проверки версии приложения и SW обновлены для нового релиза.
 const fs = require('fs');
 const path = require('path');
 const { sliceFunction, HTML } = require('./extract');
@@ -40,14 +40,14 @@ const FNS = [
     // ⚡ v13.057: morale helpers are direct artillery-strike dependencies.
     'isOperationalMoraleUnit', 'getOperationalMorale', 'operationalMoraleMarkup', 'changeOperationalMorale', 'triggerOperationalRetreat',
     'cancelOrdersForMoraleRetreat', 'isMortarUnit', 'mortarRoundsForUnit', 'unitAutoFire', 'canUnitShoot',
-    'isMediumArtillery', 'getNearestOpUnit', 'isArmoredUnit',
+    'isMediumArtillery', 'operationalMediumArtilleryRange', 'getNearestOpUnit', 'isArmoredUnit',
     // ⚡ v13.048 (R33): бонусы фракций на экране выбора стороны
     'showScenarioDetails', 'factionBonusHtml',
     // ⚡ v13.049 (R34): ходимость по новым типам местности
     //    (executePrepPositionsOrder и весь модуль карт гексов — в js/hexmaps.js,
     //     его песочница грузит целиком)
     'getMovementCost',
-    // ⚡ v13.059: helpers for bicycle-blitz card eligibility, movement and flank bonus.
+    // ⚡ v13.061: helpers for bicycle-blitz card eligibility, movement and flank bonus.
     'isBicycleTacticalSquad', 'hasBicycleBlitz', 'refreshTacticalAPForSquad',
     'getBicycleBlitzFlankBonus', 'applyBicycleBlitzToSquad',
     // ⚡ v13.051 (R36): десант на БТР = размещён; авторазмещение; разведка r3; туман без «липкости»
@@ -68,7 +68,7 @@ const FNS = [
     'isOpUnitWipedOut', 'markOpUnitDestroyed', 'syncBattleLossesToCampaign', 'renderBattalionRoster',
     'executeAttack', 'closeTargetModal', 'getCrewRole', 'handleHexAction', 'recalcReachable',
     // ⚡ v13.055 (R39#3): размещение перед боем — откуда вошёл юнит
-    'opRecordPrevPos', 'switchToBattle', 'placeExistingEnemyOnHex', 'nextTurn'
+    'opRecordPrevPos', 'switchToBattle', 'placeExistingEnemyOnHex', 'getTacticalBattleRecord', 'getTacticalActiveSide', 'nextTurn'
 ];
 
 let pass = 0, fail = 0;
@@ -413,6 +413,7 @@ console.log('\n== T. v13.038: селектор юнита, подтвержде�
     const s = makeSandbox(ad);
     // T2: finishPlacement — подтверждение
     ad.campaign.opUnits = [{ name: 'А', col: 1, row: 1 }];
+    ad.campaign.initialFortificationSetup = { complete: true };
     s.run('confirm = () => false;');
     s.run('placementLocked = false;');
     s.evalCtx('finishPlacement()');
@@ -811,7 +812,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.059'"), 'U9q: константа версии v13.059');
+    ok(HTML.includes("var APP_VERSION = 'v13.061'"), 'U9q: константа версии v13.061');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -1346,7 +1347,7 @@ console.log('\n== U18. v13.050: реальные карты гексов пол�
         'U18m: библиотека редактора показывает карты гексов отдельной группой');
     // сервис-воркер: ядро строго, остальное мягко; карты гексов — из индекса
     const sw = fs.readFileSync(path.join(root, 'service-worker.js'), 'utf8');
-    ok(sw.includes("const CACHE_NAME = 'wargame-v13.059'"), 'U18n: SW — кэш wargame-v13.059');
+    ok(sw.includes("const CACHE_NAME = 'wargame-v13.061'"), 'U18n: SW — кэш wargame-v13.061');
     ok(sw.includes('cache.addAll(CORE_ASSETS)') && sw.includes('precacheSoft(cache, soft)') && sw.includes('precacheHexMaps(cache)') &&
        !/return cache\.addAll\(ASSETS\)/.test(sw),
         'U18o: SW — ядро (index/js/css) строго, картинки/карты мягко, карты гексов — по index.json (одна пропавшая картинка не срывает обновление)');
@@ -2117,7 +2118,7 @@ console.log('\n== Y. v13.054 (R39#2/#4): уничтоженные юниты о�
         ok(hooks.includes(k), 'Y4b: функция атаки «' + k + '» сообщает результат (reportAttackOutcome)');
     });
     const sw = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
-    ok(/wargame-v13\.05[5-9]/.test(sw) && /js\/map_actions\.js/.test(sw), 'Y4c: service-worker: кэш ≥ v13.055, map_actions.js в precache');
+    ok(/wargame-v13\.0(?:5[5-9]|6[01])/.test(sw) && /js\/map_actions\.js/.test(sw), 'Y4c: service-worker: кэш актуальной версии, map_actions.js в precache');
     ok(/id="battleMapActionPanel"/.test(HTML), 'Y4d: панель #battleMapActionPanel есть под картой боя');
     ok(/isVehicle: !!squad\.isVehicle,\s*armor: squad\.armor \|\| null,\s*opUnitName: squad\.opUnitName \|\| null/.test(HTML), 'Y4e: враги на тактической карте несут isVehicle/armor/opUnitName (для проверок цели и пробитий)');
     ok(/appData\.map\.selectedMoveSquadIdx = selectedIdx;\s*recalcReachable\(squad, key\);/.test(HTML), 'Y4f: после перемещения отряд остаётся выбранным (можно сразу стрелять)');
@@ -2274,7 +2275,7 @@ console.log('\n== Z. v13.055 (R39#3): размещение перед боем �
         'Z5a: модуль подключён, панель размещения и подсветка зоны на карте боя');
     ok(/battleStartUI\(newBattle\)/.test(HTML) && /battleStartUI\(existingBattle\)/.test(HTML) && /battleStartUI\(battle\)/.test(HTML), 'Z5b: новый бой / вступление в идущий / возврат в бой — сначала размещение, потом карточки');
     const sw = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
-    ok((sw.match(/'\.\/js\/placement\.js'/g) || []).length === 2 && /wargame-v13\.059/.test(sw), 'Z5c: service-worker: js/placement.js в обоих списках, кэш v13.059');
+    ok((sw.match(/'\.\/js\/placement\.js'/g) || []).length === 2 && /wargame-v13\.061/.test(sw), 'Z5c: service-worker: js/placement.js в обоих списках, кэш v13.061');
     ok(/placed: myPlaced,\s*attacker:/.test(obSrc) && /pos: myPlaced \? \(pos\[i\] \|\| null\) : null/.test(obSrc) && /if \(!oppPositionsVisible\) return;/.test(obSrc),
         'Z5d: онлайн-протокол: placed/attacker/entryDir в снапшоте, позиции — только после готовности, приём позиций — только когда готовы оба');
 }
