@@ -1,18 +1,37 @@
+// ⚡ v13.061: current release data and terrain definitions; absent texture variants no longer referenced.
 // ==================== КОНСТАНТЫ И ДАННЫЕ ==================== 
 // Типы местности
   const TERRAIN_DATA = {
       // Базовые типы (уровень 0)
-      grass:        { color: '#4CAF50', baseCost: 2,  icon: '🌿', level: 0, images: ['images/трава.png', 'images/трава1.png'] },
+      grass:        { color: '#4CAF50', baseCost: 2,  icon: '🌿', level: 0, images: ['images/трава.png', 'images/трава1.png', 'images/пшено.png'] },
       forest:       { color: '#1B5E20', baseCost: 4,  icon: '🌲', level: 0, images: ['images/лес.png', 'images/лес1.png', 'images/лес2.png'] },
       road:         { color: '#795548', baseCost: 1.5,icon: '🛣️', level: 0, images: ['images/дорога.png', 'images/дорога1.png', 'images/дорога развилка.png'] },
       hill:         { color: '#8D6E63', baseCost: 6,  icon: '⛰️', level: 0, images: ['images/склон1.png', 'images/склон2.png', 'images/склон3.png', 'images/склон4.png', 'images/склон5.png', 'images/склон6.png', 'images/склон7.png', 'images/склон8.png', 'images/склон9.png', 'images/склон10.png', 'images/склон11.png', 'images/склон12.png', 'images/склон13.png', 'images/склон14.png'] },
       water:        { color: '#2980b9', baseCost: 999,icon: '💧', level: 0, image: null },
-      swamp_passable:   { color: '#2E7D32', baseCost: 5,  icon: '🌊', level: 0, image: ['images/болото 1.png', 'images/болото 2.png'] },
-      swamp_impassable: { color: '#1B5E20', baseCost: 999,icon: '⛔', level: 0, image: null },
+      swamp_passable:   { color: '#2E7D32', baseCost: 5,  icon: '🌊', level: 0, images: ['images/болото 1.png', 'images/болото 2.png'] },
+      swamp_impassable: { color: '#1B5E20', baseCost: 999,icon: '⛔', level: 0, images: ['images/болото непроходимое.png', 'images/болото непроходимое1.png', 'images/болото непроходимое2.png'] },
       bushes:           { color: '#33691E', baseCost: 3,  icon: '🌳', level: 0, images: ['images/кусты.png', 'images/кусты1.png', 'images/кусты2.png' ] },
       rocks:            { color: '#78909C', baseCost: 5,  icon: '🪨', level: 0, images: ['images/камни.png', 'images/камни1.png', 'images/камни2.png'] },
-      trenches:         { color: '#A1887F', baseCost: 3,  icon: '🕳️', level: 0, images: ['images/окоп1.png', 'images/окоп2.png', 'images/окоп3.png', 'images/окоп4.png', 'images/окоп5.png', 'images/окоп6.png'] },
+      trenches:         { color: '#A1887F', baseCost: 3,  icon: '🕳️', level: 0, images: ['images/окоп1.png', 'images/окоп2.png', 'images/окоп3.png', 'images/окоп4.png', 'images/окоп5.png', 'images/окоп6.png', 'images/окоп7.png'] },
+      // ⚡ v13.049 (R34): типы, которые появляются на тактической карте гекса
+      //    в результате приказов игрока и обстрелов артиллерией.
+      //    v13.050: текстуры — авторские файлы пользователя (лес поваленный /
+      //    лес обстрелянный / воронки в поле); в варианты обычной травы и леса
+      //    они НЕ входят (воронки и обстрелянный лес появляются только после обстрела).
+      fallen_forest:    { color: '#8D6E63', baseCost: 3,  icon: '🪵', level: 0, images: ['images/лес поваленный.png'] },
+      shelled_forest:   { color: '#4E342E', baseCost: 3,  icon: '🌲', level: 0, images: ['images/лес обстрелянный.png', 'images/лес обстрелянный1.png'] },
+      craters:          { color: '#795548', baseCost: 4,  icon: '💥', level: 0, images: ['images/воронки в поле.png', 'images/воронки в поле1.png'] },
    };
+
+// ⚡ v13.049 (R34): СЕМАНТИКА НОВЫХ ТИПОВ МЕСТНОСТИ
+//   • лес (forest) и обстрелянный лес (shelled_forest) — «лес» для правила
+//     «в лес глубже 2 гексов стрелять нельзя» и для линии видимости;
+//   • поваленный лес (fallen_forest) — лес вырублен/повален: обзор открыт,
+//     для правила глубины леса НЕ считается лесом;
+//   • воронки в поле (craters) — укрытие как у камней (штраф к меткости
+//     стреляющего), пехота ходит 4 ОД, техника не заходит.
+const FOREST_LIKE_TYPES = ['forest', 'shelled_forest'];
+const COVER_LIKE_ROCKS_TYPES = ['rocks', 'craters'];
 
 // Настройки карт сценариев
 const SCENARIO_OP_MAP_SETTINGS = {
@@ -21,6 +40,149 @@ const SCENARIO_OP_MAP_SETTINGS = {
     scaleY: 0.62,
     offsetX: -380,
     offsetY: -45
+  }
+};
+
+// ⚡ v13.031/v13.032: ЗОНЫ РАССТАНОВКИ для онлайн-матча (по фракциям).
+//    Формат: ЗАМКНУТЫЙ ПОЛИГОН гексов [[col,row], ...] (граница рисуется
+//    между центрами гексов; гекс считается в зоне, если его центр внутри).
+//    ⚡ v13.032: точные полигоны сценария «Валенсия» (от игрока):
+//      BeVe — 69 гекса (верх/центр карты), A.I.R.F. — 10 гексов (нижний левый угол).
+//    Если сценария/фракции нет в списке — зон нет (размещение свободно).
+// ⚡ v13.038: ЯВНЫЕ ДОБАВЛЕНИЯ к зонам расстановки (по требованию игрока):
+//    BeVe — расширение зоны на гексы 2,7 / 3,7 / 4,7 (их центры лежат НА
+//    границе полигона, и ray casting исключал их из зоны).
+// ⚡ v13.040: A.I.R.F. — расширение зоны на гексы 0,13 / 1,13 / 2,13 / 4,13
+//    (тот же случай — центры на границе полигона).
+// ⚡ v13.042 (R27#8): A.I.R.F. — добавлен гекс 3,13.
+const SCENARIO_PLACEMENT_ZONE_EXTRA_HEXES = {
+  valencia: {
+    'BeVe': [[2,7],[3,7],[4,7]],
+    'A.I.R.F.': [[0,13],[1,13],[2,13],[3,13],[4,13]]
+  }
+};
+
+// ⚡ v13.042 (R27#9): ИГРОВОЕ ПОЛЕ сценария — гексы вне области недоступны
+//    (нельзя ходить/стрелять/размещать/ставить приказы).
+//    «Валенсия» — квадрат (col,row): 0,0 – 12,0 – 12,14 – 0,14
+//    (столбцы 0..12, ряды 0..14).
+const SCENARIO_PLAYABLE_AREA = {
+  valencia: { minCol: 0, maxCol: 12, minRow: 0, maxRow: 14 }
+};
+
+function isHexInPlayableArea(scenario, col, row) {
+  const area = SCENARIO_PLAYABLE_AREA[scenario];
+  if (!area) return true; // сценарий без ограничений
+  return col >= area.minCol && col <= area.maxCol && row >= area.minRow && row <= area.maxRow;
+}
+
+// ========== ГЛОБАЛЬНЫЕ БОНУСЫ ФРАКЦИЙ (v13.037) ==========
+// Показываются при формировании батальона и в лобби онлайн-матча.
+// Иконки — заглушки (images/bonuses/): замените своими, пути не меняя.
+const FRACTION_GLOBAL_BONUSES = {
+  "BeVe": [
+    { id: "fire_control", name: "Портативный комплекс управления огнём",
+      desc: "+20% к меткости юнитов в радиусе 2 гексов от штаба батальона",
+      icon: "images/Портативный комплекс управления огнем.png" },
+    { id: "radio_phillips", name: "Радио Phillips",
+      desc: "Батальону доступно 3 рации для распределения по юнитам",
+      icon: "images/Радио филипс.png" },
+    { id: "motor_courier", name: "Мотогонец",
+      desc: "Скорость посыльного по дороге — 6 гексов/ход",
+      icon: "images/мотогонец.png" }
+  ],
+  "A.I.R.F.": [
+    { id: "siesta", name: "Сиеста",
+      desc: "С 14:00 до 15:00 юниты, находящиеся на дистанции >3 гексов от врага, с вероятностью 80% не выполняют полученный приказ",
+      icon: "images/сиеста1.png" },
+    { id: "chaskeys", name: "Бегуны Часки",
+      desc: "Скорость посыльных AIRF независимо от типа местности — 3 гекса/ход",
+      icon: "images/Бегун часки.png" }
+  ]
+};
+
+const SCENARIO_PLACEMENT_ZONES = {  valencia: {
+    'BeVe': [[0,0],[0,1],[1,2],[1,3],[2,4],[2,5],[3,6],[2,7],[3,7],[4,7],[4,6],[5,8],[5,7],[6,7],[7,5],[8,8],[8,9],[8,10],[8,11],[9,12],[8,13],[9,13],[10,13],[11,13],[11,12],[11,11],[11,10],[11,9],[11,8],[10,7],[10,6],[9,5],[10,4],[9,3],[9,2],[8,1],[8,0],[7,0],[6,0],[5,0],[4,0],[3,0],[2,0],[1,0]],
+    'A.I.R.F.': [[0,10],[1,10],[2,10],[2,11],[3,11],[4,12],[5,12],[4,13],[3,13],[2,13],[1,13],[0,13],[0,12],[0,11]]
+  }
+};
+
+// ⚡ v13.053 (R38#1): СТАРТОВЫЕ ПОЗИЦИИ ЮНИТОВ (настраиваются вручную ЗДЕСЬ).
+//    Формат: сценарий → фракция → { «точное имя юнита»: "col,row" }.
+//    Координаты — как в строке «Гекс: col,row» под оперативной картой
+//    (столбец, ряд; Валенсия — столбцы 0..12, ряды 0..14). Можно и массивом [col, row].
+//    Правила:
+//      • при первом выходе на карту (авторазмещение) юнит с указанным гексом
+//        ставится ИМЕННО туда; юниты, которых в списке нет (или гекс пустой/
+//        неверный), расставляются автоматически в зоне расстановки, как раньше;
+//      • любой юнит потом можно переставить вручную: 📌 Размещение → юнит → гекс;
+//      • гекс вне игрового поля игнорируется (юнит расставляется автоматически),
+//        гекс вне зоны расстановки фракции — ставится, но в журнал пишется предупреждение;
+//      • несколько юнитов на одном гексе — можно (обычное ограничение стека — 2,
+//        при нехватке места — до 4).
+//    Имена юнитов — как в BATTALION_PRESETS / на карте (кнопка «📋 Код стартовых
+//    позиций» в панели «🗺️ Вид и настройки карты» выводит текущую расстановку
+//    в этом формате — удобно расставить на карте и скопировать сюда).
+//    Юниты поддержки, которых игрок не выбрал (например, у BeVe — 3 из 4),
+//    просто не создаются — лишние строки не мешают.
+const SCENARIO_START_POSITIONS = {
+  valencia: {
+    'BeVe': {
+      'Штаб батальона': '5,0',
+      'Батарея 82-мм миномётов': '5,0',
+      'Расчёт ПТО №1': '5,5',
+      'Расчёт ПТО №2': '5,5',
+      '1-й взвод (бельг.)': '5,4',
+      '2-й взвод (бельг.)': '5,4',
+      '3-й взвод (бельг.)': '6,4',
+      'Штаб роты (бельг.)': '5,3',
+      '1-й взвод (гол.)': '6,4',
+      '2-й взвод (гол.)': '6,5',
+      '3-й взвод (гол.)': '6,5',
+      'Штаб роты №2 (гол.)': '5,3',
+      '1-й самокатный взвод': '4,5',
+      '2-й самокатный взвод': '4,5',
+      '3-й самокатный взвод': '6,6',
+      'Штаб роты №3 (самокат.)': '7,4',
+      // поддержка (если выбрана)
+      'ДОТ Bosh': '4,7',
+      'ДОТ Van Hees': '4,7',
+      'САУ Brugge №1': '4,0',
+      'САУ Brugge №2': '4,0',
+      'САУ Brugge №3': '7,0',
+      'Бронеавтомобиль Landsverk 183 №1': '6,6',
+      'Бронеавтомобиль Landsverk 183 №2': '7,4',
+      'Бронеавтомобиль Landsverk 183 №3': '7,5'
+    },
+    'A.I.R.F.': {
+      'Штаб Батальона': '0,12',
+      'Батарея 82-мм миномётов': '0,12',
+      '1-й Саперный взвод': '2,12',
+      'Развед. взвод': '2,12',
+      '1-й стрелковый взвод': '2,11',
+      '2-й стрелковый взвод': '2,11',
+      '3-й штурмовой взвод': '1,11',
+      'Штаб роты №1': '1,12',
+      '4-й стрелковый взвод': '1,11',
+      '5-й стрелковый взвод': '2,13',
+      '6-й штурмовой взвод': '1,13',
+      'Штаб роты №2': '1,12',
+      '7-й стрелковый взвод': '1,13',
+      '8-й стрелковый взвод': '3,12',
+      '9-й штурмовой взвод': '3,12',
+      'Штаб роты №3': '2,13',
+      // поддержка (если выбрана)
+      'БТР Llanero №1': '3,13',
+      'БТР Llanero №2': '3,13',
+      'БТР Llanero №3': '0,11',
+      'БТР Llanero №4': '0,11',
+      'БТР Llanero №5': '0,13',
+      'Легкий танк CL/39 №1': '0,13',
+      'Легкий танк CL/39 №2': '1,10',
+      'Легкий танк CL/39 №3': '1,10',
+      'Легкий танк CL/39 №4': '4,12',
+      'Легкий танк CL/39 №5': '4,12'
+    }
   }
 };
 
@@ -141,8 +303,18 @@ const BATTALION_PRESETS = {
       }
     ],
         supportOptions: [
-      { id: "dots", name: "Расчёты ДОТов и ДОТы (стационарные)", template: "ДОТ Bosh", icon: "images/BeVe/ДОТ Bosh.png" },
-      { id: "regimental_artillery", name: "Поддержка полковой артиллерии" },
+      // ⚡ v13.026: опция ДОТов даёт ДВА стационарных ДОТа:
+      //    «ДОТ Bosh» (1 ПТО + 2 пулемёта) и «ДОТ Van Hees» (1 ПТО + 1 пулемёт,
+      //    обслуга 7 человек)
+      { id: "dots", name: "Расчёты ДОТов и ДОТы (стационарные)", templates: [
+        { name: "ДОТ Bosh", templateName: "ДОТ Bosh", icon: "images/BeVe/ДОТ Bosh.png" },
+        // ⚡ v13.030: свой файл иконки (если в репозитории его нет — на карте
+        //    автоматически подставляется иконка «ДОТ Bosh.png»)
+        { name: "ДОТ Van Hees", templateName: "ДОТ Van Hees", icon: "images/BeVe/ДОТ Van Hees.png" }
+      ] },
+      // ⚡ v13.028: у BeVe (как и у AIRF с v13.025) НЕТ полковых пушек
+      //    как юнитов — артиллерийская поддержка = приказ штаба «Арт. обстрел»
+      { id: "artillery_support", name: "Поддержка полковой артиллерии (приказ штаба «Арт. обстрел»)", orderOnly: true },
       { id: "sau_battery", name: "Батарея САУ (3 САУ)", templates: [
         { name: "САУ Brugge №1", templateName: "САУ Brugge №1", icon: "images/BeVe/САУ Brugge №1.jpg"},
         { name: "САУ Brugge №2", templateName: "САУ Brugge №2", icon: "images/BeVe/САУ Brugge №2.jpg"},
@@ -286,7 +458,11 @@ const BATTALION_PRESETS = {
         { name: "Легкий танк CL/39 №3", templateName: "Легкий танк CL/39 №3", icon: "images/AIRF/лт аирф CL39 №3.png"},
         { name: "Легкий танк CL/39 №4", templateName: "Легкий танк CL/39 №4", icon: "images/AIRF/лт аирф CL39 №4.png"},
         { name: "Легкий танк CL/39 №5", templateName: "Легкий танк CL/39 №5", icon: "images/AIRF/лт аирф CL39 №5.png"}
-      ] }
+      ] },
+      // ⚡ v13.025: у AIRF НЕТ полковых пушек как юнитов — артиллерийская
+      //    поддержка реализуется приказом штаба батальона «💣 Арт. обстрел»
+      //    (4 обстрела за кампанию, начинается в следующем ходу).
+      { id: "artillery_support", name: "Поддержка полковой артиллерии (приказ штаба «Арт. обстрел»)", orderOnly: true }
     ]
   }
 };
@@ -301,8 +477,8 @@ const BTR_REQUIREMENTS = {
     'company_hq': 2,            // штаб роты
     'battalion_hq': 3,          // штаб батальона
     'mortar_battery': 3,        // минометная батарея
-    'at_gun': 2,                // ПТО
-    'at_battery': 4,            // батарея ПТО
+    'at_gun': 1,                // ПТО
+    'at_battery': 3,            // батарея ПТО
     'hq': 3,                    // штаб (общий)
     'default': 4                // по умолчанию
 };
@@ -335,22 +511,26 @@ const GROUP_ICONS = {
     'default_5': 'images/groups/default_5.png',
 };
 // Иконки меток
+// ⚡ v13.030: сгенерированные иконки удалены (по запросу) — метки рисуются
+//    эмодзи-fallback'ами (как окопы/здания/лес); если появится свой PNG —
+//    достаточно заполнить поле icon у нужной метки.
 const markerIconMap = {
-  'detected': { icon: 'images/marker_detected.png', fallback: '???', width: 30, height: 30 },
-  'noise': { icon: 'images/marker_noise.png', fallback: '??', width: 30, height: 30 },
-  'artillery': { icon: 'images/marker_artillery.png', fallback: '??', width: 30, height: 30 },
-  'fireField': { icon: 'images/BeVe/горящее поле.png', fallback: '??', width: 30, height: 30 },
-  'bicyclePark': { icon: 'images/BeVe/велостоянка метка.png', fallback: '??', width: 30, height: 30 },
-  'ammoPoint': { icon: 'images/marker_ammo.png', fallback: '??', width: 30, height: 30 },
-  'destroyedVehicle': { icon: 'images/marker_destroyed_vehicle.png', fallback: '??', width: 30, height: 30 },
-  'destroyedSquadFriendly': { icon: 'images/marker_destroyed_squad_friendly.png', fallback: '??', width: 30, height: 30 },
-  'destroyedSquadEnemy': { icon: 'images/marker_destroyed_squad_enemy.png', fallback: '??', width: 30, height: 30 },
-  'dot': { icon: 'images/marker_dot.png', fallback: '??', width: 30, height: 30 },
-  'trenches': { icon: null, fallback: '🕳️', width: 30, height: 30 },
-  'building': { icon: null, fallback: '🏠', width: 30, height: 30 },
-  'forest': { icon: null, fallback: '🌲', width: 30, height: 30 },
-  'bushes': { icon: null, fallback: '🌳', width: 30, height: 30 },
-  'rocks': { icon: null, fallback: '🪨', width: 30, height: 30 }
+  'detected':               { icon: 'images/markers/detected.png',              fallback: '👁️', width: 30, height: 30 },
+  'noise':                  { icon: 'images/markers/noise.png',                 fallback: '🔊', width: 30, height: 30 },
+  'artillery':              { icon: 'images/markers/artillery.png',             fallback: '💥', width: 30, height: 30 },
+  'fireField':              { icon: 'images/BeVe/горящее поле.png',             fallback: '🔥', width: 30, height: 30 },
+  'bicyclePark':            { icon: 'images/BeVe/велостоянка метка.png',        fallback: '🚲', width: 30, height: 30 },
+  'ammoPoint':              { icon: 'images/markers/ammoPoint.png',             fallback: '📦', width: 30, height: 30 },
+  'destroyedVehicle':       { icon: 'images/подбитый танк аирф.png',            fallback: '🔥', width: 30, height: 30 },
+  'destroyedSquadFriendly': { icon: 'images/markers/destroyedSquadFriendly.png',fallback: '💀', width: 30, height: 30 },
+  'destroyedSquadEnemy':    { icon: 'images/markers/destroyedSquadEnemy.png',   fallback: '☠️', width: 30, height: 30 },
+  'dot':                    { icon: 'images/markers/dot.png',                   fallback: '🏰', width: 30, height: 30 },
+  'trenches':               { icon: 'images/окоп оп.png',                       fallback: '🕳️', width: 30, height: 30 },
+  'building':               { icon: 'images/markers/building.png',              fallback: '🏠', width: 30, height: 30 },
+  'forest':                 { icon: 'images/markers/forest.png',                fallback: '🌲', width: 30, height: 30 },
+  'bushes':                 { icon: 'images/markers/bushes.png',                fallback: '🌳', width: 30, height: 30 },
+  'rocks':                  { icon: 'images/валуны.png',                        fallback: '🪨', width: 30, height: 30 },
+  'crater':                 { icon: 'images/markers/crater.png',                fallback: '💥', width: 30, height: 30 }
 };
 
 // Функции доступа к данным

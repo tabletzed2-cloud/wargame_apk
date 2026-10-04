@@ -1,4 +1,7 @@
-const CACHE_NAME = 'wargame-v13.001';
+// ⚡ v13.024: имя кэша обязательно обновлять с каждой версией —
+//    иначе старый (устаревший) кэш продолжает отдавать старые js/data.js
+// ⚡ v13.061: cache update for retreat, turn-order and initial fortification fixes.
+const CACHE_NAME = 'wargame-v13.061';
 
 const ASSETS = [
       // ====== КОРНЕВЫЕ ФАЙЛЫ ======
@@ -9,6 +12,10 @@ const ASSETS = [
     './js/weapons.js',
     './js/cards.js',
     './js/templates.js',
+    './js/hexmaps.js',
+    './js/online_battles.js',
+    './js/map_actions.js',
+    './js/placement.js',
     './manifest.json',
 
     // ====== ОБЩИЕ ИЗОБРАЖЕНИЯ (images/) ======
@@ -18,6 +25,8 @@ const ASSETS = [
     './images/Zb.26.png',
     './images/commisar AIRF.png',
     './images/Аварийный тормоз.png',
+    './images/Скоординированный заградительный огонь.png',
+    './images/Залп отчаяния.png',
     './images/Ампуломет.png',
     './images/Бельгийское упрямтсво.png',
     './images/Бутылкомет.png',
@@ -54,6 +63,8 @@ const ASSETS = [
     './images/бат аирф.png',
     './images/болото 1.png',
     './images/болото 2.png',
+    './images/воронки в поле.png',
+    './images/воронки в поле1.png',
     './images/бтр1.jpg',
     './images/бтр2.jpg',
     './images/бтр3.jpg',
@@ -261,32 +272,199 @@ const ASSETS = [
     './images/BeVe/штаб мин4.jpg',
     './images/BeVe/штаб мин5.jpg',
     './images/BeVe/штаб мин6.jpg',
-    './images/BeVe/штаб роты BeVe гол.jpg',
+    './images/BeVe/штаб роты  BeVe гол.jpg',
     './images/BeVe/штаб роты BeVe бел.jpg',
     './images/BeVe/штаб роты BeVe сам.jpg',
     './images/BeVe/штаб самокат вззод 1.jpg',
     './images/BeVe/штаб самокат вззод 2.jpg',
     './images/BeVe/штаб самокат вззод 3.jpg',
 
+
+    // ====== v13.050: новые иконки/текстуры/метки (файлы пользователя) ======
+    './images/AIRF/Стрелковое отделение №10.png',
+    './images/AIRF/Стрелковое отделение №11.png',
+    './images/AIRF/Стрелковое отделение №12.png',
+    './images/AIRF/Стрелковое отделение №13.png',
+    './images/AIRF/Стрелковое отделение №14.png',
+    './images/AIRF/Стрелковое отделение №15.png',
+    './images/AIRF/Стрелковое отделение №16.png',
+    './images/AIRF/Стрелковое отделение №17.png',
+    './images/AIRF/Стрелковое отделение №18.png',
+    './images/AIRF/Стрелковое отделение №19.png',
+    './images/AIRF/Стрелковое отделение №20.png',
+    './images/AIRF/Стрелковое отделение №21.png',
+    './images/AIRF/Стрелковое отделение №22.png',
+    './images/AIRF/Стрелковое отделение №23.png',
+    './images/AIRF/Стрелковое отделение №24.png',
+    './images/AIRF/Стрелковое отделение №3.png',
+    './images/AIRF/Стрелковое отделение №4.png',
+    './images/AIRF/Стрелковое отделение №5.png',
+    './images/AIRF/Стрелковое отделение №6.png',
+    './images/AIRF/Стрелковое отделение №7.png',
+    './images/AIRF/Стрелковое отделение №8.png',
+    './images/AIRF/Стрелковое отделение №9.png',
+    './images/AIRF/Штурмовое отделение №10.png',
+    './images/AIRF/Штурмовое отделение №11.png',
+    './images/AIRF/Штурмовое отделение №12.png',
+    './images/AIRF/Штурмовое отделение №3.png',
+    './images/AIRF/Штурмовое отделение №4.png',
+    './images/AIRF/Штурмовое отделение №5.png',
+    './images/AIRF/Штурмовое отделение №6.png',
+    './images/AIRF/Штурмовое отделение №7.png',
+    './images/AIRF/Штурмовое отделение №8.png',
+    './images/AIRF/Штурмовое отделение №9.png',
+    './images/AIRF/пулеметное отделение АИРФ2.png',
+    './images/AIRF/пулеметное отделение АИРФ3.png',
+    './images/AIRF/пулеметное отделение АИРФ4.png',
+    './images/AIRF/пулеметное отделение АИРФ5.png',
+    './images/AIRF/пулеметное отделение АИРФ6.png',
+    './images/AIRF/пулеметное отделение АИРФ7.png',
+    './images/AIRF/пулеметное отделение АИРФ8.png',
+    './images/AIRF/пулеметное отделение АИРФ9.png',
+    './images/BeVe/ДОТ Van Hees.png',
+    './images/Бегун часки.png',
+    './images/Портативный комплекс управления огнем.png',
+    './images/Радио филипс.png',
+    './images/болото непроходимое.png',
+    './images/болото непроходимое1.png',
+    './images/болото непроходимое2.png',
+    './images/валуны.png',
+    './images/лес обстрелянный.png',
+    './images/лес обстрелянный1.png',
+    './images/лес поваленный.png',
+    './images/мотогонец.png',
+    './images/окоп оп.png',
+    './images/окоп7.png',
+    './images/подбитый танк аирф.png',
+    './images/полевой телефон.png',
+    './images/пшено.png',
+    './images/рация.png',
+    './images/сиеста1.png',
+
     // ====== КАРТЫ ======
     './maps/Валенсия.png',
     './maps/valencia_terrain.json',
     './maps/index.json',
-  
+    './maps/высота_142.json',
+    './maps/Высота 63.json',
+    // карты полей боя для гексов оперативной карты: список берётся из
+    // индекса (node tools/build_hex_map_index.js) — см. precacheHexMaps()
+    './maps/Карты Валенсия/index.json',
 ];
+
+// ⚡ v13.050: файлы, без которых приложение не работает. Только они кэшируются
+//    «строго» (cache.addAll) — если хоть одного нет, установка новой версии
+//    прерывается. Всё остальное (картинки, карты) кэшируется «мягко»: одна
+//    пропавшая/переименованная картинка больше НЕ блокирует обновление
+//    приложения (раньше любой 404 в списке ASSETS срывал установку всего
+//    сервис-воркера, и устройства оставались на старой версии).
+const CORE_ASSETS = [
+    './',
+    './index.html',
+    './css/style.css',
+    './js/data.js',
+    './js/weapons.js',
+    './js/cards.js',
+    './js/templates.js',
+    './js/hexmaps.js',
+    './js/online_battles.js',
+    './js/map_actions.js',
+    './js/placement.js',
+];
+
+const HEX_MAP_INDEX = './maps/Карты Валенсия/index.json';
+
+// ⚡ v13.052 (R37#4): не более PRECACHE_PARALLEL одновременных запросов —
+//    раньше все ~300 файлов (иконки + 149 карт гексов) запрашивались разом,
+//    и на телефоне первые минуты после обновления игра «тормозила» из-за этого.
+const PRECACHE_PARALLEL = 6;
+function precacheSoft(cache, urls) {
+  const queue = urls.slice();
+  const worker = () => {
+    const url = queue.shift();
+    if (url === undefined) return Promise.resolve(null);
+    return cache.add(url).catch((err) => {
+      console.warn('[SW] не удалось закэшировать (пропущено):', url, err && err.message);
+      return null;
+    }).then(worker);
+  };
+  const workers = [];
+  for (let i = 0; i < Math.min(PRECACHE_PARALLEL, queue.length); i++) workers.push(worker());
+  return Promise.all(workers);
+}
+
+// Карты гексов оперативной карты — по индексу maps/Карты Валенсия/index.json
+function precacheHexMaps(cache) {
+  return fetch(HEX_MAP_INDEX, { cache: 'no-cache' })
+    .then((r) => (r.ok ? r.json() : []))
+    .then((list) => {
+      const urls = (Array.isArray(list) ? list : [])
+        .map((item) => item && item.file)
+        .filter(Boolean)
+        .map((file) => './' + String(file).replace(/^\.?\//, ''));
+      return precacheSoft(cache, urls);
+    })
+    .catch((err) => {
+      console.warn('[SW] индекс карт гексов недоступен:', err && err.message);
+      return null;
+    });
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS);
+      const core = new Set(CORE_ASSETS);
+      const soft = ASSETS.filter((u) => !core.has(u));
+      return cache.addAll(CORE_ASSETS)
+        .then(() => precacheSoft(cache, soft))
+        .then(() => precacheHexMaps(cache));
+    })
+  );
+  // ⚡ v13.024: новый SW перехватывает управление сразу,
+  //    не дожидаясь закрытия всех вкладок (иначе старые файлы
+  //    продолжали отдаваться старым SW)
+  if ('skipWaiting' in self) self.skipWaiting();
+});
+
+// ⚡ v13.057: ручная кнопка может запросить активацию уже скачанного SW.
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING' && 'skipWaiting' in self) {
+    self.skipWaiting();
+  }
+});
+
+// ⚡ v13.024: при активации удаляем ВСЕ старые кэши.
+//    Критично: caches.match() ищет по ВСЕМ кэшам, поэтому без этой
+//    очистки даже с новым именем кэша отдавались бы старые файлы
+//    из старого кэша (корневая причина «старого» data.js на устройствах).
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(
+        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+      )
+    ).then(() => {
+      if ('clients' in self) return self.clients.claim();
     })
   );
 });
 
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
   event.respondWith(
-    caches.match(event.request).then((response) => {
-      return response || fetch(event.request);
-    })
+    // ⚡ v13.024: ищем ответ ТОЛЬКО в текущем кэше (caches.open(CACHE_NAME)),
+    //    а не во всех кэшах (caches.match)
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.match(event.request).then((cached) => {
+        if (cached) return cached;
+        return fetch(event.request).then((response) => {
+          // обновляем кэш свежей версией из сети (если доступна)
+          if (response && response.status === 200 && response.type === 'basic') {
+            cache.put(event.request, response.clone());
+          }
+          return response;
+        });
+      })
+    )
   );
 });
