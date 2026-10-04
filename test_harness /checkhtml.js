@@ -1,4 +1,4 @@
-// ⚡ v13.059: syntax check for the current app release.
+// ⚡ v13.061: syntax check for the current app release.
 // ⚡ dev-инструмент: синтаксическая проверка всех inline-скриптов index.html
 //    (node test_harness/checkhtml.js) — без запуска кода
 const fs = require('fs');
