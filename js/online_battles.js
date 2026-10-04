@@ -1,4 +1,4 @@
-// ⚡ v13.059: incoming casualties are persisted and marked on the live tactical map.
+// ⚡ v13.061: sync retreat state and attacker/defender phase in online battle snapshots.
 // ============================================================
 // ⚡ v13.051 (R36#5): ОБЩИЕ ТАКТИЧЕСКИЕ БОИ В ОНЛАЙН-МАТЧЕ
 //   Раньше тактический бой существовал только на устройстве того, кто его
@@ -132,9 +132,15 @@ function onlineBattleSnapshot(battle, status) {
     //    только после «✅ Размещение завершено» (расстановка скрыта до готовности обоих)
     const pl = battle.placement || null;
     const myPlaced = !pl || !!pl.playerReady;
+    const localActiveSide = (typeof getTacticalActiveSide === 'function')
+        ? getTacticalActiveSide(battle)
+        : (battle.activeSide || (pl && pl.attackerSide === 'enemy' ? 'enemy' : 'player'));
+    const localAttackerSide = pl && pl.attackerSide === 'enemy' ? 'enemy' : 'player';
+    const activeSide = localActiveSide === localAttackerSide ? 'attacker' : 'defender';
     return {
         placed: myPlaced,
         attacker: pl ? (pl.attackerSide === 'player' ? 'me' : 'opp') : null,
+        activeSide: activeSide,
         entryDir: pl ? (pl.entryDir || null) : null,
         id: battle.id,
         hexKey: battle.hexKey,
@@ -155,6 +161,10 @@ function onlineBattleSnapshot(battle, status) {
             pos: myPlaced ? (pos[i] || null) : null,
             hidden: !!s.hidden,
             isDestroyed: !!s.isDestroyed,
+            isRetreated: !!s.isRetreated,
+            status: s.status || null,
+            retreatReason: s.retreatReason || null,
+            retreatTurn: Number.isFinite(s.retreatTurn) ? s.retreatTurn : null,
             suppressed: !!s.suppressed,
             currentMorale: (s.currentMorale !== undefined) ? s.currentMorale : null,
             fighters: (s.fighters || []).map(f => ({
@@ -406,6 +416,26 @@ function onlineMergeOppBattle(battle, e) {
     }
     const oppPositionsVisible = !myPl || myPl.phase === 'done' || (!!myPl.playerReady && oppPlaced);
 
+    // ⚡ v13.061: облако хранит фазу глобально (атакующий/обороняющийся),
+    //    на каждом устройстве переводим её в локальную сторону (player/enemy).
+    if (e.activeSide === 'attacker' || e.activeSide === 'defender') {
+        const localAttackerIsPlayer = !myPl || myPl.attackerSide !== 'enemy';
+        const nextLocalSide = ((e.activeSide === 'attacker') === localAttackerIsPlayer) ? 'player' : 'enemy';
+        if (battle.activeSide !== nextLocalSide) {
+            battle.activeSide = nextLocalSide;
+            changed = true;
+            if (live && appData.map) appData.map.activeSide = nextLocalSide;
+        }
+        if (typeof e.turn === 'number' && isFinite(e.turn) && e.turn > 0) {
+            if (battle.currentTurn !== e.turn) { battle.currentTurn = e.turn; changed = true; }
+            if (live && currentTurn !== e.turn) {
+                currentTurn = e.turn;
+                appData.currentTurn = e.turn;
+                changed = true;
+            }
+        }
+    }
+
     // --- отряды оппонента: состав, позиции, hp ---
     const theirDmgIn = e.dmgIn || {};
     (Array.isArray(e.squads) ? e.squads : []).forEach(cs => {
@@ -414,7 +444,9 @@ function onlineMergeOppBattle(battle, e) {
         if (idx < 0) {
             enemies.push({
                 name: cs.name, faction: cs.faction || null, icon: cs.icon || null, vehicleIcon: cs.icon || null,
-                isVehicle: !!cs.isVehicle, armor: cs.armor || null, currentMorale: (cs.currentMorale !== null && cs.currentMorale !== undefined) ? cs.currentMorale : 5,
+                isVehicle: !!cs.isVehicle, armor: cs.armor || null, isRetreated: !!cs.isRetreated,
+                status: cs.status || null, retreatReason: cs.retreatReason || null, retreatTurn: cs.retreatTurn || null,
+                currentMorale: (cs.currentMorale !== null && cs.currentMorale !== undefined) ? cs.currentMorale : 5,
                 baseMorale: 5, embarkedSquadIndex: null,
                 fighters: (cs.fighters || []).map(f => ({ name: f.name || 'Боец', weapon: f.weapon || 'Винтовка', hp: f.hp, maxHp: f.maxHp }))
             });
@@ -437,15 +469,20 @@ function onlineMergeOppBattle(battle, e) {
             if (f.hp !== expected) { f.hp = expected; changed = true; }
             seen[i] = f.hp;
         });
-        ['hidden', 'isDestroyed', 'suppressed'].forEach(k => {
+        ['hidden', 'isDestroyed', 'isRetreated', 'suppressed'].forEach(k => {
             const v = !!cs[k];
             if (!!s[k] !== v) { s[k] = v; changed = true; }
         });
+        ['status', 'retreatReason', 'retreatTurn'].forEach(k => {
+            const v = cs[k] === undefined ? null : cs[k];
+            if ((s[k] || null) !== v) { if (v === null) delete s[k]; else s[k] = v; changed = true; }
+        });
+        if (s.isRetreated && typeof tacticalClearMeleeEngagement === 'function') tacticalClearMeleeEngagement(s);
         if (cs.currentMorale !== null && cs.currentMorale !== undefined && s.currentMorale !== cs.currentMorale) { s.currentMorale = cs.currentMorale; changed = true; }
         // позиция на карте боя (⚡ v13.055: до готовности обоих расстановка оппонента скрыта)
         if (!oppPositionsVisible) return;
         const curPos = Object.keys(grid).find(k => grid[k] && Array.isArray(grid[k].enemySquadIds) && grid[k].enemySquadIds.includes(idx)) || null;
-        const newPos = cs.pos || null;
+        const newPos = (cs.isRetreated || cs.status === 'retreated') ? null : (cs.pos || null);
         if (curPos !== newPos) {
             if (curPos && grid[curPos]) grid[curPos].enemySquadIds = grid[curPos].enemySquadIds.filter(x => x !== idx);
             if (newPos) {
@@ -485,6 +522,10 @@ function onlineMergeOppBattle(battle, e) {
             const before = (typeof f.hp === 'number') ? f.hp : 0;
             f.hp = Math.max(0, before - delta);
             applied[i] = (applied[i] || 0) + delta;
+            if (before > 0 && f.hp <= 0) {
+                const morale = (s.currentMorale !== undefined && s.currentMorale !== null) ? Number(s.currentMorale) : Number(s.baseMorale || 5);
+                s.currentMorale = Math.max(0, (Number.isFinite(morale) ? morale : 5) - (f.isCommander ? 2 : 1));
+            }
             if (f.hp !== before) {
                 lossesChanged = true;
                 hurt.push(`${f.name || 'боец'} (${s.name}) ${before}→${f.hp}${f.hp <= 0 ? ' 💀' : ''}`);
@@ -498,6 +539,25 @@ function onlineMergeOppBattle(battle, e) {
             lossesChanged = true;
             changed = true;
             try { log(`💀 Ваш отряд «${s.name}» уничтожен огнём противника.`); } catch (err) {}
+        } else if (!wipedOut && !s.isRetreated && Number(s.currentMorale) <= 1 &&
+                   (s.fighters || []).some(f => f && f.hp > 0)) {
+            if (live && typeof tacticalRetreatUnit === 'function') {
+                tacticalRetreatUnit(s, 'player', mySquads.indexOf(s), 'morale');
+            } else {
+                s.isRetreated = true;
+                s.status = 'retreated';
+                s.retreatReason = 'morale';
+                s.retreatTurn = (typeof e.turn === 'number' && e.turn) || battle.currentTurn || 1;
+                const storedGrid = battle.tacticalMap && battle.tacticalMap.grid;
+                Object.keys(storedGrid || {}).forEach(k => {
+                    const cell = storedGrid[k];
+                    if (cell && Array.isArray(cell.squadIds)) cell.squadIds = cell.squadIds.filter(i => i !== mySquads.indexOf(s));
+                });
+            }
+            lossesChanged = true;
+            changed = true;
+            __onlineMergeMineChanged = true;
+            try { log(`🏳️ Ваш отряд «${s.name}» автоматически отступил из-за низкого боевого духа.`); } catch (err) {}
         }
     });
     if (hurt.length > 0) {
