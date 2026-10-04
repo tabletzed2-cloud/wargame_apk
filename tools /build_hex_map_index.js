@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// ⚡ v13.059: map index generator emits per-map release markers.
+// ⚡ v13.061: map index generator emits per-map release markers.
 // ⚡ v13.049 (R34): сборка индекса карт полей боя для гексов оперативной карты.
 // ⚡ v13.050: проверка файлов карт (JSON + сетка), предупреждение о дублях
 //    (два файла на один гекс), естественная сортировка по номеру гекса.
@@ -10,7 +10,7 @@
 // Он создаёт «maps/Карты Валенсия/index.json» — список карт (имя + путь + гекс),
 // по которому игра находит карту нужного гекса, а сервис-воркер кэширует
 // карты для офлайн-режима.
-const VERSION = 'v13.059';
+const VERSION = 'v13.061';
 const fs = require('fs');
 const path = require('path');
 
