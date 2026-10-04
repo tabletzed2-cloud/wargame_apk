@@ -1,5 +1,5 @@
 // ⚡ v13.057: include the direct action-point dependency so this probe can run cleanly.
-// ⚡ v13.059: load bicycle helpers required by getMaxAP.
+// ⚡ v13.061: load bicycle helpers required by getMaxAP.
 const fs = require('fs');
 const { sliceFunction, HTML } = require('./extract');
 const { createSandbox, freshAppData } = require('./sandbox');
