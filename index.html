@@ -2036,6 +2036,22 @@ function ensureOpHexCell(key) {
     return cell;
 }
 
+// ⚡ v13.021: ячейка гекса в объектной форме {types, markers}
+//    (для меток местности). Местность гекса при этом сохраняется.
+function ensureOpHexCell(key) {
+    const grid = appData.campaign.opMapGrid;
+    let cell = grid[key];
+    if (!cell) {
+        cell = { types: ['grass'], markers: [] };
+    } else if (Array.isArray(cell)) {
+        cell = { types: cell.slice(), markers: [] };
+    }
+    if (!Array.isArray(cell.types) || cell.types.length === 0) cell.types = ['grass'];
+    if (!Array.isArray(cell.markers)) cell.markers = [];
+    grid[key] = cell;
+    return cell;
+}
+
 function getOpHexNeighbors(col, row) {
     const parity = row % 2;
   const offsets = parity === 0
@@ -9842,21 +9858,25 @@ if (modParts.length) log(`🎯 Модификаторы: ${modParts.join(', ')}`
 
   // Проверяем, есть ли хотя бы одно доступное орудие (не исчерпан лимит)
   let anyAvailable = false;
+  let outOfRange = false;
   if (currentSquad.crewInstances) {
     currentSquad.crewInstances.forEach(ci => {
       if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') return;
       const cw = crewWeapons.find(w => w.name === ci.weaponName);
       if (!cw || (cw.type !== 'at_gun' && cw.type !== 'mortar')) return;
-        if (ci.deployed === false) return;
-      const alive = ci.fighterIndices.filter(idx => currentSquad.fighters[idx]?.hp > 0).length;
+      if (ci.deployed === false) return;
+      const alive = (ci.fighterIndices || []).filter(idx => currentSquad.fighters[idx]?.hp > 0).length;
       if (alive === 0) return;
+      const range = getTacticalCrewWeaponRange(cw);
+      if (dist > range) { outOfRange = true; return; }
       const curThis = getWeaponShotCount(currentSquad, ci.uniqueKey);
       const maxThis = getWeaponMaxShots(cw);
       if (curThis < maxThis && currentSquad.ammoOrdnance > 0) anyAvailable = true;
     });
   }
   if (!anyAvailable) {
-    log('Нет доступных орудий (лимит выстрелов исчерпан или нет снарядов).');
+    log(outOfRange ? `Цель вне дальности орудия/миномёта (дистанция ${dist} гексов).` : 'Нет доступных орудий (лимит выстрелов исчерпан или нет снарядов).');
+    updateUI();
     return;
   }
 
@@ -9873,8 +9893,10 @@ if (!spendAP(currentSquadIndex, apCost)) {
     if (ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') return;
     const cw = crewWeapons.find(w => w.name === ci.weaponName);
     if (!cw || (cw.type !== 'at_gun' && cw.type !== 'mortar')) return;
-      if (ci.deployed === false) return;
-    const alive = ci.fighterIndices.filter(idx => currentSquad.fighters[idx]?.hp > 0).length;
+    if (ci.deployed === false) return;
+    const range = getTacticalCrewWeaponRange(cw);
+    if (dist > range) { log(`${cw.name}: вне дальности (${dist} > ${range} гексов).`); return; }
+    const alive = (ci.fighterIndices || []).filter(idx => currentSquad.fighters[idx]?.hp > 0).length;
     if (alive === 0) return;
 
     const weaponKey = ci.uniqueKey;
@@ -13493,6 +13515,12 @@ function placeEnemyOnHex(hex, template, faction, key) {
   ).join('');
 }
 function rotateSelectedHex() {
+  // ⚡ v13.061: в редакторе карт гексов поворот записывается в общий overlay,
+  //    поэтому он сохранится и появится в следующем тактическом бою.
+  if (appData.map && appData.map.mode === 'hexEdit' && typeof rotateHexEditorCell === 'function') {
+    rotateHexEditorCell(appData.map.lastEditedHex);
+    return;
+  }
   const key = appData.map.lastEditedHex;
   if (!key) {
     document.getElementById('mapInfo').innerHTML = '⚠️ Сначала кликните по гексу в режиме редактирования!';
@@ -16708,6 +16736,43 @@ function submitOrder()   {
         return;
     }
 
+    // Обычный приказ
+    if (viaCompany) {
+        // ⚡ Приказ доставляется через штаб роты: company_order адресован
+        // штабу роты, а целевой взвод указан в subUnitIds.
+        const companyIdx = appData.campaign.opUnits.indexOf(viaCompany);
+        const routedOptions = {
+            ...options,
+            subUnitIds: [toUnitId],
+            orderType: orderType
+        };
+        const order = createOrder(hqIndex, companyIdx, 'company_order', routedOptions);
+        if (order) {
+            let deliveryMsg = '';
+            if (order.deliveryMethod === 'messenger') {
+                deliveryMsg = ` (посыльный несёт в ${viaCompany.name}, ${order.deliveryTurnsNeeded} ходов)`;
+            } else if (order.deliveryMethod === 'radio') {
+                deliveryMsg = ` (по рации в ${viaCompany.name})`;
+            } else if (order.deliveryMethod === 'phone') {
+                deliveryMsg = ` (по телефону в ${viaCompany.name})`;
+            }
+            log(`📋 Приказ "${orderType}" для "${unit.name}" доставляется через ${viaCompany.name}${deliveryMsg}. Штаб роты передаст приказ взводу.`);
+            orderWaypoints = [];
+            isPlanningRoute = false;
+            updateOrderWaypointsDisplay();
+            if (targetHexInput) targetHexInput.value = '';
+            pickingTargetHex = false;
+            hideOrderPanel();
+            renderActiveOrders();
+            redrawOperationalMap();
+            saveData();
+            alert(`✅ Приказ "${orderType}" отправлен!${deliveryMsg}`);
+        } else {
+            alert('❌ Ошибка при создании приказа!');
+        }
+        return;
+    }
+    
     // Обычный приказ
     const order = createOrder(hqIndex, toUnitId, orderType, options);
 
