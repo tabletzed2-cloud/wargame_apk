@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.063 — операция</title>
+  <title>Боевой модуль v13.064 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -13,7 +13,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.063</h1>
+    <h1>⚔️ Боевой модуль v13.064</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -27,7 +27,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.063</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.064</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -59,7 +59,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.063 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.064 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -312,8 +312,8 @@ function safeLocalStorage(method, ...args) {
 // ⚡ v13.056 (R39): карточки по взводам, сохранение выбора и ограничения тестового здоровья.
 // ⚡ v13.058: физическая выдача/отзыв пар связистов и ручная прокладка телефонного кабеля.
 // ⚡ v13.059: max-AP preview, bicycle blitz, terrain-editor texture cycling and online casualty visibility.
-// v13.063: field report fixes; rules and verification matrix in CHANGELOG-v13.063.md.
-var APP_VERSION = 'v13.063';
+// v13.064: order-list details, ETA hints and cancel confirmations; see CHANGELOG-v13.064.md.
+var APP_VERSION = 'v13.064';
 
 // ⚡ v13.058: кнопка меню действительно запрашивает проверку новой версии SW;
 // если новый контроллер не вступил в силу, повторно открываем страницу с cache-buster.
@@ -4862,6 +4862,10 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         // ⚡ ВАЖНО: сохраняем подчинённые взводы и реальный тип приказа
         // (для company_order — штаб роты передаёт их взводам)
         subUnitIds: options.subUnitIds || [],
+        // ⚡ v13.064: полный список получателей — subUnitIds опустошается
+        //    по мере передачи, а список приказов должен показывать, КОМУ
+        //    приказ адресован (для company_order — какие взводы).
+        subUnitIdsAll: (options.subUnitIds || []).slice(),
         orderType: options.orderType || null,
         // ⚡ v13.020: «не штурмовать бронетехнику» — состояние галочки на момент приказа
         ignoreArmor: typeof options.ignoreArmor === 'boolean' ? options.ignoreArmor : true,
@@ -5090,10 +5094,16 @@ function cancelOrder(orderId, skipConfirm) {
                    hardMode.pendingOrders.find(o => o.id === orderId) ||
                    (hardMode.messengerQueue || []).find(o => o.id === orderId);
         if (!order) return;
-    if (!skipConfirm) {
+    // ⚡ v13.064: завершённый приказ убирается крестиком сразу — отменять
+    //    там нечего; выполняющийся/в пути — только с подтверждением.
+    const finished = (order.status === 'completed' || order.status === 'cancelled');
+    if (!skipConfirm && !finished) {
         const target = appData.campaign.opUnits[order.toUnitId];
-        const label = `${getOrderTypeLabel(order.type)}` + (target ? ` → ${target.name}` : '');
-        if (!confirm(`❌ Отменить приказ «${label}»?`)) return;
+        const realType = (order.type === 'company_order') ? (order.orderType || order.type) : order.type;
+        const label = `${getOrderTypeLabel(realType)}` + (target ? ` → ${target.name}` : '');
+        const eta = getOrderEta(order);
+        const etaLine = eta ? `\nВыполнение: ${eta.text.replace(/🕓\s*/, '')}` : '';
+        if (!confirm(`❌ Отменить приказ «${label}»?${etaLine}`)) return;
     }
     order.status = 'cancelled';
     // Возвращаем посыльного если он был (у приказа из очереди его ещё нет)
@@ -17249,7 +17259,7 @@ function submitOrder()   {
             renderActiveOrders();
             redrawOperationalMap();
             saveData();
-            alert(`✅ Приказ "${orderType}" отправлен!${deliveryMsg}`);
+            alert(`✅ Приказ "${orderType}" отправлен!${deliveryMsg}${orderEtaMessage(order)}`);
         } else {
             alert('❌ Ошибка при создании приказа!');
         }
@@ -17286,7 +17296,7 @@ function submitOrder()   {
             renderActiveOrders();
             redrawOperationalMap();
             saveData();
-            alert(`✅ Приказ "${orderType}" отправлен!${deliveryMsg}`);
+            alert(`✅ Приказ "${orderType}" отправлен!${deliveryMsg}${orderEtaMessage(order)}`);
         } else {
             alert('❌ Ошибка при создании приказа!');
         }
@@ -17321,7 +17331,7 @@ function submitOrder()   {
         renderActiveOrders();
         redrawOperationalMap();
         saveData();
-        alert(`✅ Приказ "${orderType}" отправлен!${deliveryMsg}`);
+        alert(`✅ Приказ "${orderType}" отправлен!${deliveryMsg}${orderEtaMessage(order)}`);
     } else {
         alert('❌ Ошибка при создании приказа!');
     }
@@ -17453,7 +17463,7 @@ function submitOrderQueue() {
         } else if (order.deliveryMethod === 'phone') {
             deliveryMsg = ' (по телефону, мгновенно)';
         }
-        alert(`✅ Серия из ${sentCount} приказов отправлена!${deliveryMsg}`);
+        alert(`✅ Серия из ${sentCount} приказов отправлена!${deliveryMsg}${orderEtaMessage(order)}`);
     } else {
         alert('❌ Ошибка при создании серии приказов!');
     }
@@ -17539,6 +17549,185 @@ function removeOrderFromQueue(index) {
     renderOrderQueue();
     saveData();
 }
+// ⚡ v13.064: строчка справки о сроке исполнения для сообщений об отправке
+function orderEtaMessage(order) {
+    const eta = (typeof getOrderEta === 'function') ? getOrderEta(order) : null;
+    return eta ? ('\n' + eta.text) : '';
+}
+
+// ⚡ v13.064: единый список приказов — им пользуются и список на экране,
+//    и кнопки приоритета «▲/▼» (раньше индексы считались по-разному, и
+//    кнопка двигала не тот приказ).
+function getAllOrdersList() {
+    return [...(hardMode.messengerQueue || []), ...(hardMode.pendingOrders || []), ...(hardMode.orders || [])];
+}
+
+// ⚡ v13.064: один операционный ход = 10 минут игрового времени
+function getOpTurnMinutes() { return 10; }
+
+function formatOrderTime(min) {
+    if (!Number.isFinite(Number(min))) return '--:--';
+    const v = ((Number(min) % 1440) + 1440) % 1440;
+    if (typeof formatTime === 'function') {
+        try { return formatTime(v); } catch (e) {}
+    }
+    return String(Math.floor(v / 60)).padStart(2, '0') + ':' + String(v % 60).padStart(2, '0');
+}
+
+/**
+ * ⚡ v13.064: СПРАВКА «когда приказ будет выполнен».
+ *   • посыльный в пути  — ждём оставшиеся ходы доставки;
+ *   • активный приказ   — исполнится в конце текущего хода;
+ *   • приказ на время   — ждём, пока часы операции дойдут до startTimeMin;
+ *   • очередь           — срока нет (ждёт свободного посыльного).
+ * Возвращает { turns, etaTime, etaTurn, text } либо null для завершённых.
+ */
+function getOrderEta(order) {
+    if (!order) return null;
+    const st = order.status;
+    if (st === 'completed' || st === 'cancelled') return null;
+
+    const campaign = (appData && appData.campaign) || {};
+    const curTurn = Number.isFinite(campaign.currentTurn) ? campaign.currentTurn : 1;
+    const curTime = Number.isFinite(campaign.currentTime) ? campaign.currentTime : 0;
+    const perTurn = getOpTurnMinutes();
+
+    if (st === 'queued') {
+        return { turns: null, etaTime: null, etaTurn: null,
+                 text: '⏳ ждёт свободного посыльного — срок зависит от того, когда освободится посыльный' };
+    }
+
+    // сколько ещё раз нужно нажать «Завершить ход» до исполнения
+    let turns = 1; // активный/ожидающий приказ выполняется в конце этого хода
+    if (st === 'delivering') {
+        turns = Math.max(1, (Number(order.deliveryTurnsNeeded) || 1) - (Number(order.deliveryTurnsPassed) || 0));
+    }
+
+    // приказ «на время»: после доставки ждём наступления startTimeMin
+    let timeWait = 0;
+    if (order.startTimeMin !== null && order.startTimeMin !== undefined) {
+        const timeAtExec = (curTime + perTurn * turns) % 1440;
+        let diff = Number(order.startTimeMin) - timeAtExec;
+        if (diff < 0) diff += 1440;
+        if (diff > 0) timeWait = Math.ceil(diff / perTurn);
+    }
+    turns += timeWait;
+
+    const etaTime = (curTime + perTurn * turns) % 1440;
+    const etaTurn = curTurn + turns;
+    const when = turns <= 1 ? 'в конце этого хода' : `через ${turns} хода`;
+    let text = `🕓 ${when} · к ${formatOrderTime(etaTime)} (ход ${etaTurn})`;
+    if (timeWait > 0) text += ` · назначен на ${formatOrderTime(order.startTimeMin)}`;
+    return { turns, etaTime, etaTurn, text };
+}
+
+// ⚡ v13.064: приказ «через штаб роты» — кому именно он адресован и что с ним
+//    стало. subUnitIds опустошается по мере передачи, поэтому полный список
+//    берём из subUnitIdsAll, а у старых сохранений — из копий для взводов.
+function getCompanyOrderRecipients(order) {
+    const units = (appData && appData.campaign && appData.campaign.opUnits) || [];
+    let ids = [];
+    if (Array.isArray(order.subUnitIdsAll) && order.subUnitIdsAll.length > 0) ids = order.subUnitIdsAll.slice();
+    else if (Array.isArray(order.subUnitIds) && order.subUnitIds.length > 0) ids = order.subUnitIds.slice();
+    else ids = getAllOrdersList().filter(o => o && o.relayParentId === order.id).map(o => o.toUnitId);
+
+    const relays = getAllOrdersList().filter(o => o && o.relayParentId === order.id);
+    const stateLabels = {
+        'completed': '✅ выполнен',
+        'cancelled': '❌ отменён',
+        'delivering': '🚶 посыльный в пути',
+        'queued': '⏸️ ждёт посыльного',
+        'active': '▶️ выполняется',
+        'pending': '⏳ ожидает'
+    };
+    return ids.map(id => {
+        const unit = units[id];
+        const relay = relays.find(o => o.toUnitId === id);
+        let stateLabel;
+        if (relay) stateLabel = stateLabels[relay.status] || relay.status;
+        else if (Array.isArray(order.subUnitIds) && order.subUnitIds.indexOf(id) >= 0) stateLabel = '⏳ ещё не передан';
+        else stateLabel = '✅ передан';
+        return { id, name: unit ? unit.name : ('взвод #' + id), stateLabel };
+    });
+}
+
+// ⚡ v13.064: подробности приказа — что именно приказано (маршрут, цель,
+//    поведение, получатели). Для приказов через штаб роты показывается
+//    РЕАЛЬНЫЙ тип приказа, а не служебный «company_order».
+function getOrderDetailsHtml(order) {
+    const units = (appData && appData.campaign && appData.campaign.opUnits) || [];
+    const rows = [];
+    const realType = (order.type === 'company_order') ? (order.orderType || order.relayOrderType || '—') : order.type;
+    rows.push(['Приказ', getOrderTypeLabel(realType)]);
+
+    if (order.type === 'company_order') {
+        const recipients = getCompanyOrderRecipients(order);
+        rows.push(['Кому (взводы)', recipients.length
+            ? recipients.map(r => `• ${r.name} — ${r.stateLabel}`).join('<br>')
+            : '—']);
+    } else if (order.type === 'artillery_strike') {
+        rows.push(['Цель', `гекс ${order.targetHex || '?'}`]);
+    } else {
+        const to = units[order.toUnitId];
+        rows.push(['Исполнитель', to ? to.name : '—']);
+    }
+
+    if (order.relayParentId) {
+        const companyId = Number.isFinite(order.relayCompanyId) ? order.relayCompanyId : order.fromUnitId;
+        const company = units[companyId];
+        if (company) rows.push(['Передан через', `${company.name} (штаб роты)`]);
+    }
+
+    const wps = order.waypoints || [];
+    if (wps.length > 0) {
+        rows.push(['Маршрут', wps.map((w, i) => `${i + 1}. (${w.col},${w.row})`).join(' → ')]);
+    }
+    if (order.targetHex && order.type !== 'artillery_strike') rows.push(['Целевой гекс', String(order.targetHex)]);
+    if (order.targetDistance) rows.push(['Дистанция огня', `${order.targetDistance} гекс.`]);
+
+    const behaviorNames = {
+        'hold': '🛡️ закрепиться и ждать', 'engage': '⚔️ атаковать',
+        'retreat': '🏃 отступить', 'ignore': '🚶 игнорировать', 'assault': '⚡ штурмовать'
+    };
+    if (order.behavior) rows.push(['При встрече с врагом', behaviorNames[order.behavior] || order.behavior]);
+    if (order.ignoreArmor === false) rows.push(['Штурм бронетехники', 'разрешён']);
+
+    if (order.type === 'series' && Array.isArray(order.series) && order.series.length > 0) {
+        rows.push(['Шаги серии', order.series.map((st, i) =>
+            `${i + 1}. ${getOrderTypeLabel(st.type)} — ${st.status === 'completed' ? '✅ выполнен' : '⏳ впереди'}`
+        ).join('<br>')]);
+    }
+
+    const methodNames = {
+        'radio': '📻 рация (мгновенно)',
+        'phone': '📞 телефон (мгновенно)',
+        'messenger': '🚶 посыльный',
+        'none': 'нет связи'
+    };
+    rows.push(['Способ доставки', methodNames[order.deliveryMethod] || '—']);
+    if (order.status === 'delivering') {
+        rows.push(['Посыльный', `прошёл ${order.deliveryTurnsPassed || 0} из ${order.deliveryTurnsNeeded || '?'} ходов`]);
+    }
+    if (order.startTimeMin !== null && order.startTimeMin !== undefined) {
+        rows.push(['Назначенное время', formatOrderTime(order.startTimeMin)]);
+    }
+    const eta = getOrderEta(order);
+    if (eta) rows.push(['Выполнение', eta.text]);
+
+    return rows.map(([k, v]) =>
+        `<div style="display:flex; gap:6px; margin:2px 0;">
+            <span style="color:#888; min-width:132px;">${k}:</span><span>${v}</span>
+        </div>`).join('');
+}
+
+// ⚡ v13.064: раскрытые/свёрнутые подробности приказов
+var orderDetailsOpen = {};
+function toggleOrderDetails(orderId) {
+    if (typeof orderDetailsOpen !== 'object' || !orderDetailsOpen) orderDetailsOpen = {};
+    orderDetailsOpen[orderId] = !orderDetailsOpen[orderId];
+    renderActiveOrders();
+}
+
 function renderActiveOrders() {
     const container = document.getElementById('ordersContainer');
     if (!container) return;
@@ -17555,30 +17744,12 @@ function renderActiveOrders() {
         }
     }
 
-    const allOrders = [...(hardMode.messengerQueue || []), ...hardMode.pendingOrders, ...hardMode.orders];
+    const allOrders = getAllOrdersList();
 
     if (allOrders.length === 0) {
         container.innerHTML = '<span style="color:#aaa;">Нет активных приказов</span>';
         return;
     }
-
-    const typeNames = {
-        'move': '🚶 Движение',
-        'attack': '⚔️ Атака',
-        'defend': '🛡️ Оборона',
-        'recon': '🔍 Разведка',
-        'hold': '✋ Удержание',
-        'retreat': '🏃 Отступление',
-        'fire_at_will': '🎯 Огонь по готовности',
-        'ambush': '🥷 Засада',
-        'embark': '🚌 Посадка в БТР',
-        'disembark': '🚶 Высадка',
-        'dismount': '🚲 Спешивание',
-        'remount': '🚲 Посадка на велосипед',
-        'series': '📋 Серия',
-        'artillery_strike': '💣 Арт. обстрел',
-        'prep_positions': '🪓 Подготовка позиций'
-    };
 
     const statusNames = {
         'pending': '⏳ Ожидает',
@@ -17589,14 +17760,34 @@ function renderActiveOrders() {
         'cancelled': '❌ Отменен'
     };
 
+    const units = (appData.campaign && appData.campaign.opUnits) || [];
     let html = '';
+
     allOrders.forEach((order, orderIdx) => {
-        const toUnit = appData.campaign.opUnits[order.toUnitId];
-        let unitName = toUnit ? toUnit.name : 'Неизвестно';
-        // ⚡ v13.023: арт. обстрел — не адресован отряду (штаб + гекс)
+        // ====== КОМУ ПРИКАЗ ======
+        let unitName;
+        let typeLabel;
         if (order.type === 'artillery_strike') {
-            const hq = appData.campaign.opUnits[order.fromUnitId];
+            const hq = units[order.fromUnitId];
             unitName = (hq ? hq.name : 'Штаб батальона') + ` → гекс ${order.targetHex || '?'}`;
+            typeLabel = getOrderTypeLabel(order.type);
+        } else if (order.type === 'company_order') {
+            // ⚡ v13.064: приказ взводам через штаб роты — показываем РЕАЛЬНЫЙ
+            //    приказ (orderType), а не служебный тип company_order.
+            const company = units[order.toUnitId];
+            const recipients = getCompanyOrderRecipients(order);
+            unitName = `${recipients.length} взводам`;
+            typeLabel = `📋 ${getOrderTypeLabel(order.orderType || '—')} · через ${company ? company.name : 'штаб роты'}`;
+        } else {
+            const toUnit = units[order.toUnitId];
+            unitName = toUnit ? toUnit.name : 'Неизвестно';
+            typeLabel = getOrderTypeLabel(order.type);
+            // ⚡ v13.064: копия приказа, которую штаб роты передал взводу
+            if (order.relayParentId) {
+                const companyId = Number.isFinite(order.relayCompanyId) ? order.relayCompanyId : order.fromUnitId;
+                const company = units[companyId];
+                if (company) typeLabel += ` <span style="color:#3498db;">↳ через ${company.name}</span>`;
+            }
         }
 
         let statusText = statusNames[order.status] || order.status;
@@ -17608,22 +17799,32 @@ function renderActiveOrders() {
         let seriesInfo = '';
         if (order.type === 'series' && order.series && order.series.length > 0) {
             const total = order.series.length;
-            // Находим первый незавершенный приказ
             let currentIndex = 0;
             let currentType = 'выполняется';
             for (let i = 0; i < order.series.length; i++) {
                 if (order.series[i].status !== 'completed') {
                     currentIndex = i + 1;
-                    currentType = typeNames[order.series[i].type] || order.series[i].type;
+                    currentType = getOrderTypeLabel(order.series[i].type);
                     break;
                 }
             }
-            if (currentIndex === 0) {
-                currentIndex = total;
-                currentType = 'завершена';
-            }
+            if (currentIndex === 0) { currentIndex = total; currentType = 'завершена'; }
             seriesInfo = ` <span style="color:#f1c40f; font-size:0.8rem;">[${currentIndex}/${total} → ${currentType}]</span>`;
         }
+
+        // ⚡ v13.064: СПРАВКА — когда приказ будет выполнен
+        const eta = getOrderEta(order);
+        const etaHtml = eta
+            ? `<div style="color:#9ad0ea; font-size:0.72rem; margin-top:1px;">${eta.text}</div>`
+            : '';
+
+        // ⚡ v13.064: подробности приказа («ℹ️») — что именно приказано
+        const detailsOpen = !!(orderDetailsOpen && orderDetailsOpen[order.id]);
+        const detailsHtml = detailsOpen
+            ? `<div style="margin:4px 0 2px; padding:6px; background:#1e1e2c; border-left:2px solid #3498db; border-radius:4px; font-size:0.78rem;">
+                 ${getOrderDetailsHtml(order)}
+               </div>`
+            : '';
 
         // Кнопки приоритета
         const priorityBtns = (order.status === 'pending' || order.status === 'delivering')
@@ -17631,14 +17832,33 @@ function renderActiveOrders() {
                <button onclick="moveOrderPriority(${orderIdx}, 1)" style="background:#555; font-size:0.7rem; padding:2px 5px; cursor:pointer;" title="Ниже">▼</button>`
             : '';
 
+        // ⚡ v13.064: завершённый приказ удаляется крестиком сразу,
+        //    выполняющийся — только после подтверждения.
+        const finished = (order.status === 'completed' || order.status === 'cancelled');
+        const cancelBtn = `<button onclick="cancelOrder(${order.id})" style="background:${finished ? '#555' : '#7f3b30'}; font-size:0.7rem; padding:2px 6px; margin-left:6px; cursor:pointer;"
+                title="${finished ? 'Убрать завершённый приказ из списка' : 'Отменить выполняющийся приказ (запросит подтверждение)'}">✕ ${finished ? 'Убрать' : 'Отменить'}</button>`;
+
         html += `
-            <div style="background:#2a2a2a; padding:4px; margin:2px 0; border-radius:4px; display:flex; justify-content:space-between; align-items:center;">
-                <span>${priorityBtns} ${typeNames[order.type] || order.type} → ${unitName}${seriesInfo}</span>
-                <span style="color:#aaa; font-size:0.8rem;">${statusText}</span>
-                <button onclick="cancelOrder(${order.id})" style="background:#555; font-size:0.7rem; padding:2px 6px; margin-left:8px; cursor:pointer;" title="Отменить приказ (запросит подтверждение)">✕ Отменить</button>
+            <div style="background:#2a2a2a; padding:4px 6px; margin:3px 0; border-radius:4px;${finished ? ' opacity:0.75;' : ''}">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap;">
+                <span style="flex:1 1 auto;">${priorityBtns} ${typeLabel} → ${unitName}${seriesInfo}</span>
+                <button onclick="toggleOrderDetails(${order.id})" style="background:#2c3e50; font-size:0.7rem; padding:2px 6px; cursor:pointer;"
+                        title="Показать приказ целиком: маршрут, цель, получатели">${detailsOpen ? '🔼' : 'ℹ️'} приказ</button>
+                <span style="color:#aaa; font-size:0.78rem;">${statusText}</span>
+                ${cancelBtn}
+              </div>
+              ${etaHtml}
+              ${detailsHtml}
             </div>
         `;
     });
+
+    // ⚡ v13.064: краткая справка по срокам
+    html += `<div style="color:#777; font-size:0.72rem; margin-top:6px;">
+        🕓 Один операционный ход = ${getOpTurnMinutes()} минут. Приказ исполняется в конце хода:
+        по рации/телефону — в этот же ход, посыльным — когда дойдёт (3–4 гекса за ход).
+        Кнопка «ℹ️ приказ» показывает приказ целиком — маршрут, цель и получателей.
+    </div>`;
 
     container.innerHTML = html;
 }
@@ -22031,7 +22251,10 @@ function onOrderTargetUnitChange() {
             turnIssued: currentTurnNum,
             turnReceived: null,
             series: (order.series || []).map(s => ({ ...s })),
-            relayParentId: order.id
+            relayParentId: order.id,
+            // ⚡ v13.064: в списке приказов видно, что это передача через роту
+            relayOrderType: order.orderType || order.type || null,
+            relayCompanyId: companyIdx
         };
 
         if (method === 'messenger') {
@@ -22084,18 +22307,29 @@ function onOrderTargetUnitChange() {
     }
 }
 function moveOrderPriority(orderIdx, direction) {
-    const allOrders = [...hardMode.pendingOrders, ...hardMode.orders];
+    // ⚡ v13.064: список тот же, что и на экране (иначе кнопка «▲/▼» двигала
+    //    не тот приказ — индексы считались без очереди посыльных).
+    const allOrders = getAllOrdersList();
     if (orderIdx < 0 || orderIdx >= allOrders.length) return;
-
     const newIdx = orderIdx + direction;
     if (newIdx < 0 || newIdx >= allOrders.length) return;
 
-    // Меняем местами
-    [allOrders[orderIdx], allOrders[newIdx]] = [allOrders[newIdx], allOrders[orderIdx]];
+    const a = allOrders[orderIdx], b = allOrders[newIdx];
+    const bucketOf = (o) => {
+        if ((hardMode.messengerQueue || []).indexOf(o) >= 0) return 'messengerQueue';
+        if ((hardMode.pendingOrders || []).indexOf(o) >= 0) return 'pendingOrders';
+        if ((hardMode.orders || []).indexOf(o) >= 0) return 'orders';
+        return null;
+    };
+    // приоритет меняем только внутри своего списка: перемешивать очередь
+    // посыльных с активными приказами нельзя (разные очереди исполнения)
+    const bucket = bucketOf(a);
+    if (!bucket || bucket !== bucketOf(b)) return;
 
-    // Разделяем обратно на pending и orders
-    hardMode.pendingOrders = allOrders.filter(o => hardMode.pendingOrders.includes(o));
-    hardMode.orders = allOrders.filter(o => hardMode.orders.includes(o));
+    const list = hardMode[bucket];
+    const ia = list.indexOf(a), ib = list.indexOf(b);
+    if (ia < 0 || ib < 0) return;
+    [list[ia], list[ib]] = [list[ib], list[ia]];
 
     saveData();
     renderActiveOrders();

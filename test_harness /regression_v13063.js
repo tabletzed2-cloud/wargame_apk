@@ -16,7 +16,9 @@ const names = [
   // панель операционных приказов
   'getOrderDraft', 'getSeriesPlan', 'updateOrderActionButtons', 'updateShowOrderPanelButton',
   'submitOrderMain', 'minimizeOrderPanel', 'hideOrderPanel', 'isOrderPanelOpen',
-  'updateOrderFieldVisibility', 'submitOrderQueue', 'cancelOrder', 'getOrderTypeLabel'
+  'updateOrderFieldVisibility', 'submitOrderQueue', 'cancelOrder', 'getOrderTypeLabel',
+  // ⚡ v13.064: зависимости списка приказов (срок исполнения в подтверждениях)
+  'getOrderEta', 'orderEtaMessage', 'getOpTurnMinutes', 'formatOrderTime', 'getAllOrdersList'
 ];
 fs.writeFileSync('/tmp/wg_part.js', names.map(n => sliceFunction(HTML, n)).join('\n'));
 
