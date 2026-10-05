@@ -1,0 +1,65 @@
+// v13.062: full HTML/JS browser smoke; needs playwright and Chromium (CHROMIUM_PATH optional).
+const {chromium}=require('playwright');
+const ROOT = require('path').resolve(__dirname, '..');
+const fs=require('fs'),path=require('path');
+(async()=>{
+ const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH || undefined,args:['--no-sandbox','--disable-dev-shm-usage','--no-zygote','--single-process'],headless:true});
+ const page=await browser.newPage();const errors=[];
+ page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.dismiss());
+ await page.route('**/*',async route=>{
+   const url=new URL(route.request().url());
+   if(url.host!=='game.test') return route.abort();
+   const file=path.join(ROOT,decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname));
+   if(!fs.existsSync(file)||!fs.statSync(file).isFile())return route.fulfill({status:404,body:''});
+   const ext=path.extname(file); await route.fulfill({body:fs.readFileSync(file),contentType:({'.html':'text/html','.js':'application/javascript','.css':'text/css','.png':'image/png','.jpg':'image/jpeg','.json':'application/json'})[ext]||'application/octet-stream'});
+ });
+ await page.goto('http://game.test/',{waitUntil:'load'});
+ console.log('BOOT',await page.title(),errors);
+ const result=await page.evaluate(()=>{
+   appData.campaign.online=false;
+   appData.squads=[JSON.parse(JSON.stringify(SQUAD_TEMPLATES.find(s=>s.name.includes('Самокат')&&s.fighters)))];
+   const sq=appData.squads[0];sq.embarkedSquadIndex=null;sq.armor=null;sq.dismounted=false;sq.mobilityType='bicycle';sq.hexPos=[4,4];
+   appData.map={hexKey:'3,3',grid:{},mapSize:10,baseHexSize:45,zoomLevel:1,mode:'move',enemySquads:[],activeSide:'player',selectedMoveSquadIdx:0,reachableHexes:[]};
+   TACTICAL_MAP_SIZE=10;
+   for(let c=0;c<10;c++) for(let r=0;r<10;r++) appData.map.grid[c+','+r]={type:'grass',level:0,rotation:0,variant:0,squadIds:[],enemySquadIds:[],markers:[]};
+   appData.map.grid['4,4'].squadIds=[0];
+   const enemy=JSON.parse(JSON.stringify(sq));enemy.name='enemy';enemy.mobilityType='foot';enemy.dismounted=true;
+   appData.map.enemySquads=[enemy];appData.map.grid['5,4'].enemySquadIds=[0];
+   const b={id:1,hexKey:'3,3',playerSquads:appData.squads,enemySquads:[enemy],tacticalMap:appData.map,currentTurn:1,activeSide:'player',cardsChosen:true,cardSelectionQueue:[],placement:{phase:'done',attackerSide:'player',entryDir:'W',playerReady:true,enemyReady:true}};
+   appData.campaign.activeBattles=[b];appData.currentBattleId=1;appData.currentTime=0;appData.campaign.opTurnStartTime=0;
+   appData.campaign.opUnits=[];appData.campaign.enemyOpUnits=[];appData.campaign.currentTurn=1;
+   currentTurn=1;actionPoints={};ensureAP(0);selectSquad(0);updateUI();renderMapActionPanel();
+   const dismountButton=document.getElementById('battleMapActionPanel').textContent.includes('Спешиться');
+   const mountedBlocked=!tacticalActionAllowed(currentSquad,'shoot',true);
+   dismountBicycle();const unmountedAllowed=tacticalActionAllowed(currentSquad,'shoot',true);
+   nextTurn();const firstPhase=[currentTurn,appData.currentTime,getTacticalActiveSide()];
+   nextTurn();const secondPhase=[currentTurn,appData.currentTime,getTacticalActiveSide()];
+   actionPoints[0].ap=1; saveData(); actionPoints={}; restoreBattleAP(b);
+   const restoredAP=getAP(0);
+   appData.campaign.online=true; b.activeSide='enemy'; appData.map.activeSide='enemy';
+   const before=[currentTurn,appData.currentTime]; nextTurn();
+   const opponentLocked=currentTurn===before[0] && appData.currentTime===before[1];
+   appData.campaign.online=false;
+   return {restoredAP,opponentLocked,dismountButton,mountedBlocked,unmountedAllowed,firstPhase,secondPhase,version:APP_VERSION};
+ });
+ console.log('BATTLE',result,'ERRORS',errors);
+ const created=await page.evaluate(()=>{
+   appData.currentBattleId=null; appData.campaign.activeBattles=[];
+   const base=appData.templates.find(s=>s.armor && (s.crewInstances||[]).some(ci=>getFactionCrewWeapons(s.faction).some(w=>w.name===ci.weaponName&&['at_gun','tank_gun'].includes(w.type))));
+   if(!base) throw new Error('Missing tank fixture');
+   const vehicle=JSON.parse(JSON.stringify(base));vehicle.name=base.name+' test';
+   const unit={name:'tank platoon',col:2,row:2,faction:base.faction,type:'tank_platoon',isGroup:true,vehicleList:[vehicle]};
+   const enemy={name:'defender',col:3,row:2,faction:'A.I.R.F.',squads:[JSON.parse(JSON.stringify(appData.templates.find(s=>s.faction==='A.I.R.F.'&&!s.armor)))]};
+   appData.campaign.opUnits=[unit]; appData.campaign.enemyOpUnits=[enemy];
+   const battle=startTacticalBattle([unit],[enemy],{silent:true});
+   appData.squads=battle.playerSquads;appData.map=battle.tacticalMap;appData.currentBattleId=battle.id;
+   battle.placement.phase='done';battle.activeSide='player';currentTurn=1;restoreBattleAP(battle);selectSquad(0);
+   document.getElementById('targetDistance').value='1';document.getElementById('coverTarget').value='1';
+   const before=currentSquad.ammoOrdnance;attackOrdnance();
+   return {hex:battle.hexKey,gunFired:currentSquad.ammoOrdnance<before,ammoBefore:before,ammoAfter:currentSquad.ammoOrdnance};
+ });
+ console.log('ACTUAL VEHICLE BATTLE',created);
+ if(created.hex!=='3,2'||!created.gunFired)process.exitCode=1;
+ await browser.close();
+ if(errors.length||result.restoredAP!==1||!result.opponentLocked||!result.dismountButton||!result.mountedBlocked||!result.unmountedAllowed||result.secondPhase[1]!==4)process.exitCode=1;
+})().catch(e=>{console.error(e);process.exit(1)});

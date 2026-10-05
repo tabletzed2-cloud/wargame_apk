@@ -1,3 +1,4 @@
+// v13.062: fixed DOT coordinates and no placement bypass for eliminated squads.
 // ⚡ v13.061: current release tactical deployment rules.
 // ============================================================
 // ⚡ v13.055 (R39#3): РАЗМЕЩЕНИЕ В НАЧАЛЕ ТАКТИЧЕСКОГО БОЯ
@@ -178,6 +179,8 @@ function placementPendingReason(battle) {
 // Можно ли стороне side ('player'|'enemy') стоять на клетке key по правилам зон
 function placementSideAllowed(battle, side, key) {
     const p = battle && battle.placement;
+    const squads = side === 'player' ? (battle && battle.playerSquads || []) : (battle && battle.tacticalMap && battle.tacticalMap.enemySquads || []);
+    if (squads.some(s => s.fixedTacticalPosition && s.fixedTacticalPosition.key === key && s.fixedTacticalPosition.hexKey === battle.hexKey)) return true;
     if (!p) return true;
     const zone = placementZoneKeys(p.entryDir, placementMapSize(battle));
     const inZone = zone.includes(key);
@@ -187,7 +190,9 @@ function placementSideAllowed(battle, side, key) {
 // Проверка при размещении (режим «🏷️ Разместить» / «📌 Разместить врага»).
 // wasPlaced — отряд уже стоял на карте до этого клика (переставляем).
 // Возвращает текст запрета или null.
-function placementCheckPlace(side, key, wasPlaced) {
+function placementCheckPlace(side, key, wasPlaced, squad) {
+    if (squad && (squad.isDestroyed || squad.isRetreated || squad.status === 'retreated' || (squad.fighters || []).every(f => !f || f.hp <= 0))) return 'Уничтоженный или отступивший отряд нельзя размещать.';
+    if (squad && squad.fixedTacticalPosition) return key === squad.fixedTacticalPosition.key ? null : 'ДОТ закреплён на постоянной позиции.';
     const battle = getCurrentBattleRecord();
     const p = battle && battle.placement;
     if (!p) return null;

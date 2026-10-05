@@ -1,3 +1,4 @@
+// v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
 // ⚡ v13.054 (R39#4): ДЕЙСТВИЯ ОТРЯДА ПРЯМО НА ТАКТИЧЕСКОЙ КАРТЕ
@@ -29,18 +30,18 @@ var MAP_ACTION_DEFS = [
     { id: 'smallArms',       label: '🔫 Стрелковое / пулемёты', targets: 'any',      small: true,
       show: s => !(s.name || '').includes('ДОТ') },
     { id: 'ordnance',        label: '💥 Орудия / миномёты',     targets: 'any',
-      show: s => mapActionHasCrewType(s, ['at_gun', 'mortar']) },
+      show: s => mapActionHasCrewType(s, ['at_gun', 'mortar', 'tank_gun']) },
     { id: 'vehicle',         label: '🚀 ПТО по технике',        targets: 'vehicle',
       show: s => mapActionHasCrewType(s, ['at_gun', 'tank_gun']) },
     { id: 'sniper',          label: '🎯 Снайперский выстрел',   targets: 'infantry', small: true,
       show: s => mapActionHasSniper(s) },
     { id: 'suppressiveFire', label: '💫 Подавить (2,5 ОД)',     targets: 'infantry', small: true,
       show: s => !s.armor && !(s.name || '').includes('ДОТ') && (s.ammoSmall || 0) > 0 },
-    { id: 'grenades',        label: '💣 Гранаты (до 2 гексов)', targets: 'infantry', maxDist: 2,
+    { id: 'grenades',        label: '💣 Гранаты (до 1 гекса)', targets: 'infantry', maxDist: 1,
       show: s => !s.armor },
     { id: 'satchel',         label: '🧨 Связка гранат (техника рядом)', targets: 'vehicle', maxDist: 1,
       show: s => !s.armor },
-    { id: 'melee',           label: '⚔️ Рукопашная (соседний гекс)',   targets: 'infantry', maxDist: 1,
+    { id: 'melee',           label: '⚔️ Рукопашная (тот же гекс)',   targets: 'infantry', maxDist: 0,
       show: s => !s.armor },
     { id: 'molotovCrew',     label: '🍾 Бутылкомёт по технике', targets: 'vehicle',  small: true,
       show: s => mapActionHasCrewFlag(s, 'isMolotov') },
@@ -119,6 +120,9 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx) {
     if (!tPos) { out.reason = 'не на карте'; return out; }
     out.dist = hexGridDistance(sPos.col, sPos.row, tPos.col, tPos.row);
     out.cover = getTacticalCoverInfoForEnemy(grid, enemyIdx);
+    const shooterSquad = appData.squads[shooterIdx];
+    if (def.id !== 'melee' && typeof tacticalIsMeleeEngaged === 'function' && tacticalIsMeleeEngaged(enemy)) { out.reason = 'цель связана рукопашной'; return out; }
+    if (def.id === 'melee' && tacticalIsMeleeEngaged(shooterSquad) && shooterSquad.meleeOpponentName && shooterSquad.meleeOpponentName !== enemy.name) { out.reason = 'продолжайте текущую рукопашную'; return out; }
     const isVeh = mapActionEnemyIsVehicle(enemy);
     if (def.targets === 'vehicle' && !isVeh) { out.reason = 'цель — не техника'; return out; }
     if (def.targets === 'infantry' && isVeh) { out.reason = 'по технике так нельзя'; return out; }
@@ -203,6 +207,12 @@ function renderMapActionPanel() {
         html += `<div style="display:flex; flex-wrap:wrap; gap:4px;">`;
         const routed = (typeof getEffectiveMorale === 'function' && typeof currentSquadIndex !== 'undefined' && currentSquadIndex === idx) ? (getEffectiveMorale() <= 1) : false;
         const phaseLocked = typeof getTacticalActiveSide === 'function' && getTacticalActiveSide() !== 'player';
+        if (typeof isBicycleTacticalSquad === 'function' && isBicycleTacticalSquad(squad) && !squad.dismounted) {
+            html += `<button onclick="selectSquad(${idx}); dismountBicycle(); renderMapActionPanel();" ${tacticalActionAllowed(squad, 'utility', true) ? '' : 'disabled'}>🚲 Спешиться</button>`;
+        }
+        if (typeof tacticalIsMeleeEngaged === 'function' && tacticalIsMeleeEngaged(squad)) {
+            html += `<button onclick="selectSquad(${idx}); retreatFromMelee();" ${tacticalActionAllowed(squad, 'retreatMelee', true) ? '' : 'disabled'}>↩ Отступить из рукопашной</button>`;
+        }
         const meleeEngaged = typeof tacticalIsMeleeEngaged === 'function' && tacticalIsMeleeEngaged(squad);
         MAP_ACTION_DEFS.forEach(def => {
             let show = false;
@@ -517,6 +527,8 @@ function reportAttackOutcome(kind, data) {
             applyDamagePointsToEnemy(enemy, data.damage || 0, res);
             const m = (enemy.currentMorale !== undefined && enemy.currentMorale !== null) ? enemy.currentMorale : (enemy.baseMorale || 5);
             enemy.currentMorale = Math.max(0, m - 1);
+            const battle = typeof getTacticalBattleRecord === 'function' ? getTacticalBattleRecord() : null;
+            if (battle) { battle.onlineMoraleOut = battle.onlineMoraleOut || {}; battle.onlineMoraleOut[enemy.name] = (battle.onlineMoraleOut[enemy.name] || 0) + 1; }
             if (mapActionEnemyAlive(enemy) > 0 && typeof currentSquad !== 'undefined' && currentSquad) {
                 currentSquad.meleeOpponentName = enemy.name;
                 currentSquad.meleeOpponentEnemyIdx = idx;
