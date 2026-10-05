@@ -1,3 +1,4 @@
+// ⚡ v13.063: probe now covers platoon grouping of the battle roster.
 // v13.062: include scenario night lifecycle in the real UI probe.
 // ⚡ v13.057: include the direct action-point dependency so this probe can run cleanly.
 // ⚡ v13.061: load bicycle helpers required by getMaxAP.
@@ -6,7 +7,9 @@ const { sliceFunction, HTML } = require('./extract');
 const { createSandbox, freshAppData } = require('./sandbox');
 
 const FNS = ['syncNightModifier', 'isNightTime', 'isBicycleTacticalSquad', 'hasBicycleBlitz', 'getMaxAP', 'renderTemplateSelection', 'addSelectedTemplatesToBattle', 'renderSquadSelector',
-  'updateUI', 'resetAP', 'selectSquad', 'ensureAP', 'isTacticalHealthEditTestMode', 'renderFactionInfo', 'renderCardSelectionForBattle'];
+  'updateUI', 'resetAP', 'selectSquad', 'ensureAP', 'isTacticalHealthEditTestMode', 'renderFactionInfo', 'renderCardSelectionForBattle',
+  // ⚡ v13.063: группы взводов списка отрядов
+  'getSquadGroupState', 'getNoPlatoonLabel', 'getSquadPlatoonName', 'getSquadBattleStatus', 'toggleSquadGroup', 'expandAllSquadGroups'];
 fs.writeFileSync('/tmp/wg_part.js', FNS.map(f => sliceFunction(HTML, f)).join('\n\n'));
 
 const ad = freshAppData();
@@ -27,7 +30,8 @@ s.sandbox.renderEmbarkPanel = () => {};
 s.sandbox.updateEmbarkPanel = () => {};
 
 s.run('var currentSquad = null, currentSquadIndex = -1, morale = 0, actionPoints = [], currentTurn = 1, ' +
-      'inStandaloneBattle = true, hardMode = { enabled: false }, opMoveAnim = { playing: false }, detectionOptions = { auto: false };');
+      'inStandaloneBattle = true, hardMode = { enabled: false }, opMoveAnim = { playing: false }, detectionOptions = { auto: false }, ' +
+      'squadGroupCollapsed = {}; // v13.063: состояние свёрнутости групп взводов');
 
 s.run('selectedFaction = "BeVe"; selectedSubFaction = "belgian";');
 s.run('resetAP(); renderTemplateSelection();');

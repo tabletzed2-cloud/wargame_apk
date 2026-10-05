@@ -1,8 +1,9 @@
+// v13.063: invalidate offline code cache after the interface rework (orders panel, battle tab).
 // v13.062: invalidate offline code cache after field-rule corrections.
 // ⚡ v13.024: имя кэша обязательно обновлять с каждой версией —
 //    иначе старый (устаревший) кэш продолжает отдавать старые js/data.js
 // ⚡ v13.061: cache update for retreat, turn-order and initial fortification fixes.
-const CACHE_NAME = 'wargame-v13.062';
+const CACHE_NAME = 'wargame-v13.063';
 
 const ASSETS = [
     './images/AIRF/штаб развед взвода АИРФ №1.png',
