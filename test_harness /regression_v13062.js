@@ -15,6 +15,9 @@ const names = [
  'getAP','getMaxAP','hasBicycleBlitz','spendAP','resetAP','getHexNeighbors','getMovementCost','calculateReachableHexes','recalcReachable','shouldShowTacticalReachability',
  'getOpHexNeighbors','getOpMoveCost','getOpPlannedMoveCost','getRouteToTarget','buildOrderRoute','autoDismountOperational','validateRoute',
  'getTacticalBattleAnchor','getTacticalTargetDistance','throwGrenades','meleeAttack','finishBattle',
+ // ⚡ v13.065: рукопашная по фактической дистанции — хелперы должны быть в песочнице
+ 'tacticalSquadHexPosition','tacticalSquadsDistance','tacticalSquadIsAlive','tacticalSquadsInSameHex',
+ 'tacticalAutoEngageMelee','tacticalEnemyHexHasFriendlies','tacticalMeleeTarget',
  'getOperationalCombatFighters','isOperationalMoraleUnit','getOperationalMorale','findOperationalRallyHQ','findOperationalRetreatPath',
  'changeOperationalMorale','triggerOperationalRetreat','cancelOrdersForMoraleRetreat','retreatFromMelee'
 ];
