@@ -1,3 +1,4 @@
+// v13.062: order budget is independent of the initial eight trenches (confirmed rule).
 // ⚡ v13.061: regressions for operational placement zone, trenches, enemy-side prompts and 82-mm mortar range.
 'use strict';
 
@@ -66,15 +67,15 @@ console.log('== v13.061 field regressions ==');
     ok(parsedRotated.rotation === 60 && parsedRotated.saved === 60 && reapplied,
        'Поворот окопа на 60° сохраняется в overlay и применяется к карте боя');
 
-    // Existing plus initial trenches count toward the same per-map cap.
+    // Order-earned trenches are additional to the initial fortifications.
     s.run(`
       var ovCap = getHexOverlay('4,4', true);
       ovCap.trenchPoints = 0;
       for (var i = 1; i < 8; i++) ovCap.hexEdits[i + ',0'] = 'trenches';
       var grantedAtCap = grantTrenchPoints('4,4', 3, 'Свой взвод');
     `);
-    ok(s.evalCtx('countHexTrenchCells(getHexOverlay("4,4", false)) === 8 && grantedAtCap === 0'),
-       'Нельзя получить или разместить больше восьми клеток окопов на тактической карте гекса');
+    ok(s.evalCtx('countHexTrenchCells(getHexOverlay("4,4", false)) === 8 && grantedAtCap === 3'),
+       'Приказ даёт по клетке на отделение сверх стартовых восьми окопов');
 }
 
 // An enemy's entrenchment budget is private to that side and does not generate a local prompt.

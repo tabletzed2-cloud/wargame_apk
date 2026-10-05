@@ -1,3 +1,4 @@
+// v13.062: initial eight-cell budget is separate from order-earned trenches.
 // ⚡ v13.061: initial five-hex fortification setup with trench and DOT overlays.
 // ═══════════════════════════════════════════════════════════════════════════
 // ⚡ v13.049 (R34): КАРТЫ ГЕКСОВ ОПЕРАТИВНОЙ КАРТЫ ДЛЯ ТАКТИЧЕСКОГО БОЯ
@@ -245,6 +246,10 @@ function renderInitialFortificationStatus() {
     const panel = (typeof document !== 'undefined') ? document.getElementById('initialFortificationStatus') : null;
     if (!panel || !appData || !appData.campaign) return;
     const camp = appData.campaign;
+    const enabled = camp.playerFaction === 'BeVe';
+    const button = document.getElementById('btnInitialFortificationSetup');
+    if (button) button.style.display = enabled ? 'inline-block' : 'none';
+    if (!enabled) { panel.style.display = 'none'; return; }
     const state = camp.initialFortificationSetup || {};
     if (!state.phase && !state.complete && ((camp.currentTurn || 1) > 1 || (typeof placementLocked !== 'undefined' && placementLocked))) {
         panel.style.display = 'none';
@@ -267,7 +272,7 @@ function renderInitialFortificationStatus() {
 }
 function startInitialFortificationSetup() {
     const camp = appData && appData.campaign;
-    if (!camp) return false;
+    if (!camp || camp.playerFaction !== 'BeVe') return false;
     if (appData.currentBattleId || hexEditorState) {
         alert('Сначала выйдите из редактора карты гекса или тактического боя.');
         return false;
@@ -549,12 +554,14 @@ function openHexMapForBattle(hexKey, tacticalMap) {
         if (b && b.tacticalMap) {
             b.tacticalMap.grid = withKeep(b.tacticalMap.grid);
             b.tacticalMap.mapSize = built2.size;
+            applyFixedDotPositions(b);
         }
         const live = b && appData.currentBattleId !== null && appData.currentBattleId !== undefined && appData.currentBattleId === b.id;
         const editorOpen = (typeof hexEditorState !== 'undefined') && !!hexEditorState;
         if (live && !editorOpen && appData.map) {
             appData.map.grid = withKeep(appData.map.grid);
             appData.map.mapSize = built2.size;
+            applyFixedDotPositions({ hexKey, tacticalMap: appData.map, playerSquads: appData.squads });
             try { TACTICAL_MAP_SIZE = built2.size; } catch (e) {}
             try { initMap(); redrawMap(); } catch (e) {}
             const mi = document.getElementById('mapInfo');
@@ -719,13 +726,12 @@ function grantTrenchPoints(hexKey, squadsCount, unitName, enemySide) {
         log(`🕳️ ${unitName || 'Вражеский отряд'} завершил окапывание на гексе (${hexKey}); бюджет редактирования игроку не выдаётся.`);
         return ov.trenchPoints || 0;
     }
-    const room = Math.max(0, INITIAL_FORTIFICATION_TRENCH_LIMIT - countHexTrenchCells(ov));
-    const currentBudget = Math.min(Math.max(0, Math.floor(Number(ov.trenchPoints) || 0)), room);
-    const granted = Math.min(n, Math.max(0, room - currentBudget));
+    const currentBudget = Math.max(0, Math.floor(Number(ov.trenchPoints) || 0));
+    const granted = n;
     ov.trenchPoints = currentBudget + granted;
     saveHexOverlays(hexKey);
     if (granted > 0) {
-        log(`🕳️ ${unitName || 'Отряд'}: доступно гексов окопов на гексе (${hexKey}) — +${granted} (всего ${ov.trenchPoints}; лимит ${INITIAL_FORTIFICATION_TRENCH_LIMIT}).`);
+        log(`🕳️ ${unitName || 'Отряд'}: доступно гексов окопов на гексе (${hexKey}) — +${granted} (всего ${ov.trenchPoints}).`);
         showHexEditButton(hexKey, 'trenches');
         queueHexEditPrompt(hexKey, 'trenches', unitName);
     } else {
@@ -857,7 +863,7 @@ function hexEditRuleFor(kind) {
     if (kind === 'initialFortification') {
         return {
             title: '🪖 Начальные укрепления',
-            hint: 'Выберите инструмент и кликайте по клеткам: не более восьми клеток окопов на оперативный гекс; ДОТы сохраняются как отдельные метки. Кнопка «Готово» откроет следующую карту из пяти.',
+            hint: 'Выберите инструмент и кликайте по клеткам: не более восьми клеток окопов на оперативный гекс; Выберите отряд с ДОТом: его позиция сохраняется до конца игры. Кнопка «Готово» откроет следующую карту из пяти.',
             allowed: () => true,
             targetType: null,
             pointsField: null
@@ -866,7 +872,7 @@ function hexEditRuleFor(kind) {
     if (kind === 'trenches') {
         return {
             title: '🕳️ Расстановка окопов',
-            hint: 'Клик по траве/дороге ставит окоп; повторные клики по нему листают текстуры. Выберите клетку и нажмите «Повернуть» для поворота на 60°. Не более восьми клеток окопов на оперативный гекс.' ,
+            hint: 'Клик по траве/дороге ставит окоп; повторные клики по нему листают текстуры. Выберите клетку и нажмите «Повернуть» для поворота на 60°. Новая клетка расходует одно очко приказа (по одному на отделение).' ,
             allowed: (baseType) => baseType === 'grass' || baseType === 'road',
             targetType: 'trenches',
             pointsField: 'trenchPoints'
@@ -1039,13 +1045,14 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
     if (st.kind === 'initialFortification') {
         const ov = getHexOverlay(st.hexKey, true);
         const fort = ov.initialFortifications;
-        const trenchCount = countHexTrenchCells(ov);
+        const trenchCount = fort.trenchCells.length;
         const setup = appData.campaign.initialFortificationSetup || {};
         const index = Number.isInteger(st.initialSetupIndex) ? st.initialSetupIndex : (setup.nextIndex || 0);
         const active = tool => st.tool === tool ? 'background:#27ae60;' : 'background:#555;';
         banner.innerHTML = `<b style="color:#2ecc71;">🪖 Начальные укрепления — оперативный гекс (${st.hexKey}), карта ${index + 1}/${INITIAL_FORTIFICATION_HEX_COUNT}</b><br>` +
           `<span style="color:#ccc; font-size:.85rem;">${st.rule.hint}</span><br>` +
           `<span style="color:#f1c40f;">Окопов: <b>${trenchCount}/${INITIAL_FORTIFICATION_TRENCH_LIMIT}</b> · ДОТы: <b>${fort.dotCells.length}</b> · Инструмент: <b>${st.tool === 'dot' ? 'ДОТ' : st.tool === 'erase' ? 'ластик' : 'окоп'}</b></span>` +
+          initialDotSelector(st) +
           `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">` +
             `<button onclick="setInitialFortificationTool('trenches')" style="${active('trenches')}">🕳️ Окоп</button>` +
             `<button onclick="setInitialFortificationTool('dot')" style="${active('dot')}">🏰 ДОТ</button>` +
@@ -1096,7 +1103,7 @@ function initialFortificationEditClick(st, hexKeyCell, baseCell, working) {
         } else if (ov.hexEdits[hexKeyCell] === 'trenches') {
             message = `На клетке ${hexKeyCell} уже есть окоп из другой правки.`;
         } else {
-            const used = new Set([...(fort.trenchCells || []), ...Object.keys(ov.hexEdits || {}).filter(k => ov.hexEdits[k] === 'trenches')]).size;
+            const used = fort.trenchCells.length;
             if (used >= INITIAL_FORTIFICATION_TRENCH_LIMIT) {
                 message = `⛔ Лимит достигнут: не более ${INITIAL_FORTIFICATION_TRENCH_LIMIT} клеток окопов на одном оперативном гексе.`;
             } else if (baseType !== 'grass' && baseType !== 'road') {
@@ -1107,17 +1114,14 @@ function initialFortificationEditClick(st, hexKeyCell, baseCell, working) {
             }
         }
     } else if (st.tool === 'dot') {
-        if (dotIndex >= 0) {
-            fort.dotCells.splice(dotIndex, 1);
-            message = `🏰 ДОТ убран с клетки ${hexKeyCell}.`;
-        } else {
-            fort.dotCells.push(hexKeyCell);
-            message = `✅ ДОТ размещён на клетке ${hexKeyCell}.`;
-        }
+        message = bindInitialDot(st, hexKeyCell);
     } else {
         let changed = false;
         if (trenchIndex >= 0) { fort.trenchCells.splice(trenchIndex, 1); changed = true; }
-        if (dotIndex >= 0) { fort.dotCells.splice(dotIndex, 1); changed = true; }
+        if (dotIndex >= 0) {
+            initialDotCandidates().forEach(x => { const p = x.squad.fixedTacticalPosition; if (p && p.hexKey === st.hexKey && p.key === hexKeyCell) delete x.squad.fixedTacticalPosition; });
+            fort.dotCells.splice(dotIndex, 1); changed = true;
+        }
         if (changed && !ov.hexEdits[hexKeyCell]) {
             delete ov.hexVariants[hexKeyCell];
             delete ov.hexRotations[hexKeyCell];
@@ -1167,10 +1171,6 @@ function hexEditClick(hexKeyCell) {
             return true;
         }
         if (infoBox) { infoBox.innerHTML = `⚠️ Гекс ${hexKeyCell} уже правили (${ov.hexEdits[hexKeyCell]}). Выберите другой.`; infoBox.style.color = '#e67e22'; }
-        return true;
-    }
-    if (st.kind === 'trenches' && countHexTrenchCells(ov) >= INITIAL_FORTIFICATION_TRENCH_LIMIT) {
-        if (infoBox) { infoBox.innerHTML = `⛔ На карте этого оперативного гекса уже достигнут лимит: ${INITIAL_FORTIFICATION_TRENCH_LIMIT} клеток окопов.`; infoBox.style.color = '#e74c3c'; }
         return true;
     }
     if (left <= 0) {
@@ -1491,4 +1491,57 @@ function reportForestBlock(blocked) {
         const mi = document.getElementById('mapInfo');
         if (mi) { mi.innerHTML = msg; mi.style.color = '#e74c3c'; }
     } catch (e) {}
+}
+
+// v13.062: start fortifications bind real DOT squads, not unlimited decorative markers.
+function initialDotCandidates() {
+    const out = [];
+    (appData.campaign.opUnits || []).forEach((u, ui) => {
+        (u.squads || []).forEach((s, si) => {
+            if (!u.isDestroyed && !s.isDestroyed && /ДОТ/i.test(s.name || u.name || '')) out.push({ unit: u, squad: s, id: `${ui}:${si}` });
+        });
+    });
+    return out;
+}
+function initialDotSelector(st) {
+    const escape = text => String(text).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const candidates = initialDotCandidates();
+    if (!candidates.length) return '<span>В батальоне нет доступных ДОТов.</span>';
+    if (!candidates.some(x => x.id === st.dotId)) st.dotId = candidates[0].id;
+    return '<label>ДОТ: <select onchange="hexEditorState.dotId=this.value">' + candidates.map(x => `<option value="${x.id}" ${x.id === st.dotId ? 'selected' : ''}>${escape(x.unit.name)} — ${escape(x.squad.name)}</option>`).join('') + '</select></label>';
+}
+function bindInitialDot(st, key) {
+    const candidate = initialDotCandidates().find(x => x.id === st.dotId);
+    if (!candidate) return '⛔ Выберите реальный отряд с ДОТом.';
+    const [col, row] = st.hexKey.split(',').map(Number);
+    const camp = appData.campaign;
+    if (typeof isHexInPlacementZone === 'function' && !isHexInPlacementZone(camp.scenario, camp.playerFaction, col, row).ok) return '⛔ ДОТ можно поставить только в своей стартовой зоне.';
+    const { unit, squad } = candidate;
+    if ((unit.squads || []).some(s => s !== squad && s.fixedTacticalPosition && s.fixedTacticalPosition.hexKey !== st.hexKey)) return '⛔ ДОТы одного юнита должны находиться на одном оперативном гексе.';
+    const old = squad.fixedTacticalPosition;
+    if (old) {
+        const oldFort = getInitialFortificationData(old.hexKey, true);
+        oldFort.dotCells = oldFort.dotCells.filter(k => k !== old.key);
+        saveHexOverlays(old.hexKey);
+    }
+    // Other DOTs of the same operational unit cannot be split across operational hexes.
+
+    squad.fixedTacticalPosition = { hexKey: st.hexKey, key };
+    unit.col = col; unit.row = row;
+    const fort = getInitialFortificationData(st.hexKey, true);
+    if (!fort.dotCells.includes(key)) fort.dotCells.push(key);
+    return `✅ ${squad.name}: постоянная позиция ${key}.`;
+}
+function applyFixedDotPositions(battle) {
+    if (!battle || !battle.tacticalMap) return;
+    const grid = battle.tacticalMap.grid;
+    [[battle.playerSquads || [], 'squadIds'], [battle.tacticalMap.enemySquads || [], 'enemySquadIds']].forEach(([squads, field]) => {
+        squads.forEach((s, idx) => {
+            const pos = s.fixedTacticalPosition;
+            if (!pos || pos.hexKey !== battle.hexKey || !grid[pos.key] || s.isDestroyed || s.isRetreated) return;
+            Object.values(grid).forEach(cell => { cell[field] = (cell[field] || []).filter(i => i !== idx); });
+            grid[pos.key][field].push(idx);
+            s.hexPos = pos.key.split(',').map(Number);
+        });
+    });
 }
