@@ -192,8 +192,14 @@ function placementSideAllowed(battle, side, key) {
 // Возвращает текст запрета или null.
 function placementCheckPlace(side, key, wasPlaced, squad) {
     if (squad && (squad.isDestroyed || squad.isRetreated || squad.status === 'retreated' || (squad.fighters || []).every(f => !f || f.hp <= 0))) return 'Уничтоженный или отступивший отряд нельзя размещать.';
-    if (squad && squad.fixedTacticalPosition) return key === squad.fixedTacticalPosition.key ? null : 'ДОТ закреплён на постоянной позиции.';
     const battle = getCurrentBattleRecord();
+    // ⚡ v13.066: закреплённый ДОТ нельзя переставлять, но только в СВОЁМ
+    //    оперативном гексе: ДОТы одного юнита могут стоять на разных гексах,
+    //    и в чужом бою отряд ДОТа размещается как обычный.
+    if (squad && squad.fixedTacticalPosition) {
+        const sameHex = !battle || !battle.hexKey || String(squad.fixedTacticalPosition.hexKey) === String(battle.hexKey);
+        if (sameHex) return key === squad.fixedTacticalPosition.key ? null : 'ДОТ закреплён на постоянной позиции.';
+    }
     const p = battle && battle.placement;
     if (!p) return null;
     if (p.phase === 'done' && wasPlaced) return null; // после размещения — как раньше (свободная перестановка)

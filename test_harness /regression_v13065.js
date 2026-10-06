@@ -197,13 +197,17 @@ test('R43#5: стартовые позиции Валенсии восстано
 });
 
 // ── версия и оформление
-test('v13.065: версия проставлена в приложении, манифесте и кэше', () => {
-  assert.match(HTML, /var APP_VERSION = 'v13\.065'/);
-  assert.match(HTML, /<title>Боевой модуль v13\.065/);
+test('версия согласована в приложении, манифесте и кэше (v13.065+)', () => {
+  // ⚡ v13.066: тест больше не фиксирует номер релиза — проверяем, что версия
+  //    одна и та же в index.html, manifest.json и service-worker.js.
+  const m = /var APP_VERSION = 'v(\d+\.\d+)'/.exec(HTML);
+  assert.ok(m, 'APP_VERSION найден');
+  const re = new RegExp('v' + m[1].replace('.', '\\.'));
+  assert.match(HTML, new RegExp('<title>Боевой модуль ' + re.source));
   const manifest = fs.readFileSync(ROOT + '/manifest.json', 'utf8');
-  assert.match(manifest, /БМ v13\.065/);
+  assert.match(manifest, new RegExp('БМ ' + re.source));
   const sw = fs.readFileSync(ROOT + '/service-worker.js', 'utf8');
-  assert.match(sw, /const CACHE_NAME = 'wargame-v13\.065'/);
+  assert.match(sw, new RegExp("const CACHE_NAME = 'wargame-" + re.source + "'"));
 });
 test('R43#9: карты-дебаффы обводятся красным', () => {
   assert.match(HTML, /isNegative \? '#3a1e1e' : '#1e3a2a'/);

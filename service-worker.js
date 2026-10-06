@@ -4,8 +4,10 @@
 // v13.062: invalidate offline code cache after field-rule corrections.
 // ⚡ v13.024: имя кэша обязательно обновлять с каждой версией —
 //    иначе старый (устаревший) кэш продолжает отдавать старые js/data.js
+// v13.066: invalidate offline code cache after the ammo-point, DOT-only
+//    fortification and campaign mini-map fixes.
 // ⚡ v13.061: cache update for retreat, turn-order and initial fortification fixes.
-const CACHE_NAME = 'wargame-v13.065';
+const CACHE_NAME = 'wargame-v13.066';
 
 const ASSETS = [
     './images/AIRF/штаб развед взвода АИРФ №1.png',
