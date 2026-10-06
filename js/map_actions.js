@@ -121,6 +121,11 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx) {
     out.dist = hexGridDistance(sPos.col, sPos.row, tPos.col, tPos.row);
     out.cover = getTacticalCoverInfoForEnemy(grid, enemyIdx);
     const shooterSquad = appData.squads[shooterIdx];
+    // ⚡ v13.065 (R43#7): в гексе цели стоит свой отряд — стрелять нельзя (не бей своих)
+    if (def.id !== 'melee' && typeof tacticalEnemyHexHasFriendlies === 'function') {
+        const friend = tacticalEnemyHexHasFriendlies(enemy);
+        if (friend && friend !== shooterSquad) { out.reason = 'в гексе свои — бить нельзя'; return out; }
+    }
     if (def.id !== 'melee' && typeof tacticalIsMeleeEngaged === 'function' && tacticalIsMeleeEngaged(enemy)) { out.reason = 'цель связана рукопашной'; return out; }
     if (def.id === 'melee' && tacticalIsMeleeEngaged(shooterSquad) && shooterSquad.meleeOpponentName && shooterSquad.meleeOpponentName !== enemy.name) { out.reason = 'продолжайте текущую рукопашную'; return out; }
     const isVeh = mapActionEnemyIsVehicle(enemy);
