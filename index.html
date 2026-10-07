@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.066 — операция</title>
+  <title>Боевой модуль v13.069 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -13,7 +13,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.066</h1>
+    <h1>⚔️ Боевой модуль v13.069</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -27,7 +27,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.066</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.069</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -59,7 +59,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.066 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.069 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -332,13 +332,24 @@ function safeLocalStorage(method, ...args) {
 // ⚡ v13.056 (R39): карточки по взводам, сохранение выбора и ограничения тестового здоровья.
 // ⚡ v13.058: физическая выдача/отзыв пар связистов и ручная прокладка телефонного кабеля.
 // ⚡ v13.059: max-AP preview, bicycle blitz, terrain-editor texture cycling and online casualty visibility.
+// v13.069 (R48): охрана и захват склада снабжения, точки тыла по фракциям,
+//    скрытное движение (галочка в приказе), штраф по движущейся броне (карта и бой),
+//    миномёты не бьют броню, расход боезапаса на огонь по карте, «Бюрократия» +1 ход;
+//    см. CHANGELOG-v13.069.md.
+// v13.068: взвод снабжения и батальонный склад боеприпасов — носильщики, вьючные
+//    животные, повозки и машины, доставка груза юнитам, потери в засаде, рейс
+//    в тыл за пополнением и шкалы боезапаса у юнитов; see CHANGELOG-v13.068.md.
+// v13.067: связисты, приданные юниту, вливаются в штат получателя (Радист/Телефонист N),
+//    a также расширенные штаты штабов рот (9 чел.) и батальона (15 чел.):
+//    штабные должности и постоянный расчёт связи (2 радиста + 2 телефониста);
+//    see CHANGELOG-v13.067.md.
 // v13.066: ammo point at the platoon HQ hex, DOT-only start fortifications with
 //    real unit icons, and a campaign mini-map over the tactical map/hex editor;
 //    see CHANGELOG-v13.066.md.
 // v13.065: melee by real hex distance, no conditional battle cards, red debuff frames,
 //    map-template replacement and v13.058 start positions; see CHANGELOG-v13.065.md.
 // v13.064: order-list details, ETA hints and cancel confirmations; see CHANGELOG-v13.064.md.
-var APP_VERSION = 'v13.066';
+var APP_VERSION = 'v13.069';
 
 // ⚡ v13.058: кнопка меню действительно запрашивает проверку новой версии SW;
 // если новый контроллер не вступил в силу, повторно открываем страницу с cache-buster.
@@ -1695,6 +1706,7 @@ function renderBattalionRoster() {
             <strong>${unit.name}</strong> (${unit.type}) — ${unitLabel}: <b style="color:${destroyed ? '#e74c3c' : '#fff'};">${unitAlive}/${unitTotal}</b>${unitLost > 0 ? `, потерь: ${unitLost}` : ''} ${pos}
             ${destroyed ? ' <span style="color:#e74c3c; font-weight:bold;">💀 УНИЧТОЖЕН</span>' : ''}
             ${unit.embarkedInBtr ? ' 🚌 В БТР' : ''}
+            ${typeof supplyAmmoBarHtml === 'function' ? supplyAmmoBarHtml(unit) : ''}   <!-- ⚡ v13.068: шкала боезапаса юнита -->
           </div>
           ${operationalMoraleMarkup(unit)}
             <div style="display:flex; align-items:center; gap:4px; ${destroyed ? 'display:none;' : ''}">
@@ -1765,11 +1777,16 @@ function showUnitDetails(index) {
     squad.fighters.forEach(f => {
       const hpColor = f.hp === 0 ? '#e74c3c' : '#27ae60';
       const status = f.hp === 0 ? '💀' : '✅';
-      html += `<div style="padding-left:12px; color:${hpColor};">${status} ${f.name} — HP: ${f.hp}/${f.maxHp} [${f.weapon}]</div>`;
+      // ⚡ v13.067: связисты, приданные штабу, видны с должностью и устройством
+      const line = f.isSignalman
+        ? `${status} 📡 ${f.name} (${f.signalDeviceType === 'radio' ? 'рация' : 'телефон'})`
+        : `${status} ${f.name}`;
+      html += `<div style="padding-left:12px; color:${hpColor};">${line} — HP: ${f.hp}/${f.maxHp} [${f.weapon}]</div>`;
     });
     html += `</div>`;
   });
 
+  if (typeof supplyAmmoBarHtml === 'function') html += supplyAmmoBarHtml(unit); // ⚡ v13.068
   document.getElementById('battalionUnitDetails').innerHTML = html;
   document.getElementById('battalionUnitDetails').style.display = 'block';
   document.getElementById('btnBackToRosterList').style.display = 'inline-block';
@@ -1825,6 +1842,7 @@ function importCampaignProgress() {
         saveData();
         // Обновляем интерфейс
         buildOperationalUnits(); // пересоздаст opUnits, если они есть
+        migrateHQPersonnelOnLoad(); // ⚡ v13.067: штаты штабов и связисты в загруженном сейве
         initOperationalMap();
         renderActiveBattlesList();
         updateOperationalTimeDisplay();
@@ -4204,6 +4222,11 @@ function applyHardModeUI() {
     else { const orderPanelBtn = document.getElementById('showOrderPanelBtn'); if (orderPanelBtn) orderPanelBtn.style.display = on ? 'inline-block' : 'none'; }
     const commPanelBtn = document.getElementById('showCommPanelBtn');
     if (commPanelBtn) commPanelBtn.style.display = on ? 'inline-block' : 'none';
+    // ⚡ v13.068 (R47): панель снабжения — вместе с панелью связи
+    const supplyPanelBtn = document.getElementById('showSupplyPanelBtn');
+    if (supplyPanelBtn) supplyPanelBtn.style.display = on ? 'inline-block' : 'none';
+    const supplyPanel = document.getElementById('supplyPanel');
+    if (supplyPanel && !on) supplyPanel.style.display = 'none';
     const opBtn = document.getElementById('opHardModeBtn');
     if (opBtn) {
         opBtn.textContent = on ? (online ? '🎯 Hard Mode: ВКЛ (онлайн — всегда)' : '🎯 Hard Mode: ВКЛ') : '🎯 Включить Hard Mode (приказы, связь)';
@@ -4330,8 +4353,99 @@ function signalTeamAlive(unit, entry) {
     // устройства штаба тоже обслуживаются своей отдельной парой связистов.
     if (entry.isVehicleRadio || isArmoredCommunicationUnit(unit)) return true;
     if (entry.isHQ && !entry.signalTeamId) return true; // старый сейв до миграции пары
+    // ⚡ v13.067: пара, влитая в штаб юнита-получателя, живёт прямо в его штатном отделении
+    const merged = signalMergedFighters(unit, entry);
+    if (merged.length) return merged.some(x => x.fighter && (x.fighter.hp || 0) > 0);
     const team = getSignalTeam(unit, entry);
     return !!(team && (team.fighters || []).some(f => f && f.hp > 0));
+}
+// ⚡ v13.067: штабное отделение юнита, куда вливаются прибывшие связисты.
+//    У юнитов-штабов (батальон/рота) это их единственное отделение; в составе
+//    взвода — отделение «Штаб взвода …». Если штаба в юните нет (батарея, ДОТ,
+//    техника) — связисты остаются отдельным отрядом, как было.
+function findUnitStaffSquad(unit) {
+    if (!unit || !Array.isArray(unit.squads) || unit.squads.length === 0) return null;
+    if (['battalion_hq', 'company_hq', 'hq'].includes(unit.type)) {
+        return unit.squads.find(s => s && /Штаб/i.test(s.name || '')) || unit.squads[0] || null;
+    }
+    return unit.squads.find(s => s && /Штаб/i.test(s.name || '')) || null;
+}
+function signalStaffRank(kind) { return kind === 'radio' ? 'Радист' : 'Телефонист'; }
+// ⚡ v13.067: двое связистов вливаются в штаб юнита-получателя — в личном составе
+//    штаба появляются «Радист 1/2» или «Телефонист 1/2», и штат штаба растёт на 2.
+function mergeSignalTeamIntoStaffSquad(unit, team, entry) {
+    const squad = findUnitStaffSquad(unit);
+    if (!squad || !team) return null;
+    if (!Array.isArray(squad.fighters)) squad.fighters = [];
+    const kind = (entry && entry.type) || team.signalDeviceType || 'radio';
+    const teamId = (entry && entry.signalTeamId) || team.signalTeamId || null;
+    squad.fighters = squad.fighters.filter(f => !(f && f.isSignalman && teamId && f.signalTeamId === teamId));
+    const rank = signalStaffRank(kind);
+    const fallbackWeapon = (squad.fighters[0] && squad.fighters[0].weapon) || '';
+    (team.fighters || []).slice(0, 2).forEach((f, i) => {
+        const hp = Number.isFinite(Number(f && f.hp)) ? Number(f.hp) : 3;
+        const maxHp = Number.isFinite(Number(f && f.maxHp)) ? Number(f.maxHp) : 3;
+        squad.fighters.push({
+            name: `${rank} ${i + 1}`,
+            weapon: (f && f.weapon) || fallbackWeapon,
+            hp: Math.max(0, Math.min(hp, maxHp)),
+            maxHp: maxHp,
+            isCommander: false,
+            isSignalman: true,
+            signalTeamId: teamId,
+            signalDeviceType: kind
+        });
+    });
+    squad.hasSignalTeam = true;
+    return squad;
+}
+// Прибывшая пара: в штаб получателя, иначе — отдельным отрядом / в технику.
+function attachSignalTeamToUnit(unit, team, entry, asPool) {
+    if (!unit || !team) return null;
+    if (!isArmoredCommunicationUnit(unit)) {
+        const staff = mergeSignalTeamIntoStaffSquad(unit, team, entry);
+        if (staff) {
+            if (entry) entry.signalSquadName = staff.name;
+            return staff;
+        }
+    }
+    return addSignalTeamToUnit(unit, team, entry, asPool);
+}
+// Связисты, влитые в штабные отделения юнита (после прибытия пары).
+function signalMergedFighters(unit, entry) {
+    if (!unit || !entry || !Array.isArray(unit.squads)) return [];
+    const teamId = entry.signalTeamId;
+    const out = [];
+    unit.squads.forEach(sq => {
+        if (!sq || sq.isSignalSquad || !Array.isArray(sq.fighters)) return;
+        sq.fighters.forEach(f => {
+            if (f && f.isSignalman && (!teamId || f.signalTeamId === teamId)) out.push({ squad: sq, fighter: f });
+        });
+    });
+    return out;
+}
+// ⚡ v13.067: резерв связистов штаба батальона. Штатные 2 радиста и 2 телефониста
+//    (по штату) остаются в личном составе штаба, а к юнитам уходят пары из резерва.
+function signalReserveTeams(kind) {
+    ensureSignalPlatoonState();
+    const p = signalAssignmentsFor(kind);
+    if (!Array.isArray(p.reserveTeams)) p.reserveTeams = [];
+    return p.reserveTeams;
+}
+function signalReserveStore(kind, team, teamId) {
+    if (!team) return;
+    const reserve = signalReserveTeams(kind);
+    const copy = JSON.parse(JSON.stringify(team));
+    copy.isSignalSquad = true;
+    copy.signalPool = true;
+    copy.signalTeamId = teamId || copy.signalTeamId || signalAssignmentId();
+    copy.signalDeviceType = kind;
+    (copy.fighters || []).forEach((f, i) => {
+        f.isSignalman = true;
+        f.signalTeamId = copy.signalTeamId;
+        if (!f.name) f.name = `Связист ${i + 1}`;
+    });
+    reserve.push(copy);
 }
 function addSignalTeamToUnit(unit, team, entry, asPool) {
     if (!unit || !team) return null;
@@ -4363,6 +4477,16 @@ function addSignalTeamToUnit(unit, team, entry, asPool) {
 }
 function removeSignalTeamFromUnit(unit, entry) {
     if (!unit || !entry) return null;
+    // ⚡ v13.067: связисты влиты в штатное отделение — снимаем их оттуда
+    const merged = signalMergedFighters(unit, entry);
+    if (merged.length) {
+        const removed = merged.map(x => JSON.parse(JSON.stringify(x.fighter)));
+        merged.forEach(x => { x.squad.fighters = (x.squad.fighters || []).filter(f => f !== x.fighter); });
+        (unit.squads || []).forEach(sq => {
+            if (sq && Array.isArray(sq.fighters) && !sq.fighters.some(f => f && f.isSignalman)) delete sq.hasSignalTeam;
+        });
+        return { name: (removed[0] && removed[0].name) || 'Связисты', isSignalSquad: false, fighters: removed };
+    }
     const team = getSignalTeam(unit, entry);
     if (!team) return null;
     const copy = JSON.parse(JSON.stringify(team));
@@ -4380,18 +4504,22 @@ function getSignalHQ() {
 }
 function getSignalTeamFromHQ(hq, kind, id) {
     if (!hq) return null;
-    if (!Array.isArray(hq.squads)) hq.squads = [];
-    let team = hq.squads.find(s => s && s.isSignalSquad && s.signalPool && (s.fighters || []).some(f => f && f.hp > 0));
-    if (!team) {
-        team = createSignalTeam(kind, id, hq.faction || appData.campaign.playerFaction);
-        hq.squads.push(team);
-    }
-    hq.squads = hq.squads.filter(s => s !== team);
+    // ⚡ v13.067: резерв хранится отдельно от личного состава штаба — в штате
+    //    батальона всегда только его штатные 2 радиста и 2 телефониста.
+    const reserve = signalReserveTeams(kind);
+    let team = reserve.shift() || createSignalTeam(kind, id, hq.faction || appData.campaign.playerFaction);
+    team.isSignalSquad = true;
     team.signalPool = false;
     team.signalTeamId = id;
     team.signalDeviceType = kind;
     team.name = `Связисты (${kind === 'radio' ? 'радио' : 'телефон'}) ${String(id).slice(-5)}`;
-    (team.fighters || []).forEach((f, i) => { f.isSignalman = true; f.signalTeamId = id; if (!f.name) f.name = `Связист ${i + 1}`; });
+    (team.fighters || []).forEach((f, i) => {
+        f.isSignalman = true;
+        f.signalTeamId = id;
+        if (!Number.isFinite(Number(f.maxHp))) f.maxHp = 3;
+        if (!Number.isFinite(Number(f.hp))) f.hp = f.maxHp;
+        if (!f.name) f.name = `Связист ${i + 1}`;
+    });
     return JSON.parse(JSON.stringify(team));
 }
 function findSignalPath(fromCol, fromRow, toUnit, mover) {
@@ -4505,7 +4633,8 @@ function finishSignalTransfer(transfer) {
     if (transfer.direction === 'to_unit') {
         if (!recipient || recipient.isDestroyed) {
             if (transfer.type === 'phone') removePhoneLinesForUnit(transfer.unitId);
-            if (hq && transfer.team) addSignalTeamToUnit(hq, transfer.team, { signalTeamId: transfer.signalTeamId, type: transfer.type }, true);
+            // ⚡ v13.067: недоставленная пара возвращается в резерв штаба
+            if (transfer.team) signalReserveStore(transfer.type, transfer.team, transfer.signalTeamId);
             pool.available = Math.min(pool.total, pool.available + 1);
             hardMode.signalPlatoon.transfers = hardMode.signalPlatoon.transfers.filter(t => t !== transfer);
             log(`⚠️ Связь не доставлена: юнит-получатель уничтожен/не найден; ${signalDeviceLabel(transfer.type)} возвращена в резерв.`);
@@ -4514,7 +4643,8 @@ function finishSignalTransfer(transfer) {
         const entry = { id: transfer.assignmentId, unitId: transfer.unitId, status: 'active', type: transfer.type,
             signalTeamId: transfer.signalTeamId, issuedTurn: appData.campaign.currentTurn || 1 };
         if (transfer.type === 'phone' && transfer.phoneLineId) entry.phoneLineId = transfer.phoneLineId;
-        addSignalTeamToUnit(recipient, transfer.team, entry, false);
+        // ⚡ v13.067: пара вливается в штатное отделение получателя (Радист/Телефонист)
+        attachSignalTeamToUnit(recipient, transfer.team, entry, false);
         if (transfer.type === 'radio' && isArmoredCommunicationUnit(recipient)) installVehicleRadioMark(recipient, entry);
         pool.assigned.push(entry);
         if (transfer.type === 'phone') {
@@ -4542,7 +4672,8 @@ function finishSignalTransfer(transfer) {
         const entryIdx = pool.assigned.findIndex(a => a && a.id === transfer.assignmentId);
         const oldEntry = entryIdx >= 0 ? pool.assigned[entryIdx] : null;
         if (recipient && oldEntry) removeVehicleRadioMark(recipient, oldEntry);
-        if (hq && transfer.team) addSignalTeamToUnit(hq, transfer.team, { signalTeamId: transfer.signalTeamId, type: transfer.type }, true);
+        // ⚡ v13.067: вернувшаяся пара снова в резерве штаба (личный состав штаба не растёт)
+        if (transfer.team) signalReserveStore(transfer.type, transfer.team, transfer.signalTeamId);
         if (entryIdx >= 0) pool.assigned.splice(entryIdx, 1);
         pool.available = Math.min(pool.total, pool.available + 1);
         if (transfer.type === 'phone') removePhoneLinesForUnit(transfer.unitId);
@@ -4759,18 +4890,166 @@ function migrateSignalAssignments() {
             if (id) {
                 entry.signalTeamId = id;
                 entry.type = kind;
-                if (getSignalTeam(unit, entry)) { usedTeamIds.add(id); return; }
+                if (getSignalTeam(unit, entry) || signalMergedFighters(unit, entry).length) { usedTeamIds.add(id); return; }
             }
             id = signalAssignmentId();
             entry.id = id;
             entry.signalTeamId = id;
             entry.type = kind;
             const team = createSignalTeam(kind, id, unit.faction || appData.campaign.playerFaction);
-            const added = addSignalTeamToUnit(unit, team, { signalTeamId: id, type: kind }, false);
+            const added = attachSignalTeamToUnit(unit, team, { signalTeamId: id, type: kind }, false);
             entry.signalSquadName = added && added.name;
             usedTeamIds.add(id);
         });
     });
+}
+// ═══════════ ⚡ v13.067: ШТАТЫ ШТАБОВ РОТ И БАТАЛЬОНА ПО СТАНДАРТУ ═══════════
+// Новые батальоны собираются из обновлённых шаблонов (js/templates.js), а сейвы,
+// собранные раньше, дополняются недостающими должностями: старшина, интендант,
+// писарь, фельдшер, кладовщик, связной, посыльные; у штаба батальона — ещё
+// 2 радиста и 2 телефониста (штатные расчёты рации и телефонной станции).
+function hqStandardPositions(unit) {
+    const name = String((unit && unit.name) || '');
+    const type = (unit && unit.type) || '';
+    const isBattalion = type === 'battalion_hq' || /батальон/i.test(name);
+    const isCompany = !isBattalion && (type === 'company_hq' || /Штаб роты/i.test(name));
+    if (!isBattalion && !isCompany) return null;
+    if (isCompany) {
+        return [
+            { name: 'Заместитель командира роты', role: 'command' },
+            { name: 'Старшина роты', role: 'command' },
+            { name: 'Интендант', role: 'pistol' },
+            { name: 'Писарь', role: 'rifle' },
+            { name: 'Фельдшер', role: 'rifle' },
+            { name: 'Связной', role: 'rifle' },
+            { name: 'Посыльный 1', role: 'rifle' },
+            { name: 'Посыльный 2', role: 'rifle' }
+        ];
+    }
+    return [
+        { name: 'Заместитель командира батальона', role: 'command' },
+        { name: 'Начальник штаба', role: 'command' },
+        { name: 'Старшина батальона', role: 'command' },
+        { name: 'Интендант', role: 'pistol' },
+        { name: 'Писарь', role: 'rifle' },
+        { name: 'Фельдшер', role: 'rifle' },
+        { name: 'Кладовщик (каптенармус)', role: 'rifle' },
+        { name: 'Связной', role: 'rifle' },
+        { name: 'Посыльный 1', role: 'rifle' },
+        { name: 'Посыльный 2', role: 'rifle' },
+        { name: 'Радист 1', role: 'rifle' },
+        { name: 'Радист 2', role: 'rifle' },
+        { name: 'Телефонист 1', role: 'rifle' },
+        { name: 'Телефонист 2', role: 'rifle' }
+    ];
+}
+function hqStandardWeapons(unit, squad) {
+    if (String((unit && unit.faction) || '') === 'A.I.R.F.') {
+        return { command: 'ПП Star Si-35', pistol: 'Пистолет Star M1914', rifle: 'Винтовка Vz.24' };
+    }
+    const existing = ((squad && squad.fighters) || []).map(f => String((f && f.weapon) || ''));
+    const dutch = existing.some(w => /Geweer M95/.test(w)) || /голланд|самокат/i.test(String((unit && unit.name) || ''));
+    return {
+        command: 'Пистолет Browning Hi-Power',
+        pistol: 'Пистолет Browning Hi-Power',
+        rifle: dutch ? 'Винтовка Geweer M95' : 'Винтовка FN model 24/30'
+    };
+}
+function ensureHQStaffComposition() {
+    if (typeof appData === 'undefined' || !appData || !appData.campaign) return 0;
+    let added = 0;
+    const all = [...(appData.campaign.opUnits || []), ...(appData.campaign.enemyOpUnits || [])];
+    all.forEach(unit => {
+        const positions = hqStandardPositions(unit);
+        if (!positions) return;
+        const squad = findUnitStaffSquad(unit);
+        if (!squad || !Array.isArray(squad.fighters) || squad.fighters.length === 0) return;
+        // выбитый штаб не «оживляем» новыми должностями
+        if (typeof isOpUnitWipedOut === 'function' && isOpUnitWipedOut(unit)) return;
+        const w = hqStandardWeapons(unit, squad);
+        // ⚡ v13.067: старые названия должностей приводим к штатным
+        //    («Заместитель» → «Заместитель командира роты/батальона»,
+        //    «Посыльный» → «Посыльный 1/2»), сами бойцы не пересоздаются.
+        const deputy = positions.find(p => /^Заместитель/.test(p.name));
+        let posNumbers = squad.fighters.filter(f => /^Посыльный \d+$/.test(String((f && f.name) || ''))).length;
+        squad.fighters.forEach(f => {
+            if (!f) return;
+            if (deputy && f.name === 'Заместитель') f.name = deputy.name;
+            if (f.name === 'Посыльный') { posNumbers += 1; f.name = 'Посыльный ' + posNumbers; }
+        });
+        const before = squad.fighters.length;
+        positions.forEach(pos => {
+            if (squad.fighters.some(f => f && f.name === pos.name)) return;
+            squad.fighters.push({ name: pos.name, weapon: w[pos.role] || w.rifle, hp: 3, maxHp: 3, isCommander: false });
+        });
+        const unitAdded = squad.fighters.length - before;
+        if (unitAdded <= 0) return;
+        // новые люди приходят со своим боезапасом (8 патронов и 2 гранаты на человека)
+        squad.ammoSmall = (Number(squad.ammoSmall) || 0) + unitAdded * 8;
+        squad.grenades = (Number(squad.grenades) || 0) + unitAdded * 2;
+        added += unitAdded;
+    });
+    if (added) {
+        console.log(`⚡ v13.067: штабы рот и батальона дополнены по штату: +${added} чел.`);
+        try { saveData(); } catch (e) {}
+    }
+    return added;
+}
+// ⚡ v13.067: старые сохранения хранили пары связистов отдельными отрядами в штабе.
+//    Переносим их в резерв штаба (личный состав штаба — только штатные должности).
+function migrateSignalReserve() {
+    const hq = getSignalHQ();
+    if (!hq || !Array.isArray(hq.squads)) return 0;
+    let moved = 0;
+    const keep = [];
+    hq.squads.forEach(sq => {
+        if (sq && sq.isSignalSquad && sq.signalPool) {
+            signalReserveStore(sq.signalDeviceType || 'radio', sq, sq.signalTeamId);
+            moved++;
+            return;
+        }
+        keep.push(sq);
+    });
+    if (moved) hq.squads = keep;
+    return moved;
+}
+// ⚡ v13.067: старые отдельные отряды связистов у получателя вливаются в его штаб.
+function migrateSignalStaffSquads() {
+    const units = [...(appData.campaign.opUnits || []), ...(appData.campaign.enemyOpUnits || [])];
+    let moved = 0;
+    units.forEach(unit => {
+        if (!unit || !Array.isArray(unit.squads) || isArmoredCommunicationUnit(unit)) return;
+        const staff = findUnitStaffSquad(unit);
+        if (!staff) return;
+        unit.squads.filter(sq => sq && sq.isSignalSquad && !sq.signalPool && sq !== staff).forEach(team => {
+            const units2 = appData.campaign.opUnits || [];
+            const unitId = units2.indexOf(unit);
+            const entry = ['radio', 'phone']
+                .map(kind => signalAssignmentsFor(kind).assigned.find(a => a && a.unitId === unitId &&
+                    (!team.signalTeamId || a.signalTeamId === team.signalTeamId)))
+                .find(Boolean) || { type: team.signalDeviceType || 'radio', signalTeamId: team.signalTeamId };
+            mergeSignalTeamIntoStaffSquad(unit, team, entry);
+            unit.squads = unit.squads.filter(s => s !== team);
+            moved++;
+        });
+    });
+    if (moved) console.log(`⚡ v13.067: связисты переведены в штат своих штабов: ${moved} пар.`);
+    return moved;
+}
+// ⚡ v13.067: миграции штатов/связистов выполняются и БЕЗ Hard Mode —
+//    иначе в обычном сейве ротный штаб так и остался бы в 4 человека.
+function migrateHQPersonnelOnLoad() {
+    if (typeof appData === 'undefined' || !appData || !appData.campaign) return 0;
+    if (!appData.campaign.active) return 0;
+    if (!appData.campaign.opUnits || !appData.campaign.opUnits.length) return 0;
+    let touched = 0;
+    try { ensureSignalPlatoonState(); } catch (e) {}
+    try { touched += ensureHQStaffComposition(); } catch (e) { console.warn('ensureHQStaffComposition:', e.message); }
+    try { ensureSupplyState(); syncSupplyAssetsFromPlatoon(); } catch (e) { console.warn('supply:', e.message); }
+    try { touched += migrateSignalReserve(); } catch (e) { console.warn('migrateSignalReserve:', e.message); }
+    try { touched += migrateSignalStaffSquads(); } catch (e) { console.warn('migrateSignalStaffSquads:', e.message); }
+    if (touched) { try { saveData(); } catch (e) {} }
+    return touched;
 }
 function refreshSignalLosses() {
     ensureSignalPlatoonState();
@@ -4958,8 +5237,14 @@ function initHardMode() {
         }
     });
 
+    // ⚡ v13.067: штаты рот/батальона по стандарту, связисты — в штате получателя
+    try { ensureHQStaffComposition(); } catch (e) { console.warn('ensureHQStaffComposition:', e.message); }
+    try { migrateSignalReserve(); } catch (e) { console.warn('migrateSignalReserve:', e.message); }
+    try { migrateSignalStaffSquads(); } catch (e) { console.warn('migrateSignalStaffSquads:', e.message); }
     // ⚡ v13.058: старые назначения, включая пару радио/телефона штаба, мигрируют на отдельные команды.
     migrateSignalAssignments();
+    // ⚡ v13.068: склад снабжения — состояние и пул транспорта взвода снабжения
+    try { ensureSupplyState(); syncSupplyAssetsFromPlatoon(); } catch (e) { console.warn('supply:', e.message); }
     // ⚡ САМОДИАГНОСТИКА ПОЛОВ ПОСЫЛЬНЫХ (исправление старых сохранений)
     repairMessengerPools();
 
@@ -5032,7 +5317,9 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         // ⚡ v13.020: «не штурмовать бронетехнику» — состояние галочки на момент приказа
         ignoreArmor: typeof options.ignoreArmor === 'boolean' ? options.ignoreArmor : true,
         // ⚡ v13.037: приказ на время (минуты, например 870 = 14:30)
-        startTimeMin: (options.startTimeMin !== undefined ? options.startTimeMin : null)
+        startTimeMin: (options.startTimeMin !== undefined ? options.startTimeMin : null),
+        // ⚡ v13.069 (R48#3): скрытное движение (медленнее, труднее обнаружить)
+        stealth: !!options.stealth
     };
 
     const fromUnit = appData.campaign.opUnits ? appData.campaign.opUnits[fromUnitId] : null;
@@ -6371,7 +6658,8 @@ function isOpUnitWipedOut(unit) {
     // Связисты — штабной персонал и не удерживают взвод в боеспособности.
     const squads = (unit.squads || []).filter(sq => sq && !sq.isSignalSquad && Array.isArray(sq.fighters) && sq.fighters.length > 0);
     if (squads.length === 0) return false;
-    return squads.every(sq => sq.fighters.every(f => !f || (f.hp || 0) <= 0));
+    // ⚡ v13.067: влитые в штаб связисты тоже не удерживают юнит в строю
+    return squads.every(sq => sq.fighters.every(f => !f || f.isSignalman || (f.hp || 0) <= 0));
 }
 
 // ⚡ v13.056 (R39#12): оперативный дух взвода (0–100), моральное давление,
@@ -6382,7 +6670,9 @@ const OPERATIONAL_MORALE_RALLY_THRESHOLD = 50;
 function getOperationalCombatFighters(unit) {
     return (unit && Array.isArray(unit.squads) ? unit.squads : [])
         .filter(sq => sq && !sq.isSignalSquad && Array.isArray(sq.fighters))
-        .flatMap(sq => sq.fighters);
+        .flatMap(sq => sq.fighters)
+        // ⚡ v13.067: связисты, влитые в штатное отделение, в боевой состав не входят
+        .filter(f => f && !f.isSignalman);
 }
 function isOperationalMoraleUnit(unit) {
     if (!unit || unit.isDestroyed || unit.isGroup || !Array.isArray(unit.squads)) return false;
@@ -6590,6 +6880,18 @@ function markOpUnitDestroyed(unit, markerType) {
     }
 }
 
+// ⚡ v13.067: бойцы, появившиеся в штате уже после создания записи боя (миграция
+//    штатов рот/батальона, прибывшие связисты), сохраняются при возврате из боя:
+//    иначе запись боя перезаписала бы штат своей старой версией состава.
+function mergeMissingFightersIntoBattleSquad(battleSquad, campaignSquad) {
+    if (!battleSquad || !campaignSquad) return 0;
+    if (!Array.isArray(battleSquad.fighters) || !Array.isArray(campaignSquad.fighters)) return 0;
+    const known = new Set(battleSquad.fighters.map(f => f && f.name));
+    const missing = campaignSquad.fighters.filter(f => f && f.name && !known.has(f.name));
+    if (!missing.length) return 0;
+    battleSquad.fighters = battleSquad.fighters.concat(missing.map(f => JSON.parse(JSON.stringify(f))));
+    return missing.length;
+}
 function syncBattleLossesToCampaign(battleId) {
     const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
     if (!battle) return;
@@ -6659,6 +6961,8 @@ function syncBattleLossesToCampaign(battleId) {
                 unit.squads.push(targetSquad);
             }
             if (!targetSquad) return;
+            // ⚡ v13.067: состав штаба мог пополниться уже после создания записи боя
+            mergeMissingFightersIntoBattleSquad(battleSquad, targetSquad);
             const persistentFields = [
                 'fighters', 'ammoSmall', 'ammoOrdnance', 'grenades', 'currentMorale', 'baseMorale',
                 'appliedCards', 'effects', 'panzerblindeCharges', 'atRifleGrenades', 'flemishFury',
@@ -6736,6 +7040,8 @@ function syncBattleLossesToCampaign(battleId) {
             for (let unit of appData.campaign.enemyOpUnits) {
                 const targetSquad = unit.squads.find(s => s.name === enemySquad.name);
                 if (targetSquad) {
+                    // ⚡ v13.067: то же для вражеских штабов
+                    mergeMissingFightersIntoBattleSquad(enemySquad, targetSquad);
                     targetSquad.fighters = enemySquad.fighters.map(f => ({ ...f }));
                     targetSquad.currentMorale = enemySquad.currentMorale;
 
@@ -6899,6 +7205,7 @@ function processTacticalRouts(side) {
       tacticalClearMeleeEngagement(s);
       from = next;
       s.hexPos = next.split(',').map(Number);
+      s.movedThisTurn = true;   // ⚡ v13.069 (R48#4): цель двигалась — по ней труднее попасть
     }
     if (side === 'player' && actionPoints[idx]) actionPoints[idx].ap = ap;
     else s.tacticalAP = ap;
@@ -7262,6 +7569,19 @@ function getTacticalTargetDistance(fallback) {
   const value = Number(raw);
   return Number.isFinite(value) && value >= 0 ? value : (fallback === undefined ? 5 : fallback);
 }
+// ⚡ v13.069 (R48#4): двигалась ли выбранная в тактическом бою цель-техника —
+//    по такой машине на дальней дистанции стрелять труднее.
+function tacticalAttackTargetMoved() {
+  try {
+    const idx = (appData.map && appData.map.attackTargetEnemyIdx !== null && appData.map.attackTargetEnemyIdx !== undefined)
+      ? appData.map.attackTargetEnemyIdx : null;
+    if (idx === null || idx < 0) return false;
+    const t = (appData.map.enemySquads || [])[idx];
+    if (!t) return false;
+    if (t.movedThisTurn) return true;
+    return Array.isArray(t.vehicleList) && t.vehicleList.some(v => v && v.movedThisTurn);
+  } catch (e) { return false; }
+}
 // ⚡ v13.061: 82-мм миномёты имеют тактическую дальность ровно пять гексов.
 function getTacticalCrewWeaponRange(crewWeapon) {
   if (!crewWeapon) return Infinity;
@@ -7510,6 +7830,8 @@ checkNightTime();
   // Сброс счётчиков действий (для лимита выстрелов)
   appData.squads.forEach(s => { s.actionsThisTurn = {}; });
 appData.squads.forEach(s => { s.movedThisTurn = false; });
+// ⚡ v13.069 (R48#4): у вражеских отрядов флаг «двигался» тоже сбрасывается на новом ходу
+(appData.map && appData.map.enemySquads || []).forEach(s => { s.movedThisTurn = false; });
   appData.squads.forEach(s => {
   if (s.noiseMarker) {
     s.noiseMarker = false;
@@ -9711,6 +10033,20 @@ function attackVehicle() {
 
   const targetState = prompt('Состояние цели:\n1 - неподвижна, открыто\n2 - неподвижна, пересечёнка\n3 - подвижна, пересечёнка', '1');
   let hitTarget = targetState === '2' ? 6 : targetState === '3' ? 7 : 4;
+
+  // ⚡ v13.069 (R48#4): по ДВИЖУЩЕЙСЯ технике на дальней дистанции (4+) попасть
+  //    труднее: +1 к нужному броску, ночью +2 (осветительная ракета отменяет ночной штраф).
+  const tacDistance = getTacticalTargetDistance(5);
+  const flareUp = !!(appData.flareActive && appData.flareTurn === currentTurn);
+  const tacNight = !flareUp && (typeof getNightModifier === 'function') && getNightModifier() < 1;
+  const tacTargetMoved = targetState === '3' || tacticalAttackTargetMoved();
+  if (tacDistance >= 4 && tacTargetMoved) {
+    const pen = tacNight ? 2 : 1;
+    hitTarget += pen;
+    log(tacNight
+      ? `🌙🚙 Цель движется в темноте (дистанция ${tacDistance}): нужно ${hitTarget}+ вместо ${hitTarget - pen}+ (штраф −2).`
+      : `🚙 Цель движется (дистанция ${tacDistance}): нужно ${hitTarget}+ вместо ${hitTarget - pen}+ (штраф −1).`);
+  }
   log('=== АТАКА ПО БРОНЕТЕХНИКЕ ===');
 
   // Общий модификатор точности из карт и модификаторов
@@ -14547,9 +14883,15 @@ function endOperationalTurn() {
 
     // Восстанавливаем ОД ВСЕМ юнитам
     if (appData.campaign.opUnits) {
-        appData.campaign.opUnits.forEach(u => {
+        appData.campaign.opUnits.forEach((u, uIdx) => {
+            // ⚡ v13.069 (R48#3): скрытное движение — половинный темп (2 гекса за ход).
+            //    Флаг пересчитывается из активных приказов каждый ход, чтобы не «залипнуть».
+            const stealthOrder = (hardMode.orders || []).some(o => o && o.status === 'active' && o.toUnitId === uIdx &&
+                ((o.type === 'move' && o.stealth) ||
+                 (Array.isArray(o.series) && o.series.some(st => st && st.type === 'move' && st.stealth && st.status !== 'completed'))));
+            u.stealthMove = !!stealthOrder && !isVehicleMobilityUnit(u);
             // ⚡ v13.024: стационарные (ДОТ) ОД не получают
-            u.ap = isStaticOpUnit(u) ? 0 : u.maxAp;
+            u.ap = isStaticOpUnit(u) ? 0 : (u.stealthMove ? Math.min(u.maxAp || 4, 2) : u.maxAp);
             u.movedThisTurn = false;
             u.firedThisTurn = false; // ⚡ v13.046 (R31#1)
             // ⚡ v13.023: сиеста AIRF — бросок «спать» делается раз за ход
@@ -14587,6 +14929,7 @@ function endOperationalTurn() {
     }
     try { processOperationalRetreats(); } catch (e) { console.warn('operational morale retreat:', e.message); }
     try { advanceSignalTransfers(); } catch (e) { console.warn('signal transfers:', e.message); }
+    try { advanceSupplyDeliveries(); } catch (e) { console.warn('supply deliveries:', e.message); }
 
     // ⚡ ОБЯЗАТЕЛЬНО ОБНОВЛЯЕМ КАРТУ И ВРЕМЯ
     saveData();
@@ -15751,6 +16094,24 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
         if (miDot) { miDot.innerHTML = `❌ ${unit.name} (${caliber}мм): калибр не более 70мм — ДОТ не повреждается.`; miDot.style.color = '#e67e22'; }
         return;
     }
+    // ⚡ v13.069 (R48#5): миномёты не могут наносить урон бронетехнике —
+    //    осколочная мина броню не пробивает. Для миномётов техника исключается
+    //    из залпа; САУ/ствольная артиллерия бьёт как раньше.
+    const mortarNoArmor = isMortarUnit(unit);
+    const infTargets = mortarNoArmor ? aliveFirst.filter(e => !isArmoredUnit(e)) : aliveFirst;
+    const armorSkipped = aliveFirst.length - infTargets.length;
+    if (mortarNoArmor && infTargets.length === 0) {
+        log(`🚫 ${unit.name}: в гексе (${aliveFirst[0].col},${aliveFirst[0].row}) только бронетехника — миномёт по броне не работает.`);
+        const miArmor = document.getElementById('mapInfo');
+        if (miArmor) { miArmor.innerHTML = `🚫 ${unit.name}: миномёт не наносит урон бронетехнике.`; miArmor.style.color = '#e67e22'; }
+        return;
+    }
+    if (armorSkipped > 0) {
+        log(`ℹ️ ${unit.name}: ${armorSkipped} цел. бронетехники исключены — миномёт по броне не работает.`);
+    }
+    // ⚡ v13.069 (R48#6): залп тратит снаряды (10%); нет снарядов — нет огня
+    if (!requireOperationalAmmo(unit, 'ordnance')) return;
+    consumeOperationalAmmo(unit, 'ordnance');
     let hits = 0, totalSalvoDamage = 0, totalKilled = 0, dotHits = 0;
     log(`💣 ${unit.name} обстреливает гекс (${aliveFirst[0].col},${aliveFirst[0].row}) — ${rounds} снарядов`);
     // ⚡ v13.049 (R34#4): средняя/тяжёлая артиллерия (миномёты, САУ, арт. >70мм)
@@ -15765,7 +16126,8 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
         }
     } catch (e) { console.warn('addShellingCraters:', e.message); }
     for (let i = 0; i < rounds; i++) {
-        const alive = enemies.filter(e => !e.isDestroyed);
+        // ⚡ v13.069 (R48#5): миномёты броню не бьют (у САУ поведение прежнее)
+        const alive = enemies.filter(e => !e.isDestroyed && (!mortarNoArmor || !isArmoredUnit(e)));
         if (alive.length === 0) break;
         if (Math.random() < 0.5) {
             hits++;
@@ -15804,6 +16166,9 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
 function executeLightArtilleryBarrage(unit, targets, distance) {
     const aliveT = targets.filter(t => !t.isDestroyed);
     if (aliveT.length === 0) return;
+    // ⚡ v13.069 (R48#6): огонь лёгкой артиллерии тоже тратит снаряды
+    if (!requireOperationalAmmo(unit, 'ordnance')) return;
+    consumeOperationalAmmo(unit, 'ordnance');
     const victim = aliveT[0];
     let hitChance = 0.15;
     if (distance === 1) hitChance = 0.35;
@@ -15863,7 +16228,10 @@ function unitAutoFire(unit, maxDist) {
         // Миномётная батарея: выстрелы по ближайшему врагу (попадание = 1d6)
         // ⚡ v13.047 (R32#3): число выстрелов — пропорционально живому составу
         if (isMortarBatt) {
-            const nearest = getNearestOpUnit(enemies, unit.col, unit.row);
+            // ⚡ v13.069 (R48#5): миномёты бьют только по пехоте — броня не цель
+            const infOnly = enemies.filter(e => !isArmoredUnit(e));
+            if (infOnly.length === 0) return false;
+            const nearest = getNearestOpUnit(infOnly, unit.col, unit.row);
             if (!nearest) return false;
             executeMortarSalvo(unit, [nearest.unit], nearest.dist, mortarRoundsForUnit(unit, 15), '1d6');
             return true;
@@ -16661,6 +17029,707 @@ function executeReconOrder(unit, order) {
     saveData();
     redrawOperationalMap();
 }
+// ═══════════ ⚡ v13.068 (R47): СНАБЖЕНИЕ БАТАЛЬОНА ═══════════
+// Взвод снабжения (см. BATTALION_PRESETS/data.js) — это батальонный склад
+// боеприпасов на оперативной карте. Игрок распределяет носильщиков, вьючных
+// животных и машины и отправляет их с грузом к нужному юниту; отправленные
+// средства недоступны, пока не вернутся на склад. Когда запас склада на исходе,
+// можно послать колонну к полковому складу за краем карты (точка выхода в тыл) —
+// если путь перерезан противником, пополнить склад нельзя.
+const SUPPLY_ASSET_TYPES = {
+    // mode: 'men' — единица пула = человек (носильщик/погонщик ламы),
+    //       'squads' — единица пула = отделение-средство (мул, повозка, машина).
+    porter: { name: 'Носильщик',          icon: '🎒', mobility: 'foot',    mode: 'men',    squadMatch: /Носильщик/i,
+              cargo: { ammoSmall: 40,  grenades: 8,  ammoOrdnance: 0 } },
+    llama:  { name: 'Лама',               icon: '🦙', mobility: 'foot',    mode: 'men',    squadMatch: /Ламы с бойцами/i,
+              cargo: { ammoSmall: 60,  grenades: 12, ammoOrdnance: 0 } },
+    mule:   { name: 'Мул/лошадь',         icon: '🐴', mobility: 'foot',    mode: 'squads', squadMatch: /Мул с бойцом/i,
+              cargo: { ammoSmall: 100, grenades: 20, ammoOrdnance: 2 } },
+    cart:   { name: 'Конная повозка',     icon: '🛒', mobility: 'foot',    mode: 'squads', squadMatch: /Конная повозка/i,
+              cargo: { ammoSmall: 200, grenades: 40, ammoOrdnance: 6 } },
+    car:    { name: 'Легковой автомобиль', icon: '🚙', mobility: 'vehicle', mode: 'squads', squadMatch: /Легковой автомобиль/i,
+              cargo: { ammoSmall: 160, grenades: 30, ammoOrdnance: 4 } },
+    truck:  { name: 'Грузовик',           icon: '🚚', mobility: 'vehicle', mode: 'squads', squadMatch: /(Грузовик|Лёгкий грузовик)/i,
+              cargo: { ammoSmall: 400, grenades: 80, ammoOrdnance: 12 } }
+};
+const SUPPLY_ORDER = ['porter', 'llama', 'mule', 'cart', 'car', 'truck'];
+// ⚡ v13.068: средняя ёмкость склада (по заявке)
+const SUPPLY_DEPOT_MAX = { ammoSmall: 1200, grenades: 300, ammoOrdnance: 80 };
+// ⚡ v13.069 (R48#1): точка эвакуации (дорога в тыл к полковому складу) задана
+//    каждой стороне отдельно: у A.I.R.F. — 0,11, у BeVe — 7,0.
+const SUPPLY_EVAC_POINTS = { 'BeVe': { col: 7, row: 0 }, 'A.I.R.F.': { col: 0, row: 11 } };
+// сколько запаса теряется, если склад захвачен противником (остаток можно отбить)
+const SUPPLY_CAPTURE_LOSS = 0.5;
+const SUPPLY_AMMO_PER_MAN = 8;    // полный комплект патронов отделения
+const SUPPLY_GREN_PER_MAN = 2;    // полный комплект гранат отделения
+const SUPPLY_CONVOY_BUDGET = 4;   // «ОД» колонны за ход — как у пехоты
+const SUPPLY_ARRIVE_DIST = 0;
+
+function supplyAssetIds() { return SUPPLY_ORDER.filter(id => SUPPLY_ASSET_TYPES[id]); }
+
+function ensureSupplyState() {
+    if (typeof appData === 'undefined' || !appData) return null;
+    const camp = appData.campaign = appData.campaign || {};
+    const st = camp.supply = camp.supply || {};
+    st.depot = st.depot || { name: 'Батальонный склад боеприпасов', col: null, row: null };
+    st.max = Object.assign({}, SUPPLY_DEPOT_MAX, st.max || {});
+    const stock = st.stock || {};
+    st.stock = {
+        ammoSmall: Number.isFinite(stock.ammoSmall) ? stock.ammoSmall : st.max.ammoSmall,
+        grenades: Number.isFinite(stock.grenades) ? stock.grenades : st.max.grenades,
+        ammoOrdnance: Number.isFinite(stock.ammoOrdnance) ? stock.ammoOrdnance : st.max.ammoOrdnance
+    };
+    if (!st.assets) {
+        st.assets = {};
+        supplyAssetIds().forEach(id => { st.assets[id] = { total: 0, available: 0 }; });
+    }
+    supplyAssetIds().forEach(id => {
+        if (!st.assets[id]) st.assets[id] = { total: 0, available: 0 };
+        if (!Number.isFinite(st.assets[id].total)) st.assets[id].total = 0;
+        if (!Number.isFinite(st.assets[id].available)) st.assets[id].available = st.assets[id].total;
+    });
+    if (!Array.isArray(st.deliveries)) st.deliveries = [];
+    if (!Number.isFinite(st.rearTrips)) st.rearTrips = 0;
+    // ⚡ v13.069 (R48#2): пока взвод снабжения цел, склад наш
+    if (st.status !== 'captured') st.status = 'active';
+    if (typeof st.platoonLost !== 'boolean') st.platoonLost = false;
+    return st;
+}
+
+// Взвод снабжения — батальонный склад на карте
+function getSupplyUnit() {
+    const units = (appData.campaign && appData.campaign.opUnits) || [];
+    return units.find(u => u && !u.isDestroyed && /снабж/i.test(String(u.name || ''))) || null;
+}
+
+// Сколько «единиц» каждого типа есть во взводе снабжения (по его отделениям)
+function supplyAssetCounts(unit) {
+    const counts = {};
+    supplyAssetIds().forEach(id => { counts[id] = 0; });
+    if (!unit || !Array.isArray(unit.squads)) return counts;
+    unit.squads.forEach(sq => {
+        if (!sq || !Array.isArray(sq.fighters)) return;
+        const alive = sq.fighters.filter(f => f && f.hp > 0).length;
+        if (!alive) return;
+        const id = supplyAssetIds().find(a => SUPPLY_ASSET_TYPES[a].squadMatch.test(String(sq.name || '')));
+        if (!id) return;
+        // ⚡ v13.068: носильщики/погонщики считаются по людям, повозки и машины — по отделениям
+        counts[id] += SUPPLY_ASSET_TYPES[id].mode === 'men' ? alive : 1;
+    });
+    // «Мул с бойцом»: одно отделение = одно животное с погонщиком
+    return counts;
+}
+
+// Пересчёт пула: то, что уже в пути, остаётся «занятым», остальное — доступно
+// ⚡ v13.069 (R48#2): склад захвачен, если взвод снабжения разбит в бою.
+//    Пока жив хотя бы один боец взвода — склад наш; после разгрома взвода
+//    часть запаса теряется, снабжение батальона нарушается, а остаток можно
+//    отбить назад — вернув свой юнит на гекс склада (врагов там быть не должно).
+// ⚡ v13.069 (R48#6): стрельба по карте операции и огонь по готовности
+//    расходуют боезапас: 10% текущего запаса за каждую стрельбу.
+//    kind: 'small' — патроны (стрелковое/пулемёты), 'ordnance' — снаряды (орудия, миномёты).
+const SUPPLY_SHOT_SPEND = 0.10;
+
+function operationalAmmoField(kind) {
+    return kind === 'ordnance' ? 'ammoOrdnance' : 'ammoSmall';
+}
+
+function operationalAmmoSquads(unit) {
+    const squads = [];
+    if (unit && Array.isArray(unit.squads)) squads.push(...unit.squads);
+    if (unit && unit.isGroup && Array.isArray(unit.vehicleList)) {
+        unit.vehicleList.forEach(v => { if (v && Array.isArray(v.squads)) squads.push(...v.squads); });
+    }
+    return squads.filter(Boolean);
+}
+
+function unitOperationalAmmoTotal(unit, kind) {
+    const field = operationalAmmoField(kind);
+    return operationalAmmoSquads(unit).reduce((sum, sq) => sum + (Number(sq[field]) || 0), 0);
+}
+
+// Списывает 10% боезапаса. Возвращает true, если стрельба возможна (что-то было).
+function consumeOperationalAmmo(unit, kind) {
+    const field = operationalAmmoField(kind);
+    let spent = 0;
+    operationalAmmoSquads(unit).forEach(sq => {
+        const cur = Number(sq[field]) || 0;
+        if (cur <= 0) return;
+        const take = Math.max(1, Math.round(cur * SUPPLY_SHOT_SPEND));
+        sq[field] = Math.max(0, cur - take);
+        spent += take;
+    });
+    return spent > 0;
+}
+
+// Проверка перед стрельбой: нет боезапаса — стрелять нечем (с записью в лог)
+function requireOperationalAmmo(unit, kind) {
+    // Юниты без учёта боезапаса (у них нет отрядов с патронами/снарядами) не блокируем
+    if (operationalAmmoSquads(unit).length === 0) return true;
+    if (unitOperationalAmmoTotal(unit, kind) > 0) return true;
+    const what = kind === 'ordnance' ? 'снарядов' : 'патронов';
+    log(`🚫 [${unit ? unit.name : '?'}]: нет ${what} — стрельба по карте операции невозможна. Отправьте снабжение (🚚 Снабжение).`);
+    const mi = document.getElementById('mapInfo');
+    if (mi) { mi.innerHTML = `🚫 ${unit ? unit.name : ''}: нет ${what} — нужно снабжение.`; mi.style.color = '#e74c3c'; }
+    return false;
+}
+
+// ⚡ v13.069 (R48#7): карточка BeVe «Бюрократия» — получение пополнения
+//    для ЭТОГО взвода превращается в бумажную волокиту: колонны идут на 1 ход дольше.
+const SUPPLY_BUREAUCRACY_CARD = 'Бюрократия';
+const SUPPLY_BUREAUCRACY_DELAY = 1;
+
+function unitHasBureaucracy(unit) {
+    if (!unit) return false;
+    const names = [];
+    const push = v => { if (!v) return; names.push(typeof v === 'string' ? v : (v.name || '')); };
+    if (unit.cardSelection && Array.isArray(unit.cardSelection.cards)) unit.cardSelection.cards.forEach(push);
+    (unit.squads || []).forEach(sq => (sq && Array.isArray(sq.appliedCards) ? sq.appliedCards : []).forEach(push));
+    (appData.activeCards || []).forEach(c => {
+        if (c && c.active !== false && (!c.opUnitName || c.opUnitName === unit.name)) push(c);
+    });
+    return names.some(n => String(n || '').indexOf(SUPPLY_BUREAUCRACY_CARD) !== -1);
+}
+
+function supplyDepotCaptured() {
+    const st = appData.campaign && appData.campaign.supply;
+    return !!(st && st.status === 'captured');
+}
+
+function syncSupplyDepotStatus() {
+    const st = ensureSupplyState();
+    if (!st) return false;
+    const unit = getSupplyUnit();
+    const depot = st.depot && Number.isFinite(st.depot.col) ? { col: st.depot.col, row: st.depot.row } : null;
+    const wiped = !unit || unit.isDestroyed || (typeof isOpUnitWipedOut === 'function' && isOpUnitWipedOut(unit));
+    if (!wiped) {
+        st.platoonLost = false;   // взвод снова в строю — захват возможен заново
+        if (st.status === 'captured') {
+            st.status = 'active';
+            log(`🏠 Склад снабжения снова наш — снабжение батальона восстановлено.`);
+            saveData();
+        }
+        return false;
+    }
+    // взвод разбит: захват фиксируем ОДИН раз (иначе каждый ход списывалась бы новая доля)
+    if (wiped && !st.platoonLost) {
+        st.platoonLost = true;
+        st.status = 'captured';
+        const lost = {};
+        ['ammoSmall', 'grenades', 'ammoOrdnance'].forEach(k => {
+            lost[k] = Math.floor((st.stock[k] || 0) * SUPPLY_CAPTURE_LOSS);
+            st.stock[k] = Math.max(0, (st.stock[k] || 0) - lost[k]);
+        });
+        // колонны, стоящие на складе, ждут освобождения; идущие — доезжают
+        log(`⚠️ Склад снабжения ЗАХВАЧЕН: взвод снабжения разбит. Потеряно ${lost.ammoSmall} патронов, ${lost.grenades} гранат, ${lost.ammoOrdnance} снарядов. Снабжение батальона нарушено — склад нужно отбить.`);
+        saveData();
+        return true;
+    }
+    // отбить назад: свой юнит на гексе склада, врагов рядом нет
+    if (depot && st.status === 'captured') {
+        const units = (appData.campaign.opUnits || []).filter(u => u && !u.isDestroyed && u.col === depot.col && u.row === depot.row);
+        const enemies = (appData.campaign.enemyOpUnits || []).filter(e => e && !e.isDestroyed && e.col === depot.col && e.row === depot.row);
+        if (units.length && !enemies.length) {
+            st.status = 'active';
+            log(`🏠 Склад снабжения отбит: «${units[0].name}» занял (${depot.col},${depot.row}). Остатки запаса снова наши.`);
+            saveData();
+            renderSupplyPanel();
+        }
+    }
+    return st.status === 'captured';
+}
+
+function syncSupplyAssetsFromPlatoon() {
+    const st = ensureSupplyState();
+    const unit = getSupplyUnit();
+    if (!st || !unit) return st;
+    const counts = supplyAssetCounts(unit);
+    const busy = {};
+    st.deliveries.forEach(d => {
+        (d.assets || []).forEach(a => { busy[a.id] = (busy[a.id] || 0) + a.count; });
+    });
+    supplyAssetIds().forEach(id => {
+        const total = Math.max(0, counts[id]);
+        st.assets[id].total = total;
+        const used = busy[id] || 0;
+        st.assets[id].available = Math.max(0, total - used);
+    });
+    const pos = getSupplyDepotHex();
+    st.depot.col = pos ? pos.col : null;
+    st.depot.row = pos ? pos.row : null;
+    return st;
+}
+
+function getSupplyDepotHex() {
+    const unit = getSupplyUnit();
+    if (!unit) return null;
+    if (!Number.isFinite(unit.col) || !Number.isFinite(unit.row)) return null;
+    return { col: unit.col, row: unit.row };
+}
+
+function supplyCargoOf(assets) {
+    const cargo = { ammoSmall: 0, grenades: 0, ammoOrdnance: 0 };
+    (assets || []).forEach(a => {
+        const t = SUPPLY_ASSET_TYPES[a && a.id];
+        if (!t) return;
+        ['ammoSmall', 'grenades', 'ammoOrdnance'].forEach(k => { cargo[k] += t.cargo[k] * (a.count || 0); });
+    });
+    return cargo;
+}
+
+function supplyAssetsMobility(assets) {
+    const hasVehicle = (assets || []).some(a => SUPPLY_ASSET_TYPES[a.id] && SUPPLY_ASSET_TYPES[a.id].mobility === 'vehicle');
+    const allVehicle = (assets || []).every(a => SUPPLY_ASSET_TYPES[a.id] && SUPPLY_ASSET_TYPES[a.id].mobility === 'vehicle');
+    if (!hasVehicle || !allVehicle) return 'foot';   // смешанная колонна идёт пешим темпом
+    return 'vehicle';
+}
+
+// ── боезапас юнита: сколько есть и сколько «полный комплект» ──
+function supplyOrdnanceFull(squad) {
+    if (!squad) return 0;
+    if (Number.isFinite(squad.ammoOrdnanceFull)) return squad.ammoOrdnanceFull;
+    let full = 0;
+    const cur = Number(squad.ammoOrdnance) || 0;
+    if (cur > 0) {
+        const tmpl = (appData.templates || []).find(t => t && t.name === squad.name && (Number(t.ammoOrdnance) || 0) > 0);
+        full = tmpl ? Number(tmpl.ammoOrdnance) : cur;
+        squad.ammoOrdnanceFull = full;
+    }
+    return full;
+}
+
+function unitAmmoStatus(unit) {
+    const status = { ammoSmall: { cur: 0, max: 0 }, grenades: { cur: 0, max: 0 }, ammoOrdnance: { cur: 0, max: 0 } };
+    if (!unit || !Array.isArray(unit.squads)) return status;
+    unit.squads.forEach(sq => {
+        if (!sq || !Array.isArray(sq.fighters)) return;
+        const men = sq.fighters.length;
+        status.ammoSmall.cur += Number(sq.ammoSmall) || 0;
+        status.grenades.cur += Number(sq.grenades) || 0;
+        status.ammoOrdnance.cur += Number(sq.ammoOrdnance) || 0;
+        status.ammoSmall.max += SUPPLY_AMMO_PER_MAN * men;
+        status.grenades.max += SUPPLY_GREN_PER_MAN * men;
+        status.ammoOrdnance.max += supplyOrdnanceFull(sq);
+    });
+    return status;
+}
+
+function supplyAmmoPercent(unit) {
+    const st = unitAmmoStatus(unit);
+    const parts = [];
+    if (st.ammoSmall.max > 0) parts.push(st.ammoSmall.cur / st.ammoSmall.max);
+    if (st.grenades.max > 0) parts.push(st.grenades.cur / st.grenades.max);
+    if (!parts.length) return 1;
+    return Math.max(0, Math.min(1, parts.reduce((a, b) => a + b, 0) / parts.length));
+}
+
+// Разложить груз по отделениям юнита; вернуть остаток (не влез)
+function supplyDistributeCargo(unit, cargo) {
+    const left = { ammoSmall: cargo.ammoSmall || 0, grenades: cargo.grenades || 0, ammoOrdnance: cargo.ammoOrdnance || 0 };
+    if (!unit || !Array.isArray(unit.squads)) return left;
+    unit.squads.forEach(sq => {
+        if (!sq || !Array.isArray(sq.fighters)) return;
+        const men = sq.fighters.length;
+        const ammoCap = SUPPLY_AMMO_PER_MAN * men, grenCap = SUPPLY_GREN_PER_MAN * men, ordCap = supplyOrdnanceFull(sq);
+        const takeAmmo = Math.min(left.ammoSmall, Math.max(0, ammoCap - (Number(sq.ammoSmall) || 0)));
+        const takeGren = Math.min(left.grenades, Math.max(0, grenCap - (Number(sq.grenades) || 0)));
+        const takeOrd = ordCap > 0 ? Math.min(left.ammoOrdnance, Math.max(0, ordCap - (Number(sq.ammoOrdnance) || 0))) : 0;
+        sq.ammoSmall = (Number(sq.ammoSmall) || 0) + takeAmmo;
+        sq.grenades = (Number(sq.grenades) || 0) + takeGren;
+        sq.ammoOrdnance = (Number(sq.ammoOrdnance) || 0) + takeOrd;
+        left.ammoSmall -= takeAmmo; left.grenades -= takeGren; left.ammoOrdnance -= takeOrd;
+    });
+    return left;
+}
+
+function supplyUnitList() {
+    return ((appData.campaign && appData.campaign.opUnits) || [])
+        .map((u, idx) => ({ unit: u, idx }))
+        .filter(x => x.unit && !x.unit.isDestroyed && !/снабж/i.test(String(x.unit.name || '')));
+}
+
+// ── отправка колонны ──
+function sendSupplyDelivery(targetUnitId, assetPicks, kind) {
+    const st = ensureSupplyState();
+    const depot = getSupplyDepotHex();
+    if (!st) return false;
+    syncSupplyDepotStatus();
+    if (supplyDepotCaptured()) { alert('Склад захвачен противником — снабжение батальона нарушено, пока склад не отбит.'); return false; }
+    if (!depot) { alert('Сначала разместите взвод снабжения на оперативной карте — склад стоит там, где он находится.'); return false; }
+    const units = (appData.campaign.opUnits || []);
+    const isRear = kind === 'rear';
+    const target = isRear ? null : units[targetUnitId];
+    if (!isRear) {
+        if (!target || target.isDestroyed) { alert('Юнит-получатель не найден.'); return false; }
+        if (![target.col, target.row].every(Number.isFinite)) { alert(`«${target.name}» ещё не размещён на карте.`); return false; }
+    }
+    const assets = (assetPicks || []).filter(a => a && a.count > 0 && SUPPLY_ASSET_TYPES[a.id]);
+    if (!assets.length) { alert('Выберите, чем везти: носильщиков, животных или машины.'); return false; }
+    for (const a of assets) {
+        const pool = st.assets[a.id] || { available: 0 };
+        if (a.count > pool.available) { alert(`Свободных средств «${SUPPLY_ASSET_TYPES[a.id].name}» только ${pool.available}.`); return false; }
+    }
+    if (isRear && supplyRearRouteBlocked()) {
+        alert('Дорога в тыл перерезана противником — подвезти боеприпасы с полкового склада нельзя.');
+        return false;
+    }
+    const cargo = isRear ? { ammoSmall: 0, grenades: 0, ammoOrdnance: 0 } : supplyCargoOf(assets);
+    if (!isRear) {
+        ['ammoSmall', 'grenades', 'ammoOrdnance'].forEach(k => {
+            cargo[k] = Math.min(cargo[k], st.stock[k]);
+            st.stock[k] -= cargo[k];
+        });
+        if (!cargo.ammoSmall && !cargo.grenades && !cargo.ammoOrdnance) {
+            alert('Склад пуст — отправьте колонну в тыл за новой партией.'); return false;
+        }
+    }
+    assets.forEach(a => { st.assets[a.id].available -= a.count; });
+    const dest = isRear ? supplyRearPoint() : { col: target.col, row: target.row };
+    const delivery = {
+        id: 'sup-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+        kind: isRear ? 'rear' : 'unit',
+        targetUnitId: isRear ? null : targetUnitId,
+        assets, cargo, mobility: supplyAssetsMobility(assets),
+        col: depot.col, row: depot.row,
+        status: 'outbound',
+        // ⚡ v13.069 (R48#7): «Бюрократия» задерживает доставку этому взводу на 1 ход
+        delayTurns: (!isRear && unitHasBureaucracy(target)) ? SUPPLY_BUREAUCRACY_DELAY : 0,
+        createdTurn: (appData.campaign.currentTurn || 1)
+    };
+    st.deliveries.push(delivery);
+    saveData();
+    log(isRear
+        ? `🏭 Колонна снабжения вышла к полковому складу (${dest.col},${dest.row}) — ${supplyAssetsLabel(assets)}.`
+        : `🚚 Колонна снабжения вышла к «${target.name}» — ${supplyAssetsLabel(assets)}.` +
+          (delivery.delayTurns ? ' 📄 Бюрократия: бумаги задержат доставку на 1 ход.' : ''));
+    redrawOperationalMap();
+    renderSupplyPanel();
+    return true;
+}
+
+function supplyAssetsLabel(assets) {
+    return (assets || []).map(a => `${SUPPLY_ASSET_TYPES[a.id].icon} ${SUPPLY_ASSET_TYPES[a.id].name} ×${a.count}`).join(', ');
+}
+
+// Точка эвакуации (дорога в тыл): у каждой стороны своя, задана в SUPPLY_EVAC_POINTS.
+//    Резерв: если фракция неизвестна — самый дальний от противника гекс своей зоны.
+function supplyRearPoint(side) {
+    const camp = appData.campaign || {};
+    const faction = camp.playerFaction || 'BeVe';
+    const fixed = SUPPLY_EVAC_POINTS[faction];
+    if (fixed && !side) return { col: fixed.col, row: fixed.row };
+    const zones = (typeof SCENARIO_PLACEMENT_ZONES !== 'undefined' && SCENARIO_PLACEMENT_ZONES[camp.scenario || 'valencia']) || {};
+    const mine = zones[faction] || [];
+    const enemyFaction = Object.keys(zones).find(f => f !== faction);
+    const theirs = (enemyFaction && zones[enemyFaction]) || [];
+    if (!mine.length) return fixed ? { col: fixed.col, row: fixed.row } : { col: 0, row: 0 };
+    const center = theirs.reduce((acc, h) => ({ col: acc.col + h[0] / theirs.length, row: acc.row + h[1] / theirs.length }), { col: 0, row: 0 });
+    let best = null, bestD = -1;
+    mine.forEach(h => {
+        const d = Math.abs(h[0] - center.col) + Math.abs(h[1] - center.row);
+        if (d > bestD) { bestD = d; best = h; }
+    });
+    return { col: best[0], row: best[1] };
+}
+
+// Путь в тыл перерезан, если враг стоит у самой точки или рядом с прямой дорогой к ней
+function supplyRearRouteBlocked() {
+    const depot = getSupplyDepotHex();
+    if (!depot) return false;
+    const rear = supplyRearPoint();
+    const enemies = (appData.campaign.enemyOpUnits || []).filter(e => e && !e.isDestroyed && !e.hidden &&
+        Number.isFinite(e.col) && Number.isFinite(e.row));
+    if (enemies.some(e => Math.abs(e.col - rear.col) + Math.abs(e.row - rear.row) <= 1)) return true;
+    const steps = Math.max(Math.abs(rear.col - depot.col), Math.abs(rear.row - depot.row));
+    for (let i = 1; i <= steps; i++) {
+        const col = Math.round(depot.col + (rear.col - depot.col) * i / steps);
+        const row = Math.round(depot.row + (rear.row - depot.row) * i / steps);
+        if (enemies.some(e => Math.abs(e.col - col) + Math.abs(e.row - row) <= 1)) return true;
+    }
+    return false;
+}
+
+// ── движение колонны (пешие/вьючные — как пехота, машины — только дорога/трава) ──
+function supplyMoveCost(mobility, toCol, toRow) {
+    if (typeof isHexInPlayableArea === 'function' &&
+        !isHexInPlayableArea(appData.campaign && appData.campaign.scenario, toCol, toRow)) return Infinity;
+    const types = (typeof getOpHexTypes === 'function') ? getOpHexTypes(toCol, toRow) : ['grass'];
+    const terrain = (types && types[0]) || 'grass';
+    if (terrain === 'water' || terrain === 'swamp_impassable') return Infinity;
+    if (mobility === 'vehicle') {
+        return (terrain === 'road' || terrain === 'grass') ? 1 : Infinity;
+    }
+    return 1;   // пешие и вьючные — по любой проходимой местности, как пехота
+}
+
+function supplyStepToward(delivery, toCol, toRow) {
+    const mobility = delivery.mobility || 'foot';
+    let budget = SUPPLY_CONVOY_BUDGET;
+    let guard = 0;
+    const enemyHexes = (appData.campaign.enemyOpUnits || []).filter(e => e && !e.isDestroyed && !e.hidden &&
+        Number.isFinite(e.col) && Number.isFinite(e.row));
+    while ((delivery.col !== toCol || delivery.row !== toRow) && budget > 0 && guard++ < 200) {
+        const candidates = [
+            { col: delivery.col + Math.sign(toCol - delivery.col), row: delivery.row },
+            { col: delivery.col, row: delivery.row + Math.sign(toRow - delivery.row) },
+            { col: delivery.col + Math.sign(toCol - delivery.col), row: delivery.row + Math.sign(toRow - delivery.row) }
+        ].filter(c => (c.col !== delivery.col || c.row !== delivery.row) &&
+            Math.abs(c.col - toCol) + Math.abs(c.row - toRow) < Math.abs(delivery.col - toCol) + Math.abs(delivery.row - toRow));
+        let moved = false;
+        for (const c of candidates) {
+            const cost = supplyMoveCost(mobility, c.col, c.row);
+            if (!Number.isFinite(cost) || cost > budget) continue;
+            // врага не объезжаем игнорируя: занятый врагом гекс не проходим
+            if (enemyHexes.some(e => e.col === c.col && e.row === c.row)) continue;
+            delivery.col = c.col; delivery.row = c.row; budget -= cost; moved = true;
+            break;
+        }
+        if (!moved) break;   // дороги нет или бюджет исчерпан — стоим до следующего хода
+    }
+    return delivery.col === toCol && delivery.row === toRow;
+}
+
+// ── засада: враг рядом с колонной ──
+function supplyAmbushCheck(delivery) {
+    const enemies = (appData.campaign.enemyOpUnits || []).filter(e => e && !e.isDestroyed && !e.hidden &&
+        Number.isFinite(e.col) && Number.isFinite(e.row));
+    const near = enemies.filter(e => Math.abs(e.col - delivery.col) + Math.abs(e.row - delivery.row) <= 1);
+    if (!near.length) return null;
+    const roll = (typeof rollD6 === 'function') ? rollD6() : 3;
+    if (roll >= 4) return { roll, hit: false };
+    // потеря: один носильщик/животное на каждые два, машина — уничтожена
+    const lost = [];
+    let cargoLoss = 0;
+    (delivery.assets || []).forEach(a => {
+        const t = SUPPLY_ASSET_TYPES[a.id];
+        if (!t) return;
+        const per = t.mobility === 'vehicle' ? a.count : Math.max(1, Math.floor(a.count / 2));
+        if (per <= 0) return;
+        lost.push({ id: a.id, count: per });
+        const share = per / Math.max(1, a.count);
+        cargoLoss += Math.round((t.cargo.ammoSmall * a.count) * share * 0.3);
+        a.count -= per;
+    });
+    delivery.assets = (delivery.assets || []).filter(a => a.count > 0);
+    delivery.cargo.ammoSmall = Math.max(0, delivery.cargo.ammoSmall - cargoLoss);
+    supplyKillCarriers(lost);
+    return { roll, hit: true, lost, cargoLoss };
+}
+
+// Потеря носильщиков/животных/машин — вместе с людьми взвода снабжения
+function supplyKillCarriers(lost) {
+    const unit = getSupplyUnit();
+    if (!unit || !Array.isArray(unit.squads)) return 0;
+    let killed = 0;
+    (lost || []).forEach(l => {
+        const t = SUPPLY_ASSET_TYPES[l.id];
+        if (!t) return;
+        const squads = unit.squads.filter(sq => sq && t.squadMatch.test(String(sq.name || '')));
+        let left = l.count;
+        for (const sq of squads) {
+            if (left <= 0) break;
+            for (const f of (sq.fighters || [])) {
+                if (left <= 0) break;
+                if (!f || f.hp <= 0) continue;
+                f.hp = 0; left--; killed++;
+            }
+        }
+    });
+    if (killed) log(`💥 Колонна снабжения попала в засаду: потеряно средств — ${(lost || []).map(l => SUPPLY_ASSET_TYPES[l.id].name + ' ×' + l.count).join(', ')}.`);
+    return killed;
+}
+
+// ── ход: движение колонн, доставка, возврат ──
+function advanceSupplyDeliveries() {
+    const st = ensureSupplyState();
+    if (!st) return 0;
+    syncSupplyDepotStatus();
+    if (!st.deliveries.length) return 0;
+    const depot = getSupplyDepotHex();
+    const units = (appData.campaign && appData.campaign.opUnits) || [];
+    let events = 0;
+    const finished = [];
+    st.deliveries.forEach(delivery => {
+        if (!delivery) return;
+        const target = delivery.kind === 'unit' ? units[delivery.targetUnitId] : null;
+        if (delivery.status === 'outbound') {
+            if (delivery.kind === 'unit' && (!target || target.isDestroyed || !Number.isFinite(target.col))) {
+                delivery.status = 'returning';
+                log(`↩️ Колонна снабжения возвращается: получатель недоступен.`);
+                events++;
+                return;
+            }
+            if (delivery.kind === 'rear' && supplyRearRouteBlocked() && delivery.col === (depot ? depot.col : -1) && delivery.row === (depot ? depot.row : -1)) {
+                finished.push(delivery);
+                log(`⛔ Дорога в тыл перерезана — колонна снабжения не вышла, средства вернулись на склад.`);
+                events++;
+                return;
+            }
+            // ⚡ v13.069 (R48#7): задержанная «Бюрократией» колонна стоит на месте
+            if (delivery.delayTurns > 0) {
+                delivery.delayTurns--;
+                log(`📄 Бюрократия: колонна снабжения к «${(target || {}).name || 'юниту'}» задержана на ход (осталось ${delivery.delayTurns}).`);
+                events++;
+                return;
+            }
+            const dest = delivery.kind === 'unit' ? { col: target.col, row: target.row } : supplyRearPoint();
+            const ambush = supplyAmbushCheck(delivery);
+            if (ambush && ambush.hit) {
+                events++;
+                if (!(delivery.assets || []).length) {
+                    finished.push(delivery);
+                    log(`☠️ Колонна снабжения уничтожена в засаде — груз потерян.`);
+                    return;
+                }
+            }
+            const arrived = supplyStepToward(delivery, dest.col, dest.row);
+            if (arrived) {
+                if (delivery.kind === 'rear') {
+                    st.stock.ammoSmall = st.max.ammoSmall;
+                    st.stock.grenades = st.max.grenades;
+                    st.stock.ammoOrdnance = st.max.ammoOrdnance;
+                    st.rearTrips++;
+                    log(`🏭 Склад пополнен с полкового склада: ${st.max.ammoSmall} патронов, ${st.max.grenades} гранат, ${st.max.ammoOrdnance} снарядов.`);
+                } else {
+                    const left = supplyDistributeCargo(target, delivery.cargo);
+                    delivery.cargo = left;   // остаток едет назад на склад
+                    const parts = [];
+                    if (delivery.cargo.ammoSmall !== undefined) parts.push(`патроны ${(left.ammoSmall !== undefined ? '' : '')}`);
+                    log(`📦 «${target.name}» получил боеприпасы: патроны, гранаты${left.ammoOrdnance >= 0 ? ', снаряды' : ''}.`);
+                }
+                delivery.status = 'returning';
+                events++;
+            }
+        } else {   // returning
+            if (!depot || supplyDepotCaptured()) { return; }   // склад потерян/захвачен — колонна ждёт на месте
+            const home = supplyStepToward(delivery, depot.col, depot.row);
+            if (home) {
+                ['ammoSmall', 'grenades', 'ammoOrdnance'].forEach(k => {
+                    st.stock[k] = Math.min(st.max[k], st.stock[k] + (delivery.cargo[k] || 0));
+                });
+                finished.push(delivery);
+                log(`🏠 Колонна снабжения вернулась на склад (${supplyAssetsLabel(delivery.assets)}).`);
+                events++;
+            }
+        }
+    });
+    finished.forEach(d => { st.deliveries = st.deliveries.filter(x => x !== d); });
+    syncSupplyAssetsFromPlatoon();
+    if (events) saveData();
+    return events;
+}
+
+// ── панель снабжения ──
+function showSupplyPanel() {
+    const panel = document.getElementById('supplyPanel');
+    if (!panel) return;
+    panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+    renderSupplyPanel();
+}
+
+function supplyBarHtml(cur, max, color) {
+    const pct = max > 0 ? Math.max(0, Math.min(100, Math.round(cur / max * 100))) : 0;
+    const c = color || (pct > 60 ? '#2ecc71' : pct > 25 ? '#f1c40f' : '#e74c3c');
+    return `<span style="display:inline-block; width:110px; height:9px; background:#333; border-radius:4px; overflow:hidden; vertical-align:middle;">` +
+        `<span style="display:block; width:${pct}%; height:100%; background:${c};"></span></span> <span style="color:#ccc; font-size:0.8rem;">${cur}/${max}</span>`;
+}
+
+function renderSupplyPanel() {
+    const st = ensureSupplyState();
+    const host = document.getElementById('supplyPanel');
+    if (!st || !host) return;
+    syncSupplyDepotStatus();
+    syncSupplyAssetsFromPlatoon();
+    const depot = getSupplyDepotHex();
+    let html = `<strong style="color:#e67e22;">🚚 Батальонный склад боеприпасов</strong>
+`;
+    html += depot
+        ? `<span style="color:#aaa; font-size:0.85rem;">Склад: (${depot.col},${depot.row}) — там, где стоит взвод снабжения; охрана: ` +
+          `${(getSupplyUnit() && (getSupplyUnit().squads || []).some(sq => /охранник/i.test(String(sq.name || ''))) ? '✅ стрелки на месте' : '⚠️ нет охраны')}.</span>`
+        : `<span style="color:#e74c3c; font-size:0.85rem;">Взвод снабжения не размещён на карте — склад не развёрнут.</span>`;
+    if (supplyDepotCaptured()) {
+        html += `<div style="color:#e74c3c; font-weight:bold;">⚠️ Склад ЗАХВАЧЕН: взвод снабжения разбит. Снабжение батальона нарушено — верните свой юнит на гекс склада (${depot ? depot.col + ',' + depot.row : '?'}) без врагов рядом.</div>`;
+    }
+    html += `<div style="margin-top:6px;">🔫 Патроны: ${supplyBarHtml(st.stock.ammoSmall, st.max.ammoSmall)}</div>`;
+    html += `<div>💣 Гранаты: ${supplyBarHtml(st.stock.grenades, st.max.grenades)}</div>`;
+    html += `<div>🚀 Снаряды: ${supplyBarHtml(st.stock.ammoOrdnance, st.max.ammoOrdnance)}</div>`;
+
+    // транспортные средства
+    html += `<div style="margin-top:8px;"><strong style="color:#e67e22;">Транспорт и носильщики:</strong></div>`;
+    supplyAssetIds().forEach(id => {
+        const t = SUPPLY_ASSET_TYPES[id], pool = st.assets[id];
+        if (!pool || pool.total <= 0) return;
+        html += `<div style="margin-top:2px;"><label style="font-size:0.85rem;">${t.icon} ${t.name} — свободно ${pool.available} из ${pool.total}` +
+            ` <input type="number" id="supply_asset_${id}" value="0" min="0" max="${pool.available}" style="width:56px; background:#333; color:#fff; border:1px solid #555;">` +
+            `<span style="color:#888; font-size:0.75rem;"> (несёт ${t.cargo.ammoSmall} патр. / ${t.cargo.grenades} гр.${t.cargo.ammoOrdnance ? ' / ' + t.cargo.ammoOrdnance + ' снаряд.' : ''}${t.mobility === 'vehicle' ? ', только дороги и трава' : ''})</span></label></div>`;
+    });
+
+    // получатели
+    html += `<div style="margin-top:8px;"><strong style="color:#e67e22;">Получатели (шкала боезапаса):</strong></div>`;
+    html += `<div style="margin-top:2px;"><label style="font-size:0.85rem;"><input type="radio" name="supplyTarget" value="-1" checked> 🏭 Рейс в тыл — пополнить склад с полкового склада</label></div>`;
+    supplyUnitList().forEach(x => {
+        const s = unitAmmoStatus(x.unit);
+        const ammo = s.ammoSmall.max > 0 ? `${s.ammoSmall.cur}/${s.ammoSmall.max}` : '—';
+        const gren = s.grenades.max > 0 ? `${s.grenades.cur}/${s.grenades.max}` : '—';
+        const ord = s.ammoOrdnance.max > 0 ? s.ammoOrdnance.cur + '/' + s.ammoOrdnance.max : '—';
+        const bureaucracy = unitHasBureaucracy(x.unit);
+        html += `<div style="margin-top:2px;"><label style="font-size:0.85rem;">` +
+            `<input type="radio" name="supplyTarget" value="${x.idx}"> ${x.unit.name}` +
+            (bureaucracy ? ' <span style="color:#e67e22;" title="Карточка «Бюрократия»: доставка идёт на 1 ход дольше">📄 +1 ход</span>' : '') +
+            ` ${supplyBarHtml(Math.round(supplyAmmoPercent(x.unit) * 100), 100)}` +
+            ` <span style="color:#888; font-size:0.75rem;">патроны ${ammo} · гранаты ${gren} · снаряды ${ord}</span></label></div>`;
+    });
+
+    html += `<div style="margin-top:8px;"><button onclick="dispatchSupplyFromPanel()" style="background:#e67e22;">🚚 Отправить снабжение</button> ` +
+        `<button onclick="renderSupplyPanel()" style="background:#555;">🔄 Обновить</button></div>`;
+
+    // колонны в пути
+    const moves = st.deliveries || [];
+    html += `<div style="margin-top:8px;"><strong style="color:#e67e22;">Колонны в пути:</strong>`;
+    if (!moves.length) html += ` <span style="color:#aaa; font-size:0.85rem;">нет</span>`;
+    moves.forEach(d => {
+        const units = appData.campaign.opUnits || [];
+        const who = d.kind === 'rear' ? 'полковой склад (тыл)' : ((units[d.targetUnitId] || {}).name || 'юнит');
+        const dir = d.status === 'returning' ? '↩️ возвращается' : '➡️ идёт';
+        const amb = d.mobility === 'vehicle' ? '🚙 только дороги/трава' : '🚶 пеший темп';
+        const delay = d.delayTurns > 0 ? ` · 📄 бюрократия: ещё ${d.delayTurns} ход(а)` : '';
+        html += `<div style="font-size:0.85rem; color:#f1c40f;">${dir} к «${who}» — ${supplyAssetsLabel(d.assets)} (${amb}), сейчас (${d.col},${d.row})${delay}</div>`;
+    });
+    html += `</div>`;
+    host.innerHTML = html;
+}
+
+function dispatchSupplyFromPanel() {
+    const st = ensureSupplyState();
+    if (!st) return;
+    const picks = [];
+    supplyAssetIds().forEach(id => {
+        const el = document.getElementById('supply_asset_' + id);
+        if (!el) return;
+        const n = parseInt(el.value) || 0;
+        if (n > 0) picks.push({ id, count: n });
+    });
+    const sel = document.querySelector('input[name="supplyTarget"]:checked');
+    if (!sel) { alert('Выберите получателя.'); return; }
+    const targetIdx = parseInt(sel.value);
+    const isRear = targetIdx < 0;
+    const ok = sendSupplyDelivery(isRear ? -1 : targetIdx, picks, isRear ? 'rear' : 'unit');
+    if (ok) renderSupplyPanel();
+}
+
+// Шкала боезапаса для списков (батальон, детали юнита)
+function supplyAmmoBarHtml(unit) {
+    const s = unitAmmoStatus(unit);
+    if (!s.ammoSmall.max && !s.grenades.max && !s.ammoOrdnance.max) return '';
+    const pct = Math.round(supplyAmmoPercent(unit) * 100);
+    const color = pct > 60 ? '#2ecc71' : pct > 25 ? '#f1c40f' : '#e74c3c';
+    const ord = s.ammoOrdnance.max > 0 ? ` · 🚀 ${s.ammoOrdnance.cur}/${s.ammoOrdnance.max}` : '';
+    return `<div style="font-size:0.78rem; color:#aaa; margin-top:2px;">📦 Боезапас: ` +
+        `<span style="display:inline-block; width:90px; height:8px; background:#333; border-radius:4px; overflow:hidden; vertical-align:middle;">` +
+        `<span style="display:block; width:${pct}%; height:100%; background:${color};"></span></span> ` +
+        `🔫 ${s.ammoSmall.cur}/${s.ammoSmall.max} · 💣 ${s.grenades.cur}/${s.grenades.max}${ord}</div>`;
+}
+
 // ==================== СИСТЕМА СВЯЗИ ====================
 // ==================== СИСТЕМА СВЯЗИ ====================
 function showCommunicationPanel() {
@@ -17165,6 +18234,34 @@ function updateOrderFieldVisibility(type) {
     if (hexBlock) hexBlock.style.display = hexTypes.includes(type) ? 'block' : 'none';
     if (routeBlock) routeBlock.style.display = routeTypes.includes(type) ? 'block' : 'none';
     if (behaviorBlock) behaviorBlock.style.display = behaviorTypes.includes(type) ? 'block' : 'none';
+    // ⚡ v13.069 (R48#3): скрытно ходить может только пехота (не техника)
+    const stealthBlock = document.getElementById('orderStealthBlock');
+    if (stealthBlock) {
+        const unit = orderUnitForStealthCheck();
+        const allowed = type === 'move' && !!unit && !isVehicleMobilityUnit(unit);
+        stealthBlock.style.display = allowed ? 'block' : 'none';
+        const box = document.getElementById('orderStealthMove');
+        if (box && !allowed) box.checked = false;
+    }
+}
+// ⚡ v13.069: юнит, выбранный в панели приказов (для проверки «техника/пехота»)
+function orderUnitForStealthCheck() {
+    try {
+        const sel = document.getElementById('orderTargetUnit');
+        if (sel && sel.value !== '' && sel.value !== null && sel.value !== undefined) {
+            const idx = parseInt(sel.value);
+            if (Number.isFinite(idx) && appData.campaign.opUnits && appData.campaign.opUnits[idx]) return appData.campaign.opUnits[idx];
+        }
+    } catch (e) {}
+    return null;
+}
+// ⚡ v13.069: техника (по мобильности/типу/имени) — скрытно не ходит
+function isVehicleMobilityUnit(unit) {
+    if (!unit) return false;
+    if (unit.mobility === 'vehicle') return true;
+    const vehicleTypes = ['tank_platoon', 'sau_battery', 'btr_platoon', 'armored_vehicle_platoon', 'vehicle', 'dots'];
+    if (vehicleTypes.includes(unit.type)) return true;
+    return /САУ|БТР|Танк|Landsverk|Brugge|Бронеавтомобиль|ДОТ/i.test(String(unit.name || ''));
 }
 
 function onOrderTypeChange() {
@@ -17681,7 +18778,10 @@ function submitOrder()   {
         // Стартовая позиция юнита (для отслеживания прогресса маршрута)
         startHex: (unit.col !== null && unit.row !== null) ? `${unit.col},${unit.row}` : null,
         // ⚡ v13.037: время начала выполнения (минуты)
-        startTimeMin: startTimeMinVal
+        startTimeMin: startTimeMinVal,
+        // ⚡ v13.069 (R48#3): «двигаться скрытно» — фиксируем в приказе, как ignoreArmor
+        stealth: !!(document.getElementById('orderStealthMove') && document.getElementById('orderStealthMove').checked &&
+                    orderType === 'move' && unit && !isVehicleMobilityUnit(unit))
     };
 
     // Проверяем, выбран ли штаб (роты/батальона) и есть ли подчинённые
@@ -17880,6 +18980,9 @@ function addOrderToQueue() {
         targetHex: document.getElementById('orderTargetHex')?.value || null,
         targetDistance: document.getElementById('orderFireDistance') ? parseInt(document.getElementById('orderFireDistance').value) : null,
         startHex: queueUnit ? `${queueUnit.col},${queueUnit.row}` : null, // старт маршрута — для корректного срезания пройденного
+        // ⚡ v13.069 (R48#3): скрытный шаг серии — по галочке в панели приказов
+        stealth: !!(document.getElementById('orderStealthMove') && document.getElementById('orderStealthMove').checked &&
+                    typeSelect.value === 'move' && queueUnit && !isVehicleMobilityUnit(queueUnit)),
         // ⚡ ДЛЯ СЕРИИ СОХРАНЯЕМ ВСЕ ПРИКАЗЫ
         series: []
     };
@@ -19068,7 +20171,9 @@ function checkAllUnitsDetection() {
         }
 
         let mod = getOpDetectionModifier(unit);
-        if (unit.movedThisTurn) mod += 1;   // если двигался – легче обнаружить
+        // ⚡ v13.069 (R48#3): скрытное движение — вместо штрафа +1 идёт бонус −1
+        if (unit.stealthMove) mod -= 1;
+        else if (unit.movedThisTurn) mod += 1;   // если двигался – легче обнаружить
         if (unit.suppressed) mod += 1;      // подавление
         // (штраф за технику уже учитывается в getOpDetectionModifier)
 
@@ -20731,7 +21836,8 @@ function unitCanBeDetected(unit) {
         const d = getOpHexDistance(unit.col, unit.row, e.col, e.row);
         if (d < bestD) { bestD = d; best = e; }
     });
-    const moved = !!unit.movedThisTurn;
+    // ⚡ v13.069 (R48#3): скрытное движение не выдаёт юнита — он «как неподвижный»
+    const moved = !!unit.movedThisTurn && !unit.stealthMove;
     const fired = !!unit.firedThisTurn;
     if (!moved && !fired && bestD > 2) return false;
     // ⚡ v13.051 (R36#1): двигался, но не стрелял — заметен не дальше 4 гексов
@@ -20824,6 +21930,12 @@ function executeOpShoot(targets, distance) {
         cancelOpShooting();
         return;
     }
+
+    // ⚡ v13.069 (R48#6): стрельба по карте тратит боезапас (10%); нет запаса — нет огня.
+    //    У артиллерии расход считается по снарядам, у пехоты — по патронам.
+    const shootAmmoKind = ((typeof isMortarUnit === 'function' && isMortarUnit(shooter)) ||
+                           (typeof isMediumArtillery === 'function' && isMediumArtillery(shooter))) ? 'ordnance' : 'small';
+    if (!requireOperationalAmmo(shooter, shootAmmoKind)) { cancelOpShooting(); return; }
 
     // ⚡ v13.022: юнит в тактическом бою НЕ ведёт обстрел по карте кампании
     if (shooter.isInBattle) {
@@ -21077,6 +22189,8 @@ function executeOpShoot(targets, distance) {
             }
         }
     }
+    consumeOperationalAmmo(shooter, 'small');   // ⚡ v13.069 (R48#6): 10% патронов за стрельбу
+
     // ⚡ ИТОГОВЫЙ УРОН - ОБЪЯВЛЯЕМ ПЕРЕД ИСПОЛЬЗОВАНИЕМ
     // (у БТР-огня на ходу шанс попадания уже учтён дистанцией — без distanceMod)
     let finalDamage = btrMgFire ? totalDamage : Math.ceil(totalDamage * distanceMod * terrainMod);
@@ -21652,6 +22766,9 @@ function executeOpShootAt(targets, distance) {
         return;
     }
 
+    // ⚡ v13.069 (R48#6): огонь орудий тратит снаряды (10% за стрельбу)
+    if (!requireOperationalAmmo(shooter, 'ordnance')) { cancelOpShooting(); return; }
+
     // ⚡ v13.022: юнит в тактическом бою НЕ ведёт обстрел по карте кампании
     if (shooter.isInBattle) {
         log(`⚔️ [${shooter.name}] в тактическом бою — обстрел по карте кампании недоступен.`);
@@ -21687,6 +22804,7 @@ function executeOpShootAt(targets, distance) {
         }
     }
     shooter.firedThisTurn = true; // ⚡ v13.046 (R31#1): юнит стрелял — может быть обнаружен
+    consumeOperationalAmmo(shooter, 'ordnance');   // ⚡ v13.069 (R48#6): 10% снарядов за стрельбу
 
     const armorTargets = getArmorUnits(targets);
     if (armorTargets.length === 0) {
@@ -21728,6 +22846,23 @@ function executeOpShootAt(targets, distance) {
     if (hqModAt > 1) {
         hitChance = Math.min(1, hitChance * hqModAt);
         log(`🎖️ [${shooter.name}]: поддержка штаба (в радиусе 2 гексов) — точность +20% (${Math.round(hitChance * 100)}%).`);
+    }
+
+    // ⚡ v13.069 (R48#4): по ДВИЖУЩЕЙСЯ бронетехнике на дальней дистанции (4+)
+    //    попасть труднее: −1 к попаданию, а ночью −2 (вместо обычного ночного −1).
+    const targetWasMoving = (armorTargets || []).some(t => t && (
+        t.movedThisTurn ||
+        (Array.isArray(t.squads) && t.squads.some(sq => sq && sq.movedThisTurn)) ||
+        (Array.isArray(t.vehicleList) && t.vehicleList.some(v => v && v.movedThisTurn))
+    ));
+    const isNightNow = (typeof getNightModifier === 'function') && getNightModifier() < 1;
+    let movingTargetNightApplied = false;
+    if (distance >= 4 && targetWasMoving) {
+        hitChance = isNightNow ? hitChance * 0.25 : hitChance * 0.5;
+        movingTargetNightApplied = isNightNow;
+        log(isNightNow
+            ? `🌙🚙 Цель движется в темноте (дистанция ${distance}): штраф −2 к попаданию по бронетехнике.`
+            : `🚙 Цель движется (дистанция ${distance}): штраф −1 к попаданию по бронетехнике.`);
     }
 
     // Определяем пробиваемость
@@ -21876,8 +23011,9 @@ function executeOpShootAt(targets, distance) {
 
                 console.log(`   Броня "${location}": ${armorValue}мм, пробитие: ${penetration}мм`);
                // ⚡ НОЧНОЙ МОДИФИКАТОР
+    //    ⚡ v13.069 (R48#4): для движущейся цели ночной штраф уже учтён (−2 вместо −1)
     const nightMod = getNightModifier();
-    if (nightMod < 1) {
+    if (nightMod < 1 && !movingTargetNightApplied) {
         hitChance *= nightMod; // Снижаем шанс попадания вдвое
         log(`🌙 Ночь! Шанс попадания снижен на 50%`);
     }
@@ -22759,6 +23895,7 @@ function onOrderTargetUnitChange() {
             turnIssued: currentTurnNum,
             turnReceived: null,
             series: (order.series || []).map(s => ({ ...s })),
+            stealth: !!order.stealth,   // ⚡ v13.069 (R48#3): скрытный марш через штаб роты
             relayParentId: order.id,
             // ⚡ v13.064: в списке приказов видно, что это передача через роту
             relayOrderType: order.orderType || order.type || null,
@@ -24304,6 +25441,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     // 1–2. Кнопки/подписи Hard Mode
     applyHardModeUI();
+
+    // ⚡ v13.067: штаты штабов (рота 9 / батальон 15) и связисты — и без Hard Mode
+    try { migrateHQPersonnelOnLoad(); } catch (e) { console.warn('migrateHQPersonnelOnLoad:', e.message); }
 
     // 3. Если Hard Mode включен - выдаём рации
     if (hardMode.enabled) {
@@ -25893,7 +27033,14 @@ function onlineOnSnapshotSync() {
   <button onclick="showCommunicationPanel()" id="showCommPanelBtn" style="background:#3498db; display:none;">
     📡 Связь
   </button>
+  <!-- ⚡ v13.068 (R47): кнопка панели снабжения -->
+  <button onclick="showSupplyPanel()" id="showSupplyPanelBtn" style="background:#e67e22; display:none;">
+    🚚 Снабжение
+  </button>
 </div>
+
+<!-- ⚡ v13.068 (R47): ПАНЕЛЬ СНАБЖЕНИЯ -->
+<div id="supplyPanel" style="display:none; margin-bottom:8px; padding:8px; background:#1a1a2e; border-radius:6px; border:1px solid #444;"></div>
   <!-- ПАНЕЛЬ ПРИКАЗОВ HARD MODE -->
 <div id="hardModePanel" style="display:none; margin-bottom:8px; padding:6px; background:#1a1a2e; border-radius:6px; border:1px solid #444;">
   <!-- ⚡ v13.063: шапка панели со свёртыванием. «✖ Свернуть» прячет панель,
@@ -25981,6 +27128,13 @@ function onlineOnSnapshotSync() {
     <label style="color:#aaa;">Дистанция открытия огня: </label>
     <input type="number" id="orderFireDistance" value="3" min="1" max="5" style="width:50px; background:#444; color:#fff;">
     <span style="color:#aaa;">гексов</span>
+  </div>
+
+  <!-- ⚡ v13.069 (R48#3): скрытное движение — только для не-техники -->
+  <div id="orderStealthBlock" style="display:none; margin-top:4px;">
+    <label style="color:#aaa;" title="Юнит идёт медленнее (2 гекса за ход вместо 4), но его труднее обнаружить">
+      <input type="checkbox" id="orderStealthMove"> 🥷 Двигаться скрытно (медленнее, но труднее обнаружить)
+    </label>
   </div>
 
   <!-- Маршрут -->

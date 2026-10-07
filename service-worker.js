@@ -7,7 +7,7 @@
 // v13.066: invalidate offline code cache after the ammo-point, DOT-only
 //    fortification and campaign mini-map fixes.
 // ⚡ v13.061: cache update for retreat, turn-order and initial fortification fixes.
-const CACHE_NAME = 'wargame-v13.066';
+const CACHE_NAME = 'wargame-v13.069';
 
 const ASSETS = [
     './images/AIRF/штаб развед взвода АИРФ №1.png',
