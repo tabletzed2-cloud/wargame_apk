@@ -119,9 +119,11 @@ test('v13.069: версия одинакова в приложении, мани
   const app = /var APP_VERSION = '([^']+)'/.exec(HTML)[1];
   const manifest = JSON.parse(fs.readFileSync(require('path').join(ROOT, 'manifest.json'), 'utf8'));
   const sw = fs.readFileSync(require('path').join(ROOT, 'service-worker.js'), 'utf8');
-  assert.equal(app, 'v13.069');
-  assert.ok(JSON.stringify(manifest).includes('13.069'), 'манифест на v13.069');
-  assert.ok(/wargame-v13\.069/.test(sw), 'кэш service-worker на v13.069');
+  // ⚡ v13.070: сверяем СОГЛАСОВАННОСТЬ версий (а не «ровно v13.069») —
+  //    иначе тест прошлого релиза ломается при каждом следующем выпуске.
+  assert.ok(/^v\d+\.\d+$/.test(app), 'APP_VERSION вида vX.YYY');
+  assert.ok(JSON.stringify(manifest).includes(app.replace(/^v/, '')), `манифест на ${app}`);
+  assert.ok(sw.includes(`'wargame-${app}'`), `кэш service-worker на ${app}`);
 });
 
 // ───────────────────────── 2. R48#1 точки тыла по фракциям ─────────────────────────
