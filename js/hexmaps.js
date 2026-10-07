@@ -1680,6 +1680,8 @@ function isPlatoonHQBattleSquad(squad) {
     const name = String(squad.name || '');
     if (!/Штаб взвода/i.test(name)) return false;
     if (/батальона|роты/i.test(name)) return false;   // это не взводный штаб
+    // ⚡ v13.068: штаб взвода снабжения — это склад снабжения, а не пункт боепитания
+    if (/снабж/i.test(name)) return false;
     return true;
 }
 function supplyPointStateKey(side) {

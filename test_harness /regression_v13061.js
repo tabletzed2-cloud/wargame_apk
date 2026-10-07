@@ -5,16 +5,22 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { sliceFunction, HTML, ROOT } = require('./extract');
+const { sliceFunction, sliceConst, HTML, ROOT } = require('./extract');
 const { createSandbox, freshAppData } = require('./sandbox');
 
+const CONSTS = ['SUPPLY_SHOT_SPEND'];
 const FNS = [
+    // ⚡ v13.069 (R48#6): стрельба по карте тратит боезапас
+    'operationalAmmoField', 'operationalAmmoSquads', 'unitOperationalAmmoTotal',
+    'consumeOperationalAmmo', 'requireOperationalAmmo',
     'maybeAutoPlaceAtStart', 'rotateSelectedHex', 'executeOpShoot', 'attackOrdnance',
     'getTacticalTargetDistance', 'getTacticalCrewWeaponRange', 'is82mmMortarSquad',
     'operationalMediumArtilleryRange', 'isMediumArtillery', 'isMortarUnit', 'artilleryCaliberMm',
     'onlinePushHexOverlays'
 ];
-fs.writeFileSync('/tmp/wg_part.js', FNS.map(name => sliceFunction(HTML, name)).join('\n\n'));
+fs.writeFileSync('/tmp/wg_part.js',
+    CONSTS.map(name => sliceConst(HTML, name)).join('\n') + '\n' +
+    FNS.map(name => sliceFunction(HTML, name)).join('\n\n'));
 
 let pass = 0, fail = 0;
 function ok(condition, label, detail) {

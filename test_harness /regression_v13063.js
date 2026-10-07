@@ -17,6 +17,8 @@ const names = [
   'getOrderDraft', 'getSeriesPlan', 'updateOrderActionButtons', 'updateShowOrderPanelButton',
   'submitOrderMain', 'minimizeOrderPanel', 'hideOrderPanel', 'isOrderPanelOpen',
   'updateOrderFieldVisibility', 'submitOrderQueue', 'cancelOrder', 'getOrderTypeLabel',
+  // ⚡ v13.069 (R48#3): скрытное движение — галочка в панели приказов
+  'orderUnitForStealthCheck', 'isVehicleMobilityUnit',
   // ⚡ v13.064: зависимости списка приказов (срок исполнения в подтверждениях)
   'getOrderEta', 'orderEtaMessage', 'getOpTurnMinutes', 'formatOrderTime', 'getAllOrdersList'
 ];
