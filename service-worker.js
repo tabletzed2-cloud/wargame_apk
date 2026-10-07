@@ -7,7 +7,9 @@
 // v13.066: invalidate offline code cache after the ammo-point, DOT-only
 //    fortification and campaign mini-map fixes.
 // ⚡ v13.061: cache update for retreat, turn-order and initial fortification fixes.
-const CACHE_NAME = 'wargame-v13.069';
+// v13.070: invalidate offline code cache after the reliable-update (cache: 'reload'
+//    precache + build-marker verification) and build self-check fixes.
+const CACHE_NAME = 'wargame-v13.070';
 
 const ASSETS = [
     './images/AIRF/штаб развед взвода АИРФ №1.png',
@@ -381,6 +383,35 @@ const CORE_ASSETS = [
 
 const HEX_MAP_INDEX = './maps/Карты Валенсия/index.json';
 
+// ⚡ v13.070: надёжная предзагрузка ядра — файлы скачиваются В ОБХОД HTTP-кэша
+//    браузера (cache: 'reload') и проверяются маркером сборки. Раньше cache.add()
+//    мог взять js-модуль из «тёплого» HTTP-кэша (GitHub Pages отдаёт файлы с
+//    max-age=600) — в кэш новой версии попадали СТАРЫЕ файлы: игрок видел новый
+//    номер версии, а игра работала по старому коду (см. CHANGELOG-v13.070.md).
+const CACHE_VERSION = CACHE_NAME.replace(/^wargame-/, '');
+const BUILD_MARKER = '⚡ BUILD-МАРКЕР: ' + CACHE_VERSION;
+// Файлы, по которым проверяется версия кэша (маркер в модулях ядра + версия в index.html)
+const MARKED_ASSETS = [
+    { url: './index.html', needle: "var APP_VERSION = '" + CACHE_VERSION + "';" },
+    { url: './js/data.js', needle: BUILD_MARKER },
+    { url: './js/hexmaps.js', needle: BUILD_MARKER },
+    { url: './js/templates.js', needle: BUILD_MARKER },
+];
+// Предзагрузка ядра в обход HTTP-кэша браузера
+function precacheCore(cache) {
+    return CORE_ASSETS.reduce((chain, url) =>
+        chain.then(() => cache.add(new Request(url, { cache: 'reload' }))), Promise.resolve());
+}
+// Если в кэш всё же попал файл другой версии — установка отменяется
+function verifyCachedBuild(cache) {
+    return Promise.all(MARKED_ASSETS.map(item =>
+        cache.match(item.url).then((res) => res ? res.text() : '').then((text) => {
+            if (text.indexOf(item.needle) < 0) throw new Error('[SW] в кэш попал файл другой версии: ' + item.url);
+            return true;
+        })
+    ));
+}
+
 // ⚡ v13.052 (R37#4): не более PRECACHE_PARALLEL одновременных запросов —
 //    раньше все ~300 файлов (иконки + 149 карт гексов) запрашивались разом,
 //    и на телефоне первые минуты после обновления игра «тормозила» из-за этого.
@@ -419,18 +450,32 @@ function precacheHexMaps(cache) {
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      const core = new Set(CORE_ASSETS);
-      const soft = ASSETS.filter((u) => !core.has(u));
-      return cache.addAll(CORE_ASSETS)
-        .then(() => precacheSoft(cache, soft))
-        .then(() => precacheHexMaps(cache));
-    })
+    // ⚡ v13.070: неполный/смешанный кэш этой же версии удаляем сразу —
+    //    пересобираем его с нуля в обход HTTP-кэша браузера
+    caches.delete(CACHE_NAME)
+      .then(() => caches.open(CACHE_NAME))
+      .then((cache) => {
+        const core = new Set(CORE_ASSETS);
+        const soft = ASSETS.filter((u) => !core.has(u));
+        return precacheCore(cache)
+          .then(() => verifyCachedBuild(cache))
+          .then(() => precacheSoft(cache, soft))
+          .then(() => precacheHexMaps(cache));
+      })
+      .then(() => {
+        // ⚡ v13.024: новый SW перехватывает управление сразу,
+        //    не дожидаясь закрытия всех вкладок (иначе старые файлы
+        //    продолжали отдаваться старым SW)
+        if ('skipWaiting' in self) self.skipWaiting();
+      })
+      .catch((err) => {
+        // ⚡ v13.070: версию со «чужими» файлами не активируем — иначе игрок
+        //    получит новый номер версии со старым кодом. Кэш убираем, чтобы
+        //    браузер повторил установку при следующей проверке обновления.
+        console.error('[SW] установка отменена:', err && err.message);
+        return caches.delete(CACHE_NAME).then(() => { throw err; });
+      })
   );
-  // ⚡ v13.024: новый SW перехватывает управление сразу,
-  //    не дожидаясь закрытия всех вкладок (иначе старые файлы
-  //    продолжали отдаваться старым SW)
-  if ('skipWaiting' in self) self.skipWaiting();
 });
 
 // ⚡ v13.057: ручная кнопка может запросить активацию уже скачанного SW.

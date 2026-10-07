@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.069 — операция</title>
+  <title>Боевой модуль v13.070 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -13,7 +13,7 @@
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.069</h1>
+    <h1>⚔️ Боевой модуль v13.070</h1>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -27,7 +27,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.069</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.070</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -59,7 +59,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.069 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.070 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -329,6 +329,12 @@ function safeLocalStorage(method, ...args) {
     }
 // ⚡ v13.041: текущая версия — отображается в меню/шапке/диагностике,
 //    чтобы игрок видел, свежая ли версия на его устройстве
+// v13.070: надёжное обновление сборки — сервис-воркер предзагружает ядро в обход
+//    HTTP-кэша браузера (cache: 'reload') и проверяет маркеры версии, а приложение
+//    при запуске сверяет загруженные модули с APP_VERSION и один раз выполняет
+//    глубокое обновление (unregister + чистка кэшей). Лечит состояние «в меню
+//    новый номер версии, а игра работает по старому коду» — без «Взвода снабжения»
+//    и со «строго 5 гексами» у мастеров ДОТов; см. CHANGELOG-v13.070.md.
 // ⚡ v13.056 (R39): карточки по взводам, сохранение выбора и ограничения тестового здоровья.
 // ⚡ v13.058: физическая выдача/отзыв пар связистов и ручная прокладка телефонного кабеля.
 // ⚡ v13.059: max-AP preview, bicycle blitz, terrain-editor texture cycling and online casualty visibility.
@@ -349,7 +355,7 @@ function safeLocalStorage(method, ...args) {
 // v13.065: melee by real hex distance, no conditional battle cards, red debuff frames,
 //    map-template replacement and v13.058 start positions; see CHANGELOG-v13.065.md.
 // v13.064: order-list details, ETA hints and cancel confirmations; see CHANGELOG-v13.064.md.
-var APP_VERSION = 'v13.069';
+var APP_VERSION = 'v13.070';
 
 // ⚡ v13.058: кнопка меню действительно запрашивает проверку новой версии SW;
 // если новый контроллер не вступил в силу, повторно открываем страницу с cache-buster.
@@ -409,6 +415,73 @@ function forceAppUpdate() {
       showStatus('⚠️ Не удалось проверить SW. Перезагружаем страницу…');
       reload.timer = setTimeout(() => reload(true), 500);
     });
+}
+
+// ═══════════════ ⚡ v13.070: САМОПРОВЕРКА СБОРКИ ═══════════════
+// Причина: GitHub Pages отдаёт файлы с max-age=600, а сервис-воркер кэширует их
+// «навсегда» (cache-first). Если в кэш новой версии попадал старый js-модуль,
+// игрок видел НОВЫЙ номер версии в меню, но СТАРЫЙ код игры: пропадал «Взвод
+// снабжения» (он собирается из js/data.js + js/templates.js), а мастер
+// расстановки ДОТов просил ровно 5 гексов вместо «по числу доступных ДОТов»
+// (js/hexmaps.js). Теперь при запуске модули сверяются по маркеру сборки, и при
+// несовпадении один раз за сессию выполняется глубокое обновление.
+const BUILD_MARKER_PREFIX = '⚡ BUILD-МАРКЕР:';
+const BUILD_MARKED_MODULES = ['js/data.js', 'js/hexmaps.js', 'js/templates.js'];
+// Скачиваем модуль В ОБХОД сервис-воркера (уникальный query) и ищем маркер версии.
+function buildFreshnessProbe(moduleUrl, expected) {
+  const url = moduleUrl + (moduleUrl.indexOf('?') < 0 ? '?' : '&') + 'build=' + encodeURIComponent(APP_VERSION);
+  return fetch(url, { cache: 'no-store' })
+    .then(r => (r && r.ok) ? r.text() : '')
+    .then(text => ({ moduleUrl, ok: text.indexOf(expected) >= 0 }))
+    .catch(() => ({ moduleUrl, ok: true }));   // нет сети — проверять нечего
+}
+function verifyBuildFreshness() {
+  const status = document.getElementById('appUpdateStatus');
+  const show = text => { if (status) { status.textContent = text; status.style.display = 'block'; } };
+  const expected = BUILD_MARKER_PREFIX + ' ' + APP_VERSION;
+  return Promise.all(BUILD_MARKED_MODULES.map(m => buildFreshnessProbe(m, expected)))
+    .then(results => {
+      const stale = results.filter(r => !r.ok).map(r => r.moduleUrl);
+      if (!stale.length) return false;
+      console.warn('⚡ v13.070: сборка устарела — ' + stale.join(', '));
+      show('⚠️ Найдены устаревшие файлы игры — обновляем…');
+      forceDeepUpdate('устаревшие файлы: ' + stale.join(', '));
+      return true;
+    });
+}
+// Глубокое обновление: снимаем регистрацию SW, чистим ВСЕ кэши и один раз
+// перезагружаем страницу с новым параметром (обход кэша браузера).
+function forceDeepUpdate(reason) {
+  try {
+    if (sessionStorage.getItem('__deepUpdate') === APP_VERSION) {
+      console.warn('⚡ v13.070: глубокое обновление уже выполнялось в этой сессии');
+      return false;
+    }
+    sessionStorage.setItem('__deepUpdate', APP_VERSION);
+  } catch (e) { /* приватный режим — просто продолжаем */ }
+  console.warn('⚡ v13.070: глубокое обновление сборки —', reason);
+  const reload = () => {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('_build', String(Date.now()));
+      window.location.replace(url.href);
+    } catch (e) {
+      try { window.location.reload(); } catch (ignored) { }
+    }
+  };
+  const jobs = [];
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      jobs.push(navigator.serviceWorker.getRegistrations().then(rs => Promise.all(rs.map(r => r.unregister()))));
+    }
+  } catch (e) { }
+  try {
+    if (typeof caches !== 'undefined' && caches.keys) {
+      jobs.push(caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))));
+    }
+  } catch (e) { }
+  Promise.all(jobs).catch(() => { }).then(() => setTimeout(reload, 60));
+  return true;
 }
 
 let selectedFaction = null;
@@ -26949,6 +27022,9 @@ function onlineOnSnapshotSync() {
       navigator.serviceWorker.register('./service-worker.js')
         .then(reg => console.log('Service Worker registered'))
         .catch(err => console.error('Service Worker failed', err));
+      // ⚡ v13.070: сверка сборки после загрузки — если в кэш попали старые
+      //    модули, выполняется глубокое обновление (один раз за сессию).
+      try { if (typeof verifyBuildFreshness === 'function') setTimeout(verifyBuildFreshness, 700); } catch (e) {}
     });
   }
 </script>
