@@ -20,7 +20,9 @@ const names = [
   // ⚡ v13.069 (R48#3): скрытное движение — галочка в панели приказов
   'orderUnitForStealthCheck', 'isVehicleMobilityUnit',
   // ⚡ v13.064: зависимости списка приказов (срок исполнения в подтверждениях)
-  'getOrderEta', 'orderEtaMessage', 'getOpTurnMinutes', 'formatOrderTime', 'getAllOrdersList'
+  'getOrderEta', 'orderEtaMessage', 'getOpTurnMinutes', 'formatOrderTime', 'getAllOrdersList',
+  // ⚡ v13.069: добавлены проверки скрытного движения — нужны для updateOrderFieldVisibility
+  'orderUnitForStealthCheck', 'isVehicleMobilityUnit'
 ];
 fs.writeFileSync('/tmp/wg_part.js', names.map(n => sliceFunction(HTML, n)).join('\n'));
 
