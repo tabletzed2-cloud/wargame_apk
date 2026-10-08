@@ -3,17 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.070 — операция</title>
+  <title>Боевой модуль v13.071 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <style>
+    /* ⚡ v13.071: акцент на одну кнопку действия и мягкий фон фазового бара */
+    #uxPhaseBar { box-shadow: 0 0 0 1px #2980b9 inset; }
+    #btnFinishPlacement { font-weight: 700; box-shadow: 0 0 10px rgba(39,174,96,.35) inset; }
+    #opEndTurnBtn { font-weight: 700; box-shadow: 0 0 10px rgba(41,128,185,.35) inset; }
+    /* главная кнопка действия в фазе пусть чуть крупнее остальных */
+    .ux-phase-deploy button, .ux-phase-battle button, .ux-phase-rare button { padding:6px 10px; }
+  </style>
 </head>
 <body>
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.070</h1>
+    <h1>⚔️ Боевой модуль v13.071</h1>
+    <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
@@ -27,7 +36,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.070</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.071</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -59,7 +68,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.070 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.071 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -355,7 +364,7 @@ function safeLocalStorage(method, ...args) {
 // v13.065: melee by real hex distance, no conditional battle cards, red debuff frames,
 //    map-template replacement and v13.058 start positions; see CHANGELOG-v13.065.md.
 // v13.064: order-list details, ETA hints and cancel confirmations; see CHANGELOG-v13.064.md.
-var APP_VERSION = 'v13.070';
+var APP_VERSION = 'v13.071';
 
 // ⚡ v13.058: кнопка меню действительно запрашивает проверку новой версии SW;
 // если новый контроллер не вступил в силу, повторно открываем страницу с cache-buster.
@@ -14870,6 +14879,13 @@ function rotateSelectedHex() {
   try { if (typeof renderHexEditsPanel === 'function') renderHexEditsPanel(); } catch (e) {}
   // ⚡ v13.051 (R36#7): гексы размещения по умолчанию (один раз за кампанию)
   try { if (typeof maybeAutoPlaceAtStart === 'function') maybeAutoPlaceAtStart(); } catch (e) { console.warn('maybeAutoPlaceAtStart:', e.message); }
+  // ⚡ v13.071: в соло-игре врага автоматически расставляем один раз (можно переставить вручную)
+  try {
+    if (appData.campaign && !appData.campaign.online && !appData.campaign.enemyAutoPlaced) {
+      const n = (typeof autoPlaceEnemyUnits === 'function') ? autoPlaceEnemyUnits() : 0;
+      if (n > 0) appData.campaign.enemyAutoPlaced = true;
+    }
+  } catch (e) { console.warn('autoPlaceEnemyAtStart:', e.message); }
   initOperationalMap();
   renderActiveBattlesList();
   try { if (typeof renderInitialFortificationStatus === 'function') renderInitialFortificationStatus(); } catch (e) {}
@@ -27263,33 +27279,57 @@ function onlineOnSnapshotSync() {
   <strong style="color:#f1c40f;">📋 Активные приказы:</strong>
   <div id="ordersContainer" style="margin-top:4px;"></div>
 </div>
-  <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Размещение</button>
-  <!-- ⚡ v13.061 → v13.066: начальная расстановка только ДОТов (окопы уже на
-       картах по стандарту). Кнопка видна лишь у BeVe и лишь если в батальоне
-       есть ДОТы (renderInitialFortificationStatus). -->
-  <button id="btnInitialFortificationSetup" onclick="startInitialFortificationSetup()" style="background:#8e44ad; display:none;">🪖 Расставить ДОТы</button>
-  <div id="initialFortificationStatus" role="status" aria-live="polite" style="display:none; margin:4px 0; padding:8px; background:#1d1726; border:1px solid #8e44ad; border-radius:6px; color:#f1c40f; font-size:.88rem;"></div>
-  <!-- ⚡ v13.051 (R36#7): авторазмещение неразмещённых юнитов в своей зоне -->
-  <button onclick="autoPlaceUnplacedUnits({ manual: true })" style="background:#16a085;">🎲 Авторазмещение</button>
-  <button onclick="finishPlacement()" style="background:#27ae60;">✅ Завершить размещение</button>
-  <button onclick="setOpMapMode('move')" style="background:#2980b9;">🚶 Перемещение</button>
-  <button onclick="removeSelectedOpUnit()" style="background:#555;">🗑️ Удалить выбранного</button>
-  <button onclick="startOpShooting()" style="background:#c0392b;">🎯 Обстрел</button>
-  <div id="dismountPanel" style="display:none; margin-top:4px;">
-    <button onclick="toggleDismount()" id="dismountBtn" style="background:#f39c12;">🚲 Спешиться</button>
+  <div id="uxPhaseBar" class="ux-phase-bar" style="margin:4px 0 6px 0; padding:8px; background:#142033; border:1px solid #2980b9; border-radius:8px; font-size:.92rem; color:#ecf0f1;">
+    <div id="opNextStepBar" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <span style="color:#f1c40f;">🎯 Шаг:</span><span id="opNextStepText" style="font-weight:bold;">—</span>
+      <span id="opNextStepHint" style="color:#7f8c8d; font-size:.82rem;"></span>
+    </div>
+    <div id="opOnboardingPanel" style="margin-top:6px; display:flex; gap:14px; flex-wrap:wrap; font-size:.82rem; color:#bdc3c7;"></div>
   </div>
-  <div id="btrPanel" style="display:none; margin-top:4px;">
-    <button onclick="showBtrEmbarkDialog()" id="btrEmbarkBtn" style="background:#2980b9;">🚌 Посадить в БТР</button>
-    <button onclick="showBtrDisembarkDialog()" id="btrDisembarkBtn" style="background:#e67e22; display:none;">🚶 Высадить из БТР</button>
-</div>
-  <button onclick="checkOpDetection()" style="background:#8e44ad;">🔍 Проверить обнаружение</button>
-  <!-- ⚡ v13.051 (R36#3): вход в редактор карты гекса (окопы / подготовка позиций)
-       прямо с оперативной карты — раньше кнопка была только в скрытой панели «Вид» -->
-  <button id="opHexMapsBtn" onclick="showHexEditorsMenu()" style="background:#16a085;">🛠️ Карта гекса (окопы/подготовка)</button>
-  <!-- ⚡ v13.057: отдельный видимый результат нажатия, даже если правок пока нет -->
+
+  <!-- ⚡ v13.071: ФАЗЫ ИНТЕРФЕЙСА. Каждая группа видна только в своей фазе.
+       Видимость управляется applyUxPhase(), она не меняет игровую логику. -->
+  <div id="opPhaseDeploy" class="ux-phase-deploy" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
+    <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Размещение</button>
+    <button id="btnInitialFortificationSetup" onclick="startInitialFortificationSetup()" style="background:#8e44ad; display:none;">🪖 Расставить ДОТы</button>
+    <div id="initialFortificationStatus" role="status" aria-live="polite" style="display:none; margin:4px 0; padding:8px; background:#1d1726; border:1px solid #8e44ad; border-radius:6px; color:#f1c40f; font-size:.88rem;"></div>
+    <button onclick="autoPlaceUnplacedUnits({ manual: true })" style="background:#16a085;" title="Расставить неразмещённые юниты в своей зоне автоматически">🎲 Авторазмещение</button>
+    <button onclick="finishPlacement()" style="background:#27ae60;" id="btnFinishPlacement">✅ Завершить размещение</button>
+    <!-- ⚡ v13.071: панель врага и селектор юнита в фазе развёртывания
+         показываются только в этой группе (в бою скрываются). -->
+    <span id="opDeployEnemySlot"></span>
+    <span id="opDeployUnitSelectSlot"></span>
+  </div>
+
+  <div id="opPhaseBattle" class="ux-phase-battle" style="display:none; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
+    <button onclick="setOpMapMode('move')" style="background:#2980b9;">🚶 Перемещение</button>
+    <button onclick="startOpShooting()" style="background:#c0392b;">🎯 Обстрел</button>
+    <button onclick="checkOpDetection()" style="background:#8e44ad;" title="Проверить, видит ли выбранный юнит врага в радиусе обнаружения">🔍 Проверить обнаружение</button>
+    <div id="dismountPanel" style="display:none; margin-top:4px;">
+      <button onclick="toggleDismount()" id="dismountBtn" style="background:#f39c12;">🚲 Спешиться</button>
+    </div>
+    <div id="btrPanel" style="display:none; margin-top:4px;">
+      <button onclick="showBtrEmbarkDialog()" id="btrEmbarkBtn" style="background:#2980b9;">🚌 Посадить в БТР</button>
+      <button onclick="showBtrDisembarkDialog()" id="btrDisembarkBtn" style="background:#e67e22; display:none;">🚶 Высадить из БТР</button>
+    </div>
+    <button id="opEndTurnBtn" onclick="endOperationalTurn()" style="background:#2980b9;">⏭️ Завершить ход</button>
+  </div>
+
+  <div id="opPhaseRare" class="ux-phase-rare" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
+    <button onclick="removeSelectedOpUnit()" style="background:#555;" title="Удалить выбранного юнита со стартовой позиции">🗑️ Удалить</button>
+    <button id="opHexMapsBtn" onclick="showHexEditorsMenu()" style="background:#16a085;" title="Окопы / подготовка позиций на конкретном гексе">🛠️ Карта гекса</button>
+    <button id="uxMoreBtn" onclick="toggleUxMoreMenu()" style="background:#34495e;" title="Редкие действия: группировка, объединение и т.п.">⚙️ Ещё ▾</button>
+  </div>
+  <div id="uxMoreMenu" style="display:none; margin-bottom:6px; padding:6px; background:#1d252e; border:1px solid #34495e; border-radius:6px;">
+    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+      <button onclick="showGroupDialog()" id="groupBtn" style="background:#8e44ad;">📦 Объединить в отряд</button>
+      <button onclick="showSplitDialog()" id="splitBtn" style="display:none; background:#e67e22;">✂️ Разбить отряд</button>
+      <button onclick="renameGroup()" id="renameBtn" style="display:none; background:#2980b9;">✏️ Переименовать</button>
+      <button onclick="showGroupDetails()" id="detailsBtn" style="display:none; background:#27ae60;">📋 Состав</button>
+    </div>
+    <div style="font-size:.78rem; color:#7f8c8d; margin-top:6px;">Редкие действия для выбранного юнита/группы. Показываются здесь, чтобы не загромождать основной экран.</div>
+  </div>
   <div id="opHexMenuStatus" role="status" aria-live="polite" style="display:none; margin:4px 0; padding:8px; background:#14231e; border:1px solid #16a085; border-radius:6px; color:#f1c40f; font-size:.88rem;"></div>
-  <button id="opEndTurnBtn" onclick="endOperationalTurn()" style="background:#2980b9;">⏭️ Завершить ход</button>
-</div>
      <div id="vehiclePanel" style="display:none; margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
     <strong>🚗 Техника</strong>
     <button onclick="showGroupDialog()" id="groupBtn" style="background:#8e44ad;">📦 Объединить в отряд</button>
@@ -27435,6 +27475,290 @@ function onlineOnSnapshotSync() {
 <button id="btnBackToRosterList" style="display:none; margin-top:6px;" onclick="backToRosterList()">← Назад к списку</button>
 </div>
 </div>
+
+
+
+// ⚡ v13.071: БЫСТРЫЙ СТАРТ — кампания за один клик.
+function quickStartCampaign() {
+  const scenarios = (typeof SCENARIOS !== 'undefined') ? Object.keys(SCENARIOS) : [];
+  const scenarioId = scenarios[0] || 'valencia';
+  const faction = 'BeVe';
+  const DEFAULT_SUPPORT = {
+    'BeVe': ['dots', 'sau_battery', 'armored_vehicle_platoon'],
+    'A.I.R.F.': ['btr_platoon', 'tank_platoon']
+  };
+  const supportIds = (DEFAULT_SUPPORT[faction] || []).slice();
+  try { selectScenario(scenarioId); } catch (e) { console.warn('selectScenario:', e); }
+  try { selectCampaignFaction(faction); } catch (e) { console.warn('selectCampaignFaction:', e); }
+  try { confirmBattalion(faction, supportIds); } catch (e) {
+    alert('⚡ Быстрый старт не сработал: ' + e.message);
+    return;
+  }
+  setTimeout(() => {
+    try { if (typeof autoPlaceUnplacedUnits === 'function') autoPlaceUnplacedUnits({ manual: false }); } catch(e) { console.warn('qs own:', e); }
+    try { if (typeof autoPlaceEnemyUnits === 'function') autoPlaceEnemyUnits(); } catch(e) { console.warn('qs enemy:', e); }
+    const mi = document.getElementById('mapInfo');
+    if (mi) mi.innerHTML = '⚡ Быстрый старт готов! Двигайте отряды и начинайте бой.';
+    if (typeof applyUxPhase === 'function') applyUxPhase();
+  }, 400);
+}
+
+// ⚡ v13.071: АВТОРАЗМЕЩЕНИЕ ВРАГА в соло.
+function autoPlaceEnemyUnits(opts) {
+  opts = opts || {};
+  const camp = appData.campaign;
+  if (!camp || camp.online) return 0;
+  const enemies = (camp.enemyOpUnits && Array.isArray(camp.enemyOpUnits)) ? camp.enemyOpUnits : null;
+  if (!enemies || enemies.length === 0) return 0;
+  const scenario = camp.scenario;
+  const faction = camp.playerFaction;
+  const oppFaction = (faction === 'BeVe') ? 'A.I.R.F.' : 'BeVe';
+  const zone = (typeof getFactionPlacementHexes === 'function') ? getFactionPlacementHexes(scenario, oppFaction) : [];
+  if (zone.length === 0) return 0;
+  const avg = (hs) => ({ col: hs.reduce((a, h) => a + h.col, 0) / hs.length, row: hs.reduce((a, h) => a + h.row, 0) / hs.length });
+  const cen = avg(zone);
+  const myZone = (typeof getFactionPlacementHexes === 'function') ? getFactionPlacementHexes(scenario, faction) : [];
+  const front = myZone.length ? avg(myZone) : cen;
+  const dist2 = (h, p) => { const dc = h.col - p.col, dr = h.row - p.row; return dc * dc + dr * dr; };
+  const dFront = (h) => { try { return (typeof getOpHexDistance === 'function') ? getOpHexDistance(h.col, h.row, Math.round(front.col), Math.round(front.row)) : 0; } catch (e) { return 0; } };
+  const fronts = zone.map(dFront);
+  const midFront = fronts.slice().sort((a, b) => a - b)[Math.floor(fronts.length / 2)];
+  const occ = {};
+  enemies.forEach(u => { if (u && u.col !== null && u.col !== undefined) { const k = u.col + ',' + u.row; occ[k] = (occ[k] || 0) + 1; } });
+  const isArtLike = (u) => ['mortar_battery','sau_battery','regimental_artillery','artillery_support'].includes(u.type) || /миномет|миномёт|САУ|артиллер|танк|ПТО/i.test(String(u.name || ''));
+  const isStatic = (u) => (typeof isStaticOpUnit === 'function') ? isStaticOpUnit(u) : false;
+  const category = (u) => {
+    if (isStatic(u)) return 'front';
+    if (u.type === 'battalion_hq' || u.type === 'hq' || isArtLike(u)) return 'rear';
+    if (u.type === 'company_hq') return 'mid';
+    return 'center';
+  };
+  const orderFor = (cat) => {
+    const z = zone.slice();
+    if (cat === 'front') z.sort((a, b) => dFront(a) - dFront(b) || dist2(a, cen) - dist2(b, cen));
+    else if (cat === 'rear') z.sort((a, b) => dFront(b) - dFront(a) || dist2(a, cen) - dist2(b, cen));
+    else if (cat === 'mid') z.sort((a, b) => Math.abs(dFront(a) - midFront) - Math.abs(dFront(b) - midFront) || dist2(a, cen) - dist2(b, cen));
+    else z.sort((a, b) => dist2(a, cen) - dist2(b, cen) || dFront(a) - dFront(b));
+    return z;
+  };
+  const orders = { front: orderFor('front'), rear: orderFor('rear'), mid: orderFor('mid'), center: orderFor('center') };
+  const catRank = { front: 0, rear: 1, mid: 2, center: 3 };
+  const queue = enemies.filter(u => u && (u.col === null || u.col === undefined)).sort((a, b) => catRank[category(a)] - catRank[category(b)]);
+  let placed = 0;
+  queue.forEach(u => {
+    const list = orders[category(u)];
+    const pick = (limit) => list.find(h => {
+      const k = h.col + ',' + h.row;
+      if ((occ[k] || 0) >= limit) return false;
+      let cost = Infinity;
+      try { cost = getOpMoveCost(u, h.col, h.row, h.col, h.row); } catch (e) { cost = 2; }
+      return isFinite(cost);
+    });
+    const h = pick(2) || pick(4);
+    if (!h) return;
+    u.col = h.col; u.row = h.row; u.autoPlaced = true;
+    occ[h.col + ',' + h.row] = (occ[h.col + ',' + h.row] || 0) + 1;
+    placed++;
+  });
+  if (placed > 0) {
+    try { saveData(); } catch (e) {}
+    if (typeof redrawOperationalMap === 'function') redrawOperationalMap();
+    if (typeof log === 'function') log('⚡ Вражеские юниты расставлены автоматически (' + placed + ' шт.).', '#7f8c8d');
+  }
+  return placed;
+}
+
+// ⚡ v13.071: ФАЗОВЫЙ ИНТЕРФЕЙС + ЧЕК-ЛИСТ ОСВОЕНИЯ.
+// Видимость кнопок определяется фазой. Ни одна функция не удалена — только display.
+(function () {
+  const ONBOARDING_KEY = 'opOnboardingChecklist_v1'; // флаги по uid кампании
+  const CHECKLIST = [
+    { id: 'place',   label: '✅ Разместить взвод',     hint: '«🎲 Авторазмещение» или «📌 Размещение» → клик по гексу' },
+    { id: 'move',    label: '⬜ Двинуть отряд',        hint: '«🚶 Перемещение» → клик по юниту → клик по соседнему гексу' },
+    { id: 'shoot',   label: '⬜ Открыть огонь',        hint: '«🎯 Обстрел» → выберите юнит и цель' },
+    { id: 'turn',    label: '⬜ Завершить ход',        hint: 'Кнопка «⏭️ Завершить ход» внизу действий' }
+  ];
+
+  function getChecklistState() {
+    try {
+      const raw = localStorage.getItem(ONBOARDING_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) { return {}; }
+  }
+  function setChecklistDone(id) {
+    if (!id) return;
+    const st = getChecklistState();
+    if (st[id]) return;
+    st[id] = true;
+    try { localStorage.setItem(ONBOARDING_KEY, JSON.stringify(st)); } catch (e) {}
+    renderChecklist(st);
+  }
+  function resetChecklist() {
+    try { localStorage.removeItem(ONBOARDING_KEY); } catch (e) {}
+    renderChecklist({});
+  }
+  function renderChecklist(st) {
+    const panel = document.getElementById('opOnboardingPanel');
+    if (!panel) return;
+    // Чек-лист показывается, пока не отмечены все пункты, и не скрывается вообще — он компактный.
+    const doneCount = CHECKLIST.filter(c => st[c.id]).length;
+    panel.innerHTML = CHECKLIST.map(c => {
+      const done = !!st[c.id];
+      return '<span style="opacity:' + (done ? '0.55' : '1') + ';" title="' + (c.hint || '').replace(/"/g, '&quot;') + '">' + c.label.replace('⬜', done ? '✅' : '⬜') + '</span>';
+    }).join('') + '<span style="color:#7f8c8d; font-size:.75rem; margin-left:auto;">освоение ' + doneCount + '/' + CHECKLIST.length + '</span>';
+  }
+
+  function currentPhase() {
+    if (typeof placementLocked === 'undefined') return 'battle';
+    if (!placementLocked) {
+      // есть неразмещённые — развёртывание; все размещены — ждём, но фаза deploy пока явно не нажато «Завершить ход»
+      return 'deploy';
+    }
+    return 'battle';
+  }
+
+  function moveIntoSlot(elId, slotId) {
+    const el = document.getElementById(elId);
+    const slot = document.getElementById(slotId);
+    if (!el || !slot) return;
+    if (el.parentNode === slot) return;
+    slot.appendChild(el);
+    el.style.display = ''; // покажем, слот сам скрывается
+  }
+
+  function applyUxPhase() {
+    if (!(typeof document !== 'undefined' && document.getElementById('campaignMapScreen'))) return;
+    if (document.getElementById('campaignMapScreen').style.display === 'none') return;
+
+    const phase = currentPhase();
+
+    // --- показываем нужную группу, прячем остальные ---
+    const groups = {
+      deploy: document.getElementById('opPhaseDeploy'),
+      battle: document.getElementById('opPhaseBattle')
+    };
+    Object.keys(groups).forEach(k => {
+      const g = groups[k];
+      if (!g) return;
+      const show = (phase === k);
+      g.style.display = show ? 'flex' : 'none';
+    });
+    // «⚙️ Ещё» и удалить/hexmap — видны всегда, но чуть приглушены в развёртывании
+    const rare = document.getElementById('opPhaseRare');
+    if (rare) rare.style.display = 'flex';
+
+    // --- в развёртывании панель врага и селектор юнита переезжают в deploy;
+    //     в бою — обратно на исходное место (после группы техники), чтобы не мешать.
+    const enemyPanel = document.getElementById('opEnemyPanel');
+    // unitSelectWrap найдём через опорную точку (не используем :has — он не везде есть)
+    // селектор обёрнут в без-id div — найдём его по ребёнку
+    const unitSelect = document.getElementById('opPlaceSelect');
+    const unitSelectBox = unitSelect ? unitSelect.closest('div') : null;
+    if (phase === 'deploy') {
+      moveIntoSlot('opEnemyPanel', 'opDeployEnemySlot');
+      if (unitSelectBox && unitSelectBox.id !== 'opDeployUnitSelectSlot') {
+        const slot = document.getElementById('opDeployUnitSelectSlot');
+        if (slot) slot.appendChild(unitSelectBox);
+      }
+    } else {
+      // возвращаем под карту (вставляем перед activeBattlesPanel)
+      const before = document.getElementById('activeBattlesPanel');
+      if (enemyPanel && before && enemyPanel.parentNode !== before.parentNode) {
+        before.parentNode.insertBefore(enemyPanel, before);
+        enemyPanel.style.display = '';
+      }
+      if (unitSelectBox && before && unitSelectBox.parentNode !== before.parentNode) {
+        before.parentNode.insertBefore(unitSelectBox, before);
+        unitSelectBox.style.display = '';
+      }
+    }
+
+    // --- строка «Следующий шаг» ---
+    const stepText = document.getElementById('opNextStepText');
+    const stepHint = document.getElementById('opNextStepHint');
+    let next = '', hint = '';
+    if (phase === 'deploy') {
+      const unplaced = (typeof getUnplacedOpUnits === 'function') ? getUnplacedOpUnits().filter(u => u && !u.embarkedInBtr).length : 0;
+      const dotsSetup = document.getElementById('btnInitialFortificationSetup');
+      const dotsDone = (typeof initialFortificationComplete === 'function') ? initialFortificationComplete() : true;
+      const dotsVisible = dotsSetup && dotsSetup.style.display !== 'none';
+      if (unplaced > 0) {
+        next = '① Разместите отряды (' + unplaced + ' осталось)';
+        hint = '«🎲 Авторазмещение» поставит всех в один клик; или «📌 Размещение» → выберите юнит → клик по зелёной зоне.';
+        setChecklistDone('place');
+      } else if (dotsVisible && !dotsDone) {
+        next = '② Расставьте ДОТы';
+        hint = 'Нажмите «🪖 Расставить ДОТы» и выберите гексы в своей зоне (по одному под каждый ДОТ).';
+      } else {
+        next = '③ Нажмите «✅ Завершить размещение»';
+        hint = 'После этого ход перейдёт в фазу передвижения и боя.';
+      }
+    } else {
+      next = 'Ход: двигайте отряды или открывайте огонь';
+      hint = '«🚶 Перемещение» — дойти до гекса; «🎯 Обстрел» — выбрать цель; «⏭️ Завершить ход» — передать ход.';
+    }
+    if (stepText) stepText.textContent = next;
+    if (stepHint) stepHint.textContent = hint;
+
+    renderChecklist(getChecklistState());
+  }
+
+  function toggleUxMoreMenu() {
+    const m = document.getElementById('uxMoreMenu');
+    if (!m) return;
+    m.style.display = (m.style.display === 'none') ? 'block' : 'none';
+  }
+
+  // Патчим существующие функции, чтобы применять фазы после действий.
+  // (Ничего не ломаем: просто вызываем applyUxPhase после.)
+  function hookAfter(name, fn) {
+    const orig = (typeof window !== 'undefined') ? window[name] : null;
+    if (typeof orig !== 'function') return;
+    window[name] = function () {
+      const r = orig.apply(this, arguments);
+      try { fn(); } catch (e) { console.warn('ux phase hook:', name, e); }
+      return r;
+    };
+  }
+
+  // Дожидаемся загрузки DOM, потому что мы в <head>.
+  function install() {
+    // Делаем функции доступными глобально.
+    window.applyUxPhase = applyUxPhase;
+    window.toggleUxMoreMenu = toggleUxMoreMenu;
+    window.uxResetChecklist = resetChecklist;
+    renderChecklist(getChecklistState());
+
+    // Хукаем ключевые точки изменения фазы.
+    hookAfter('finishPlacement', applyUxPhase);
+    hookAfter('autoPlaceUnplacedUnits', applyUxPhase);
+    hookAfter('setOpMapMode', applyUxPhase);
+    hookAfter('endOperationalTurn', () => { setChecklistDone('turn'); applyUxPhase(); });
+    hookAfter('showOperationalMap', applyUxPhase);
+    hookAfter('startOpShooting', () => { setChecklistDone('shoot'); });
+    // Хук на перемещение: вызывается setOpMapMode('move'), но сам факт успешного хода ловим по say()
+    const _say = (typeof say === 'function') ? say : null;
+    if (_say) {
+      window.say = function (text, color) {
+        const r = _say.apply(this, arguments);
+        if (typeof text === 'string') {
+          if (/перемещ|отправил|пош[её]л|выдвинулся/i.test(text)) setChecklistDone('move');
+        }
+        return r;
+      };
+    }
+
+    // Периодически подновляем (для первого рендера и после внешних действий)
+    applyUxPhase();
+    setInterval(applyUxPhase, 1500);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', install);
+  } else {
+    install();
+  }
+})();
 
 </body>
 </html>
