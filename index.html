@@ -17,8 +17,31 @@
     /* главная кнопка действия в фазе пусть чуть крупнее остальных */
     .ux-phase-deploy button, .ux-phase-battle button, .ux-phase-rare button { padding:6px 10px; }
   </style>
+
+  <style>
+    /* ⚡ v13.071: TOAST вместо alert() — не блокирующие плашки в углу */
+    #toastContainer { position:fixed; right:18px; bottom:18px; z-index:20000; display:flex; flex-direction:column; gap:8px; pointer-events:none; max-width:min(92vw, 360px); }
+    .ux-toast { pointer-events:auto; padding:10px 14px; border-radius:8px; background:#2c3e50; color:#ecf0f1; font-size:.92rem; line-height:1.35; box-shadow:0 6px 18px rgba(0,0,0,.45); border-left:4px solid #3498db; animation:ux-toast-in .18s ease-out; }
+    .ux-toast.kind-success { border-left-color:#27ae60; background:#1e3a2c; }
+    .ux-toast.kind-warn    { border-left-color:#f39c12; background:#3a2f18; }
+    .ux-toast.kind-error   { border-left-color:#c0392b; background:#3a1d1d; }
+    .ux-toast.kind-info    { border-left-color:#3498db; background:#1d2d3a; }
+    .ux-toast .ux-toast-x { float:right; margin-left:10px; background:transparent; border:none; color:#bdc3c7; cursor:pointer; font-size:1rem; padding:0 4px; }
+    @keyframes ux-toast-in { from { transform:translateY(12px); opacity:0 } to { transform:none; opacity:1 } }
+    @keyframes ux-toast-out { to { transform:translateY(12px); opacity:0 } }
+
+    /* ⚡ v13.071: Профиль сложности — крупнее кнопка, цвет по профилю */
+    #profileBtn { font-weight:600; }
+    .profile-menu { position:absolute; background:#2c3e50; border:1px solid #34495e; border-radius:8px; padding:6px; z-index:500; box-shadow:0 6px 18px rgba(0,0,0,.4); min-width:230px; }
+    .profile-menu button { display:block; width:100%; text-align:left; background:transparent; color:#ecf0f1; border:none; padding:8px 10px; border-radius:4px; cursor:pointer; font-size:.92rem; }
+    .profile-menu button:hover { background:#34495e; }
+    .profile-menu button.active { background:#3498db; }
+    .profile-menu .profile-desc { color:#95a5a6; font-size:.78rem; padding:2px 10px 8px; }
+  </style>
 </head>
 <body>
+<div id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
     <h1>⚔️ Боевой модуль v13.071</h1>
@@ -26,9 +49,7 @@
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
-     <button class="menu-btn" onclick="toggleHardMode()" id="hardModeBtn" style="background:#555;">
-        🎯 Hard Mode: ВЫКЛ
-    </button>
+    <button class="menu-btn" id="hardModeBtn" onclick="toggleProfileMenu('hardModeBtn')" style="background:#27ae60;">Сложность: 🌱 Новичок</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
     <button class="menu-btn" onclick="openInfo('history')">📜 История</button>
@@ -14881,7 +14902,8 @@ function rotateSelectedHex() {
   try { if (typeof maybeAutoPlaceAtStart === 'function') maybeAutoPlaceAtStart(); } catch (e) { console.warn('maybeAutoPlaceAtStart:', e.message); }
   // ⚡ v13.071: в соло-игре врага автоматически расставляем один раз (можно переставить вручную)
   try {
-    if (appData.campaign && !appData.campaign.online && !appData.campaign.enemyAutoPlaced) {
+    if (appData.campaign && !appData.campaign.online && !appData.campaign.enemyAutoPlaced
+        && (typeof uxProfile === 'undefined' || uxProfile.data().autoPlaceEnemy)) {
       const n = (typeof autoPlaceEnemyUnits === 'function') ? autoPlaceEnemyUnits() : 0;
       if (n > 0) appData.campaign.enemyAutoPlaced = true;
     }
@@ -27268,10 +27290,8 @@ function onlineOnSnapshotSync() {
     🎯 Отдать приказ
   </button>
   <!-- ⚡ v13.052 (R37#2): Hard Mode включается прямо с карты (раньше — только в главном меню) -->
-  <button onclick="toggleHardMode()" id="opHardModeBtn" style="background:#e67e22;">🎯 Включить Hard Mode (приказы, связь)</button>
-  <div id="opHardModeHint" style="display:none; color:#e67e22; font-size:0.8rem; margin-top:2px;">
-    Панели «🎯 Отдать приказ» и «📡 Связь» доступны только в Hard Mode. В онлайн-матче он включается автоматически.
-  </div>
+  <button id="opHardModeBtn" onclick="toggleProfileMenu('opHardModeBtn')" style="background:#27ae60;">Сложность: 🌱 Новичок</button>
+  <div id="opHardModeHint" style="display:none; color:#95a5a6; font-size:0.8rem; margin-top:2px;">Профиль «Новичок» скрывает сложные механики (приказы, связь, снабжение) и включает подсказки. Переключите в меню «Сложность» в любой момент.</div>
 </div>
 
 <!-- Список активных приказов -->
@@ -27499,6 +27519,7 @@ function quickStartCampaign() {
     try { if (typeof autoPlaceEnemyUnits === 'function') autoPlaceEnemyUnits(); } catch(e) { console.warn('qs enemy:', e); }
     const mi = document.getElementById('mapInfo');
     if (mi) mi.innerHTML = '⚡ Быстрый старт готов! Двигайте отряды и начинайте бой.';
+    try { toast('⚡ Быстрый старт: отряды и враг расставлены', 'success'); } catch (e) {}
     if (typeof applyUxPhase === 'function') applyUxPhase();
   }, 400);
 }
@@ -27759,6 +27780,238 @@ function autoPlaceEnemyUnits(opts) {
     install();
   }
 })();
+
+
+<script>
+// ⚡ v13.071: TOAST — не блокирующие плашки вместо alert().
+(function () {
+  if (window.toast) return;
+  function toast(msg, kind) {
+    kind = kind || 'info';
+    if (!msg) return;
+    const root = document.getElementById('toastContainer');
+    if (!root) { try { console.log('[toast', kind + ']', msg); } catch(e){} return; }
+    const el = document.createElement('div');
+    el.className = 'ux-toast kind-' + kind;
+    el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    const close = document.createElement('button');
+    close.className = 'ux-toast-x';
+    close.textContent = '✕'; close.setAttribute('aria-label', 'Закрыть');
+    const text = document.createElement('span');
+    text.textContent = String(msg);
+    el.appendChild(close); el.appendChild(text);
+    close.onclick = () => dismiss(el);
+    let timer = setTimeout(() => dismiss(el), 6000);
+    el.onmouseenter = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    el.onmouseleave = () => { timer = setTimeout(() => dismiss(el), 2500); };
+    root.appendChild(el);
+    function dismiss(e) {
+      if (!e || !e.parentNode) return;
+      e.style.animation = 'ux-toast-out .18s ease-in forwards';
+      setTimeout(() => { if (e.parentNode) e.parentNode.removeChild(e); }, 200);
+      if (timer) { clearTimeout(timer); timer = null; }
+    }
+    return el;
+  }
+  window.toast = toast;
+  // Переопределяем alert на toast в «мягком» режиме: блокирующий
+  // alert всё ещё доступен как window._alert для критичных случаев.
+  window._alert = window.alert;
+  // НЕ переопределяем глобально alert с ходу — сделаем это после загрузки
+  // (вдруг что-то в инициализации ожидает синхронный alert).
+  document.addEventListener('DOMContentLoaded', () => {
+    // Заменяем alert на toast на экране карты операции и в бою.
+    // Консервативно: alert работает, но параллельно выводит toast. Полной
+    // замены не делаем — некоторые ветки полагаются на синхронность alert.
+    const _origAlert = window.alert;
+    window.alert = function (msg) {
+      try { toast(String(msg), 'warn'); } catch (e) {}
+      try { _origAlert.apply(window, arguments); } catch (e) {}
+    };
+  });
+})();
+
+// ⚡ v13.071: ПРОФИЛЬ СЛОЖНОСТИ (Новичок / Обычный / Ветеран).
+// Профиль = настройка отображения. Жёстко он ничего не меняет в механиках,
+// только видимость панелей и пояснений. Флаг hardMode.enabled остаётся
+// источником истины для приказов/связи — профиль лишь выставляет его по умолчанию.
+(function () {
+  const KEY = 'uxProfile_v1';
+  const PROFILES = {
+    novice: {
+      label: '🌱 Новичок',
+      desc: 'Меньше кнопок, больше подсказок. Враг расставляется сам.',
+      hardByDefault: false,
+      showOnboarding: true,
+      autoPlaceEnemy: true,
+      autoPlaceOwn: true,    // quick-start-like поведение при входе на карту
+      devToolsHidden: true   // редакторские кнопки скрыты
+    },
+    normal: {
+      label: '⚔️ Обычный',
+      desc: 'Стандартная сложность. Hard Mode по желанию.',
+      hardByDefault: false,
+      showOnboarding: true,
+      autoPlaceEnemy: true,
+      autoPlaceOwn: false,
+      devToolsHidden: false
+    },
+    veteran: {
+      label: '🎖️ Ветеран',
+      desc: 'Все механики сразу. Hard Mode включён по умолчанию.',
+      hardByDefault: true,
+      showOnboarding: false,
+      autoPlaceEnemy: false,
+      autoPlaceOwn: false,
+      devToolsHidden: false
+    }
+  };
+  function get() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      const p = raw ? JSON.parse(raw) : 'novice';
+      return PROFILES[p] ? p : 'novice';
+    } catch (e) { return 'novice'; }
+  }
+  function set(p) {
+    if (!PROFILES[p]) return;
+    try { localStorage.setItem(KEY, JSON.stringify(p)); } catch (e) {}
+    apply();
+    toast('Профиль: ' + PROFILES[p].label, 'success');
+  }
+  function data() { return PROFILES[get()]; }
+
+  function apply() {
+    const prof = data();
+    // Применить к Hard Mode по умолчанию (если это первый запуск или профиль изменили)
+    try {
+      if (typeof hardMode !== 'undefined' && hardMode) {
+        if (!hardMode._profileApplied) {
+          hardMode.enabled = !!prof.hardByDefault;
+          hardMode._profileApplied = true;
+          if (typeof applyHardModeUI === 'function') applyHardModeUI();
+        }
+      }
+    } catch (e) { console.warn('profile hardMode:', e); }
+
+    // Обновить подпись кнопок
+    const menuBtn = document.getElementById('hardModeBtn');
+    const opBtn = document.getElementById('opHardModeBtn');
+    const label = 'Сложность: ' + prof.label;
+    if (menuBtn) { menuBtn.textContent = label; menuBtn.style.background = profColor(); }
+    if (opBtn) {
+      opBtn.textContent = prof.hardByDefault ? '🎖️ Ветеран (Hard Mode вкл.)' : label;
+      opBtn.style.background = profColor();
+    }
+
+    // Чек-лист — только новичку и обычному (пока не все 4 пункта отмечены)
+    const ocp = document.getElementById('opOnboardingPanel');
+    if (ocp) {
+      if (!prof.showOnboarding) ocp.style.display = 'none';
+      else ocp.style.display = '';
+    }
+
+    // Скрыть редакторские кнопки (Вид/правки) новичку
+    toggleDevTools(!prof.devToolsHidden);
+
+    // Закрыть меню, если открыто
+    const m = document.getElementById('profileMenu');
+    if (m) m.style.display = 'none';
+  }
+
+  function profColor() {
+    const p = get();
+    if (p === 'novice') return '#27ae60';
+    if (p === 'veteran') return '#c0392b';
+    return '#2980b9';
+  }
+
+  function toggleDevTools(show) {
+    // Панель «Вид и настройки карты» и её кнопка
+    ['mapViewPanelToggle'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = show ? '' : 'none';
+    });
+  }
+
+  function toggleMenu(anchorId) {
+    let m = document.getElementById('profileMenu');
+    const anchor = document.getElementById(anchorId);
+    if (!anchor) return;
+    if (m && m.dataset.anchor === anchorId && m.style.display !== 'none') {
+      m.style.display = 'none'; return;
+    }
+    if (!m) {
+      m = document.createElement('div');
+      m.id = 'profileMenu';
+      m.className = 'profile-menu';
+      document.body.appendChild(m);
+    }
+    m.dataset.anchor = anchorId;
+    m.innerHTML = '';
+    Object.keys(PROFILES).forEach((k) => {
+      const p = PROFILES[k];
+      const btn = document.createElement('button');
+      btn.textContent = p.label;
+      if (k === get()) btn.classList.add('active');
+      btn.onclick = () => { set(k); apply(); };
+      m.appendChild(btn);
+      const d = document.createElement('div');
+      d.className = 'profile-desc';
+      d.textContent = p.desc;
+      m.appendChild(d);
+    });
+    const r = anchor.getBoundingClientRect();
+    m.style.position = 'fixed';
+    m.style.left = Math.max(8, r.left) + 'px';
+    m.style.top = (r.bottom + 4) + 'px';
+    m.style.display = 'block';
+    // Клик снаружи — закрыть
+    setTimeout(() => {
+      document.addEventListener('click', outside, { once: true });
+    }, 0);
+    function outside(ev) {
+      if (!m) return;
+      if (m.contains(ev.target) || (anchor && anchor.contains(ev.target))) return;
+      m.style.display = 'none';
+    }
+  }
+
+  window.uxProfile = { get, set, data, apply, toggleMenu, PROFILES };
+  // Глобальные обработчики для кнопок
+  window.toggleProfileMenu = (anchorId) => toggleMenu(anchorId || 'hardModeBtn');
+
+  document.addEventListener('DOMContentLoaded', () => {
+    // Перехватываем клик по старой кнопке «Hard Mode» и «включить Hard Mode»
+    // — вместо переключения открываем меню профиля. Сам toggleHardMode остаётся
+    // доступным для внутреннего использования и для онлайна.
+    const mb = document.getElementById('hardModeBtn');
+    if (mb) { mb.onclick = (e) => { e.preventDefault(); toggleMenu('hardModeBtn'); }; }
+    const ob = document.getElementById('opHardModeBtn');
+    if (ob) { ob.onclick = (e) => { e.preventDefault(); toggleMenu('opHardModeBtn'); }; }
+    // Оборачиваем applyHardModeUI, чтобы он не затирал наш текст/фон кнопок
+    if (typeof applyHardModeUI === 'function' && !applyHardModeUI._uxWrapped) {
+      const orig = applyHardModeUI;
+      window.applyHardModeUI = function () {
+        orig.apply(this, arguments);
+        try { apply(); } catch (e) {}
+      };
+      window.applyHardModeUI._uxWrapped = true;
+    }
+    apply();
+    // При открытии карты операции тоже применим профиль
+    if (typeof showOperationalMap === 'function' && !showOperationalMap._uxWrapped) {
+      const os = showOperationalMap;
+      window.showOperationalMap = function () {
+        const r = os.apply(this, arguments);
+        setTimeout(() => { try { apply(); } catch (e) {} }, 100);
+        return r;
+      };
+      window.showOperationalMap._uxWrapped = true;
+    }
+  });
+})();
+</script>
 
 </body>
 </html>

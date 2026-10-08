@@ -1,3 +1,4 @@
+// ⚡ BUILD-МАРКЕР: v13.071 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // v13.065: invalidate offline code cache after the melee/cards/map-template fixes.
 // v13.064: invalidate offline code cache after the orders-list rework.
 // v13.063: invalidate offline code cache after the interface rework (orders panel, battle tab).
