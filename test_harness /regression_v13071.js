@@ -18,17 +18,17 @@ const APP = /var APP_VERSION = '([^']+)'/.exec(HTML)[1];
 
 // ─── версии ───
 test('v13.071: версия в приложении / манифесте / SW согласована', () => {
-  assert.equal(APP, 'v13.071');
-  assert.ok(MANIFEST.includes('БМ v13.071'), 'манифест');
-  assert.ok(SW.includes("'wargame-v13.071'"), 'кэш SW');
-  assert.ok(/<title>Боевой модуль v13\.071/.test(HTML), 'title');
-  assert.ok(/<h1>[^<]*v13\.071/.test(HTML), 'h1');
-  assert.ok(/appVersionBadge[^>]*>v13\.071</.test(HTML), 'badge');
+  assert.equal(APP, 'v13.072');
+  assert.ok(MANIFEST.includes('БМ v13.072'), 'манифест');
+  assert.ok(SW.includes("'wargame-v13.072'"), 'кэш SW');
+  assert.ok(/<title>Боевой модуль v13\.072/.test(HTML), 'title');
+  assert.ok(/<h1>[^<]*v13\.072/.test(HTML), 'h1');
+  assert.ok(/appVersionBadge[^>]*>v13\.072</.test(HTML), 'badge');
 });
 ['js/data.js','js/hexmaps.js','js/templates.js','js/cards.js'].forEach((m) => {
   test('v13.071: BUILD-маркер в ' + m, () => {
     const first = fs.readFileSync(path.join(ROOT, m), 'utf8').split('\n')[0];
-    assert.ok(first.includes('BUILD-МАРКЕР: v13.071'), 'первая строка: ' + first);
+    assert.ok(first.includes('BUILD-МАРКЕР: v13.072'), 'первая строка: ' + first);
   });
 });
 
