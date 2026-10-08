@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.072 — операция</title>
+  <title>Боевой модуль v13.073 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -44,7 +44,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.072</h1>
+    <h1>⚔️ Боевой модуль v13.073</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -57,7 +57,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.072</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.073</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -89,7 +89,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.072 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.073 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -385,7 +385,7 @@ function safeLocalStorage(method, ...args) {
 // v13.065: melee by real hex distance, no conditional battle cards, red debuff frames,
 //    map-template replacement and v13.058 start positions; see CHANGELOG-v13.065.md.
 // v13.064: order-list details, ETA hints and cancel confirmations; see CHANGELOG-v13.064.md.
-var APP_VERSION = 'v13.072';
+var APP_VERSION = 'v13.073';
 
 // ⚡ v13.058: кнопка меню действительно запрашивает проверку новой версии SW;
 // если новый контроллер не вступил в силу, повторно открываем страницу с cache-buster.
@@ -1808,7 +1808,7 @@ function renderBattalionRoster() {
           <div style="${destroyed ? 'color:#e74c3c;' : ''}">
             <strong>${unit.name}</strong> (${unit.type}) — ${unitLabel}: <b style="color:${destroyed ? '#e74c3c' : '#fff'};">${unitAlive}/${unitTotal}</b>${unitLost > 0 ? `, потерь: ${unitLost}` : ''} ${pos}
             ${destroyed ? ' <span style="color:#e74c3c; font-weight:bold;">💀 УНИЧТОЖЕН</span>' : ''}
-            ${unit.embarkedInBtr ? ' 🚌 В БТР' : ''}
+            ${unit.embarkedInBtr ? ' 🚌 В БТР' : ''}${unit.winch ? ' 🏔️' : ''}
             ${typeof supplyAmmoBarHtml === 'function' ? supplyAmmoBarHtml(unit) : ''}   <!-- ⚡ v13.068: шкала боезапаса юнита -->
           </div>
           ${operationalMoraleMarkup(unit)}
@@ -15000,7 +15000,7 @@ function endOperationalTurn() {
             const stealthOrder = (hardMode.orders || []).some(o => o && o.status === 'active' && o.toUnitId === uIdx &&
                 ((o.type === 'move' && o.stealth) ||
                  (Array.isArray(o.series) && o.series.some(st => st && st.type === 'move' && st.stealth && st.status !== 'completed'))));
-            u.stealthMove = !!stealthOrder && !isVehicleMobilityUnit(u);
+            u.stealthMove = !!stealthOrder;  // ⚡ v13.073: скрытно ходят и техника, и пехота
             // ⚡ v13.024: стационарные (ДОТ) ОД не получают
             u.ap = isStaticOpUnit(u) ? 0 : (u.stealthMove ? Math.min(u.maxAp || 4, 2) : u.maxAp);
             u.movedThisTurn = false;
@@ -18349,7 +18349,8 @@ function updateOrderFieldVisibility(type) {
     const stealthBlock = document.getElementById('orderStealthBlock');
     if (stealthBlock) {
         const unit = orderUnitForStealthCheck();
-        const allowed = type === 'move' && !!unit && !isVehicleMobilityUnit(unit);
+        // ⚡ v13.073: галочка «скрытно» доступна ВСЕМ отрядам (техника тоже, но медленнее)
+        const allowed = type === 'move' && !!unit && !isStaticOpUnit(unit);
         stealthBlock.style.display = allowed ? 'block' : 'none';
         const box = document.getElementById('orderStealthMove');
         if (box && !allowed) box.checked = false;
@@ -19607,6 +19608,10 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
 
     // Непроходимые для всех
     if (terrain === 'water' || terrain === 'swamp_impassable') return Infinity;
+
+    // ⚡ v13.073: «Талреп-якорь» — техника с якорем ЗАЕЗЖАЕТ на холм,
+    //    подъём на 1 уровень высоты стоит ВСЕГО ход (цена = все ОД отряда)
+    if (terrain === 'hill' && unit.winch) return Math.max(3, unit.maxAp || 4);
 
     const mobility = unit.mobility || 'foot';
     const dismounted = unit.dismounted || false;
@@ -21755,6 +21760,10 @@ function startOpShooting() {
 function canUnitShoot(unit) {
     if (!unit) return false;
 
+    // ⚡ v13.073: БТР без десанта — только транспорт: огонь запрещён, пока не посажен десант
+    const isBtrTransport = unit.type === 'btr_platoon' || (unit.name && String(unit.name).includes('БТР'));
+    if (isBtrTransport && !unit.embarkedUnit && unit.embarkedSquadIndex == null) return false;
+
     // Проверка: если юнит в тактическом бою - не может стрелять
     if (unit.isInBattle) {
         return false;
@@ -22914,6 +22923,13 @@ function executeOpShootAt(targets, distance) {
             return;
         }
     }
+    // ⚡ v13.073: после движения стреляют только «штурмовики» и БТР с десантом
+    if (shooter.movedThisTurn && !opMovingFireAllowed(shooter)) {
+        document.getElementById('mapInfo').innerHTML = '❌ Огонь после движения: бронетехнике нужен подприказ «⚡ штурмовать», БТР — десант на борту.';
+        log('⚠️ [' + shooter.name + '] огонь на ходу недоступен без «штурма»/десанта.');
+        cancelOpShooting();
+        return;
+    }
     shooter.firedThisTurn = true; // ⚡ v13.046 (R31#1): юнит стрелял — может быть обнаружен
     consumeOperationalAmmo(shooter, 'ordnance');   // ⚡ v13.069 (R48#6): 10% снарядов за стрельбу
 
@@ -22951,6 +22967,12 @@ function executeOpShootAt(targets, distance) {
     // ⚡ v13.020: таблицы пробития в data.js рассчитаны на дистанции 1–30 (мм).
     //    Ключи 35/38/40 в таблицах отсутствуют → пробитие было 0 уже с 4-го гекса.
     penetrationKey = Math.min(penetrationKey, 30);
+
+    // ⚡ v13.073: огонь на ходу (штурм) — большой штраф меткости
+    if (shooter.movedThisTurn) {
+        hitChance = hitChance * opMovingFirePenalty(shooter);
+        log('⚡ [' + shooter.name + '] огонь на ходу: меткость значительно снижена (×0.35).');
+    }
 
     // ⚡ v13.027: BeVe — +20% точности, если юнит в 2 гексах от штаба
     const hqModAt = getHqSupportAccuracyMod(shooter);
@@ -24978,6 +25000,20 @@ function checkVehicleRadioAfterLoss(unit) {
         log(`📻 Рация в отряде "${unit.name}" перестала действовать (машина с рацией уничтожена).`);
     }
 }
+// ⚡ v13.073: кому разрешён огонь на ходу (автоогонь и ручной обстрел после движения)
+function opMovingFireAllowed(unit) {
+    if (!unit) return false;
+    const isBtr = unit.type === 'btr_platoon' || (unit.name && String(unit.name).includes('БТР'));
+    if (isBtr) return !!(unit.embarkedUnit || unit.embarkedSquadIndex != null);
+    const idx = (appData.campaign.opUnits || []).indexOf(unit);
+    const orders = (typeof hardMode !== 'undefined' && hardMode && hardMode.orders) || [];
+    return orders.some(o => o && o.status === 'active' && o.toUnitId === idx && o.behavior === 'assault');
+}
+// ⚡ v13.073: большой штраф точности за огонь на ходу
+function opMovingFirePenalty(shooter) {
+    return (shooter && shooter.movedThisTurn) ? 0.35 : 1;
+}
+
 // ⚡ РЕЖИМ "ОГОНЬ НА ХОДУ" ДЛЯ ТЕХНИКИ
 function checkMovingFire(unit) {
     if (!unit) return;
@@ -25000,6 +25036,10 @@ function checkMovingFire(unit) {
     if (unit.ap <= 0) return;
     if (!unit.movedThisTurn) return;
     if (!canUnitShoot(unit)) return;
+
+    // ⚡ v13.073: огонь на ходу — бронетехнике только с подприказом «штурм»,
+    //    БТР — только с десантом на борту.
+    if (!opMovingFireAllowed(unit)) return;
 
     console.log(`🔫 checkMovingFire вызвана для ${unit.name}, ОД: ${unit.ap}`);
 
@@ -27247,7 +27287,7 @@ function onlineOnSnapshotSync() {
   <!-- ⚡ v13.069 (R48#3): скрытное движение — только для не-техники -->
   <div id="orderStealthBlock" style="display:none; margin-top:4px;">
     <label style="color:#aaa;" title="Юнит идёт медленнее (2 гекса за ход вместо 4), но его труднее обнаружить">
-      <input type="checkbox" id="orderStealthMove"> 🥷 Двигаться скрытно (медленнее, но труднее обнаружить)
+      <input type="checkbox" id="orderStealthMove"> 🥷 Двигаться скрытно (медленнее, но труднее обнаружить; доступно всем отрядам)
     </label>
   </div>
 
@@ -27300,7 +27340,7 @@ function onlineOnSnapshotSync() {
   <div id="ordersContainer" style="margin-top:4px;"></div>
 </div>
   <div id="uxPhaseBar" class="ux-phase-bar" style="margin:4px 0 6px 0; padding:8px; background:#142033; border:1px solid #2980b9; border-radius:8px; font-size:.92rem; color:#ecf0f1;">
-    <div id="opNextStepBar" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+    <div id="opNextStepBar" style="display:none; align-items:center; gap:8px; flex-wrap:wrap;">
       <span style="color:#f1c40f;">🎯 Шаг:</span><span id="opNextStepText" style="font-weight:bold;">—</span>
       <span id="opNextStepHint" style="color:#7f8c8d; font-size:.82rem;"></span>
     </div>
@@ -27310,6 +27350,7 @@ function onlineOnSnapshotSync() {
   <!-- ⚡ v13.071: ФАЗЫ ИНТЕРФЕЙСА. Каждая группа видна только в своей фазе.
        Видимость управляется applyUxPhase(), она не меняет игровую логику. -->
   <div id="opPhaseDeploy" class="ux-phase-deploy" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
+    <button id="winchBtn" onclick="grantWinchToSelected()" style="background:#8e6d47; display:none;" title="Талреп-якорь: позволяет технике заехать на 1 гекс высоты; подъём занимает 1 ход">🏔️ Талреп-якорь</button>
     <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Размещение</button>
     <button id="btnInitialFortificationSetup" onclick="startInitialFortificationSetup()" style="background:#8e44ad; display:none;">🪖 Расставить ДОТы</button>
     <div id="initialFortificationStatus" role="status" aria-live="polite" style="display:none; margin:4px 0; padding:8px; background:#1d1726; border:1px solid #8e44ad; border-radius:6px; color:#f1c40f; font-size:.88rem;"></div>
@@ -27335,6 +27376,7 @@ function onlineOnSnapshotSync() {
     <button id="opEndTurnBtn" onclick="endOperationalTurn()" style="background:#2980b9;">⏭️ Завершить ход</button>
   </div>
 
+  <div id="opBtrSlot" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
   <div id="opPhaseRare" class="ux-phase-rare" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
     <button onclick="removeSelectedOpUnit()" style="background:#555;" title="Удалить выбранного юнита со стартовой позиции">🗑️ Удалить</button>
     <button id="opHexMapsBtn" onclick="showHexEditorsMenu()" style="background:#16a085;" title="Окопы / подготовка позиций на конкретном гексе">🛠️ Карта гекса</button>
@@ -27498,6 +27540,7 @@ function onlineOnSnapshotSync() {
 
 
 
+<script>
 // ⚡ v13.071: БЫСТРЫЙ СТАРТ — кампания за один клик.
 function quickStartCampaign() {
   const scenarios = (typeof SCENARIOS !== 'undefined') ? Object.keys(SCENARIOS) : [];
@@ -27667,6 +27710,14 @@ function autoPlaceEnemyUnits(opts) {
     // «⚙️ Ещё» и удалить/hexmap — видны всегда, но чуть приглушены в развёртывании
     const rare = document.getElementById('opPhaseRare');
     if (rare) rare.style.display = 'flex';
+    // ⚡ v13.073: БТР-панель (посадка/высадка) видна в обеих фазах
+    moveIntoSlot('btrPanel', 'opBtrSlot');
+    // ⚡ v13.073: «Талреп-якорь» — только АИРФ и только в развёртывании
+    const winchBtn = document.getElementById('winchBtn');
+    if (winchBtn) {
+      const pf = (typeof appData !== 'undefined' && appData.campaign) ? appData.campaign.playerFaction : null;
+      winchBtn.style.display = (phase === 'deploy' && pf === 'A.I.R.F.') ? 'inline-block' : 'none';
+    }
 
     // --- в развёртывании панель врага и селектор юнита переезжают в deploy;
     //     в бою — обратно на исходное место (после группы техники), чтобы не мешать.
@@ -27695,6 +27746,7 @@ function autoPlaceEnemyUnits(opts) {
     }
 
     // --- строка «Следующий шаг» ---
+    const stepBar = document.getElementById('opNextStepBar');
     const stepText = document.getElementById('opNextStepText');
     const stepHint = document.getElementById('opNextStepHint');
     let next = '', hint = '';
@@ -27719,6 +27771,7 @@ function autoPlaceEnemyUnits(opts) {
       hint = '«🚶 Перемещение» — дойти до гекса; «🎯 Обстрел» — выбрать цель; «⏭️ Завершить ход» — передать ход.';
     }
     if (stepText) stepText.textContent = next;
+    if (stepBar) stepBar.style.display = next ? 'flex' : 'none';
     if (stepHint) stepHint.textContent = hint;
 
     renderChecklist(getChecklistState());
@@ -27774,13 +27827,42 @@ function autoPlaceEnemyUnits(opts) {
     setInterval(applyUxPhase, 1500);
   }
 
+  // ⚡ v13.073: Талреп-якорь для АИРФ в фазе размещения
+  function grantWinchToSelected() {
+    const camp = appData.campaign;
+    if (!camp) return;
+    let unit = camp.selectedOpUnit || null;
+    if (!unit) {
+      const sel = document.getElementById('opPlaceSelect');
+      if (sel && sel.value !== '-1' && camp.opUnits && camp.opUnits[parseInt(sel.value)]) unit = camp.opUnits[parseInt(sel.value)];
+    }
+    if (!unit) {
+      const mi = document.getElementById('mapInfo');
+      if (mi) mi.innerHTML = '❌ Сначала выберите отряд техники (в списке размещения или кликом по карте).';
+      return;
+    }
+    if (unit.mobility !== 'vehicle' && !(unit.type || '').match(/tank|sau|btr|armored|vehicle/)) {
+      const mi = document.getElementById('mapInfo');
+      if (mi) mi.innerHTML = '❌ Талреп-якорь ставится только на технику.';
+      return;
+    }
+    unit.winch = true;
+    saveData();
+    try { redrawOperationalMap(); } catch (e) {}
+    const mi = document.getElementById('mapInfo');
+    if (mi) mi.innerHTML = '🏔️ «Талреп-якорь» установлен на «' + unit.name + '»: подъём на холм доступен, но занимает весь ход.';
+    if (window.toast) toast('🏔️ Талреп-якорь: «' + unit.name + '» теперь может заезжать на высоты.', 'success');
+    log('🏔️ [' + unit.name + '] выдан Талреп-якорь.');
+  }
+  window.grantWinchToSelected = grantWinchToSelected;
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', install);
   } else {
     install();
   }
 })();
-
+</script>
 
 <script>
 // ⚡ v13.071: TOAST — не блокирующие плашки вместо alert().
@@ -28012,20 +28094,6 @@ function autoPlaceEnemyUnits(opts) {
   });
 })();
 </script>
-
-</body>
-</html>
-  </div>
-</div>
-  <div id="battalionRosterScreen" style="display:none; padding:20px;">
-  <h2>👥 Личный состав батальона</h2>
-  <button onclick="backToOperationalMapFromRoster()" style="background:#555;">← Назад к карте</button>
-  <div id="battalionRosterSummary" style="margin:10px 0; font-weight:bold;"></div>
-  <div id="battalionRosterList"></div>
-  <div id="battalionUnitDetails" style="display:none; margin-top:10px; padding:10px; background:#2a2a2a; border-radius:6px;"></div>
-<button id="btnBackToRosterList" style="display:none; margin-top:6px;" onclick="backToRosterList()">← Назад к списку</button>
-</div>
-</div>
 
 </body>
 </html>

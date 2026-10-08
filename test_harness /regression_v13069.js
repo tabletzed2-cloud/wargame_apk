@@ -233,7 +233,7 @@ test('R48#3: приказ «движение» несёт флаг stealth', () 
   assert.equal(s.evalCtx('oNormal.stealth'), false, 'обычный приказ без флага');
 });
 
-test('R48#3: галочка скрытности видна пехоте и скрыта для техники', () => {
+test('R48#3+v13.073: галочка скрытности видна всем подвижным отрядам', () => {
   const s = createSandbox(freshAppData());
   s.run(CONSTS.map(n => sliceConst(HTML, n)).join('\n') + '\n' +
         FNS.map(n => sliceFunction(HTML, n)).join('\n') + '\n');
@@ -246,12 +246,12 @@ test('R48#3: галочка скрытности видна пехоте и ск
   // пехота, приказ «движение»: блок показан
   s.run(`document.getElementById('orderTargetUnit').value = '0'; updateOrderFieldVisibility('move');`);
   assert.equal(s.evalCtx(`document.getElementById('orderStealthBlock').style.display`), 'block', 'пехоте — блок виден');
-  // техника: блок скрыт и галочка снята
+  // ⚡ v13.073: технике блок ТОЖЕ виден (скрытно ходят все), галочка не сбрасывается
   s.run(`document.getElementById('orderStealthMove').checked = true;
          document.getElementById('orderTargetUnit').value = '1';
          updateOrderFieldVisibility('move');`);
-  assert.equal(s.evalCtx(`document.getElementById('orderStealthBlock').style.display`), 'none', 'технике — блок скрыт');
-  assert.equal(s.evalCtx(`document.getElementById('orderStealthMove').checked`), false, 'галочка сброшена');
+  assert.equal(s.evalCtx(`document.getElementById('orderStealthBlock').style.display`), 'block', 'технике — блок виден (v13.073)');
+  assert.equal(s.evalCtx(`document.getElementById('orderStealthMove').checked`), true, 'галочка сохранена (v13.073)');
   // не «движение» — блока нет
   s.run(`document.getElementById('orderTargetUnit').value = '0'; updateOrderFieldVisibility('attack');`);
   assert.equal(s.evalCtx(`document.getElementById('orderStealthBlock').style.display`), 'none', 'для атаки блока нет');
@@ -259,7 +259,7 @@ test('R48#3: галочка скрытности видна пехоте и ск
 });
 
 test('R48#3: скрытный юнит медленнее (2 ОД) и хуже обнаруживается', () => {
-  assert.ok(/u\.stealthMove = !!stealthOrder && !isVehicleMobilityUnit\(u\)/.test(HTML), 'флаг пересчитывается из приказов');
+  assert.ok(/u\.stealthMove = !!stealthOrder;/.test(HTML), 'флаг пересчитывается из приказов (v13.073 — для всех)');
   assert.ok(/u\.ap = isStaticOpUnit\(u\) \? 0 : \(u\.stealthMove \? Math\.min\(u\.maxAp \|\| 4, 2\) : u\.maxAp\)/.test(HTML),
             'скрытному — половина ОД');
   assert.ok(/if \(unit\.stealthMove\) mod -= 1;\s*\n\s*else if \(unit\.movedThisTurn\) mod \+= 1;/.test(HTML),

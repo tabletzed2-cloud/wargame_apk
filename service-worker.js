@@ -10,7 +10,7 @@
 // ⚡ v13.061: cache update for retreat, turn-order and initial fortification fixes.
 // v13.072: invalidate offline code cache after the reliable-update (cache: 'reload'
 //    precache + build-marker verification) and build self-check fixes.
-const CACHE_NAME = 'wargame-v13.072';
+const CACHE_NAME = 'wargame-v13.073';
 
 const ASSETS = [
     './images/AIRF/штаб развед взвода АИРФ №1.png',
