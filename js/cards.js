@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.077 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.079 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // v13.062: platoon-wide IPP, two veteran squads, one rifle replacement per squad.
 // ⚡ v13.061: «Велоблиц» получает тактический бонус движения и фланговой меткости.
 // ==================== БИБЛИОТЕКА КАРТОЧЕК ====================
@@ -19,7 +19,8 @@ const GLOBAL_CARDS = [
   { "name": "Велоблиц", "desc": "Велосипедный отряд получает +3 гекса движения за ход и +1 к меткости при фланговой атаке.", "effect": "+3 гекса движения; +1 меткость во фланг", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/Велоблиц.png", "subfaction": "common", "informational": true, "type": "bonus" },
   // ⚡ v13.056 (R39#3): это бонусная карточка, не штрафная.
   { "name": "Скоординированный заградительный огонь", "desc": "Отделение поддержки подавляет 2 смежных гекса.", "effect": "Подавление 2 гексов", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "", "subfaction": "common", "informational": true, "type": "bonus" },
-  { "name": "Noodrem Аварийный тормоз", "desc": "Техника отъезжает на 1 гекс без траты ОД, следующий ход не двигается.", "effect": "Экстренный манёвр", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/Аварийный тормоз.png", "subfaction": "common", "informational": true, "type": "bonus" },
+  // ⚡ v13.079: «Аварийный тормоз» (Noodrem) убран из карт — это стандартная
+  //    способность всех BeVe-бронеавтомобилей (см. useEmergencyBrake в index.html).
   { "name": "Велостоянка", "desc": "Маркер на гексе с велосипедами, враг вызывает -1 духа.", "effect": "-1 духа врагу", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/велосипедная стоянка.png", "subfaction": "common", "informational": true, "type": "negative" },
   { "name": "Устаревшие боеприпасы", "desc": "На складах недостаток современных боеприпасов, со склада выдали патроны времен Великой Войны.", "effect": "Всем отрядам BeVe меткость -1.", "shotMod": 0, "accuracyMod": -1, "moraleMod": 0, "icon": "images/устаревшие патроны.png", "subfaction": "common", "type": "negative" },
   { "name": "Бюрократия", "desc": "Получение патронов на передовой превращается в бумажную волокиту.", "effect": "Колонны снабжения к этому взводу идут на 1 ход дольше.", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/Бюрократия.png", "subfaction": "common", "supplyDelay": 1, "type": "negative" },
@@ -47,7 +48,8 @@ const BEVE_CARDS = [
   { "name": "Велоблиц", "desc": "Велосипедный отряд получает +3 гекса движения за ход и +1 к меткости при фланговой атаке.", "effect": "+3 гекса движения; +1 меткость во фланг", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/Велоблиц.png", "subfaction": "common", "informational": true, "type": "bonus" },
   // ⚡ v13.056 (R39#3): это бонусная карточка, не штрафная.
   { "name": "Скоординированный заградительный огонь", "desc": "Отделение поддержки подавляет 2 смежных гекса.", "effect": "Подавление 2 гексов", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/Скоординированный заградительный огонь.png", "subfaction": "common", "informational": true, "type": "bonus" },
-  { "name": "Noodrem Аварийный тормоз", "desc": "Техника отъезжает на 1 гекс без траты ОД, следующий ход не двигается.", "effect": "Экстренный манёвр", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/Аварийный тормоз.png", "subfaction": "common", "informational": true, "type": "bonus" },
+  // ⚡ v13.079: «Аварийный тормоз» (Noodrem) убран из карт — это стандартная
+  //    способность всех BeVe-бронеавтомобилей (см. useEmergencyBrake в index.html).
   { "name": "Велостоянка", "desc": "Маркер на гексе с велосипедами, враг вызывает -1 духа.", "effect": "-1 духа врагу", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/велосипедная стоянка.png", "subfaction": "common", "informational": true, "type": "negative" },
   { "name": "Устаревшие боеприпасы", "desc": "На складах недостаток современных боеприпасов, со склада выдали патроны времен Великой Войны.", "effect": "Всем отрядам BeVe меткость -1.", "shotMod": 0, "accuracyMod": -1, "moraleMod": 0, "icon": "images/устаревшие патроны.png", "subfaction": "common", "type": "negative" },
   { "name": "Бюрократия", "desc": "Получение патронов на передовой превращается в бумажную волокиту.", "effect": "Колонны снабжения к этому взводу идут на 1 ход дольше.", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/Бюрократия.png", "subfaction": "common", "supplyDelay": 1, "type": "negative" },
@@ -75,7 +77,10 @@ const AIRF_CARDS = [
   { "name": "Ампуломёт АМ-1", "desc": "Добавляет расчёт ампуломёта из 3 человек. Дальность 8 гексов, 3 выстрела, урон d4. При 3 попаданиях в гекс – он загорается.", "effect": "Создаёт отряд «Расчёт ампуломёта АМ-1»", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/Ампуломет.png", "subfaction": "common", "type": "bonus" },
   { "name": "Ранцевый огнемёт РОКС-3", "desc": "Сапёрное отделение или штаб сапёров получает огнемёт (3 струи). Струя поражает всех в гексе (d6=2-6, урон 2).", "effect": "Заменяет оружие одного бойца на РОКС-3 (3 заряда)", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/РОКС-3.png", "subfaction": "common", "type": "bonus" },
   { "name": "Горное пончо", "desc": "В гористо-холмистой местности все отряды при проверке обнаружения пробрасывают с модификатором «Камуфляж».", "effect": "Условная", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/Горное пончо.png", "subfaction": "common", "informational": true, "type": "bonus" },
-  { "name": "Талреп-якорь", "desc": "На технику устанавливается специальное оборудование для самовытягивания из грязи или затягивания на возвышенность. На заезд на новый уровень высоты требуется трата всех ОД.", "effect": "Условная", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/талреп-якорь.png", "subfaction": "common", "informational": true, "type": "bonus" },
+  // ⚡ Талреп-якорь удалён из списка карточек боя: это глобальный фракционный бонус
+  //    A.I.R.F., применяется автоматически ко всей бронетехнике (см. FRACTION_GLOBAL_BONUSES
+  //    в js/data.js). В тактическом бою бонус работает по факту наличия winch=true
+  //    на отряде (getMovementCost в index.html).
   { "name": "Комиссар", "desc": "Командование направляет Комиссар для поддержания морали.", "effect": "В выбранный отряд добавляется боец «Комиссар» (ПП Star Si-35). Боевой дух всех отрядов +1, может снять подавление. Отменяет «Мародёрство» и «Анархисты».", "shotMod": 0, "accuracyMod": 0, "moraleMod": 1, "icon": "images/commisar AIRF.png", "subfaction": "common", "type": "bonus" },
   { "name": "Мародёрство", "desc": "Когда отряд заходит в окоп/здание, где был враг, он 1 ход бездействует.", "effect": "Информационная. Не работает при наличии комиссара.", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/Марадерство.png", "subfaction": "common", "informational": true, "type": "negative" },
   { "name": "Дополнительный паек", "desc": "Бойцам выдали накануне боя дополнительный паек, что повышает боевой дух.", "effect": "Боевой дух всех отрядов +1.", "shotMod": 0, "accuracyMod": 0, "moraleMod": 1, "icon": "images/паек аирф.png", "subfaction": "common", "type": "bonus" },

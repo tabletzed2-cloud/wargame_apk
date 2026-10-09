@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.077 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.079 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // v13.062: AIRF reconnaissance platoon HQ icon.
 // ⚡ v13.059: current release squad templates.
 // ==================== ШАБЛОНЫ ОТРЯДОВ ====================
