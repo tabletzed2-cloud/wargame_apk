@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.080 — операция</title>
+  <title>Боевой модуль v13.081 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -75,12 +75,12 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.080</h1>
+    <h1>⚔️ Боевой модуль v13.081</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
     <button class="menu-btn" onclick="openOnlineMenu()" style="background:#16a085;">⚔️ Играть онлайн</button>
-    <button class="menu-btn" id="hardModeBtn" onclick="toggleProfileMenu('hardModeBtn')" style="background:#27ae60;">Сложность: 🌱 Новичок</button>
+    <button class="menu-btn" id="hardModeBtn" onclick="toggleHardMode()" style="background:#555;">🎯 Hard Mode: ВЫКЛ</button>
     <button class="menu-btn" id="btnReturnToCampaignMenu" style="display:none;" onclick="returnToCampaignFromMenu()">↩️ Вернуться к кампании</button>
     <button class="menu-btn" onclick="openInfo('rules')">📖 Правила</button>
     <button class="menu-btn" onclick="openInfo('history')">📜 История</button>
@@ -88,7 +88,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.080</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.081</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -120,7 +120,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.080 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.081 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -418,7 +418,7 @@ function safeLocalStorage(method, ...args) {
 // v13.065: melee by real hex distance, no conditional battle cards, red debuff frames,
 //    map-template replacement and v13.058 start positions; see CHANGELOG-v13.065.md.
 // v13.064: order-list details, ETA hints and cancel confirmations; see CHANGELOG-v13.064.md.
-var APP_VERSION = 'v13.080';
+var APP_VERSION = 'v13.081';
 
 // ⚡ v13.058: кнопка меню действительно запрашивает проверку новой версии SW;
 // если новый контроллер не вступил в силу, повторно открываем страницу с cache-buster.
@@ -650,9 +650,23 @@ updateUI();
     else startBattleModule();
 }
 // ========== РЕЖИМ КАМПАНИИ ==========
+function campaignCanResume() {
+  const c = appData && appData.campaign;
+  return !!(c && c.active && c.scenario && c.battalions && c.battalions.player);
+}
+function refreshCampaignResumeButton() {
+  const btn = document.getElementById('btnReturnToCampaignMenu');
+  if (!btn) return;
+  btn.style.display = campaignCanResume() ? 'inline-block' : 'none';
+}
 function openCampaign() {
   console.log('openCampaign вызвана');
   inStandaloneBattle = false; // ⚡ v13.045 (R30): контекст карт — кампания
+  // ⚡ v13.081: свёрнутое приложение / повторный вход — продолжаем кампанию, а не выбор фракции
+  if (campaignCanResume()) {
+    returnToCampaignFromMenu();
+    return;
+  }
   document.getElementById('mainMenu').style.display = 'none';
   document.getElementById('campaignApp').style.display = 'block';
 
@@ -669,8 +683,7 @@ function closeCampaign() {
   document.getElementById('campaignMapScreen').style.display = 'none';
   document.getElementById('battalionRosterScreen').style.display = 'none'; // новая строка
   document.getElementById('mainMenu').style.display = 'block';
-  document.getElementById('btnReturnToCampaignMenu').style.display =
-  (appData.campaign.active && appData.campaign.scenario) ? 'inline-block' : 'none';
+  refreshCampaignResumeButton();
 }
 // ⚡ v13.020: «отпечаток» пресета батальона из data.js.
 //    Если он изменился (обновились SQUAD_TEMPLATES / BATTALION_PRESETS),
@@ -3452,19 +3465,9 @@ function handleOpMapClick(e) {
   }
   // ====== РЕЖИМ РАЗМЕЩЕНИЯ ИГРОКА ======
   if (appData.campaign.opMapMode === 'placePlayer') {
-    // ⚡ v13.080: клик по уже стоящему своему отряду — ВЫБОР, а не повторное размещение.
-    const clickedOwn = findUnitAtClick(appData.campaign.opUnits || [], clickX, clickY);
-    if (clickedOwn) {
-      appData.campaign.selectedOpUnit = clickedOwn;
-      const selPick = document.getElementById('opPlaceSelect');
-      const idxPick = (appData.campaign.opUnits || []).indexOf(clickedOwn);
-      if (selPick && idxPick >= 0) selPick.value = String(idxPick);
-      const miP = document.getElementById('mapInfo');
-      if (miP) miP.innerHTML = `👆 Выбран: ${clickedOwn.name}. Для перестановки включён режим размещения — кликните по пустому гексу в зоне, либо нажмите «👆 Выбор», чтобы только выбирать.`;
-      updateDismountPanel(); updateBtrPanel(); updateVehiclePanel();
-      redrawOperationalMap();
-      return;
-    }
+    // ⚡ v13.081: в режиме размещения клик ВСЕГДА ставит юнит из списка на гекс
+    //    (в т.ч. уже занятый — несколько отрядов на одном гексе). Выбор отряда —
+    //    кнопка «👆 Выбор отряда» или список.
     const sel = document.getElementById('opPlaceSelect');
     if (!sel || sel.value === '-1') {
       document.getElementById('mapInfo').innerHTML = '❌ Выберите юнит для размещения из списка.';
@@ -3499,7 +3502,8 @@ function handleOpMapClick(e) {
     saveData();
     redrawOperationalMap();
     updateOpPlaceSelect();
-    document.getElementById('mapInfo').innerHTML = `✅ ${targetUnit.name} размещён на гексе ${closestKey}`;
+    const stack = (appData.campaign.opUnits || []).filter(u => u && u !== targetUnit && u.col === col && u.row === row && !u.isDestroyed).length;
+    document.getElementById('mapInfo').innerHTML = `✅ ${targetUnit.name} размещён на гексе ${closestKey}` + (stack ? ` (на гексе ещё ${stack} отряд(ов))` : '');
     return;
   }
 
@@ -6220,8 +6224,33 @@ function getRelayCompanyForOrder(hqUnit, targetUnit) {
     //    НЕ ходит (даже если штаб роты дальше взвода).
     return company;
 }
+function rememberUiScreen() {
+    try {
+        if (!appData) return;
+        const vis = (id) => {
+            const el = document.getElementById(id);
+            return !!(el && el.style.display && el.style.display !== 'none');
+        };
+        if (vis('battleApp')) appData.lastUiScreen = 'battle';
+        else if (vis('campaignMapScreen')) appData.lastUiScreen = 'campaignMap';
+        else if (vis('campaignApp')) appData.lastUiScreen = 'campaign';
+        else appData.lastUiScreen = 'mainMenu';
+    } catch (e) {}
+}
+function installAutosaveHooks() {
+    if (installAutosaveHooks._done) return;
+    installAutosaveHooks._done = true;
+    const persist = () => { try { rememberUiScreen(); saveData(); } catch (e) {} };
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') persist();
+    });
+    window.addEventListener('pagehide', persist);
+    window.addEventListener('beforeunload', persist);
+    document.addEventListener('pause', persist, false); // Cordova/Capacitor
+}
 function saveData() {
     try {
+        rememberUiScreen();
         if (appData.currentBattleId && typeof actionPoints !== 'undefined') {
             const b = getTacticalBattleRecord();
             if (b && appData.map && (!appData.map.hexKey || appData.map.hexKey === b.hexKey)) {
@@ -15500,8 +15529,7 @@ function rotateSelectedHex() {
   try { if (typeof maybeAutoPlaceAtStart === 'function') maybeAutoPlaceAtStart(); } catch (e) { console.warn('maybeAutoPlaceAtStart:', e.message); }
   // ⚡ v13.071: в соло-игре врага автоматически расставляем один раз (можно переставить вручную)
   try {
-    if (appData.campaign && !appData.campaign.online && !appData.campaign.enemyAutoPlaced
-        && (typeof uxProfile === 'undefined' || uxProfile.data().autoPlaceEnemy)) {
+    if (appData.campaign && !appData.campaign.online && !appData.campaign.enemyAutoPlaced) {
       const n = (typeof autoPlaceEnemyUnits === 'function') ? autoPlaceEnemyUnits() : 0;
       if (n > 0) appData.campaign.enemyAutoPlaced = true;
     }
@@ -26429,6 +26457,14 @@ document.addEventListener('DOMContentLoaded', function() {
     renderTemplateSelection();
     renderFactionInfo();
     resetAP();
+    try { installAutosaveHooks(); } catch (e) {}
+    try { refreshCampaignResumeButton(); } catch (e) {}
+    // ⚡ v13.081: после сворачивания/перезапуска WebView сразу вернуть карту кампании
+    try {
+        if (appData && appData.lastUiScreen === 'campaignMap' && campaignCanResume()) {
+            returnToCampaignFromMenu();
+        }
+    } catch (e) { console.warn('resume campaign:', e); }
 });
 vehicleStatusCollapsed = localStorage.getItem('vehicleStatusCollapsed') === 'true';
 
@@ -28154,8 +28190,8 @@ function onlineOnSnapshotSync() {
     🎯 Отдать приказ
   </button>
   <!-- ⚡ v13.052 (R37#2): Hard Mode включается прямо с карты (раньше — только в главном меню) -->
-  <button id="opHardModeBtn" onclick="toggleProfileMenu('opHardModeBtn')" style="background:#27ae60;">Сложность: 🌱 Новичок</button>
-  <div id="opHardModeHint" style="display:none; color:#95a5a6; font-size:0.8rem; margin-top:2px;">Профиль «Новичок»: весь функционал открыт, подсказки ведут по шагам (свечение кнопки и чек-лист). Переключите в меню «Сложность» в любой момент.</div>
+  <button id="opHardModeBtn" onclick="toggleHardMode()" style="background:#e67e22;">🎯 Включить Hard Mode (приказы, связь)</button>
+  <div id="opHardModeHint" style="display:none; color:#95a5a6; font-size:0.8rem; margin-top:2px;">Hard Mode: юниты действуют по приказам (связь, посыльные). Без него — ручное перемещение и обстрел.</div>
 </div>
 
 <!-- Список активных приказов -->
@@ -28807,11 +28843,7 @@ const UX_CHECKLIST_KEY = 'opOnboardingChecklist_v1'; // тот же ключ, ч
 
 // Подсказки действуют только новичку и не в онлайн-матче (онлайн: Hard Mode, приказы нужны для игры)
 function uxGatesOn() {
-  const camp = (typeof appData !== 'undefined' && appData) ? appData.campaign : null;
-  if (!camp || camp.online) return false;
-  const prof = (typeof window !== 'undefined' && window.uxProfile && typeof window.uxProfile.get === 'function')
-    ? window.uxProfile.get() : 'novice';
-  return prof === 'novice';
+  return false; // ⚡ v13.081: профили Новичок/Обычный/Ветеран убраны
 }
 function uxChecklistDone(id) {
   try {
@@ -29123,186 +29155,26 @@ window.uxGatesRefresh = function () { uxApplyGates(); uxRenderActionBar(); };
   });
 })();
 
-// ⚡ v13.071: ПРОФИЛЬ СЛОЖНОСТИ (Новичок / Обычный / Ветеран).
-// Профиль = настройка отображения. Жёстко он ничего не меняет в механиках,
-// только видимость панелей и пояснений. Флаг hardMode.enabled остаётся
-// источником истины для приказов/связи — профиль лишь выставляет его по умолчанию.
+// ⚡ v13.081: профили Новичок/Обычный/Ветеран сняты. Остаётся только Hard Mode.
 (function () {
-  const KEY = 'uxProfile_v1';
-  const PROFILES = {
-    novice: {
-      label: '🌱 Новичок',
-      // ⚡ v13.077: функционал не режется — подсказки ведут по шагам (пульсация кнопки шага + чек-лист)
-      desc: 'Весь функционал открыт, подсказки ведут по шагам. Враг расставляется сам.',
-      hardByDefault: false,
-      showOnboarding: true,
-      autoPlaceEnemy: true,
-      autoPlaceOwn: true,    // quick-start-like поведение при входе на карту
-      devToolsHidden: true   // редакторские кнопки скрыты
-    },
-    normal: {
-      label: '⚔️ Обычный',
-      desc: 'Стандартная сложность. Hard Mode по желанию.',
-      hardByDefault: false,
-      showOnboarding: true,
-      autoPlaceEnemy: true,
-      autoPlaceOwn: false,
-      devToolsHidden: false
-    },
-    veteran: {
-      label: '🎖️ Ветеран',
-      desc: 'Все механики сразу. Hard Mode включён по умолчанию.',
-      hardByDefault: true,
-      showOnboarding: false,
-      autoPlaceEnemy: false,
-      autoPlaceOwn: false,
-      devToolsHidden: false
-    }
+  const STUB = {
+    label: 'Hard Mode',
+    desc: '',
+    hardByDefault: false,
+    showOnboarding: false,
+    autoPlaceEnemy: true,
+    autoPlaceOwn: false,
+    devToolsHidden: false
   };
-  function get() {
-    try {
-      const raw = localStorage.getItem(KEY);
-      const p = raw ? JSON.parse(raw) : 'novice';
-      return PROFILES[p] ? p : 'novice';
-    } catch (e) { return 'novice'; }
-  }
-  function set(p) {
-    if (!PROFILES[p]) return;
-    try { localStorage.setItem(KEY, JSON.stringify(p)); } catch (e) {}
-    apply();
-    toast('Профиль: ' + PROFILES[p].label, 'success');
-  }
-  function data() { return PROFILES[get()]; }
-
-  function apply() {
-    const prof = data();
-    // Применить к Hard Mode по умолчанию (если это первый запуск или профиль изменили)
-    try {
-      if (typeof hardMode !== 'undefined' && hardMode) {
-        if (!hardMode._profileApplied) {
-          hardMode.enabled = !!prof.hardByDefault;
-          hardMode._profileApplied = true;
-          if (typeof applyHardModeUI === 'function') applyHardModeUI();
-        }
-      }
-    } catch (e) { console.warn('profile hardMode:', e); }
-
-    // Обновить подпись кнопок
-    const menuBtn = document.getElementById('hardModeBtn');
-    const opBtn = document.getElementById('opHardModeBtn');
-    const label = 'Сложность: ' + prof.label;
-    if (menuBtn) { menuBtn.textContent = label; menuBtn.style.background = profColor(); }
-    if (opBtn) {
-      opBtn.textContent = prof.hardByDefault ? '🎖️ Ветеран (Hard Mode вкл.)' : label;
-      opBtn.style.background = profColor();
-    }
-
-    // Чек-лист — только новичку и обычному (пока не все 4 пункта отмечены)
-    const ocp = document.getElementById('opOnboardingPanel');
-    if (ocp) {
-      if (!prof.showOnboarding) ocp.style.display = 'none';
-      else ocp.style.display = '';
-    }
-
-    // Скрыть редакторские кнопки (Вид/правки) новичку
-    toggleDevTools(!prof.devToolsHidden);
-
-    // Закрыть меню, если открыто
-    const m = document.getElementById('profileMenu');
-    if (m) m.style.display = 'none';
-  }
-
-  function profColor() {
-    const p = get();
-    if (p === 'novice') return '#27ae60';
-    if (p === 'veteran') return '#c0392b';
-    return '#2980b9';
-  }
-
-  function toggleDevTools(show) {
-    // Панель «Вид и настройки карты» и её кнопка
-    ['mapViewPanelToggle'].forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) el.style.display = show ? '' : 'none';
-    });
-  }
-
-  function toggleMenu(anchorId) {
-    let m = document.getElementById('profileMenu');
-    const anchor = document.getElementById(anchorId);
-    if (!anchor) return;
-    if (m && m.dataset.anchor === anchorId && m.style.display !== 'none') {
-      m.style.display = 'none'; return;
-    }
-    if (!m) {
-      m = document.createElement('div');
-      m.id = 'profileMenu';
-      m.className = 'profile-menu';
-      document.body.appendChild(m);
-    }
-    m.dataset.anchor = anchorId;
-    m.innerHTML = '';
-    Object.keys(PROFILES).forEach((k) => {
-      const p = PROFILES[k];
-      const btn = document.createElement('button');
-      btn.textContent = p.label;
-      if (k === get()) btn.classList.add('active');
-      btn.onclick = () => { set(k); apply(); };
-      m.appendChild(btn);
-      const d = document.createElement('div');
-      d.className = 'profile-desc';
-      d.textContent = p.desc;
-      m.appendChild(d);
-    });
-    const r = anchor.getBoundingClientRect();
-    m.style.position = 'fixed';
-    m.style.left = Math.max(8, r.left) + 'px';
-    m.style.top = (r.bottom + 4) + 'px';
-    m.style.display = 'block';
-    // Клик снаружи — закрыть
-    setTimeout(() => {
-      document.addEventListener('click', outside, { once: true });
-    }, 0);
-    function outside(ev) {
-      if (!m) return;
-      if (m.contains(ev.target) || (anchor && anchor.contains(ev.target))) return;
-      m.style.display = 'none';
-    }
-  }
-
-  window.uxProfile = { get, set, data, apply, toggleMenu, PROFILES };
-  // Глобальные обработчики для кнопок
-  window.toggleProfileMenu = (anchorId) => toggleMenu(anchorId || 'hardModeBtn');
-
-  document.addEventListener('DOMContentLoaded', () => {
-    // Перехватываем клик по старой кнопке «Hard Mode» и «включить Hard Mode»
-    // — вместо переключения открываем меню профиля. Сам toggleHardMode остаётся
-    // доступным для внутреннего использования и для онлайна.
-    const mb = document.getElementById('hardModeBtn');
-    if (mb) { mb.onclick = (e) => { e.preventDefault(); toggleMenu('hardModeBtn'); }; }
-    const ob = document.getElementById('opHardModeBtn');
-    if (ob) { ob.onclick = (e) => { e.preventDefault(); toggleMenu('opHardModeBtn'); }; }
-    // Оборачиваем applyHardModeUI, чтобы он не затирал наш текст/фон кнопок
-    if (typeof applyHardModeUI === 'function' && !applyHardModeUI._uxWrapped) {
-      const orig = applyHardModeUI;
-      window.applyHardModeUI = function () {
-        orig.apply(this, arguments);
-        try { apply(); } catch (e) {}
-      };
-      window.applyHardModeUI._uxWrapped = true;
-    }
-    apply();
-    // При открытии карты операции тоже применим профиль
-    if (typeof showOperationalMap === 'function' && !showOperationalMap._uxWrapped) {
-      const os = showOperationalMap;
-      window.showOperationalMap = function () {
-        const r = os.apply(this, arguments);
-        setTimeout(() => { try { apply(); } catch (e) {} }, 100);
-        return r;
-      };
-      window.showOperationalMap._uxWrapped = true;
-    }
-  });
+  window.uxProfile = {
+    get: () => 'normal',
+    set: function () {},
+    data: () => STUB,
+    apply: function () { try { if (typeof applyHardModeUI === 'function') applyHardModeUI(); } catch (e) {} },
+    toggleMenu: function () {},
+    PROFILES: { normal: STUB }
+  };
+  window.toggleProfileMenu = function () { try { toggleHardMode(); } catch (e) {} };
 })();
 </script>
 
