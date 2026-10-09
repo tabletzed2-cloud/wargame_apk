@@ -81,7 +81,7 @@ function sliceUxChip(html) {
 //    профиль в песочнице — «Ветеран» (гейты выключены), поэтому проверки чипов остаются прежними.
 const FNS = ['uxEsc', 'uxPhaseNow', 'uxIsBtrUnit', 'uxIsVehicleUnit', 'uxBikeLike', 'uxHasBikePark', 'uxFindEmbarkBtr',
   'uxBuildChips', 'uxActionBarState', 'uxRenderActionBar', 'uxDoMove', 'uxOpenOrder', 'uxInstallRedrawHook',
-  'uxGatesOn', 'uxChecklistDone', 'uxGateOpen', 'uxChipOpen', 'uxApplyGates', 'uxLockHint',
+  'uxGatesOn', 'uxChecklistDone', 'uxGateOpen', 'uxChipOpen', 'uxApplyGates', 'uxLockHint', 'uxHintNote', 'uxHintGlowTargets', 'uxApplyHintGlow',
   'isStaticOpUnit', 'getUnitBtrRequirement'];
 const CONSTS = ['UX_GATES', 'UX_CHIP_GATE', 'UX_CHECKLIST_KEY'];
 

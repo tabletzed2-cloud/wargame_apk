@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.076 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.077 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -614,6 +614,9 @@ function buildBattleGridForHex(hexKey) {
 
 // Открывает карту гекса для текущего боя (если не загружена — подгрузит и перерисует)
 function openHexMapForBattle(hexKey, tacticalMap) {
+    // ⚡ v13.077: туман войны — бой на оперативном гексе «открывает» его:
+    // окопы/подготовленные позиции противника становятся видны на карте кампании
+    try { if (typeof opFogRevealHex === 'function') opFogRevealHex(hexKey); } catch (e) {}
     const built = buildBattleGridForHex(hexKey);
     if (built) {
         tacticalMap.grid = built.grid;
