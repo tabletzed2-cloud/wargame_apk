@@ -5,7 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert/strict');
-const { HTML, ROOT, sliceFunction } = require('./extract');
+const { HTML, ROOT, sliceFunction, sliceConst } = require('./extract');
 const { createSandbox, freshAppData } = require('./sandbox');
 
 let passed = 0;
@@ -77,13 +77,19 @@ function sliceUxChip(html) {
   if (start < 0) throw new Error('uxChip not found');
   return html.slice(start, html.indexOf('\n};', start) + 3);
 }
+// ⚡ v13.076: к модулю добавлены гейты F3 (функции и таблицы). Набор v13.075 их не трогает:
+//    профиль в песочнице — «Ветеран» (гейты выключены), поэтому проверки чипов остаются прежними.
 const FNS = ['uxEsc', 'uxPhaseNow', 'uxIsBtrUnit', 'uxIsVehicleUnit', 'uxBikeLike', 'uxHasBikePark', 'uxFindEmbarkBtr',
   'uxBuildChips', 'uxActionBarState', 'uxRenderActionBar', 'uxDoMove', 'uxOpenOrder', 'uxInstallRedrawHook',
+  'uxGatesOn', 'uxChecklistDone', 'uxGateOpen', 'uxChipOpen', 'uxApplyGates', 'uxLockHint',
   'isStaticOpUnit', 'getUnitBtrRequirement'];
+const CONSTS = ['UX_GATES', 'UX_CHIP_GATE', 'UX_CHECKLIST_KEY'];
 
 function setup(phase) {
   const s = createSandbox(freshAppData());
   s.run("let uxActionBarSig = '';\n" +
+    CONSTS.map(n => sliceConst(HTML, n)).join('\n') + '\n' +
+    "window.uxProfile = { get: () => 'veteran' };\n" +
     FNS.map(n => sliceFunction(HTML, n)).join('\n') + '\n' +
     sliceUxChip(HTML) + '\n' +
     "function canUnitShoot(u) { return !!(u && u.canShootStub); }\n" +
@@ -335,24 +341,27 @@ test('v13.075: имена в строке экранируются', () => {
 });
 
 // ─── 4. версия и сопутствующие файлы ───
+// ⚡ v13.076: проверка согласованности относительно APP_VERSION (без жёсткой версии)
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
-test('v13.075: APP_VERSION, title, h1, бейдж и модуль — v13.075', () => {
-  assert.ok(/var APP_VERSION = 'v13\.075';/.test(HTML));
-  assert.ok(/<title>Боевой модуль v13\.075/.test(HTML));
-  assert.ok(/<h1>⚔️ Боевой модуль v13\.075<\/h1>/.test(HTML));
-  assert.ok(/id="appVersionBadge"[^>]*>v13\.075</.test(HTML));
-  assert.ok(/id="battleModuleTitle">⚔️ Боевой модуль v13\.075/.test(HTML));
+const APP = /var APP_VERSION = '([^']+)'/.exec(HTML)[1];
+const APP_RE = APP.replace('.', '\\.');
+test('v13.075: APP_VERSION, title, h1, бейдж и модуль — согласованы с APP_VERSION', () => {
+  assert.ok(/^v13\.07\d$/.test(APP), 'формат: ' + APP);
+  assert.ok(new RegExp('<title>Боевой модуль ' + APP_RE).test(HTML), 'title');
+  assert.ok(new RegExp('<h1>⚔️ Боевой модуль ' + APP_RE + '</h1>').test(HTML), 'h1');
+  assert.ok(new RegExp('id="appVersionBadge"[^>]*>' + APP_RE + '<').test(HTML), 'badge');
+  assert.ok(new RegExp('id="battleModuleTitle">⚔️ Боевой модуль ' + APP_RE).test(HTML), 'battleModuleTitle');
 });
-test('v13.075: SW-кэш и манифест — v13.075', () => {
-  assert.ok(/const CACHE_NAME = 'wargame-v13\.075';/.test(read('service-worker.js')));
-  assert.ok(/"short_name": "БМ v13\.075"/.test(read('manifest.json')));
+test('v13.075: SW-кэш и манифест — согласованы с APP_VERSION', () => {
+  assert.ok(read('service-worker.js').includes("const CACHE_NAME = 'wargame-" + APP + "';"), 'кэш SW');
+  assert.ok(read('manifest.json').includes('"short_name": "БМ ' + APP + '"'), 'манифест');
 });
-test('v13.075: BUILD-маркер в шапке service-worker.js — v13.075', () => {
-  assert.ok(read('service-worker.js').split('\n')[0].includes('BUILD-МАРКЕР: v13.075'), 'шапка SW');
+test('v13.075: BUILD-маркер в шапке service-worker.js — согласован с APP_VERSION', () => {
+  assert.ok(read('service-worker.js').split('\n')[0].includes('BUILD-МАРКЕР: ' + APP), 'шапка SW');
 });
-test('v13.075: BUILD-маркеры js/*.js — v13.075', () => {
-  ['js/data.js', 'js/hexmaps.js', 'js/templates.js', 'js/cards.js'].forEach((f) => {
-    assert.ok(read(f).split('\n')[0].includes('BUILD-МАРКЕР: v13.075'), f);
+test('v13.075: BUILD-маркеры js/*.js — согласованы с APP_VERSION', () => {
+  ['js/cards.js', 'js/data.js', 'js/hexmaps.js', 'js/templates.js'].forEach((f) => {
+    assert.ok(read(f).split('\n')[0].includes('BUILD-МАРКЕР: ' + APP), f);
   });
 });
 test('v13.075: CHANGELOG-v13.075.md на месте', () => {
