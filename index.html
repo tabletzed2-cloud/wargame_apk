@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.077 — операция</title>
+  <title>Боевой модуль v13.079 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -75,7 +75,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.077</h1>
+    <h1>⚔️ Боевой модуль v13.079</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -88,7 +88,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.077</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.079</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -120,7 +120,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.077 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.079 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -418,7 +418,7 @@ function safeLocalStorage(method, ...args) {
 // v13.065: melee by real hex distance, no conditional battle cards, red debuff frames,
 //    map-template replacement and v13.058 start positions; see CHANGELOG-v13.065.md.
 // v13.064: order-list details, ETA hints and cancel confirmations; see CHANGELOG-v13.064.md.
-var APP_VERSION = 'v13.077';
+var APP_VERSION = 'v13.079';
 
 // ⚡ v13.058: кнопка меню действительно запрашивает проверку новой версии SW;
 // если новый контроллер не вступил в силу, повторно открываем страницу с cache-buster.
@@ -1394,6 +1394,7 @@ function buildOperationalUnits() {
                 icon: icon,
                 detected: false,
                 noiseMarker: false,
+                faction: battalion.faction,   // ⚡ v13.078: фракция для фракционных бонусов (BeVe «Болотоход», A.I.R.F. «Талреп-якорь», «Горная скрытность»)
                 modules: {
                     turret: { name: 'Башня', status: 'ok', weapons: [] },
                     hull: { name: 'Корпус', status: 'ok', weapons: [] },
@@ -1404,6 +1405,13 @@ function buildOperationalUnits() {
                 isImmobilized: false,
                 isDestroyed: false
             });
+            // ⚡ v13.078: глобальный бонус A.I.R.F. «Талреп-якорь» — вся бронетехника
+            //    (mobility='vehicle' и не стационарный ДОТ) оснащена талреп-якорем.
+            //    Применяется при создании юнита; старые сейвы подхватят бонус при
+            //    следующем пересоздании операционных юнитов.
+            if (mobility === 'vehicle' && type !== 'dots' && battalion.faction === 'A.I.R.F.') {
+                opUnits[opUnits.length - 1].winch = true;
+            }
         }
 
         // Перебираем units батальона
@@ -1548,6 +1556,14 @@ function buildOperationalUnits() {
                 // старые сейвы: доводим до стационарного сразу
                 u.maxAp = 0;
                 u.ap = 0;
+            }
+            // ⚡ v13.078: миграция — глобальный бонус A.I.R.F. «Талреп-якорь»:
+            //    вся бронетехника A.I.R.F. в старых сейвах получает winch=true.
+            //    Применяется в блоке «else» (юниты уже есть, не пересоздаются).
+            if (battalion.faction === 'A.I.R.F.' && u.mobility === 'vehicle' &&
+                u.type !== 'dots' && !u.winch) {
+                u.winch = true;
+                console.log('🏔️ Миграция: «' + u.name + '» получил Талреп-якорь (бонус A.I.R.F.)');
             }
         });
     }
@@ -9029,6 +9045,17 @@ function renderActiveCardButtons() {
     moveHtml += `<button onclick="moveSquad('forest')">🌲 Лес</button> `;
     moveHtml += `<button onclick="moveSquad('road')">🛣️ Дорога</button> `;
     moveHtml += `<button onclick="moveSquad('bad')">🌋 Тяжёлая</button> `;
+    // ⚡ v13.079: «Аварийный тормоз» — стандартная способность BeVe-бронеавтомобиля.
+    //    Юнит откатывается на 1 гекс назад (на гекс, с которого вошёл в бой) без
+    //    траты ОД; до конца своего хода больше не может двигаться. Работает
+    //    ТОЛЬКО если в бой вошёл с предыдущего гекса (т.е. откуда есть куда
+    //    откатиться) и если ещё не использован в этом бою.
+    if (currentSquad.faction === 'BeVe' && currentSquad.armor &&
+        !currentSquad.emergencyBrakeUsed &&
+        typeof currentSquad.prevCol === 'number' && typeof currentSquad.prevRow === 'number' &&
+        (currentSquad.hexPos[0] !== currentSquad.prevCol || currentSquad.hexPos[1] !== currentSquad.prevRow)) {
+      moveHtml += `<button onclick="useEmergencyBrake()" style="background:#e74c3c;" title="Без траты ОД отъехать на 1 гекс назад (в направлении, откуда вошли в бой). До конца хода двигаться нельзя.">🛑 Аварийный тормоз</button> `;
+    }
   }
   if (currentSquad.armor && getAP(currentSquadIndex) > 0) {
     moveHtml += `<button onclick="vehicleTurn()">🔄 Разворот</button> `;
@@ -9137,6 +9164,12 @@ function toggleCrewDeploy(ciIndex) {
 function moveSquad(terrainKey) {
   if (!currentSquad || !tacticalActionAllowed(currentSquad, 'move')) return;
   if (getEffectiveMorale() <= 1) { log('❌ Отряд бежит.'); return; }
+  // ⚡ v13.079: после «Аварийного тормоза» (BeVe-бронеавтомобили) юнит не может
+  //    двигаться до конца своего хода (уже откатился назад на 1 гекс).
+  if (currentSquad.cantMoveThisTurn) {
+    log('❌ После «Аварийного тормоза» этот юнит больше не может двигаться в этом ходу.');
+    return;
+  }
 
   // Проверки возможности перемещения (расчёты, техника) – оставьте как есть
   if (currentSquad.crewInstances) {
@@ -9932,7 +9965,11 @@ function getMovementCost(squad, fromKey, toKey, isCrouch) {
   }
 
   // ========== ОБЫЧНОЕ ДВИЖЕНИЕ (пехота, техника, спешенные самокатчики) ==========
-  const hasWinch = getScopedActiveCardsForSquad(squad).some(c => c.name === 'Талреп-якорь');
+  // ⚡ v13.078: «Талреп-якорь» — глобальный фракционный бонус A.I.R.F. (бронетехника
+  //    уже оснащена якорем). Также работает, если у отряда осталась активная
+  //    карточка «Талреп-якорь» (для совместимости со старыми сейвами/карточками).
+  const hasWinch = getScopedActiveCardsForSquad(squad).some(c => c.name === 'Талреп-якорь')
+    || (squad.faction === 'A.I.R.F.' && isVehicle);
 
   // Скрытное перемещение (только пехота)
   if (!isVehicle && isCrouch) {
@@ -10117,6 +10154,72 @@ function meleeAttack() {
   if (typeof reportAttackOutcome === 'function') reportAttackOutcome('melee', { hits: hits, damage: totalDamage });
   saveData();
   updateUI();
+}
+
+// ⚡ v13.079: «Аварийный тормоз» — стандартная способность BeVe-бронеавтомобиля
+//    (раньше была картой Noodrem). Юнит одним кликом перемещается на 1 гекс назад
+//    (по направлению, с которого вошёл в бой), без траты ОД, но до конца своего
+//    хода больше не может двигаться. Работает только в тактическом бою и
+//    только если в бой вошли с предыдущего гекса (иначе откатываться некуда).
+function useEmergencyBrake() {
+  if (!currentSquad) return;
+  if (currentSquad.faction !== 'BeVe' || !currentSquad.armor) {
+    log('❌ «Аварийный тормоз» доступен только бронетехнике BeVe.');
+    return;
+  }
+  if (currentSquad.emergencyBrakeUsed) {
+    log('❌ «Аварийный тормоз» уже использован в этом бою.');
+    return;
+  }
+  if (typeof currentSquad.prevCol !== 'number' || typeof currentSquad.prevRow !== 'number') {
+    log('❌ Нет предыдущего гекса — откатываться некуда.');
+    return;
+  }
+  if (currentSquad.hexPos[0] === currentSquad.prevCol && currentSquad.hexPos[1] === currentSquad.prevRow) {
+    log('❌ Юнит уже на исходном гексе — откатываться некуда.');
+    return;
+  }
+  // Проверяем, что целевой гекс не занят и не непроходим
+  if (!appData.map || !appData.map.grid) {
+    log('❌ Тактическая карта не загружена.');
+    return;
+  }
+  const targetKey = currentSquad.prevCol + ',' + currentSquad.prevRow;
+  const targetHex = appData.map.grid[targetKey];
+  if (!targetHex) {
+    log('❌ Предыдущий гекс не существует на тактической карте.');
+    return;
+  }
+  const occ = (appData.battle && appData.battle.units) || [];
+  const occupied = occ.some(u => u && u !== currentSquad && u.hexPos &&
+    u.hexPos[0] === currentSquad.prevCol && u.hexPos[1] === currentSquad.prevRow);
+  if (occupied) {
+    log('❌ Предыдущий гекс занят своим отрядом.');
+    return;
+  }
+  const isBlockedForArmor = (targetHex.types || []).some(t => t === 'water' || t === 'swamp_impassable' || t === 'hill' || t === 'rocks');
+  if (isBlockedForArmor) {
+    log('❌ Предыдущий гекс непроходим для техники.');
+    return;
+  }
+  // Перемещаем
+  currentSquad.hexPos = [currentSquad.prevCol, currentSquad.prevRow];
+  currentSquad.cantMoveThisTurn = true;
+  currentSquad.emergencyBrakeUsed = true;
+  log(`🛑 ${currentSquad.name} использует «Аварийный тормоз» — откатывается на гекс (${targetKey}).`);
+  // Помечаем в оперданных (если есть ссылка)
+  const opUnits = (appData.campaign && appData.campaign.opUnits) || [];
+  const opUnit = opUnits.find(u => (u.col === currentSquad.hexPos[0] && u.row === currentSquad.hexPos[1]) ||
+    (u.prevCol === currentSquad.prevCol && u.prevRow === currentSquad.prevRow));
+  if (opUnit) {
+    opUnit.col = currentSquad.prevCol;
+    opUnit.row = currentSquad.prevRow;
+    opUnit.cantMoveThisTurn = true;
+    opUnit.emergencyBrakeUsed = true;
+  }
+  saveData();
+  redrawMap();
+  if (typeof updateTacticalTurnUI === 'function') updateTacticalTurnUI();
 }
 
 function vehicleTurn() {
@@ -20065,6 +20168,48 @@ function updateOperationalTimeDisplay() {
   const elBattle = document.getElementById('timeDisplayBattle');
   if (elBattle) elBattle.textContent = `Время: ${timeStr}`;
 }
+
+// ⚡ v13.078: BeVe — «Болотоход» — может ли бронетехника BeVe заехать на гекс
+//    проходимого болота. Условие проходимости: целевой гекс — болото, и хотя бы
+//    один из 6 соседних гексов НЕ является проходимым болотом (т.е. рядом есть
+//    суша/дорога/лес/...). Только BeVe, только бронетехника (mobility='vehicle').
+//    ДОТ — стационарный, не двигается.
+//    Без бонуса — болото непроходимо для техники (getOpMoveCost возвращает Infinity).
+function isBeveSwampTraversable(unit, col, row) {
+    if (!unit || unit.mobility !== 'vehicle') return false;
+    if (unit.type === 'dots') return false;
+    // определяем фракцию юнита (на оперкарте 'faction' может быть не выставлен,
+    //    тогда смотрим по playerFaction из текущей кампании)
+    const faction = unit.faction || (appData.campaign && appData.campaign.playerFaction) || null;
+    if (faction !== 'BeVe') return false;
+    // сам гекс — болото
+    const types = (typeof getOpHexTypes === 'function') ? getOpHexTypes(col, row) : [];
+    if (!types.includes('swamp_passable')) return false;
+    // ⚡ край карты — гекс, у которого меньше 6 соседей внутри игрового поля
+    //    (тогда он «крайний» по определению, и техника может заехать с границы)
+    // ⚡ внутренние гексы — должны иметь хотя бы один не-болотный сосед
+    const HEX_NEIGHBORS_OFFSETS = (typeof getOpHexNeighbors === 'function')
+        ? getOpHexNeighbors(col, row) : null;
+    // getOpHexNeighbors может быть не определён; используем оффсеты соседей гекса
+    //    pointy-top: 6 соседей через +/-1 по col/row.
+    const offsets = HEX_NEIGHBORS_OFFSETS || [
+        [+1, 0], [+1, -1], [0, -1], [-1, 0], [-1, +1], [0, +1]
+    ];
+    const scenario = appData.campaign && appData.campaign.scenario;
+    for (const [dc, dr] of offsets) {
+        const nc = col + dc, nr = row + dr;
+        if (typeof isHexInPlayableArea === 'function' &&
+            !isHexInPlayableArea(scenario, nc, nr)) {
+            return true; // край карты — болото «граничит с краем»
+        }
+        const nTypes = (typeof getOpHexTypes === 'function') ? getOpHexTypes(nc, nr) : [];
+        if (!nTypes.includes('swamp_passable') && !nTypes.includes('water') && !nTypes.includes('swamp_impassable')) {
+            return true; // рядом суша — крайнее болото
+        }
+    }
+    return false; // все 6 соседей — болото/вода → внутреннее болото
+}
+
 function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
     // ⚡ v13.042 (R27#9): гексы вне игрового поля сценария — непроходимы
     if (typeof isHexInPlayableArea === 'function' &&
@@ -20080,7 +20225,19 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
 
     // ⚡ v13.073: «Талреп-якорь» — техника с якорем ЗАЕЗЖАЕТ на холм,
     //    подъём на 1 уровень высоты стоит ВСЕГО ход (цена = все ОД отряда)
-    if (terrain === 'hill' && unit.winch) return Math.max(3, unit.maxAp || 4);
+    // ⚡ v13.078: проверка «нет низменности (level<2) в тактической карте гекса —
+    //    заезжать нельзя». Если карта не загружена (unknown) — разрешаем заезд,
+    //    чтобы юнит не «застревал» до загрузки; реальный запрет сработает, как
+    //    только карта прогрузится (UI пересчитает маршрут в getOpReachableHexesForUnit).
+    if (terrain === 'hill' && unit.winch) {
+        // ⚡ v13.079: скрытное движение (stealthMove) — лебёдка талрепа шумит,
+        //    подъём на холм несовместим со скрытностью.
+        if (unit.stealthMove) return Infinity;
+        const sublevel = (typeof tacticalHexHasSublevel2 === 'function')
+            ? tacticalHexHasSublevel2(toCol + ',' + toRow) : 'unknown';
+        if (sublevel === false) return Infinity; // нет низин на тактической карте — заехать нельзя
+        return Math.max(3, unit.maxAp || 4);
+    }
 
     const mobility = unit.mobility || 'foot';
     const dismounted = unit.dismounted || false;
@@ -20100,6 +20257,13 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
 
     // ---- БРОНЕАВТОМОБИЛИ, БТР ----
     if (mobility === 'vehicle' && (unit.type === 'armored_vehicle_platoon' || unit.type === 'btr_platoon' || unit.type === 'vehicle' || unit.name.includes('БТР') || unit.name.includes('Бронеавтомобиль'))) {
+        // ⚡ v13.078: BeVe — «Болотоход» — бронетехника BeVe может заехать на КРАЙНИЙ
+        //    1 гекс проходимого болота (стоимость 4 ОД = весь ход), но не на
+        //    «внутреннее» болото (где все 6 соседей тоже болото). Холмы и камни —
+        //    по-прежнему непроходимы.
+        if (terrain === 'swamp_passable' && isBeveSwampTraversable(unit, toCol, toRow)) {
+            return 4; // весь ход — как подъём на холм с талрепом
+        }
         if (terrain === 'hill' || terrain === 'swamp_passable' || terrain === 'rocks') return Infinity;
         switch (terrain) {
             case 'road': return 1;
@@ -20125,7 +20289,13 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
 
     // ---- ПЕХОТА (включая спешенных велосипедистов/мотоциклистов) ----
     // mobility === 'foot' или dismounted === true
-    if (terrain === 'hill') return 3;
+    // ⚡ v13.079: скрытное движение (stealthMove) урезает ОД до 2 — подъём на холм
+    //    (3 ОД) или с талрепом (4 ОД) не помещается в лимит. Лебёдка талрепа
+    //    тоже шумит — подъём на холм несовместим со скрытностью.
+    if (terrain === 'hill') {
+        if (unit.stealthMove) return Infinity;
+        return 3;
+    }
     if (terrain === 'swamp_passable') return 3;
     switch (terrain) {
         case 'road': return 2;
@@ -20466,12 +20636,34 @@ function setOpMapMode(mode) {
         tryUnlockPlacement();
         return;
     }
+    // ⚡ v13.079: в HardMode ручное перемещение и обстрел запрещены — юниты
+    //    действуют только по приказам. Это защита от «взлома» UI (например, через
+    //    консоль), основной UX-скрыт кнопок — в applyUxPhase.
+    //    ВАЖНО: проверять ПОСЛЕ преобразования 'move' → 'movePlayer' (см. ниже).
     if (mode === 'move') mode = 'movePlayer';
+    if ((mode === 'movePlayer' || mode === 'moveEnemy') &&
+        appData.campaign && appData.campaign.hardMode === true) {
+        const miH = document.getElementById('mapInfo');
+        if (miH) miH.innerHTML = '🛡️ В режиме Hard Mode юниты действуют только по приказам (без ручного перемещения).';
+        return;
+    }
 
+    const prevMode = appData.campaign.opMapMode;
     appData.campaign.opMapMode = mode;
 
-    appData.campaign.selectedOpUnit = null;
-    appData.campaign.selectedEnemyOpUnit = null;
+    // ⚡ v13.079: НЕ сбрасываем выбранного юнита без необходимости. Раньше
+    //    selectedOpUnit сбрасывался ВСЕГДА, что приводило к тому, что после
+    //    авто-расстановки переключение на «placePlayer» теряло выделение и
+    //    пользователь не видел, какого юнита он переставляет.
+    //    Теперь сбрасываем ТОЛЬКО при смене «своей стороны» на чужую
+    //    (placePlayer ↔ placeEnemy, movePlayer ↔ moveEnemy).
+    const isPlayerSide = (m) => (m === 'placePlayer' || m === 'movePlayer' || m === 'marker');
+    const isEnemySide = (m) => (m === 'placeEnemy' || m === 'moveEnemy');
+    if (prevMode && ((isPlayerSide(prevMode) && isEnemySide(mode)) ||
+                     (isEnemySide(prevMode) && isPlayerSide(mode)))) {
+        appData.campaign.selectedOpUnit = null;
+        appData.campaign.selectedEnemyOpUnit = null;
+    }
 
     if (appData.campaign.opUnits) {
         appData.campaign.opUnits.forEach(u => {
@@ -20619,6 +20811,17 @@ function getOpDetectionModifier(unit) {
       default: mod = 0;
     }
     if (mod < bestMod) bestMod = mod;
+  }
+
+  // ⚡ v13.078: A.I.R.F. — глобальный фракционный бонус «Горная скрытность»:
+  //    на гексах с terrain='hill' юниты A.I.R.F. получают −1 к модификатору
+  //    обнаружения. Применяется ко всем типам подразделений A.I.R.F. (включая
+  //    пехоту, разведку, миномёты, технику — для техники это особенно важно,
+  //    потому что «vehicle» даёт +2 к модификатору, что почти полностью
+  //    компенсируется горным укрытием и сдвигает в сторону скрытности).
+  if (types.indexOf('hill') >= 0) {
+    const faction = unit.faction || (appData.campaign && appData.campaign.playerFaction) || null;
+    if (faction === 'A.I.R.F.') bestMod -= 1;
   }
 
   // Бонусы/штрафы от типа юнита
@@ -28210,6 +28413,15 @@ function autoPlaceEnemyUnits(opts) {
     if (rare) rare.style.display = 'flex';
     // ⚡ v13.073: БТР-панель (посадка/высадка) видна в обеих фазах
     moveIntoSlot('btrPanel', 'opBtrSlot');
+    // ⚡ v13.079: в HardMode на оперкарте юниты действуют ТОЛЬКО по приказам —
+    //    ручное «🚶 Перемещение» и «🎯 Обстрел» скрыты, остаются «⏭️ Завершить
+    //    ход» и кнопки развёртывания/посадки/управления юнитами.
+    const hardModeOn = (typeof appData !== 'undefined' && appData.campaign &&
+                        appData.campaign.hardMode === true);
+    const opMoveBtn = document.querySelector('#opPhaseBattle button[onclick*="setOpMapMode(\'move\')"]');
+    const opShootBtn = document.querySelector('#opPhaseBattle button[onclick*="startOpShooting()"]');
+    if (opMoveBtn) opMoveBtn.style.display = (hardModeOn ? 'none' : '');
+    if (opShootBtn) opShootBtn.style.display = (hardModeOn ? 'none' : '');
     // ⚡ v13.073: «Талреп-якорь» — только АИРФ и только в развёртывании
     const winchBtn = document.getElementById('winchBtn');
     if (winchBtn) {

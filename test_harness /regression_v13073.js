@@ -84,8 +84,13 @@ test('v13.073: ручной обстрел после движения огра�
 // ─── 7. Талреп-якорь ───
 test('v13.073: якорь открывает холмы технике (цена — весь ход)', () => {
   const i = HTML.indexOf('function getOpMoveCost');
-  const chunk = HTML.slice(i, i + 1200);
-  assert.ok(/if \(terrain === 'hill' && unit\.winch\) return Math\.max\(3, unit\.maxAp \|\| 4\);/.test(chunk), 'холм проходим с якорем');
+  // ⚡ v13.079: расширяем чанк до 3000 (в 1500 уже не помещается после
+  //    вставки v13.079 про скрытное движение и tacticalHexHasSublevel2)
+  const chunk = HTML.slice(i, i + 3000);
+  // ⚡ v13.078: проверка tacticalHexHasSublevel2 вставлена в блок талрепа,
+  //    но цена max(3, maxAp) и условие «terrain === 'hill' && unit.winch» сохранены.
+  assert.ok(/terrain === 'hill' && unit\.winch/.test(chunk), 'условие талрепа сохранено');
+  assert.ok(/Math\.max\(3, unit\.maxAp \|\| 4\)/.test(chunk), 'цена талрепа сохранена');
 });
 test('v13.073: кнопка якоря для АИРФ в развёртывании', () => {
   assert.ok(/id="winchBtn"/.test(HTML), 'кнопка в разметке');

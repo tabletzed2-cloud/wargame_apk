@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.077 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.079 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -17,6 +17,32 @@
 //    НАКЛАДЫВАЮТСЯ на карту гекса и в редакторе, и в бою, у обоих игроков
 //    (в онлайне — через state.p<role>.hexOverlays).
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ⚡ v13.078: A.I.R.F. — глобальный бонус «Талреп-якорь». Бронетехника с талрепом
+//    может заехать на гекс оперкарты с terrain='hill' ТОЛЬКО если на тактической
+//    карте этого гекса есть хотя бы один гекс с level<=2 (т.е. есть «низменность»
+//    или «среднегорье» — куда заехать с якорем можно). Если ВСЕ гексы
+//    тактической карты — level=3 (самые высокие пики), заехать нельзя:
+//    талрепу не за что зацепиться.
+//    Использует кеш TACTICAL_HEX_MAPS; если карта ещё не загружена — вернёт
+//    'unknown' (UI трактует как «не сейчас, проверь позже»).
+//    Параметр includeOverlay — учитывать ли накопленные правки местности гекса
+//    (по умолчанию false: проверка по эталону — иначе после обстрела ландшафт
+//    может «открыть» низину, и это не та логика, что задумана).
+function tacticalHexHasSublevel2(hexKey, includeOverlay) {
+    if (!hexKey) return 'unknown';
+    const map = TACTICAL_HEX_MAPS[hexKey];
+    if (!map) return 'unknown';
+    const grid = map.grid;
+    if (!grid) return 'unknown';
+    for (const k in grid) {
+        const cell = grid[k];
+        if (!cell) continue;
+        const lvl = (cell.level !== undefined && cell.level !== null) ? cell.level : 0;
+        if (lvl <= 2) return true;
+    }
+    return false;
+}
 
 const HEX_MAP_DIR = 'maps/Карты Валенсия/';
 const HEX_MAP_DIR_ALT = 'maps/';

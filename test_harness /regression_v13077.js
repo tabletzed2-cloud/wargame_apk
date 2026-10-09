@@ -247,8 +247,11 @@ test('v13.077: «▲N» в режиме редактора сохранён (д�
 
 // ─── 6. версия ───
 const APP = /var APP_VERSION = '([^']+)'/.exec(HTML)[1];
-test('v13.077: APP_VERSION = v13.077 и CHANGELOG на месте', () => {
-  assert.equal(APP, 'v13.077');
+test('v13.077: APP_VERSION = v13.077 уже в прошлом (сборка ушла вперёд) — CHANGELOG на месте', () => {
+  // ⚡ v13.078: сборка ушла вперёд — APP_VERSION теперь v13.078, а не v13.077.
+  //    Тест v13.077 продолжает проверять наличие changelog'а и помогает заметить,
+  //    если версия случайно откатится.
+  assert.notEqual(APP, 'v13.077', 'сборка уже >= v13.078');
   assert.ok(fs.existsSync(path.join(ROOT, 'CHANGELOG-v13.077.md')));
 });
 
