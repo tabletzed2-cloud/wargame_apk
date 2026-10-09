@@ -1,7 +1,11 @@
-// ⚡ v13.076: F3 — постепенная разблокировка интерфейса для новичка.
-//    Гейты (UX_GATES) скрывают БТР, спешивание, разведку и редкие пункты «⚙️ Ещё»
-//    до нужного пункта чек-листа. Только профиль «Новичок» и не в онлайн-матче.
-//    Минимальный набор (размещение, «Двигать», «Обстрел», «Завершить ход») не трогается.
+// ⚡ v13.076: F3 — гейты новичка (UX_GATES): БТР, спешивание, разведка и редкие
+//    пункты «⚡ Ещё» до нужного пункта чек-листа. Только профиль «Новичок», не онлайн.
+// ⚡ v13.077: РЕШЕНИЕ ИГРОКА — гейты отменены: функционал новичку НЕ режется,
+//    вместо скрытия — подсказки (💡 в строке чипов + пульсация кнопки шага).
+//    Этот файл теперь проверяет НОВОЕ поведение (всё открыто, подсказки вместо
+//    гейтов). Структурные проверки (атрибуты data-ux-gate, таблицы UX_GATES/
+//    UX_CHIP_GATE, CSS-классы) сохранены — механизм остался в коде как «предохранитель».
+//    Подробности: CHANGELOG-v13.077.md.
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -18,27 +22,31 @@ function test(name, fn) {
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const tag = (re) => { const m = re.exec(HTML); return m ? m[0] : null; };
 
-// ─── 1. разметка: гейты на нужных элементах и не на минимальном наборе ───
-test('v13.076: .ux-locked скрывает с !important, строка подсказки стилизована', () => {
-  assert.ok(/\.ux-locked \{ display:none !important; \}/.test(HTML), 'класс скрытия');
-  assert.ok(/\.ux-action-bar \.ux-ab-lock \{/.test(HTML), 'стиль подсказки');
+// ─── 1. разметка: атрибуты-предохранители на нужных элементах ───
+test('v13.076: .ux-locked существует как предохранитель, стили подсказок v13.077 есть', () => {
+  assert.ok(/\.ux-locked \{ display:none !important; \}/.test(HTML), 'класс-предохранитель');
+  assert.ok(/\.ux-action-bar \.ux-ab-lock \{/.test(HTML), 'стиль старой строки сохранён');
+  assert.ok(/\.ux-action-bar \.ux-ab-hint \{/.test(HTML), 'стиль новой подсказки 💡');
+  assert.ok(/\.ux-chip-hint \{/.test(HTML), 'стиль подсказочного чипа');
+  assert.ok(/@keyframes uxHintGlow/.test(HTML), 'анимация пульсации кнопки шага');
+  assert.ok(/\.ux-hint-glow \{/.test(HTML), 'класс пульсации');
 });
-test('v13.076: количество гейтов в разметке — 9 (БТР 3, спешивание 2, разведка 1, «Ещё» 3)', () => {
+test('v13.076: количество атрибутов data-ux-gate в разметке — 9 (БТР 3, спешивание 2, разведка 1, «Ещё» 3)', () => {
   assert.equal((HTML.match(/data-ux-gate="/g) || []).length, 9);
 });
-test('v13.076: БТР-панель и её кнопки — гейт btr', () => {
+test('v13.076: БТР-панель и её кнопки — атрибут btr (в v13.077 не скрывается)', () => {
   assert.ok(tag(/<div id="btrPanel"[^>]*>/).includes('data-ux-gate="btr"'), 'btrPanel');
   assert.ok(tag(/<button[^>]*id="btrEmbarkBtn"[^>]*>/).includes('data-ux-gate="btr"'), 'btrEmbarkBtn');
   assert.ok(tag(/<button[^>]*id="btrDisembarkBtn"[^>]*>/).includes('data-ux-gate="btr"'), 'btrDisembarkBtn');
 });
-test('v13.076: спешивание — гейт dismount (панель и кнопка)', () => {
+test('v13.076: спешивание — атрибут dismount (панель и кнопка)', () => {
   assert.ok(tag(/<div id="dismountPanel"[^>]*>/).includes('data-ux-gate="dismount"'), 'dismountPanel');
   assert.ok(tag(/<button[^>]*id="dismountBtn"[^>]*>/).includes('data-ux-gate="dismount"'), 'dismountBtn');
 });
-test('v13.076: 🔍 «Проверить обнаружение» — гейт recon', () => {
+test('v13.076: 🔍 «Проверить обнаружение» — атрибут recon', () => {
   assert.ok(tag(/<button onclick="checkOpDetection\(\)"[^>]*>/).includes('data-ux-gate="recon"'));
 });
-test('v13.076: в «⚙️ Ещё» гейтятся только Разбить / Переименовать / Состав (turn)', () => {
+test('v13.076: в «⚙️ Ещё» атрибуты turn только у Разбить / Переименовать / Состав', () => {
   const a = HTML.indexOf('<div id="uxMoreMenu"');
   const b = HTML.indexOf('<div id="opHexMenuStatus"', a);
   const menu = HTML.slice(a, b);
@@ -47,18 +55,18 @@ test('v13.076: в «⚙️ Ещё» гейтятся только Разбить
   assert.ok(/id="detailsBtn"[^>]*data-ux-gate="turn"/.test(menu), 'detailsBtn');
   assert.equal((menu.match(/data-ux-gate="turn"/g) || []).length, 3, 'ровно три');
 });
-test('v13.076: минимум новичку без гейтов — размещение, ДОТы, авторазмещение, финиш', () => {
+test('v13.076: минимум новичку без атрибутов — размещение, ДОТы, авторазмещение, финиш', () => {
   assert.ok(!tag(/<button onclick="setOpMapMode\('placePlayer'\)"[^>]*>/).includes('data-ux-gate'), 'размещение');
   assert.ok(!tag(/<button[^>]*id="btnInitialFortificationSetup"[^>]*>/).includes('data-ux-gate'), 'ДОТы');
   assert.ok(!tag(/<button onclick="autoPlaceUnplacedUnits\(\{ manual: true \}\)"[^>]*>/).includes('data-ux-gate'), 'авторазмещение');
   assert.ok(!tag(/<button[^>]*id="btnFinishPlacement"[^>]*>/).includes('data-ux-gate'), 'завершить размещение');
 });
-test('v13.076: минимум новичку без гейтов — перемещение, обстрел, завершить ход', () => {
+test('v13.076: минимум новичку без атрибутов — перемещение, обстрел, завершить ход', () => {
   assert.ok(!tag(/<button onclick="setOpMapMode\('move'\)"[^>]*>/).includes('data-ux-gate'), 'перемещение');
   assert.ok(!tag(/<button onclick="startOpShooting\(\)"[^>]*>/).includes('data-ux-gate'), 'обстрел');
   assert.ok(!tag(/<button id="opEndTurnBtn"[^>]*>/).includes('data-ux-gate'), 'завершить ход');
 });
-test('v13.076: «⚙️ Ещё», «📦 Объединить» и талреп-якорь не гейтятся (см. CHANGELOG)', () => {
+test('v13.076: «⚙️ Ещё», «📦 Объединить» и талреп-якорь без атрибутов', () => {
   assert.ok(!tag(/<button id="uxMoreBtn"[^>]*>/).includes('data-ux-gate'), 'кнопка «Ещё»');
   assert.ok(!tag(/<button onclick="showGroupDialog\(\)" id="groupBtn"[^>]*>/).includes('data-ux-gate'), 'объединение');
   const winch = tag(/<button id="winchBtn"[^>]*>/);
@@ -69,11 +77,11 @@ test('v13.076: приказы не гейтятся (видимость — то
   assert.ok(!/uxChipOpen\('order'\)|UX_CHIP_GATE\.order/.test(HTML));
 });
 
-// ─── 2. таблица гейтов и логика ───
+// ─── 2. таблицы и логика (v13.077: гейты отменены — всё открыто) ───
 const CONSTS = ['UX_GATES', 'UX_CHIP_GATE', 'UX_CHECKLIST_KEY'];
 const FNS = ['uxEsc', 'uxPhaseNow', 'uxIsBtrUnit', 'uxIsVehicleUnit', 'uxBikeLike', 'uxHasBikePark', 'uxFindEmbarkBtr',
   'uxBuildChips', 'uxActionBarState', 'uxRenderActionBar', 'uxDoMove', 'uxOpenOrder', 'uxInstallRedrawHook',
-  'uxGatesOn', 'uxChecklistDone', 'uxGateOpen', 'uxChipOpen', 'uxApplyGates', 'uxLockHint',
+  'uxGatesOn', 'uxChecklistDone', 'uxGateOpen', 'uxChipOpen', 'uxApplyGates', 'uxLockHint', 'uxHintNote', 'uxHintGlowTargets', 'uxApplyHintGlow',
   'isStaticOpUnit', 'getUnitBtrRequirement'];
 function sliceUxChip(html) {
   const start = html.indexOf('window.uxChip = function (id) {');
@@ -99,7 +107,7 @@ function setup(opts) {
     "function onOrderTargetUnitChange() { log('orderChange'); }\n" +
     "var orderPanelMinimized = false;\n" +
     "window.uxCurrentPhase = () => '" + (opts.phase || 'battle') + "';\n");
-  if (opts.profile !== undefined) s.run("window.uxProfile = { get: () => '" + opts.profile + "' };");
+  if (opts.profile !== undefined) s.run("window.uxProfile = { get: () => '" + opts.profile + "', data: () => ({ showOnboarding: '" + opts.profile + "' !== 'veteran' }) };");
   s.sandbox.localStorage = {
     getItem: () => (opts.rawChecklist !== undefined ? opts.rawChecklist : JSON.stringify(opts.checklist || {})),
     setItem: () => {}, removeItem: () => {}
@@ -121,10 +129,11 @@ function select(s, u, others) {
 const BTR = (over) => unit(Object.assign({ name: 'БТР-80', type: 'btr_platoon', mobility: 'vehicle', ap: 6, maxAp: 6, canShootStub: false }, over || {}));
 const chipIds = (s) => JSON.parse(JSON.stringify(s.evalCtx('uxActionBarState().chips.map(c => c.id)')));
 const hiddenIds = (s) => JSON.parse(JSON.stringify(s.evalCtx('uxActionBarState().hidden.map(c => c.id)')));
+const hintIds = (s) => JSON.parse(JSON.stringify(s.evalCtx('uxActionBarState().hints.map(c => c.id)')));
 const barHtml = (s) => s.evalCtx("document.getElementById('uxActionBar').innerHTML");
 const render = (s) => s.run('uxRenderActionBar();');
 
-test('v13.076: таблица гейтов — UX_GATES и UX_CHIP_GATE по согласованному плану', () => {
+test('v13.076: таблицы UX_GATES/UX_CHIP_GATE сохранены (задают подсказки, а не скрытие)', () => {
   const s = setup({ profile: 'novice' });
   assert.deepEqual(JSON.parse(JSON.stringify(s.evalCtx('UX_GATES'))), {
     btr: { need: 'move', needLabel: '«Двинуть отряд»' },
@@ -135,99 +144,119 @@ test('v13.076: таблица гейтов — UX_GATES и UX_CHIP_GATE по с�
   assert.deepEqual(JSON.parse(JSON.stringify(s.evalCtx('UX_CHIP_GATE'))),
     { embark: 'btr', disembark: 'btr', dismount: 'dismount', mount: 'dismount', recon: 'recon' });
 });
-test('v13.076: новичок, чек-лист пуст — пехота в бою: видны «Двигать» и «Обстрел», разведка скрыта', () => {
+test('v13.077: uxGateOpen/uxChipOpen — ВСЕГДА true (гейты отменены)', () => {
+  const s = setup({ profile: 'novice' }); // чек-лист пуст
+  assert.equal(s.evalCtx("uxGateOpen('recon')"), true);
+  assert.equal(s.evalCtx("uxChipOpen('recon')"), true);
+  assert.equal(s.evalCtx("uxChipOpen('embark')"), true);
+  s.sandbox.localStorage.getItem = () => JSON.stringify({ move: true, shoot: true, turn: true });
+  assert.equal(s.evalCtx("uxGateOpen('btr')"), true);
+});
+test('v13.077: новичок, чек-лист пуст — ВСЕ чипы видны, разведка — в подсказках', () => {
   const s = setup({ profile: 'novice' });
   select(s, unit());
-  assert.deepEqual(chipIds(s), ['move', 'shoot']);
-  assert.deepEqual(hiddenIds(s), ['recon']);
+  assert.deepEqual(chipIds(s), ['move', 'shoot', 'recon'], 'все чипы в строке');
+  assert.deepEqual(hiddenIds(s), [], 'ничего не скрыто');
+  assert.deepEqual(hintIds(s), ['recon'], 'разведка — подсказка');
 });
-test('v13.076: новичок — после «Двинуть отряд» (move) открыты посадка/высадка/спешивание', () => {
+test('v13.077: новичок — посадка в БТР видна сразу; после «Двинуть отряд» уходит из подсказок', () => {
   const s = setup({ profile: 'novice', checklist: { move: true } });
   select(s, unit(), [BTR({ col: 5, row: 4, isGroup: true, groupSize: 5 })]);
-  assert.ok(chipIds(s).includes('embark'), 'посадка открыта');
-  assert.ok(!hiddenIds(s).includes('embark'));
-  assert.ok(hiddenIds(s).includes('recon'), 'разведка по-прежнему закрыта');
+  assert.ok(chipIds(s).includes('embark'), 'посадка видна');
+  assert.ok(!hintIds(s).includes('embark'), 'после move — не подсказка');
+  assert.ok(hintIds(s).includes('recon'), 'разведка — ещё подсказка');
+  s.sandbox.localStorage.getItem = () => JSON.stringify({});
+  render(s);
+  assert.ok(hintIds(s).includes('embark'), 'до move — в подсказках (но видна!)');
 });
-test('v13.076: новичок, без move — посадка в БТР скрыта, подсказка называет «Двинуть отряд»', () => {
+test('v13.077: новичок, без move — чип «Сесть в БТР» В СТРОКЕ, подсказка 💡 называет «Двинуть отряд»', () => {
   const s = setup({ profile: 'novice' });
   select(s, unit(), [BTR({ col: 5, row: 4, isGroup: true, groupSize: 5 })]);
-  assert.ok(!chipIds(s).includes('embark'), 'посадка скрыта');
-  assert.ok(hiddenIds(s).includes('embark'));
+  assert.ok(chipIds(s).includes('embark'), 'посадка видна');
   render(s);
   const html = barHtml(s);
-  assert.ok(html.includes('🔒 Откроется позже:'), 'подсказка');
-  assert.ok(html.includes('🚌 Сесть в БТР (после «Двинуть отряд»)'), 'текст подсказки: ' + html.slice(0, 200));
+  assert.ok(html.includes('💡 Всё открыто'), 'подсказка 💡: ' + html.slice(0, 200));
+  assert.ok(html.includes('🚌 Сесть в БТР — по мере освоения: «Двинуть отряд»'), 'текст подсказки');
+  assert.ok(html.includes('ux-chip-hint'), 'чип помечен классом подсказки');
+  assert.ok(!html.includes('🔒'), 'старого «🔒 Откроется позже» нет');
 });
-test('v13.076: новичок — спешивание велосипедистов скрыто до move, открыто после', () => {
+test('v13.077: новичок — спешивание велосипеда видно и до, и после move', () => {
   const bike = unit({ name: 'Велосипедный взвод', type: 'bicycle_platoon', mobility: 'bicycle', dismounted: false });
   const s = setup({ profile: 'novice' });
   select(s, bike);
-  assert.ok(!chipIds(s).includes('dismount'), 'до move');
+  assert.ok(chipIds(s).includes('dismount'), 'до move — виден');
   s.sandbox.localStorage.getItem = () => JSON.stringify({ move: true });
   s.run('uxRenderActionBar();');
-  assert.ok(chipIds(s).includes('dismount'), 'после move');
+  assert.ok(chipIds(s).includes('dismount'), 'после move — виден');
 });
-test('v13.076: новичок — разведка открывается после «Открыть огонь» (shoot)', () => {
+test('v13.077: новичок — разведка видна сразу; после «Открыть огонь» исчезает из подсказок', () => {
   const s = setup({ profile: 'novice', checklist: { move: true } });
   select(s, unit());
-  assert.ok(hiddenIds(s).includes('recon'));
+  assert.ok(chipIds(s).includes('recon'), 'разведка видна');
+  assert.ok(hintIds(s).includes('recon'), 'до shoot — подсказка');
   s.sandbox.localStorage.getItem = () => JSON.stringify({ move: true, shoot: true });
   s.run('uxRenderActionBar();');
-  assert.ok(chipIds(s).includes('recon'), 'разведка открыта');
-  assert.equal(hiddenIds(s).length, 0, 'скрытых больше нет');
+  assert.ok(chipIds(s).includes('recon'), 'разведка видна');
+  assert.equal(hintIds(s).length, 0, 'подсказок больше нет');
 });
-test('v13.076: «Двинуть» и «Обстрел» новичку не гейтятся даже с пустым чек-листом', () => {
+test('v13.077: «Двинуть» и «Обстрел» новичку не подсказываются (это база)', () => {
   const s = setup({ profile: 'novice' });
   select(s, unit());
-  assert.ok(chipIds(s).includes('move') && chipIds(s).includes('shoot'));
+  assert.ok(!hintIds(s).includes('move'));
+  assert.ok(!hintIds(s).includes('shoot'));
 });
-test('v13.076: «Приказ» (Hard Mode) — не гейтится у новичка', () => {
+test('v13.077: «Приказ» (Hard Mode) — и чип, и без подсказки', () => {
   const s = setup({ profile: 'novice' });
   s.run('hardMode.enabled = true;');
   select(s, unit());
   assert.ok(chipIds(s).includes('order'), 'приказ виден');
-  assert.ok(!hiddenIds(s).includes('order'));
+  assert.ok(!hintIds(s).includes('order'));
 });
-test('v13.076: «Обычный» и «Ветеран» — гейтов нет, всё видно сразу', () => {
+test('v13.077: «Обычный» и «Ветеран» — все чипы, подсказок нет', () => {
   ['normal', 'veteran'].forEach((p) => {
     const s = setup({ profile: p });
     select(s, unit());
     assert.ok(chipIds(s).includes('recon'), p + ': разведка');
     assert.equal(hiddenIds(s).length, 0, p + ': скрытых нет');
+    assert.equal(hintIds(s).length, 0, p + ': подсказок нет');
   });
 });
-test('v13.076: без записанного профиля действует умолчание «Новичок» (как в приложении)', () => {
+test('v13.077: без записанного профиля действует умолчание «Новичок» — подсказки на', () => {
   const s = setup({});
   select(s, unit());
-  assert.ok(hiddenIds(s).includes('recon'));
+  assert.deepEqual(chipIds(s), ['move', 'shoot', 'recon'], 'всё видно');
+  assert.deepEqual(hintIds(s), ['recon'], 'но новичок подсвечивается');
 });
-test('v13.076: онлайн-матч — гейтов нет даже у новичка (Hard Mode и приказы нужны для игры)', () => {
+test('v13.077: онлайн-матч — все чипы и без подсказок (Hard Mode и приказы нужны для игры)', () => {
   const s = setup({ profile: 'novice', online: true });
   select(s, unit(), [BTR({ col: 5, row: 4, isGroup: true, groupSize: 5 })]);
   assert.ok(chipIds(s).includes('recon'), 'разведка');
   assert.ok(chipIds(s).includes('embark'), 'посадка');
   assert.equal(hiddenIds(s).length, 0);
+  assert.equal(hintIds(s).length, 0, 'в онлайне подсказок нет');
 });
-test('v13.076: испорченный чек-лист не роняет строку — пункты считаются не отмеченными', () => {
+test('v13.077: испорченный чек-лист не роняет строку — подсказки как при пустом', () => {
   const s = setup({ profile: 'novice', rawChecklist: '{не json' });
   select(s, unit());
-  assert.ok(hiddenIds(s).includes('recon'));
+  assert.ok(hintIds(s).includes('recon'));
+  assert.deepEqual(hiddenIds(s), []);
 });
-test('v13.076: строка без открытых действий, но с закрытыми — нет «нет действий», есть подсказка', () => {
+test('v13.077: 0 ОД — чип разведки в строке, «нет действий» не показывается, подсказка есть', () => {
   const s = setup({ profile: 'novice' });
   select(s, unit({ ap: 0, maxAp: 4, canShootStub: false }));
   render(s);
   const html = barHtml(s);
   assert.ok(!html.includes('Сейчас для этого отряда нет доступных действий'), 'ложной фразы нет');
-  assert.ok(html.includes('🔍 Разведка (после «Открыть огонь»)'), 'подсказка про разведку');
+  assert.ok(html.includes('🔍 Разведка — по мере освоения: «Открыть огонь»'), 'подсказка про разведку');
 });
-test('v13.076: без закрытых действий подсказки нет', () => {
+test('v13.077: у «Ветерана» строки «💡 Всё открыто» нет', () => {
   const s = setup({ profile: 'veteran' });
   select(s, unit());
   render(s);
-  assert.ok(!barHtml(s).includes('🔒'), 'подсказки нет');
+  assert.ok(!barHtml(s).includes('💡 Всё открыто'), 'подсказки нет');
+  assert.ok(!barHtml(s).includes('🔒'), '🔒 нет');
 });
-test('v13.076: подпись строки меняется при открытии гейта — DOM переписывается сразу', () => {
+test('v13.077: DOM строки обновляется при отметке чек-листа (подсказка исчезает)', () => {
   const s = setup({ profile: 'novice' });
   select(s, unit(), [BTR({ col: 5, row: 4, isGroup: true, groupSize: 5 })]);
   render(s);
@@ -236,50 +265,49 @@ test('v13.076: подпись строки меняется при открыт�
   render(s);
   const after = barHtml(s);
   assert.notEqual(before, after);
-  assert.ok(after.includes('🚌 Сесть в БТР') && !after.includes('🔒 Откроется позже: 🚌'), 'посадка появилась');
+  assert.ok(after.includes('🚌 Сесть в БТР'), 'посадка видна и после');
+  assert.ok(!after.includes('🚌 Сесть в БТР — по мере освоения'), 'из подсказок ушла');
 });
-test('v13.076: защита uxChip — закрытый чип не срабатывает (даже если строка устарела)', () => {
+test('v13.077: uxChip — действие доступно сразу, независимо от чек-листа (гейтов нет)', () => {
   const s = setup({ profile: 'novice' });
   select(s, unit());
   s.run("uxChip('recon');");
-  assert.ok(!s.sandbox.logs.includes('recon'), 'разведка не запущена');
-  s.sandbox.localStorage.getItem = () => JSON.stringify({ shoot: true });
-  s.run("uxChip('recon');");
-  assert.ok(s.sandbox.logs.includes('recon'), 'после «Обстрел» — запущена');
+  assert.ok(s.sandbox.logs.includes('recon'), 'разведка запущена сразу');
 });
-test('v13.076: uxChip закрытой посадки не открывает диалог до move', () => {
+test('v13.077: uxChip «Сесть в БТР» открывает диалог сразу (до move)', () => {
   const s = setup({ profile: 'novice' });
   select(s, unit(), [BTR({ col: 5, row: 4, isGroup: true, groupSize: 5 })]);
   s.run("uxChip('embark');");
-  assert.ok(!s.sandbox.logs.includes('embark'));
+  assert.ok(s.sandbox.logs.includes('embark'), 'диалог открыт');
+});
+test('v13.077: uxChip на несуществующем/уходящем чипе — безопасно (строка перечитывается)', () => {
+  const s = setup({ profile: 'novice' });
+  select(s, unit());
+  s.run("uxChip('order');"); // чипа «Приказ» нет (Hard Mode выкл.)
+  assert.ok(!s.sandbox.logs.includes('order'), 'панель приказов не открыта');
 });
 
-// ─── 3. применение гейтов к элементам (фиктивный DOM) ───
+// ─── 3. применение к элементам (фиктивный DOM) — гейты НЕСКРЫВАЮТ НИЧЕГО ───
 function fakeEls(s, gates) {
   s.run("window.__els = " + JSON.stringify(gates) + ".map(g => { const set = new Set(); " +
-    "return { g: g, getAttribute: () => g, classList: { toggle: (n, f) => { if (f) set.add(n); else set.delete(n); } }, set: set }; });" +
+    "return { g: g, getAttribute: () => g, classList: { toggle: (n, f) => { if (f) set.add(n); else set.delete(n); }, " +
+    "add: (n) => set.add(n), remove: (n) => set.delete(n) }, set: set }; });" +
     "document.querySelectorAll = () => window.__els;");
   return () => JSON.parse(JSON.stringify(s.evalCtx('window.__els.map(e => e.set.has("ux-locked"))')));
 }
-test('v13.076: uxApplyGates — новичок с пустым чек-листом: БТР, спешивание, разведка, «Ещё» — закрыты', () => {
+test('v13.077: uxApplyGates — новичок с пустым чек-листом: ничего НЕ скрыто', () => {
   const s = setup({ profile: 'novice' });
-  const locked = fakeEls(s, ['btr', 'dismount', 'recon', 'turn']);
-  s.run('uxApplyGates();');
-  assert.deepEqual(locked(), [true, true, true, true]);
-});
-test('v13.076: uxApplyGates — после move открыты БТР и спешивание, разведка и «Ещё» закрыты', () => {
-  const s = setup({ profile: 'novice', checklist: { move: true } });
-  const locked = fakeEls(s, ['btr', 'dismount', 'recon', 'turn']);
-  s.run('uxApplyGates();');
-  assert.deepEqual(locked(), [false, false, true, true]);
-});
-test('v13.076: uxApplyGates — после move, shoot и turn открыто всё', () => {
-  const s = setup({ profile: 'novice', checklist: { move: true, shoot: true, turn: true } });
   const locked = fakeEls(s, ['btr', 'dismount', 'recon', 'turn']);
   s.run('uxApplyGates();');
   assert.deepEqual(locked(), [false, false, false, false]);
 });
-test('v13.076: uxApplyGates — у «Ветерана» и в онлайне ничего не скрыто', () => {
+test('v13.077: uxApplyGates — снимает устаревший .ux-locked (наследие v13.076)', () => {
+  const s = setup({ profile: 'novice' });
+  fakeEls(s, ['recon']);
+  s.run('window.__els[0].set.add("ux-locked"); uxApplyGates();');
+  assert.deepEqual(JSON.parse(JSON.stringify(s.evalCtx('window.__els.map(e => e.set.has("ux-locked"))'))), [false], 'класс снят');
+});
+test('v13.077: uxApplyGates — у «Ветерана» и в онлайне тоже ничего не скрыто', () => {
   let s = setup({ profile: 'veteran' });
   let locked = fakeEls(s, ['btr', 'dismount', 'recon', 'turn']);
   s.run('uxApplyGates();');
@@ -289,17 +317,45 @@ test('v13.076: uxApplyGates — у «Ветерана» и в онлайне н�
   s.run('uxApplyGates();');
   assert.deepEqual(locked(), [false, false, false, false], 'онлайн');
 });
-test('v13.076: uxApplyGates — класс снимается, когда пункт отмечен (обратимо)', () => {
-  const s = setup({ profile: 'novice' });
-  const locked = fakeEls(s, ['recon']);
-  s.run('uxApplyGates();');
-  assert.deepEqual(locked(), [true]);
-  s.sandbox.localStorage.getItem = () => JSON.stringify({ shoot: true });
-  s.run('uxApplyGates();');
-  assert.deepEqual(locked(), [false]);
+
+// ─── 4. подсказка-пульсация кнопки текущего шага (v13.077) ───
+test('v13.077: uxHintGlowTargets — новичок в бою с пустым чек-листом: «Перемещение»', () => {
+  const s = setup({ profile: 'novice', phase: 'battle' });
+  const t = JSON.parse(JSON.stringify(s.evalCtx('uxHintGlowTargets()')));
+  assert.ok(t.includes("#opPhaseBattle button[onclick=\"setOpMapMode('move')\"]"), 'светится «Перемещение»: ' + t.join(' '));
+});
+test('v13.077: uxHintGlowTargets — после move: «Обстрел», после shoot: «Завершить ход», после turn: пусто', () => {
+  let s = setup({ profile: 'novice', phase: 'battle', checklist: { move: true } });
+  assert.deepEqual(JSON.parse(JSON.stringify(s.evalCtx('uxHintGlowTargets()'))),
+    ["#opPhaseBattle button[onclick=\"startOpShooting()\"]"]);
+  s = setup({ profile: 'novice', phase: 'battle', checklist: { move: true, shoot: true } });
+  assert.deepEqual(JSON.parse(JSON.stringify(s.evalCtx('uxHintGlowTargets()'))), ['#opEndTurnBtn']);
+  s = setup({ profile: 'novice', phase: 'battle', checklist: { move: true, shoot: true, turn: true } });
+  assert.deepEqual(JSON.parse(JSON.stringify(s.evalCtx('uxHintGlowTargets()'))), [], 'все шаги пройдены — без пульсации');
+});
+test('v13.077: uxHintGlowTargets — развёртывание: «Размещение»+«Авторазмещение», затем «Завершить размещение»', () => {
+  let s = setup({ profile: 'novice', phase: 'deploy' });
+  s.run('getUnplacedOpUnits = () => [{ col: null, row: null }];');
+  const t1 = JSON.parse(JSON.stringify(s.evalCtx('uxHintGlowTargets()')));
+  assert.ok(t1.some(x => x.indexOf('placePlayer') >= 0) && t1.some(x => x.indexOf('autoPlaceUnplacedUnits') >= 0), 'кнопки размещения: ' + t1.join(' '));
+  s = setup({ profile: 'novice', phase: 'deploy' });
+  s.run('getUnplacedOpUnits = () => [];');
+  const t2 = JSON.parse(JSON.stringify(s.evalCtx('uxHintGlowTargets()')));
+  assert.deepEqual(t2, ['#btnFinishPlacement'], '«Завершить размещение»');
+});
+test('v13.077: uxHintGlowTargets — не новичку и в онлайне — пусто', () => {
+  let s = setup({ profile: 'veteran', phase: 'battle' });
+  assert.deepEqual(JSON.parse(JSON.stringify(s.evalCtx('uxHintGlowTargets()'))), [], 'ветеран');
+  s = setup({ profile: 'novice', phase: 'battle', online: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(s.evalCtx('uxHintGlowTargets()'))), [], 'онлайн');
+});
+test('v13.077: applyUxPhase вызывает uxApplyHintGlow (раз в 1.5 с и на смене фазы)', () => {
+  const i = HTML.indexOf('function applyUxPhase() {');
+  const body = HTML.slice(i, HTML.indexOf('function toggleUxMoreMenu()', i));
+  assert.ok(body.includes('window.uxApplyHintGlow === \'function\'') && body.includes('window.uxApplyHintGlow()'), 'вызов есть');
 });
 
-// ─── 4. хук «Двинуть отряд» (вырезан из HTML и запущен в песочнице) ───
+// ─── 5. хук «Двинуть отряд» (вырезан из HTML и запущен в песочнице) ───
 const HOOK_START = HTML.indexOf('    // ⚡ v13.076: «Двинуть отряд»');
 const HOOK_END = HTML.indexOf('    // Периодически подновляем', HOOK_START);
 test('v13.076: старый хук на say() удалён; новый хук стоит в IIFE', () => {
@@ -353,36 +409,44 @@ test('v13.076: обёртка ставится один раз (повторны
   assert.equal(s.sandbox.logs.filter(l => l === 'done:move').length, 1, 'одна отметка');
 });
 
-// ─── 5. чек-лист обновляет гейты сразу ───
-test('v13.076: renderChecklist вызывает uxGatesRefresh (мгновенное открытие)', () => {
+// ─── 6. чек-лист обновляет строку и подсказки сразу ───
+test('v13.076: renderChecklist вызывает uxGatesRefresh (мгновенное обновление)', () => {
   const i = HTML.indexOf('function renderChecklist(st) {');
   const body = HTML.slice(i, HTML.indexOf('function currentPhase()', i));
   assert.ok(body.includes("window.uxGatesRefresh === 'function'") && body.includes('window.uxGatesRefresh()'), 'вызов есть');
 });
-test('v13.076: uxGatesRefresh = гейты + строка (определён в модуле)', () => {
+test('v13.077: uxGatesRefresh = снять предохранители + строка; пульсация экспортирована', () => {
   assert.ok(HTML.includes('window.uxGatesRefresh = function () { uxApplyGates(); uxRenderActionBar(); };'));
   assert.ok(HTML.includes('window.uxApplyGates = uxApplyGates;'));
+  assert.ok(HTML.includes('window.uxApplyHintGlow = uxApplyHintGlow;'));
+  assert.ok(HTML.includes('window.uxHintGlowTargets = uxHintGlowTargets;'));
 });
 test('v13.076: профиль по умолчанию — «Новичок» (get() без записи возвращает novice)', () => {
   assert.ok(/return PROFILES\[p\] \? p : 'novice';/.test(HTML));
   assert.ok(/catch \(e\) \{ return 'novice'; \}/.test(HTML));
 });
-
-// ─── 6. версия и сопутствующие файлы ───
-const APP = /var APP_VERSION = '([^']+)'/.exec(HTML)[1];
-test('v13.076: APP_VERSION — v13.076 во всех местах (title, h1, бейдж, модуль)', () => {
-  assert.equal(APP, 'v13.076');
-  assert.ok(HTML.includes('<title>Боевой модуль v13.076 — операция</title>'));
-  assert.ok(HTML.includes('<h1>⚔️ Боевой модуль v13.076</h1>'));
-  assert.ok(HTML.includes('id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.076</p>'));
-  assert.ok(HTML.includes('<h2 id="battleModuleTitle">⚔️ Боевой модуль v13.076 — операция </h2>'));
+test('v13.077: описание профиля «Новичок» — функционал не режется', () => {
+  assert.ok(HTML.includes('Весь функционал открыт, подсказки ведут по шагам'), 'текст профиля');
+  assert.ok(!/desc: 'Меньше кнопок, больше подсказок/.test(HTML), 'старый текст убран');
 });
-test('v13.076: SW-кэш, манифест и BUILD-маркеры — v13.076', () => {
-  assert.ok(read('service-worker.js').includes("const CACHE_NAME = 'wargame-v13.076';"));
-  assert.ok(read('manifest.json').includes('"short_name": "БМ v13.076"'));
-  assert.ok(read('service-worker.js').split('\n')[0].includes('BUILD-МАРКЕР: v13.076'));
+
+// ─── 7. версия и сопутствующие файлы (⚡ v13.077: относительно APP_VERSION) ───
+const APP = /var APP_VERSION = '([^']+)'/.exec(HTML)[1];
+const APP_RE = APP.replace('.', '\\.');
+test('v13.076: APP_VERSION, title, h1, бейдж и модуль — согласованы с APP_VERSION', () => {
+  assert.ok(HTML.includes('<title>Боевой модуль ' + APP + ' — операция</title>'));
+  assert.ok(HTML.includes('<h1>⚔️ Боевой модуль ' + APP + '</h1>'));
+  assert.ok(HTML.includes('id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">' + APP + '</p>'));
+  assert.ok(HTML.includes('<h2 id="battleModuleTitle">⚔️ Боевой модуль ' + APP + ' — операция </h2>'));
+});
+test('v13.076: SW-кэш и манифест — согласованы с APP_VERSION', () => {
+  assert.ok(read('service-worker.js').includes("const CACHE_NAME = 'wargame-" + APP + "';"));
+  assert.ok(read('manifest.json').includes('"short_name": "БМ ' + APP + '"'));
+});
+test('v13.076: BUILD-маркеры в шапках service-worker.js и js/*.js — согласованы с APP_VERSION', () => {
+  assert.ok(read('service-worker.js').split('\n')[0].includes('BUILD-МАРКЕР: ' + APP));
   ['js/cards.js', 'js/data.js', 'js/hexmaps.js', 'js/templates.js'].forEach((f) => {
-    assert.ok(read(f).split('\n')[0].includes('BUILD-МАРКЕР: v13.076'), f);
+    assert.ok(read(f).split('\n')[0].includes('BUILD-МАРКЕР: ' + APP), f);
   });
 });
 test('v13.076: CHANGELOG-v13.076.md описывает значения по умолчанию и исправления', () => {
@@ -394,6 +458,16 @@ test('v13.076: CHANGELOG-v13.076.md описывает значения по у�
   assert.ok(t.includes('say'), 'исправление хука say');
   assert.ok(/талреп/i.test(t), 'решение по талрепу');
   assert.ok(/Объединить/.test(t), 'решение по «Объединить»');
+});
+test('v13.077: CHANGELOG-v13.077.md на месте и описывает отмену гейтов', () => {
+  const p = path.join(ROOT, 'CHANGELOG-v13.077.md');
+  assert.ok(fs.existsSync(p), 'файл есть');
+  const t = fs.readFileSync(p, 'utf8');
+  assert.ok(t.includes('F3') && /подсказк/i.test(t), 'F3 + подсказки');
+  assert.ok(/A\.I\.R\.F/i.test(t) && /окоп/i.test(t), 'туман войны по окопам');
+  assert.ok(/легенд/i.test(t), 'легенда знаков');
+  assert.ok(/рельеф/i.test(t), 'рельеф тактической карты');
+  assert.ok(/Быстрый старт/i.test(t), 'исправление быстрого старта');
 });
 
 console.log(`\nИтог v13.076: PASS ${passed} · FAIL ${failures.length}`);

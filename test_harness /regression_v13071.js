@@ -70,12 +70,16 @@ test('v13.071: в меню есть «⚡ Быстрый старт»', () => {
   assert.ok(/⚡ Быстрый старт/.test(HTML));
 });
 test('v13.071: quickStartCampaign использует дефолтные поддержки и авторазмещение', () => {
+  // ⚡ v13.077: авторазмещение вынесено в quickStartEnterMap (вызывается из
+  //    onMapReady после загрузки местности) — иначе карта не открывалась.
   const fn = sliceFunction(HTML, 'quickStartCampaign');
   assert.ok(/DEFAULT_SUPPORT/.test(fn));
   assert.ok(/dots.*sau_battery.*armored_vehicle_platoon/.test(fn));
   assert.ok(/btr_platoon.*tank_platoon/.test(fn));
-  assert.ok(/autoPlaceUnplacedUnits/.test(fn));
-  assert.ok(/autoPlaceEnemyUnits/.test(fn));
+  assert.ok(/quickStartEnterMap/.test(fn), 'вход на карту через onMapReady');
+  const enter = sliceFunction(HTML, 'quickStartEnterMap');
+  assert.ok(/autoPlaceUnplacedUnits/.test(enter));
+  assert.ok(/autoPlaceEnemyUnits/.test(enter));
 });
 
 // ─── авторазмещение врага ───
