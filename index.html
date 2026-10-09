@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.079 — операция</title>
+  <title>Боевой модуль v13.080 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
@@ -75,7 +75,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.079</h1>
+    <h1>⚔️ Боевой модуль v13.080</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -88,7 +88,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.079</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.080</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -120,7 +120,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.079 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.080 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -418,7 +418,7 @@ function safeLocalStorage(method, ...args) {
 // v13.065: melee by real hex distance, no conditional battle cards, red debuff frames,
 //    map-template replacement and v13.058 start positions; see CHANGELOG-v13.065.md.
 // v13.064: order-list details, ETA hints and cancel confirmations; see CHANGELOG-v13.064.md.
-var APP_VERSION = 'v13.079';
+var APP_VERSION = 'v13.080';
 
 // ⚡ v13.058: кнопка меню действительно запрашивает проверку новой версии SW;
 // если новый контроллер не вступил в силу, повторно открываем страницу с cache-buster.
@@ -3452,6 +3452,19 @@ function handleOpMapClick(e) {
   }
   // ====== РЕЖИМ РАЗМЕЩЕНИЯ ИГРОКА ======
   if (appData.campaign.opMapMode === 'placePlayer') {
+    // ⚡ v13.080: клик по уже стоящему своему отряду — ВЫБОР, а не повторное размещение.
+    const clickedOwn = findUnitAtClick(appData.campaign.opUnits || [], clickX, clickY);
+    if (clickedOwn) {
+      appData.campaign.selectedOpUnit = clickedOwn;
+      const selPick = document.getElementById('opPlaceSelect');
+      const idxPick = (appData.campaign.opUnits || []).indexOf(clickedOwn);
+      if (selPick && idxPick >= 0) selPick.value = String(idxPick);
+      const miP = document.getElementById('mapInfo');
+      if (miP) miP.innerHTML = `👆 Выбран: ${clickedOwn.name}. Для перестановки включён режим размещения — кликните по пустому гексу в зоне, либо нажмите «👆 Выбор», чтобы только выбирать.`;
+      updateDismountPanel(); updateBtrPanel(); updateVehiclePanel();
+      redrawOperationalMap();
+      return;
+    }
     const sel = document.getElementById('opPlaceSelect');
     if (!sel || sel.value === '-1') {
       document.getElementById('mapInfo').innerHTML = '❌ Выберите юнит для размещения из списка.';
@@ -3479,8 +3492,10 @@ function handleOpMapClick(e) {
         }
     }
 
+    const prevCol = targetUnit.col, prevRow = targetUnit.row;
     targetUnit.col = col;
     targetUnit.row = row;
+    try { pushUndoAction({ kind: 'place', unitId: idx, prevCol: prevCol, prevRow: prevRow, nextCol: col, nextRow: row, name: targetUnit.name }); } catch (e) {}
     saveData();
     redrawOperationalMap();
     updateOpPlaceSelect();
@@ -5169,7 +5184,13 @@ function requestSignalIssue(kind, unit, manualPhoneRoute) {
             path: [validatedPhoneRoute[0]], intact: false, laying: true });
     }
     hardMode.signalPlatoon.transfers.push(transfer);
-    if (transfer.col === unit.col && transfer.row === unit.row) finishSignalTransfer(transfer);
+    const instantAssign = (typeof placementLocked === 'undefined' || !placementLocked);
+    if (instantAssign) {
+        transfer.col = unit.col; transfer.row = unit.row;
+        if (kind === 'phone' && Array.isArray(transfer.route) && transfer.route.length) transfer.routeIndex = transfer.route.length - 1;
+        finishSignalTransfer(transfer);
+        log(`📡 ${signalDeviceLabel(kind)} мгновенно закреплён за «${unit.name}» (до завершения размещения связисты не тратят время на подход).`);
+    } else if (transfer.col === unit.col && transfer.row === unit.row) finishSignalTransfer(transfer);
     else log(`📨 Штаб батальона отправил двух связистов с ${signalDeviceLabel(kind)} для «${unit.name}». Доставка пешим ходом${kind === 'phone' ? ' по выбранной трассе кабеля' : ''}.`);
     saveData();
     renderCommunicationPanel();
@@ -5744,7 +5765,8 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         // ⚡ v13.037: приказ на время (минуты, например 870 = 14:30)
         startTimeMin: (options.startTimeMin !== undefined ? options.startTimeMin : null),
         // ⚡ v13.069 (R48#3): скрытное движение (медленнее, труднее обнаружить)
-        stealth: !!options.stealth
+        stealth: !!options.stealth,
+        escortInfantryId: (options.escortInfantryId !== undefined && options.escortInfantryId !== null) ? options.escortInfantryId : null
     };
 
     const fromUnit = appData.campaign.opUnits ? appData.campaign.opUnits[fromUnitId] : null;
@@ -5833,6 +5855,7 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         hardMode.orders.push(order);
     }
 
+    try { pushUndoAction({ kind: 'order', orderId: order.id, type: order.type }); } catch (e) {}
     saveData();
     return order;
 }
@@ -5955,7 +5978,8 @@ function getOrderTypeLabel(type) {
         'dig_in': '🕳️ Окопаться', 'prep_positions': '🪓 Подготовка позиций',
         'series': '📋 Серия', 'company_order': '📋 Приказ через штаб роты',
         'artillery_strike': '💣 Арт. обстрел', 'disembark': '🚌 Высадка десанта',
-        'dismount': '🚲 Спешивание', 'remount': '🚲 Посадка на велосипеды'
+        'dismount': '🚲 Спешивание', 'remount': '🚲 Посадка на велосипеды',
+        'escort': '🛡️ Сопровождение пехоты'
     };
     return names[type] || type || 'приказ';
 }
@@ -6398,6 +6422,8 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
                 if (unitBelongsToHex(e, anchor.col, anchor.row) &&
                     !enemyUnits.some(x => x === e)) enemyUnits.push(e);
             });
+            // ⚡ v13.080: бронетехника с приказом «сопровождение» вступает в бой вместе с пехотой
+            try { attachEscortVehiclesToBattle(playerUnits, enemyUnits); } catch (e) {}
         }
     }
 
@@ -15570,8 +15596,8 @@ function endOperationalTurn() {
             // ⚡ v13.069 (R48#3): скрытное движение — половинный темп (2 гекса за ход).
             //    Флаг пересчитывается из активных приказов каждый ход, чтобы не «залипнуть».
             const stealthOrder = (hardMode.orders || []).some(o => o && o.status === 'active' && o.toUnitId === uIdx &&
-                ((o.type === 'move' && o.stealth) ||
-                 (Array.isArray(o.series) && o.series.some(st => st && st.type === 'move' && st.stealth && st.status !== 'completed'))));
+                ((o.stealth && (o.type === 'move' || o.type === 'attack' || o.type === 'retreat' || o.type === 'escort')) ||
+                 (Array.isArray(o.series) && o.series.some(st => st && st.stealth && st.status !== 'completed'))));
             u.stealthMove = !!stealthOrder;  // ⚡ v13.073: скрытно ходят и техника, и пехота
             // ⚡ v13.024: стационарные (ДОТ) ОД не получают
             u.ap = isStaticOpUnit(u) ? 0 : (u.stealthMove ? Math.min(u.maxAp || 4, 2) : u.maxAp);
@@ -15760,6 +15786,12 @@ function processOrders() {
             }
             order.timeWaitLogged = false;
             executeOrder(order);
+        });
+        // ⚡ v13.080: сопровождение — после движения пехоты танк догоняет её в том же ходу
+        hardMode.orders.forEach(order => {
+            if (order && order.status === 'active' && order.type === 'escort' && orderShouldExecuteNow(order)) {
+                executeOrder(order);
+            }
         });
     }
 
@@ -16036,7 +16068,8 @@ function executeOrder(order) {
         'remount': '🚲 Посадка',
         'disembark': '🚌 Высадка десанта',
         'artillery_strike': '💣 Арт. обстрел',
-        'prep_positions': '🪓 Подготовка позиций'
+        'prep_positions': '🪓 Подготовка позиций',
+        'escort': '🛡️ Сопровождение пехоты'
     };
 
     const unit = appData.campaign.opUnits[order.toUnitId];
@@ -16144,6 +16177,9 @@ function executeOrder(order) {
             break;
         case 'retreat':
             executeRetreatOrder(unit, order);
+            break;
+        case 'escort':
+            executeEscortOrder(unit, order);
             break;
     }
 
@@ -18917,15 +18953,18 @@ function updateOrderFieldVisibility(type) {
     if (hexBlock) hexBlock.style.display = hexTypes.includes(type) ? 'block' : 'none';
     if (routeBlock) routeBlock.style.display = routeTypes.includes(type) ? 'block' : 'none';
     if (behaviorBlock) behaviorBlock.style.display = behaviorTypes.includes(type) ? 'block' : 'none';
+    const escortBlock = document.getElementById('orderEscortBlock');
+    if (escortBlock) {
+        escortBlock.style.display = (type === 'escort') ? 'block' : 'none';
+        if (type === 'escort') fillEscortInfantrySelect();
+    }
     // ⚡ v13.069 (R48#3): скрытно ходить может только пехота (не техника)
     const stealthBlock = document.getElementById('orderStealthBlock');
     if (stealthBlock) {
         const unit = orderUnitForStealthCheck();
         // ⚡ v13.073: галочка «скрытно» доступна ВСЕМ отрядам (техника тоже, но медленнее)
-        const allowed = type === 'move' && !!unit && !isStaticOpUnit(unit);
+        const allowed = (type === 'move' || type === 'attack' || type === 'retreat' || type === 'escort') && (!unit || !isStaticOpUnit(unit));
         stealthBlock.style.display = allowed ? 'block' : 'none';
-        const box = document.getElementById('orderStealthMove');
-        if (box && !allowed) box.checked = false;
     }
 }
 // ⚡ v13.069: юнит, выбранный в панели приказов (для проверки «техника/пехота»)
@@ -18946,6 +18985,91 @@ function isVehicleMobilityUnit(unit) {
     const vehicleTypes = ['tank_platoon', 'sau_battery', 'btr_platoon', 'armored_vehicle_platoon', 'vehicle', 'dots'];
     if (vehicleTypes.includes(unit.type)) return true;
     return /САУ|БТР|Танк|Landsverk|Brugge|Бронеавтомобиль|ДОТ/i.test(String(unit.name || ''));
+}
+
+function isInfantryOpUnit(unit) {
+    if (!unit || unit.isDestroyed) return false;
+    if (isVehicleMobilityUnit(unit) || isStaticOpUnit(unit)) return false;
+    if (unit.type === 'btr_platoon' || unit.type === 'tank_platoon' || unit.type === 'sau_battery' || unit.type === 'armored_vehicle_platoon') return false;
+    return true;
+}
+function fillEscortInfantrySelect() {
+    const sel = document.getElementById('orderEscortInfantry');
+    if (!sel) return;
+    const units = (appData.campaign && appData.campaign.opUnits) || [];
+    const prev = sel.value;
+    sel.innerHTML = '<option value="-1">-- Выберите пехотный отряд --</option>' +
+        units.map((u, i) => (u && isInfantryOpUnit(u) && u.col != null) ? `<option value="${i}">${u.name}</option>` : '').join('');
+    if (prev && sel.querySelector('option[value="'+prev+'"]')) sel.value = prev;
+}
+function executeEscortOrder(unit, order) {
+    const units = (appData.campaign && appData.campaign.opUnits) || [];
+    const inf = units[order.escortInfantryId];
+    if (!inf || inf.isDestroyed) {
+        order.status = 'cancelled';
+        log(`❌ [${unit.name}] Сопровождение отменено: пехота не найдена.`);
+        return;
+    }
+    unit.escortInfantryId = order.escortInfantryId;
+    inf.escortedByUnitId = (appData.campaign.opUnits || []).indexOf(unit);
+    if (inf.col == null || inf.row == null) return;
+    const infAp = Number.isFinite(inf.maxAp) ? inf.maxAp : 4;
+    if (Number.isFinite(unit.ap) && unit.ap > infAp) unit.ap = infAp;
+    if (unit.col === inf.col && unit.row === inf.row) {
+        log(`🛡️ [${unit.name}] держится с «${inf.name}» (сопровождение).`);
+        return;
+    }
+    const follow = { type: 'move', waypoints: [{ col: inf.col, row: inf.row }], targetHex: inf.col + ',' + inf.row, behavior: order.behavior || 'hold', stealth: !!order.stealth, status: 'active' };
+    executeMoveOrder(unit, follow);
+    if (follow.status === 'cancelled') order.status = 'cancelled';
+}
+function attachEscortVehiclesToBattle(playerUnits, enemyUnits) {
+    const units = (appData.campaign && appData.campaign.opUnits) || [];
+    const addIf = (veh) => {
+        if (!veh || veh.isDestroyed || veh.isInBattle) return;
+        if (!playerUnits.some(p => p === veh)) playerUnits.push(veh);
+    };
+    playerUnits.slice().forEach(u => {
+        if (!u) return;
+        units.forEach(v => {
+            if (!v || v === u) return;
+            if (v.escortInfantryId != null && units[v.escortInfantryId] === u) addIf(v);
+        });
+        (hardMode.orders || []).forEach(o => {
+            if (!o || o.status !== 'active' || o.type !== 'escort') return;
+            if (units[o.escortInfantryId] === u) addIf(units[o.toUnitId]);
+        });
+    });
+}
+var actionUndoStack = [];
+function pushUndoAction(entry) {
+    if (!entry) return;
+    actionUndoStack.push(entry);
+    if (actionUndoStack.length > 40) actionUndoStack.shift();
+}
+function undoLastAction() {
+    const a = actionUndoStack.pop();
+    if (!a) {
+        const mi = document.getElementById('mapInfo');
+        if (mi) mi.innerHTML = '↩️ Нечего отменять.';
+        return;
+    }
+    if (a.kind === 'place') {
+        const u = (appData.campaign.opUnits || [])[a.unitId];
+        if (u) { u.col = a.prevCol; u.row = a.prevRow; }
+        saveData(); redrawOperationalMap();
+        const mi = document.getElementById('mapInfo');
+        if (mi) mi.innerHTML = '↩️ Отменено размещение «' + (a.name || '') + '».';
+        return;
+    }
+    if (a.kind === 'order' && a.orderId != null && typeof cancelOrder === 'function') {
+        cancelOrder(a.orderId, true);
+        const mi = document.getElementById('mapInfo');
+        if (mi) mi.innerHTML = '↩️ Последний приказ отменён.';
+        return;
+    }
+    const mi2 = document.getElementById('mapInfo');
+    if (mi2) mi2.innerHTML = '↩️ Это действие уже нельзя отменить.';
 }
 
 function onOrderTypeChange() {
@@ -19465,7 +19589,13 @@ function submitOrder()   {
         startTimeMin: startTimeMinVal,
         // ⚡ v13.069 (R48#3): «двигаться скрытно» — фиксируем в приказе, как ignoreArmor
         stealth: !!(document.getElementById('orderStealthMove') && document.getElementById('orderStealthMove').checked &&
-                    orderType === 'move' && unit && !isVehicleMobilityUnit(unit))
+                    (orderType === 'move' || orderType === 'attack' || orderType === 'retreat' || orderType === 'escort')),
+        escortInfantryId: (function(){
+            const el = document.getElementById('orderEscortInfantry');
+            if (!el || orderType !== 'escort') return null;
+            const v = parseInt(el.value, 10);
+            return Number.isFinite(v) && v >= 0 ? v : null;
+        })()
     };
 
     // Проверяем, выбран ли штаб (роты/батальона) и есть ли подчинённые
@@ -19666,7 +19796,13 @@ function addOrderToQueue() {
         startHex: queueUnit ? `${queueUnit.col},${queueUnit.row}` : null, // старт маршрута — для корректного срезания пройденного
         // ⚡ v13.069 (R48#3): скрытный шаг серии — по галочке в панели приказов
         stealth: !!(document.getElementById('orderStealthMove') && document.getElementById('orderStealthMove').checked &&
-                    typeSelect.value === 'move' && queueUnit && !isVehicleMobilityUnit(queueUnit)),
+                    (typeSelect.value === 'move' || typeSelect.value === 'attack' || typeSelect.value === 'retreat' || typeSelect.value === 'escort')),
+        escortInfantryId: (function(){
+            const el = document.getElementById('orderEscortInfantry');
+            if (!el || typeSelect.value !== 'escort') return null;
+            const v = parseInt(el.value, 10);
+            return Number.isFinite(v) && v >= 0 ? v : null;
+        })(),
         // ⚡ ДЛЯ СЕРИИ СОХРАНЯЕМ ВСЕ ПРИКАЗЫ
         series: []
     };
@@ -27904,6 +28040,7 @@ function onlineOnSnapshotSync() {
     <select id="orderType" style="background:#444; color:#fff;" onchange="onOrderTypeChange()">
       <option value="-1">-- Выберите приказ --</option>
       <option value="move">🚶 Движение</option>
+      <option value="escort">🛡️ Сопровождение пехоты (бронетехника)</option>
       <option value="attack">⚔️ Атака</option>
       <option value="dig_in">🕳️ Окопаться</option>
       <option value="prep_positions">🪓 Подготовка позиций</option>
@@ -27969,6 +28106,13 @@ function onlineOnSnapshotSync() {
     <label style="color:#aaa;" title="Юнит идёт медленнее (2 гекса за ход вместо 4), но его труднее обнаружить">
       <input type="checkbox" id="orderStealthMove"> 🥷 Двигаться скрытно (медленнее, но труднее обнаружить; доступно всем отрядам)
     </label>
+  </div>
+  <div id="orderEscortBlock" style="display:none; margin-top:4px;">
+    <label style="color:#aaa;">Сопровождаемая пехота: </label>
+    <select id="orderEscortInfantry" style="background:#444; color:#fff; max-width:240px;">
+      <option value="-1">-- Выберите пехотный отряд --</option>
+    </select>
+    <div style="color:#777; font-size:0.75rem;">Танк/БА идёт с пехотой с её скоростью и вступает в бой вместе с ней.</div>
   </div>
 
   <!-- Маршрут -->
@@ -28036,6 +28180,8 @@ function onlineOnSnapshotSync() {
   <div id="opPhaseDeploy" class="ux-phase-deploy" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
     <button id="winchBtn" onclick="grantWinchToSelected()" style="background:#8e6d47; display:none;" title="Талреп-якорь: позволяет технике заехать на 1 гекс высоты; подъём занимает 1 ход">🏔️ Талреп-якорь</button>
     <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Размещение</button>
+    <button onclick="setOpMapMode('view')" style="background:#1abc9c;" title="Кликом по отряду выбирать его, не размещая">👆 Выбор отряда</button>
+    <button onclick="undoLastAction()" style="background:#7f8c8d;" title="Отменить последнее размещение, приказ или выдачу связи">↩️ Отмена</button>
     <button id="btnInitialFortificationSetup" onclick="startInitialFortificationSetup()" style="background:#8e44ad; display:none;">🪖 Расставить ДОТы</button>
     <div id="initialFortificationStatus" role="status" aria-live="polite" style="display:none; margin:4px 0; padding:8px; background:#1d1726; border:1px solid #8e44ad; border-radius:6px; color:#f1c40f; font-size:.88rem;"></div>
     <button onclick="autoPlaceUnplacedUnits({ manual: true })" style="background:#16a085;" title="Расставить неразмещённые юниты в своей зоне автоматически">🎲 Авторазмещение</button>
@@ -28058,6 +28204,7 @@ function onlineOnSnapshotSync() {
       <button onclick="showBtrDisembarkDialog()" id="btrDisembarkBtn" data-ux-gate="btr" style="background:#e67e22; display:none;">🚶 Высадить из БТР</button>
     </div>
     <button id="opEndTurnBtn" onclick="endOperationalTurn()" style="background:#2980b9;">⏭️ Завершить ход</button>
+    <button onclick="undoLastAction()" style="background:#7f8c8d;" title="Отменить последнее действие">↩️ Отмена</button>
   </div>
 
   <div id="opBtrSlot" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
@@ -28477,8 +28624,15 @@ function autoPlaceEnemyUnits(opts) {
         hint = 'После этого ход перейдёт в фазу передвижения и боя.';
       }
     } else {
-      next = 'Ход: двигайте отряды или открывайте огонь';
-      hint = '«🚶 Перемещение» — дойти до гекса; «🎯 Обстрел» — выбрать цель; «⏭️ Завершить ход» — передать ход.';
+      const hm = (typeof hardMode !== 'undefined' && hardMode && hardMode.enabled) ||
+                 (typeof appData !== 'undefined' && appData.campaign && appData.campaign.hardMode === true);
+      if (hm) {
+        next = 'Ход: отдайте приказы и завершите ход';
+        hint = 'Ручное перемещение и обстрел недоступны. «🎯 Отдать приказ» — движение, огонь, сопровождение; «⏭️ Завершить ход» — исполнение.';
+      } else {
+        next = 'Ход: двигайте отряды или открывайте огонь';
+        hint = '«🚶 Перемещение» — дойти до гекса; «🎯 Обстрел» — выбрать цель; «⏭️ Завершить ход» — передать ход.';
+      }
     }
     if (stepText) stepText.textContent = next;
     if (stepBar) stepBar.style.display = next ? 'flex' : 'none';
@@ -28694,16 +28848,18 @@ function uxBuildChips(u, phase) {
   const chips = [];
   const add = (id, label, title) => chips.push({ id: id, label: label, title: title });
   const battle = phase === 'battle';
+  const hardOn = (typeof hardMode !== 'undefined' && hardMode && hardMode.enabled) ||
+                 (typeof appData !== 'undefined' && appData.campaign && appData.campaign.hardMode === true);
   const onMap = u.col !== null && u.col !== undefined && u.row !== null && u.row !== undefined;
   if (u.embarkedInBtr) {
     add('disembark', '🚶 Высадить', 'Высадить отряд из БТР');
   } else if (onMap && !u.isInBattle) {   // в тактическом бою карта заблокирована: только приказ
     const fixed = isStaticOpUnit(u);       // ДОТ: стационарный
     const ap = u.ap || 0;
-    if (battle && ap > 0 && !fixed && !u.operationalRouted) {
+    if (battle && ap > 0 && !fixed && !u.operationalRouted && !hardOn) {
       add('move', '🚶 Двигать', 'Подсветить гексы, куда отряд может дойти на свои ОД');
     }
-    if (battle && ap > 0 && canUnitShoot(u)) {
+    if (battle && ap > 0 && canUnitShoot(u) && !hardOn) {
       add('shoot', '🎯 Обстрел', 'Выбрать цель: затем кликните по врагу в радиусе огня');
     }
     if (battle) {
