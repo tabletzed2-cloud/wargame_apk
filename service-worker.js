@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.082 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.083 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // v13.077: разблокировка интерфейса (F3) — инвалидация offline-кэша кода.
 // v13.065: invalidate offline code cache after the melee/cards/map-template fixes.
 // v13.064: invalidate offline code cache after the orders-list rework.
@@ -11,9 +11,11 @@
 // ⚡ v13.061: cache update for retreat, turn-order and initial fortification fixes.
 // v13.072: invalidate offline code cache after the reliable-update (cache: 'reload'
 //    precache + build-marker verification) and build self-check fixes.
-const CACHE_NAME = 'wargame-v13.082';
+const CACHE_NAME = 'wargame-v13.083';
 
 const ASSETS = [
+    './images/AIRF/Взвод снабжения АИРФ №1.png',
+    './images/BeVe/Взвод снабжения BeVe №1.png',
     './images/AIRF/штаб развед взвода АИРФ №1.png',
       // ====== КОРНЕВЫЕ ФАЙЛЫ ======
     './',
