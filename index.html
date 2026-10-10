@@ -8232,6 +8232,7 @@ function nextTurn() {
     if (pr) { try { alert(pr); } catch (e) {} log(pr); return; }
   }
   try { resolveTacticalMeleesForTurn(completedSide); } catch (e) {}
+  try { autoTacticalDetectionForTurn(completedSide); } catch (e) {}
   processTacticalRouts(completedSide);
   appData.flareActive = false;
   appData.enemyFlareAvailable = false;
@@ -9326,6 +9327,7 @@ function moveSquad(terrainKey) {
     return;
   }
   currentSquad.movedThisTurn = true;
+  if (appData.map && appData.map.isCrouchMode) currentSquad.crouchMoved = true;
 
   log(`Отряд "${currentSquad.name}" переместился на 1 гекс (местность: ${terrainKey}), потрачено ${totalCost} полу-ОД.`);
   saveData();
@@ -10185,6 +10187,64 @@ function calculateReachableHexes(squad, fromKey, ap, isCrouch) {
     result[key] = cost;
   }
   return result;
+}
+
+
+function autoTacticalDetectionMod(squad) {
+  if (!squad) return 0;
+  let mod = 0;
+  const fired = !!(squad.actionsThisTurn && (squad.actionsThisTurn.shots || squad.actionsThisTurn.attacks));
+  if (fired || squad.firedThisTurn) mod += 3;
+  if (squad.armor) mod += 3;
+  if (squad.movedThisTurn && !(appData.map && appData.map.isCrouchMode) && !squad.crouchMoved) mod += 1;
+  if (squad.crouchMoved || (appData.map && appData.map.isCrouchMode && squad.movedThisTurn)) mod -= 1;
+  try {
+    const nightCard = typeof getScopedActiveCardsForSquad === 'function' && getScopedActiveCardsForSquad(squad).find(c => c.name === 'Ночь');
+    if (nightCard && !appData.flareActive) mod -= 2;
+  } catch (e) {}
+  try {
+    const pos = typeof getBattleSquadHex === 'function' ? getBattleSquadHex(appData.map && appData.map.grid, (appData.squads||[]).indexOf(squad), false) : null;
+    const cell = pos && appData.map && appData.map.grid && appData.map.grid[pos.key];
+    const types = (cell && (cell.types || cell.terrain)) || [];
+    const arr = Array.isArray(types) ? types : [types];
+    if (arr.indexOf('trenches') >= 0 || arr.indexOf('building') >= 0) mod -= 2;
+    else if (arr.indexOf('forest') >= 0 || arr.indexOf('bushes') >= 0) mod -= 1;
+  } catch (e) {}
+  if ((squad.fighters||[]).length >= 10) mod += 1;
+  return mod;
+}
+function autoDetectOneSquad(squad, label) {
+  if (!squad || squad.isDestroyed || squad.isRetreated || squad.status === 'retreated') return;
+  const fired = !!(squad.actionsThisTurn && ((squad.actionsThisTurn.shots||0) > 0 || squad.actionsThisTurn.attacks));
+  if (fired || squad.firedThisTurn) {
+    squad.detected = true;
+    squad.noiseMarker = false;
+    try { log('🔍 ' + (squad.name||label) + ': стрельба — обнаружен.'); } catch (e) {}
+    return;
+  }
+  const mod = autoTacticalDetectionMod(squad);
+  const roll = (typeof rollD10 === 'function') ? rollD10() : (1 + Math.floor(Math.random()*10));
+  const result = roll + mod;
+  try { log('🔍 Обнаружение ' + (squad.name||label) + ': d10=' + roll + ' + мод=' + mod + ' = ' + result); } catch (e) {}
+  if (result > 6) {
+    squad.detected = true;
+    squad.noiseMarker = false;
+    try { log('  → обнаружен'); } catch (e) {}
+  } else if (result === 6) {
+    squad.noiseMarker = true;
+    try { log('  → шум'); } catch (e) {}
+  } else {
+    squad.detected = false;
+    try { log('  → скрыт'); } catch (e) {}
+  }
+}
+function autoTacticalDetectionForTurn(side) {
+  if (side === 'player' || !side) {
+    (appData.squads || []).forEach(s => autoDetectOneSquad(s, 'свой'));
+  }
+  if (side === 'enemy' || !side) {
+    (appData.map && appData.map.enemySquads || []).forEach(s => autoDetectOneSquad(s, 'враг'));
+  }
 }
 
 function resolveTacticalMeleesForTurn(side) {
@@ -14356,7 +14416,7 @@ if (squadIds.length > 0) {
     ctx.textBaseline = 'bottom';
     ctx.fillText(moonStr, drawX, drawY - iconSize/2 - 4);
     ctx.font = (size * 0.22) + 'px Arial';
-    ctx.fillText(squad.detected ? '*' : '~', drawX + iconSize/2, drawY - iconSize/2);
+    ctx.fillText(squad.detected ? '👁️' : '🥷', drawX + iconSize/2, drawY - iconSize/2);
     // ------------------------------------------------
 
     // Подсветка жёлтой рамкой, если этот отряд выбран для перемещения
@@ -14669,6 +14729,7 @@ if (mode === 'move') {
       hex.squadIds.push(selectedIdx);
       squad.hexPos = key.split(',').map(Number);
       squad.movedThisTurn = true;
+      if (appData.map && appData.map.isCrouchMode) squad.crouchMoved = true;
 
       infoBox.innerHTML = `Отряд "${squad.name}" перемещён на ${key} (потрачено ${moveCost/2} ОД).`;
       // ⚡ v13.065 (R43#6): вошли в гекс противника — рукопашная начинается сама

@@ -15,3 +15,7 @@
 13. Отступление оппонента позволяет победителю «Завершить бой».
 14. +2 минуты за тактический ход (часы обновляются даже без выбранного отряда).
 15. В бою сверху «В кампанию»; «В меню» спрятано за подтверждение.
+
+- autoTacticalDetectionForTurn: d10+mod>6 at end of phase; fire always detected
+- own icons 👁️/🥷; enemy drawn only if detected
+- opp finish does not mass-retreat remaining; finish uses current destroyed/retreated

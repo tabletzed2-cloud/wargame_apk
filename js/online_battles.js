@@ -600,10 +600,7 @@ function onlineMergeOppBattle(battle, e) {
     if (e.status === 'finished' && !battle.onlineOppFinished) {
         battle.onlineOppFinished = true;
         changed = true;
-        (enemies || []).forEach(s => {
-            if (s && !s.isDestroyed) { s.isRetreated = true; s.status = 'retreated'; }
-        });
-        const msg = `🏁 Противник отступил/завершил бой на гексе (${battle.hexKey}). Нажмите «✅ Завершить бой».`;
+        const msg = `🏁 Противник завершил бой на гексе (${battle.hexKey}). Нажмите «✅ Завершить бой» — результат по текущему состоянию (уничтожен/отступил).`;
         try { log(msg); } catch (err) {}
         try { alert(msg); } catch (err) {}
         try { if (typeof updateTacticalTurnUI === 'function') updateTacticalTurnUI(); } catch (err) {}
