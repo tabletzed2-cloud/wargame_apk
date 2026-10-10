@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.081 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.082 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1544,7 +1544,8 @@ function fillModalTargets(attackType) {
         if (!pos) return;
         const d = hexGridDistance(shooterPos.col, shooterPos.row, pos.col, pos.row);
         const cov = getTacticalCoverInfoForEnemy(appData.map.grid, idx);
-        html += `<option value="${idx}" data-dist="${d}" data-cover="${cov ? cov.mod : 0}">${e.name} — ${d} гекс(ов)` +
+        if (!e.detected) return;
+        html += `<option value="${idx}" data-dist="${d}" data-cover="${cov ? cov.mod : 0}">${e.name} @ ${pos.key} — ${d} гекс(ов)` +
                 `${cov && cov.mod ? ', укрытие ' + cov.label + ' +' + cov.mod : ''}</option>`;
     });
     sel.innerHTML = html;
