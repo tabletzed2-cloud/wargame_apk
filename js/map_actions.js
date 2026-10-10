@@ -91,7 +91,7 @@ function mapActionEnemyAlive(enemy) {
     return (enemy.fighters || []).filter(f => f && f.hp > 0).length;
 }
 function mapActionEnemyTargetable(enemy) {
-    return !!enemy && enemy.hidden !== true && !enemy.isRetreated && enemy.status !== 'retreated' && mapActionEnemyAlive(enemy) > 0;
+    return !!enemy && enemy.hidden !== true && !!enemy.detected && !enemy.isRetreated && enemy.status !== 'retreated' && mapActionEnemyAlive(enemy) > 0;
 }
 function mapActionEnemyIsVehicle(enemy) {
     return !!(enemy && (enemy.isVehicle || enemy.armor));
@@ -112,7 +112,7 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx) {
     const enemy = (appData.map.enemySquads || [])[enemyIdx];
     const out = { idx: enemyIdx, enemy, ok: false, reason: '', dist: null, cover: null };
     if (!enemy) { out.reason = 'нет отряда'; return out; }
-    if (enemy.hidden === true) { out.reason = 'скрыт'; return out; }
+    if (enemy.hidden === true || !enemy.detected) { out.reason = 'не обнаружен'; return out; }
     if (mapActionEnemyAlive(enemy) === 0) { out.reason = 'уничтожен'; return out; }
     const sPos = getBattleSquadHex(grid, shooterIdx, false);
     const tPos = getBattleSquadHex(grid, enemyIdx, true);
@@ -192,8 +192,14 @@ function renderMapActionPanel() {
             `<b style="color:#f39c12;">🎯 ${def ? def.label : pa.type}</b>: выберите отряд противника — кликните по нему на карте или в списке:` +
             `<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">`;
         const enemies = appData.map.enemySquads || [];
+        const hexFilter = appData.map.pendingTargetHex;
         const evals = enemies.map((e, i) => mapActionEvalTarget(def || { targets: 'any' }, idx, i))
-            .filter(ev => ev.enemy && ev.enemy.hidden !== true && ev.dist !== null)
+            .filter(ev => ev.enemy && ev.enemy.hidden !== true && ev.enemy.detected && ev.dist !== null)
+            .filter(ev => {
+                if (!hexFilter) return true;
+                const pos = (typeof getBattleSquadHex === 'function') ? getBattleSquadHex(appData.map.grid, ev.idx, true) : null;
+                return pos && pos.key === hexFilter;
+            })
             .sort((a, b) => a.dist - b.dist);
         if (evals.length === 0) html += '<span style="color:#e74c3c;">Отрядов противника на карте нет.</span>';
         evals.forEach(ev => {
@@ -353,7 +359,8 @@ function mapHexClickDuringAttack(key) {
         return true;
     }
     if (ids.length === 1) { mapPickTarget(ids[0]); return true; }
-    mapActionInfo(`На гексе ${key} несколько отрядов противника — выберите цель в списке под картой.`);
+    appData.map.pendingTargetHex = key;
+    mapActionInfo(`На гексе ${key} несколько отрядов — нажмите кнопку нужного под картой.`);
     renderMapActionPanel();
     return true;
 }

@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.079 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.082 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.061: current release data and terrain definitions; absent texture variants no longer referenced.
 // ==================== КОНСТАНТЫ И ДАННЫЕ ==================== 
 // Типы местности

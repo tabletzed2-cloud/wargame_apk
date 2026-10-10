@@ -162,6 +162,8 @@ function onlineBattleSnapshot(battle, status) {
             armor: s.armor || null,
             pos: myPlaced ? (pos[i] || null) : null,
             hidden: !!s.hidden,
+            detected: !!s.detected,
+            firedThisTurn: !!(s.actionsThisTurn && (s.actionsThisTurn.shots || 0) > 0),
             isDestroyed: !!s.isDestroyed,
             isRetreated: !!s.isRetreated,
             isRouting: !!s.isRouting,
@@ -497,6 +499,7 @@ function onlineMergeOppBattle(battle, e) {
         if (cs.meleeOpponentName) s.meleeOpponentName = cs.meleeOpponentName;
         else if (s.meleeOpponentName && (battle.phaseRevision || 0) <= (e.phaseRevision || 0)) delete s.meleeOpponentName;
         if (s.isRetreated && typeof tacticalClearMeleeEngagement === 'function') tacticalClearMeleeEngagement(s);
+        if (cs.detected || cs.firedThisTurn) s.detected = true;
         if (cs.currentMorale !== null && cs.currentMorale !== undefined) {
             const pendingMorale = Math.max(0, (battle.onlineMoraleOut && battle.onlineMoraleOut[s.name] || 0) - (e.moraleIn && e.moraleIn[s.name] || 0));
             const value = Math.max(0, cs.currentMorale - pendingMorale);
@@ -597,9 +600,10 @@ function onlineMergeOppBattle(battle, e) {
     if (e.status === 'finished' && !battle.onlineOppFinished) {
         battle.onlineOppFinished = true;
         changed = true;
-        const msg = `🏁 Противник завершил бой на гексе (${battle.hexKey}). Потери уже учтены — завершите бой и вы («⏹ Завершить бой»).`;
+        const msg = `🏁 Противник завершил бой на гексе (${battle.hexKey}). Нажмите «✅ Завершить бой» — результат по текущему состоянию (уничтожен/отступил).`;
         try { log(msg); } catch (err) {}
         try { alert(msg); } catch (err) {}
+        try { if (typeof updateTacticalTurnUI === 'function') updateTacticalTurnUI(); } catch (err) {}
     }
     if (changed && live) {
         // Сохраняем входящий урон в запись боя немедленно, а не только при выходе.
