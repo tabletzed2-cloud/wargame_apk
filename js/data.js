@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.082 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.083 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.061: current release data and terrain definitions; absent texture variants no longer referenced.
 // ==================== КОНСТАНТЫ И ДАННЫЕ ==================== 
 // Типы местности
@@ -202,7 +202,7 @@ const BATTALION_PRESETS = {
     standard: [
       { type: "hq", name: "Штаб батальона", templateName: "Штаб Батальона", icon: "images/BeVe/штаб батальона BeVe.jpg" }, // используем шаблон штаба, можно потом расширить
       // ⚡ v13.068 (R47): взвод снабжения — батальонный склад боеприпасов на карте
-      { type: "hq", name: "Взвод снабжения", icon: "images/BeVe/мина 82 1.jpg", squads: [
+      { type: "hq", name: "Взвод снабжения", icon: "images/BeVe/Взвод снабжения BeVe №1.png", squads: [
               { name: "Штаб взвода снабжения", templateName: "Штаб взвода снабжения (Бельгийцы)" },
               { name: "Носильщики №1", templateName: "Носильщики №1 (Бельгийцы)" },
               { name: "Носильщики №2", templateName: "Носильщики №2 (Бельгийцы)" },
@@ -357,7 +357,7 @@ const BATTALION_PRESETS = {
     standard: [
      { type: "hq", name: "Штаб Батальона", templateName: "Штаб Батальона", icon: "images/бат аирф.png" }, 
       // ⚡ v13.068 (R47): взвод снабжения — батальонный склад боеприпасов на карте
-      { type: "hq", name: "Взвод снабжения", icon: "images/мин аирф 82.png", squads: [
+      { type: "hq", name: "Взвод снабжения", icon: "images/AIRF/Взвод снабжения АИРФ №1.png", squads: [
               { name: "Штаб взвода снабжения", templateName: "Штаб взвода снабжения (A.I.R.F.)" },
               { name: "Носильщики №1", templateName: "Носильщики №1 (A.I.R.F.)" },
               { name: "Носильщики №2", templateName: "Носильщики №2 (A.I.R.F.)" },
