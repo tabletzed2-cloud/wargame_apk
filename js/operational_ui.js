@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.084 — operational-map setup wizard, placement tray and compact orders.
+// ⚡ BUILD-МАРКЕР: v13.085 — operational-map setup wizard, placement tray and compact orders.
 (function () {
   'use strict';
 
@@ -120,7 +120,13 @@
     if (onlineEnemyPanel && c.online) onlineEnemyPanel.style.display = 'none';
     const oldOrdersPanel = document.getElementById('hardModePanel');
     if (oldOrdersPanel) oldOrdersPanel.style.display = 'none';
-    if (stage === 'orders') { host.style.display = 'none'; return; }
+    if (stage === 'orders') {
+      host.style.display = 'none';
+      setDisplay('opPlacementTray', false);
+      const deploy = document.getElementById('opPhaseDeploy');
+      if (deploy) deploy.style.display = 'none';
+      return;
+    }
     host.style.display = 'block';
 
     let copy = '';
@@ -244,14 +250,18 @@
     if (!force && signature === state.placementSignature) return;
     state.placementSignature = signature;
     const usable = list.map((u, i) => ({ u, i })).filter(x => x.u && !x.u.isDestroyed && !x.u.embarkedInBtr);
-    tray.innerHTML = `<div class="op-placement-title">Перетащите отряд на нужный гекс · список не сворачивается</div>` +
+    const oldScroll = tray.querySelector('.op-placement-units');
+    const scrollTop = oldScroll ? oldScroll.scrollTop : 0;
+    tray.innerHTML = `<div class="op-placement-title">Прокрутите список вниз для всех отрядов · перетащите за ⠿ или выберите карточку и гекс</div>` +
       `<div class="op-placement-units">${usable.map(({ u, i }) => {
         const placed = u.col != null && u.row != null;
         const pos = placed ? `(${u.col},${u.row})` : 'не размещён';
         const selected = state.selectedUnitId === i || (campaign() && campaign().selectedOpUnit === u);
         return `<button type="button" class="op-placement-unit${placed ? '' : ' is-unplaced'}${selected ? ' is-selected' : ''}" data-op-place-unit="${i}" aria-label="${esc(u.name)}; ${pos}; перетащите на карту" title="${esc(u.name)}" draggable="false">` +
-          `${safeUnitIcon(u)}<span>${esc(u.name || 'Отряд')}</span><small>${esc(pos)}</small></button>`;
+          `${safeUnitIcon(u)}<span>${esc(u.name || 'Отряд')}</span><small>${esc(pos)}</small><span class="op-drag-handle" data-op-drag-handle aria-hidden="true">⠿</span></button>`;
       }).join('')}</div>`;
+    const scroller = tray.querySelector('.op-placement-units');
+    if (scroller) scroller.scrollTop = scrollTop;
   }
   function updatePlacementSelectionStyles() {
     const tray = document.getElementById('opPlacementTray');
@@ -298,7 +308,8 @@
     });
     tray.addEventListener('pointerdown', event => {
       const button = event.target && event.target.closest ? event.target.closest('[data-op-place-unit]') : null;
-      if (!button || getStage() !== 'placement' || event.button > 0) return;
+      if (!button || getStage() !== 'placement' || event.button > 0 ||
+          (event.pointerType === 'touch' && !event.target.closest('[data-op-drag-handle]'))) return;
       const id = Number(button.getAttribute('data-op-place-unit'));
       if (!selectPlacementUnit(id)) return;
       try { if (typeof setOpMapMode === 'function') setOpMapMode('placePlayer'); } catch (e) {}
@@ -609,8 +620,69 @@
     if (!unit) { host.style.display = 'none'; return; }
     host.innerHTML = state.menuPage === 'main' ? renderMain(unit, picked.id) : renderDetails(unit, state.draft || {});
     host.style.display = 'block';
+    positionUnitActions();
     const quick = document.getElementById('opQuickActions');
     if (quick) quick.classList.add('op-quick-menu-open');
+  }
+  // Position both controls in viewport coordinates, matching the canvas drawing
+  // coordinates (including zoom, scrolling and grouped units on the same hex).
+  function unitAnchor() {
+    const picked = selectedUnit();
+    const unit = picked && picked.unit;
+    const canvas = document.getElementById('opMapCanvas');
+    const viewport = document.getElementById('opMapContainer');
+    if (!unit || !canvas || !viewport || unit.col == null || unit.row == null || unit.isDestroyed) return null;
+    const zoom = campaign().opZoomLevel || 1;
+    const size = (typeof OP_HEX_SIZE === 'number' ? OP_HEX_SIZE : 40) * zoom;
+    let x = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+    let y = unit.row * 1.5 * size + size;
+    const group = units().filter(u => u && !u.isDestroyed && u.col === unit.col && u.row === unit.row);
+    if (group.length > 1) {
+      const index = group.indexOf(unit);
+      const spread = Math.max(25 * zoom, (36 * zoom + 4 * zoom) / (2 * Math.sin(Math.PI / group.length)));
+      x += Math.cos(index * 2 * Math.PI / group.length) * spread;
+      y += Math.sin(index * 2 * Math.PI / group.length) * spread;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const scale = (typeof canvasBackingScale === 'function') ? canvasBackingScale(canvas) : 1;
+    const px = rect.left + x * rect.width / (canvas.width / scale);
+    const py = rect.top + y * rect.height / (canvas.height / scale);
+    const map = viewport.getBoundingClientRect();
+    if (px < map.left || px > map.right || py < map.top || py > map.bottom) return null;
+    return { x: px, y: py, radius: 22 * zoom * rect.width / (canvas.width / scale) };
+  }
+  function positionUnitActions() {
+    const bar = document.getElementById('opQuickActions');
+    const menu = document.getElementById('opCommandMenu');
+    if (!bar || !activeMap()) return;
+    const anchor = getStage() === 'orders' ? unitAnchor() : null;
+    bar.classList.toggle('op-unit-anchored', !!anchor);
+    const order = bar.querySelector('[data-quick-action="order"]');
+    if (order) order.style.display = anchor && isOnlineTurn() ? '' : 'none';
+    if (!anchor) {
+      bar.style.left = '50%'; bar.style.top = 'auto'; bar.style.bottom = 'max(8px, env(safe-area-inset-bottom))';
+      bar.style.transform = 'translateX(-50%)';
+      if (menu && menu.style.display === 'block') menu.style.display = 'none';
+      return;
+    }
+    const width = Math.min(bar.offsetWidth || 290, window.innerWidth - 16);
+    const left = Math.max(8, Math.min(window.innerWidth - width - 8, anchor.x - width / 2));
+    const barHeight = bar.offsetHeight || 45;
+    const above = anchor.y - anchor.radius - barHeight - 8;
+    const top = above >= 8 ? above : Math.min(window.innerHeight - barHeight - 8, anchor.y + anchor.radius + 8);
+    bar.style.left = `${left}px`; bar.style.top = `${top}px`; bar.style.bottom = 'auto';
+    bar.style.transform = 'none';
+    if (menu && state.menuOpen) {
+      menu.style.display = 'block';
+      const menuWidth = Math.min(menu.offsetWidth || 330, window.innerWidth - 16);
+      menu.style.left = `${Math.max(8, Math.min(window.innerWidth - menuWidth - 8, anchor.x - menuWidth / 2))}px`;
+      const aboveSpace = Math.max(0, top - 14);
+      const belowSpace = Math.max(0, window.innerHeight - top - barHeight - 14);
+      const placeAbove = aboveSpace >= Math.min(menu.scrollHeight || 220, 180) || aboveSpace >= belowSpace;
+      menu.style.maxHeight = `${Math.max(80, Math.min(560, placeAbove ? aboveSpace : belowSpace))}px`;
+      const height = menu.offsetHeight || 220;
+      menu.style.top = `${placeAbove ? Math.max(8, top - height - 6) : Math.min(window.innerHeight - height - 8, top + barHeight + 6)}px`;
+    }
   }
   function renderPinnedActions() {
     const bar = document.getElementById('opQuickActions');
@@ -623,8 +695,9 @@
     const order = bar.querySelector('[data-quick-action="order"]');
     const supply = bar.querySelector('[data-quick-action="supply"]');
     if (comm) comm.style.display = ['communications', 'orders'].includes(stage) ? '' : 'none';
-    if (order) order.style.display = stage === 'orders' ? '' : 'none';
+    if (order) order.style.display = 'none'; // shown only next to a selected map unit
     if (supply) supply.style.display = stage === 'orders' ? '' : 'none';
+    if (show) positionUnitActions();
   }
 
   function setCategory(category) {
@@ -943,11 +1016,44 @@
     try { if (typeof updateBtrPanel === 'function') updateBtrPanel(); } catch (e) {}
   }
 
+  // Orders issued to the same recipient during one planning turn share one
+  // delivery and execute in sequence, rather than all racing at end-of-turn.
+  function seriesStep(type, source) {
+    return { type, ...source, type, status: 'pending',
+      waypoints: (source.waypoints || []).map(p => ({ ...p })),
+      targetHexes: (source.targetHexes || []).slice() };
+  }
+  function appendTurnOrder(targetId, type, options) {
+    const turn = Number(campaign().currentTurn || 1);
+    const list = typeof getAllOrdersList === 'function' ? getAllOrdersList() :
+      [...(hardMode.messengerQueue || []), ...(hardMode.pendingOrders || []), ...(hardMode.orders || [])];
+    const existing = list.find(o => o && Number(o.turnIssued) === turn &&
+      ['pending', 'queued', 'delivering', 'active'].includes(o.status) &&
+      (o.type === 'company_order'
+        ? (o.subUnitIdsAll || o.subUnitIds || []).some(id => Number(id) === targetId)
+        : Number(o.toUnitId) === targetId) &&
+      !o.relayParentId && o.type !== 'artillery_strike');
+    if (!existing) return null;
+    if (existing.type === 'company_order' && !(existing.subUnitIds || []).some(id => Number(id) === targetId)) return null;
+    if (!Array.isArray(existing.series) || !existing.series.length) {
+      const firstType = existing.type === 'company_order' ? existing.orderType : existing.type;
+      // Use the actual saved order fields, not defaults from the new draft.
+      const saved = { ...existing };
+      existing.series = [seriesStep(firstType, saved)];
+    }
+    existing.series.push(seriesStep(type, options));
+    if (existing.type === 'company_order') existing.orderType = 'series';
+    else existing.type = 'series';
+    // The first step's time determines delivery; later steps wait individually.
+    return existing;
+  }
   function issueOneOrder(targetId, type, options, mirrored) {
     const list = units();
     const receiver = list[targetId];
     const hqId = findBattalionHq();
     if (!receiver || receiver.isDestroyed) throw new Error('Отряд не найден или уничтожен.');
+    const appended = appendTurnOrder(targetId, type, options);
+    if (appended) return appended;
     if (hqId < 0 || !list[hqId]) throw new Error('Штаб батальона не найден.');
     let order = null;
     let relay = null;
@@ -965,7 +1071,7 @@
       order = createOrder(hqId, targetId, type, options);
     }
     if (!order) throw new Error(`Не удалось создать приказ «${type}».`);
-    if (mirrored) order.escortMirrorInfantryId = mirrored;
+    if (mirrored != null) order.escortMirrorInfantryId = mirrored;
     return order;
   }
   function linkedEscortIds(infantryId) {
@@ -1114,7 +1220,11 @@
           state.error = '';
           renderCommandMenu();
         }
+      } else {
+        state.selectedUnitId = null;
+        if (state.menuOpen) closeCommandMenu(true);
       }
+      positionUnitActions();
       return result;
     };
     wrapped.__opCommandWrapper = true;
@@ -1191,6 +1301,10 @@
       menu.addEventListener('input', onCommandChange);
     }
     if (pinned) pinned.addEventListener('click', onPinnedClick);
+    const mapViewport = document.getElementById('opMapContainer');
+    if (mapViewport) mapViewport.addEventListener('scroll', positionUnitActions, { passive: true });
+    window.addEventListener('resize', positionUnitActions);
+    window.addEventListener('scroll', positionUnitActions, { passive: true });
     const placeSelect = document.getElementById('opPlaceSelect');
     if (placeSelect) placeSelect.addEventListener('change', () => {
       const id = Number(placeSelect.value);

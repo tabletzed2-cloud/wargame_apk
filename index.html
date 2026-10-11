@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.084 — операция</title>
+  <title>Боевой модуль v13.085 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<!-- Local SDK: online lobby also opens in installed/offline builds without a CDN. -->
+<script src="js/firebase-offline.js"></script>
   <style>
     /* ⚡ v13.071: акцент на одну кнопку действия и мягкий фон фазового бара */
     #uxPhaseBar { box-shadow: 0 0 0 1px #2980b9 inset; }
@@ -76,7 +76,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.084</h1>
+    <h1>⚔️ Боевой модуль v13.085</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -89,7 +89,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.084</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.085</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -121,7 +121,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.084 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.085 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -419,7 +419,7 @@ function safeLocalStorage(method, ...args) {
 // v13.065: melee by real hex distance, no conditional battle cards, red debuff frames,
 //    map-template replacement and v13.058 start positions; see CHANGELOG-v13.065.md.
 // v13.064: order-list details, ETA hints and cancel confirmations; see CHANGELOG-v13.064.md.
-var APP_VERSION = 'v13.084';
+var APP_VERSION = 'v13.085';
 
 // ⚡ v13.058: кнопка меню действительно запрашивает проверку новой версии SW;
 // если новый контроллер не вступил в силу, повторно открываем страницу с cache-buster.
@@ -5777,7 +5777,7 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         deliveryMethod: null,
         deliveryProgress: 0,
         messengerId: null,
-        turnIssued: currentTurn || 1,
+        turnIssued: (appData.campaign && appData.campaign.currentTurn) || currentTurn || 1,
         turnReceived: null,
         series: options.series || [],  // <--- ДОБАВЛЯЕМ ДЛЯ СЕРИЙ
         // ⚡ ВАЖНО: сохраняем подчинённые взводы и реальный тип приказа
@@ -16500,6 +16500,10 @@ function executeSeriesOrder(unit, order) {
     };
     log(`📋 [${unit.name}] Выполняется приказ: ${typeNames[currentAction.type] || currentAction.type}`);
 
+    // Individual steps may have different start times. Do not skip a step
+    // because its parent series was delivered earlier.
+    if (currentAction.startTimeMin != null && !orderShouldExecuteNow(currentAction)) return;
+
     // Выполняем текущий приказ в зависимости от типа
     switch (currentAction.type) {
         case 'move': {
@@ -16685,6 +16689,21 @@ function executeSeriesOrder(unit, order) {
             }
             break;
 
+        case 'sector_fire': {
+            // Like fire-at-will, sector control is persistent. Keep it active
+            // independently so it cannot block the rest of this series forever.
+            executeOperationalSectorFireOrder(unit, currentAction);
+            if (currentAction.status !== 'cancelled') {
+                const standOrder = { ...currentAction, id: Date.now() + Math.random(),
+                    fromUnitId: order.fromUnitId, toUnitId: order.toUnitId, status: 'active',
+                    turnIssued: order.turnIssued, turnReceived: order.turnReceived };
+                if (!hardMode.orders) hardMode.orders = [];
+                hardMode.orders.push(standOrder);
+                currentAction.status = 'completed';
+            }
+            break;
+        }
+
         case 'shoot':
             executeShootOrder(unit, currentAction);
             if (currentAction.status !== 'cancelled') {
@@ -16743,8 +16762,18 @@ function executeSeriesOrder(unit, order) {
             break;
 
         default:
-            log(`❌ [${unit.name}] Неизвестный тип приказа: ${currentAction.type}`);
-            currentAction.status = 'cancelled';
+            // Compact commands (targeted fire, sector control, embark, etc.)
+            // use the same executor as standalone orders. Never recurse a series.
+            if (currentAction.type !== 'series' && currentAction.type !== 'company_order' &&
+                ['shoot_enemy', 'sector_fire', 'embark', 'prep_positions', 'escort'].includes(currentAction.type)) {
+                currentAction.toUnitId = order.toUnitId;
+                currentAction.fromUnitId = order.fromUnitId;
+                currentAction.status = 'active';
+                executeOrder(currentAction);
+            } else {
+                log(`❌ [${unit.name}] Неизвестный тип приказа: ${currentAction.type}`);
+                currentAction.status = 'cancelled';
+            }
     }
 
     // ⚡ ПРОВЕРЯЕМ: завершен ли текущий приказ
@@ -25963,17 +25992,19 @@ function drawOperationalUnits(ctx) {
             ctx.fill();
         }
 
-        // Короткий код остаётся на значке; полное название размещается отдельно,
-        // в свободном месте карты, чтобы подписи не закрывали соседние отряды.
-        ctx.save();
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 10px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.shadowColor = 'rgba(0,0,0,.95)';
-        ctx.shadowBlur = 3;
-        ctx.fillText(String(unit.name || '').slice(0, 2), drawX, drawY);
-        ctx.restore();
+        // Image icons must remain legible: only fallback shapes carry a short code.
+        if (!opIconSrc || !loadedOpUnitIcons[opIconSrc] || !loadedOpUnitIcons[opIconSrc].complete ||
+            !loadedOpUnitIcons[opIconSrc].naturalWidth) {
+            ctx.save();
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 10px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(0,0,0,.95)';
+            ctx.shadowBlur = 3;
+            ctx.fillText(String(unit.name || '').slice(0, 2), drawX, drawY);
+            ctx.restore();
+        }
 
         // Подсветка красным для выбранной цели обстрела
         if (isEnemy && unit._highlighted) {
@@ -26174,8 +26205,8 @@ function drawOperationalUnits(ctx) {
         const dpr = (typeof canvasBackingScale === 'function' && ctx.canvas) ? canvasBackingScale(ctx.canvas) : 1;
         const boundsW = ctx.canvas ? ctx.canvas.width / dpr : Infinity;
         const boundsH = ctx.canvas ? ctx.canvas.height / dpr : Infinity;
-        const icons = entries.map(entry => ({ left: entry.x - radius - 3, right: entry.x + radius + 3,
-            top: entry.y - radius - 3, bottom: entry.y + radius + 3 }));
+        const icons = entries.map(entry => ({ left: entry.x - radius * 1.2 - 5, right: entry.x + radius * 1.2 + 5,
+            top: entry.y - radius * 1.2 - 5, bottom: entry.y + radius * 1.2 + 5 }));
         const labels = [];
         const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
         ctx.save();
@@ -27352,7 +27383,13 @@ function onlineBody(html) {
 //    не считался — на карте были видны ВСЕ юниты противника).
 function onlineEnsureSubscribed() {
     if (!(appData.campaign && appData.campaign.online && appData.campaign.online.code)) return false;
-    if (ONLINE.docRef) return true;
+    const saved = appData.campaign.online;
+    if (ONLINE.docRef && ONLINE.code === saved.code && ONLINE.role === saved.role) {
+        if (!ONLINE.listener) onlineListen();
+        return true;
+    }
+    if (ONLINE.listener) { ONLINE.listener(); ONLINE.listener = null; }
+    ONLINE.docRef = null; ONLINE.match = null;
     if (typeof onlineFirebaseReady !== 'function' || !onlineFirebaseReady()) return false;
     const o = appData.campaign.online;
     ONLINE.code = o.code;
@@ -27372,7 +27409,11 @@ function onlineEnsureSubscribed() {
 function onlineGoToCampaign() {
     // ⚡ v13.039: ре-джойн после перезагрузки страницы — снова подписываемся
     //    на комнату (код/роль/игрок — из сохранённого appData.campaign.online)
-    onlineEnsureSubscribed();
+    if (!onlineEnsureSubscribed()) {
+        onlineBody('<p style="color:#e74c3c;">❌ Не удалось подключиться к сохранённой комнате. Проверьте сеть и доступность Firestore.</p>' +
+            '<button class="menu-btn" onclick="openOnlineMenu()">Назад</button>');
+        return;
+    }
     document.getElementById('onlineModal').style.display = 'none';
     document.getElementById('mainMenu').style.display = 'none';
     document.getElementById('campaignApp').style.display = 'block';
@@ -27389,7 +27430,7 @@ function onlineDiagnostics() {
     s += '· Конфиг: ' + (cfgOk ? '<b style="color:#2ecc71;">✅ задан</b> (проект ' + ONLINE_CONFIG.firebase.projectId + ')'
                                 : '<b style="color:#e74c3c;">❌ пуст/неполный</b> — вставьте apiKey и projectId в ONLINE_CONFIG');
     s += '<br>· Firebase SDK: ' + (sdkOk ? '<b style="color:#2ecc71;">✅ загружен</b>'
-                                         : '<b style="color:#e74c3c;">❌ не загрузился</b> (проверьте интернет / доступность www.gstatic.com)');
+                                         : '<b style="color:#e74c3c;">❌ не загрузился</b> (обновите локальные файлы игры)');
     s += '<br>· Firestore: ' + (ONLINE.db ? '<b style="color:#2ecc71;">✅ подключён</b>' : (sdkOk && cfgOk ? '⏳ не подключался' : '—'));
     s += '</div>';
     return s;
@@ -27399,11 +27440,7 @@ function openOnlineMenu() {
     // ⚡ v13.033: кнопка больше не может «молча умереть» — любая ошибка
     //    показывается прямо в модалке, а не только в консоли
     try {
-        // Уже в онлайн-кампании — сразу на карту
-        if (appData.campaign && appData.campaign.active && appData.campaign.online) {
-            onlineGoToCampaign();
-            return;
-        }
+        // Always show the lobby entry. A saved match can be resumed explicitly below.
         document.getElementById('mainMenu').style.display = 'none';
         document.getElementById('onlineModal').style.display = 'block';
 
@@ -27420,7 +27457,7 @@ function openOnlineMenu() {
         if (typeof firebase === 'undefined') {
             onlineBody(`
               <p style="color:#e74c3c;"><b>❌ Firebase SDK не загрузился.</b></p>
-              <p>Скрипты firebase подключаются с <b>www.gstatic.com</b> — проверьте интернет. Если сайт открывается с файловой системы (file://) или без сети — SDK не загрузится.</p>
+              <p>Локальный модуль Firebase не загрузился. Обновите игру и проверьте, что js/firebase-offline.js доступен. Для создания комнаты также требуется связь с Firestore.</p>
               ${onlineDiagnostics()}
             `);
             return;
@@ -27434,7 +27471,8 @@ function openOnlineMenu() {
         }
         onlineBody(`
           <p>Кампания вдвоём: каждый на своём устройстве, общий сценарий, зоны расстановки, туман войны.</p>
-          <p style="color:#777; font-size:0.8rem;">Ходы строго по очереди (10 минут/ход), юниты оппонента на карте, урон по бойцам — синхронизировано через облако.</p>
+          <p style="color:#777; font-size:0.8rem;">Оба игрока выполняют ход параллельно (10 минут/ход); следующий ход начинается, когда оба завершили текущий.</p>
+          ${appData.campaign && appData.campaign.active && appData.campaign.online ? '<button class="menu-btn" onclick="onlineGoToCampaign()">↩️ Вернуться к текущему матчу</button>' : ''}
           <div style="display:flex; gap:10px;">
             <button class="menu-btn" style="flex:1;" onclick="onlineCreateRoom()">➕ Создать комнату</button>
             <button class="menu-btn" style="flex:1;" onclick="onlineShowJoin()">🔑 Войти по коду</button>
@@ -27509,6 +27547,10 @@ function onlineSelfTest() {
         });
 }
 
+function onlineEscape(value) {
+    return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function onlineGenCode() {
     const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
     let c = '';
@@ -27516,14 +27558,21 @@ function onlineGenCode() {
     return c;
 }
 
+function onlineLeaveCurrentRoom() {
+    if (ONLINE.listener) { ONLINE.listener(); ONLINE.listener = null; }
+    ONLINE.docRef = null; ONLINE.match = null; ONLINE.started = false; ONLINE.pendingStart = null;
+}
+
 function onlineCreateRoom() {
     // ⚡ v13.033: защита — если Firebase не поднялся, показываем диагностику
     if (!ONLINE.db) { openOnlineMenu(); return; }
+    onlineLeaveCurrentRoom();
     const code = onlineGenCode();
     ONLINE.code = code;
     ONLINE.role = 'p1';
     ONLINE.playerId = onlineGetPlayerId();
     ONLINE.docRef = ONLINE.db.collection('matches').doc(code);
+    onlineBody('<p style="color:#aaa;">Создание комнаты…</p><div id="onlineLobbyBox" style="margin-top:14px;"></div>');
     ONLINE.docRef.set({
         code: code,
         status: 'lobby',
@@ -27535,13 +27584,11 @@ function onlineCreateRoom() {
         },
         state: null,
         events: []
-    }, { merge: true }).catch(e => {
-        alert('❌ Ошибка создания комнаты: ' + e.message);
-        onlineBody('');
+    }).then(() => { onlineListen(); }).catch(e => {
+        console.error('onlineCreateRoom:', e);
+        onlineBody('<p style="color:#e74c3c;">❌ Не удалось создать комнату: ' + onlineEscape(e.message) + '</p>' +
+            '<button class="menu-btn" onclick="openOnlineMenu()">Назад</button>');
     });
-    onlineListen();
-    onlineBody('<p style="color:#aaa;">Создание комнаты…</p><div id="onlineLobbyBox" style="margin-top:14px;"></div>');
-    renderOnlineLobbySoon();
 }
 
 function onlineJoinRoom() {
@@ -27549,12 +27596,13 @@ function onlineJoinRoom() {
     if (!ONLINE.db) { openOnlineMenu(); return; }
     const code = (document.getElementById('onlineJoinCode').value || '').trim().toUpperCase();
     if (code.length !== 4) { alert('Введите код комнаты (4 символа).'); return; }
+    onlineLeaveCurrentRoom();
     ONLINE.code = code;
     ONLINE.playerId = onlineGetPlayerId();
     ONLINE.docRef = ONLINE.db.collection('matches').doc(code);
     onlineBody('<p style="color:#aaa;">Подключение к комнате ' + code + '…</p><div id="onlineLobbyBox" style="margin-top:14px;"></div>');
     ONLINE.docRef.get().then(snap => {
-        if (!snap.exists) { alert('❌ Комната ' + code + ' не найдена.'); onlineBody(''); return; }
+        if (!snap.exists) { onlineBody('<p>❌ Комната ' + code + ' не найдена.</p><button class="menu-btn" onclick="openOnlineMenu()">Назад</button>'); return; }
         const m = snap.data();
         const p2 = m.players ? m.players.p2 : null;
         if (p2 && p2.id !== ONLINE.playerId) { alert('❌ Комната занята двумя игроками.'); onlineBody(''); return; }
@@ -27563,7 +27611,9 @@ function onlineJoinRoom() {
         return ONLINE.docRef.update({
             'players.p2': { id: ONLINE.playerId, name: 'Игрок 2', faction: null, supportIds: [], ready: false, placed: false }
         });
-    }).then(() => onlineListen()).catch(e => alert('❌ ' + e.message));
+    }).then(() => { if (ONLINE.role === 'p2') onlineListen(); }).catch(e => {
+        onlineBody('<p style="color:#e74c3c;">❌ ' + onlineEscape(e.message) + '</p><button class="menu-btn" onclick="openOnlineMenu()">Назад</button>');
+    });
 }
 
 function onlineListen() {
@@ -27641,7 +27691,7 @@ function renderOnlineLobby() {
           <label style="color:#aaa;">Сценарий ${isHost ? '' : '(выбирает создатель комнаты)'}:</label>
           <select id="onlineScenario" ${isHost ? '' : 'disabled'} onchange="onlineSetScenario(this.value)" style="width:100%; background:#444; color:#fff; border-radius:6px; padding:6px;">${scenOpts}</select>
           <label style="display:block; margin-top:10px; color:#aaa;">Ваша фракция:</label>
-          <select id="onlineFaction" onchange="onlineSetFaction(this.value)" style="width:100%; background:#444; color:#fff; border-radius:6px; padding:6px;">${factionOpts}</select>
+          <select id="onlineFaction" onchange="onlineSetFaction(this.value)" style="width:100%; background:#444; color:#fff; border-radius:6px; padding:6px;"><option value="" ${me && me.faction ? '' : 'selected'} disabled>Выберите фракцию</option>${factionOpts}</select>
           <p style="margin:10px 0 2px; color:#aaa;">Ваша поддержка:${isBeVe ? ' (ровно 3 из 4)' : ''}<span style="color:${isBeVe && (me.supportIds || []).length === 3 ? '#2ecc71' : '#777'};">${supCount}</span></p>
           <div style="background:#222; border-radius:6px; padding:8px; min-height:26px;">${supHtml}</div>
           ${bonusHtml2}
@@ -29032,6 +29082,10 @@ function autoPlaceEnemyUnits(opts) {
   }
 
   function currentPhase() {
+    // The setup wizard is the source of truth for the phase. Both UI loops must agree.
+    const stage = (typeof appData !== 'undefined' && appData.campaign) && appData.campaign.opSetupStage;
+    if (['placement', 'fortifications', 'communications'].includes(stage)) return 'deploy';
+    if (stage === 'orders') return 'battle';
     if (typeof placementLocked === 'undefined') return 'battle';
     if (!placementLocked) {
       // есть неразмещённые — развёртывание; все размещены — ждём, но фаза deploy пока явно не нажато «Завершить ход»
@@ -29068,7 +29122,7 @@ function autoPlaceEnemyUnits(opts) {
     });
     // «⚙️ Ещё» и удалить/hexmap — видны всегда, но чуть приглушены в развёртывании
     const rare = document.getElementById('opPhaseRare');
-    if (rare) rare.style.display = 'flex';
+    if (rare) rare.style.display = (appData.campaign && appData.campaign.opSetupStage && appData.campaign.opSetupStage !== 'orders') ? 'none' : 'flex';
     // ⚡ v13.073: БТР-панель (посадка/высадка) видна в обеих фазах
     moveIntoSlot('btrPanel', 'opBtrSlot');
     // ⚡ v13.079: в HardMode на оперкарте юниты действуют ТОЛЬКО по приказам —
@@ -29084,7 +29138,8 @@ function autoPlaceEnemyUnits(opts) {
     const winchBtn = document.getElementById('winchBtn');
     if (winchBtn) {
       const pf = (typeof appData !== 'undefined' && appData.campaign) ? appData.campaign.playerFaction : null;
-      winchBtn.style.display = (phase === 'deploy' && pf === 'A.I.R.F.') ? 'inline-block' : 'none';
+      const stage = appData.campaign && appData.campaign.opSetupStage;
+      winchBtn.style.display = ((stage ? stage === 'fortifications' : phase === 'deploy') && pf === 'A.I.R.F.') ? 'inline-block' : 'none';
     }
 
     // --- в развёртывании панель врага и селектор юнита переезжают в deploy;
@@ -29096,6 +29151,7 @@ function autoPlaceEnemyUnits(opts) {
     const unitSelectBox = unitSelect ? unitSelect.closest('div') : null;
     if (phase === 'deploy') {
       moveIntoSlot('opEnemyPanel', 'opDeployEnemySlot');
+      if (enemyPanel && appData.campaign && appData.campaign.online) enemyPanel.style.display = 'none';
       if (unitSelectBox && unitSelectBox.id !== 'opDeployUnitSelectSlot') {
         const slot = document.getElementById('opDeployUnitSelectSlot');
         if (slot) slot.appendChild(unitSelectBox);
@@ -29105,7 +29161,7 @@ function autoPlaceEnemyUnits(opts) {
       const before = document.getElementById('activeBattlesPanel');
       if (enemyPanel && before && enemyPanel.parentNode !== before.parentNode) {
         before.parentNode.insertBefore(enemyPanel, before);
-        enemyPanel.style.display = '';
+        enemyPanel.style.display = appData.campaign && appData.campaign.online ? 'none' : '';
       }
       if (unitSelectBox && before && unitSelectBox.parentNode !== before.parentNode) {
         before.parentNode.insertBefore(unitSelectBox, before);
