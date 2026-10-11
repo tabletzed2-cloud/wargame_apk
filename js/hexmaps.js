@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.084 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.087 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1300,8 +1300,14 @@ function hexEditClick(hexKeyCell) {
     ov.hexEdits[hexKeyCell] = newType;
     const tData = (typeof TERRAIN_DATA !== 'undefined') ? TERRAIN_DATA[newType] : null;
     const nVar = (tData && tData.images && tData.images.length) ? tData.images.length : 1;
+    // ⚡ v13.087: вырубка леса → «лес поваленный1», вырубка кустов → «трава1».
+    //    Текстура фиксирована (не случайна), чтобы результат был предсказуем.
+    const FIXED_VARIANT_FILES = { fallen_forest: 'images/лес поваленный1.png', grass: 'images/трава1.png' };
+    const fixedFile = st.kind === 'trenches' ? null : FIXED_VARIANT_FILES[newType];
+    const fixedIndex = (fixedFile && tData && Array.isArray(tData.images)) ? tData.images.indexOf(fixedFile) : -1;
     // Для окопа начинаем с первой текстуры: дальнейшие клики идут циклом, как в редакторе.
-    const variant = st.kind === 'trenches' ? 0 : ((nVar > 1) ? Math.floor(Math.random() * nVar) : 0);
+    const variant = st.kind === 'trenches' ? 0
+        : (fixedIndex >= 0 ? fixedIndex : ((nVar > 1) ? Math.floor(Math.random() * nVar) : 0));
     ov.hexVariants[hexKeyCell] = variant;
     ov[st.rule.pointsField] = left - 1;
     st.undo.push(hexKeyCell);
