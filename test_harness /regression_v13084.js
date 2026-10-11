@@ -184,6 +184,8 @@ test('v13.084: BTR embark/disembark preserves carrier, position and mobility', (
   assert.equal(s.evalCtx('passenger.col'), null);
   assert.equal(s.evalCtx('carrier.embarkedUnitId'), 0);
   assert.equal(s.evalCtx('embarkOrder.status'), 'completed');
+  // ⚡ v13.088: executeDisembarkOrder теперь читает гекс высадки через orderDisembarkHex
+  s.run(sliceFunction(HTML, 'orderDisembarkHex'));
   s.run(sliceFunction(HTML, 'executeDisembarkOrder'));
   s.run(`var disembarkOrder = {status:'active'}; executeDisembarkOrder(passenger, disembarkOrder);`);
   assert.equal(s.evalCtx('passenger.embarkedInBtr'), false);

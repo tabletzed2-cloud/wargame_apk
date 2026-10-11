@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.087 — закреплённый док размещения, группировка трея, перетаскивание по иконке, приказы пассажирам.
+// ⚡ BUILD-МАРКЕР: v13.088 — «Сопровождение» для всех юнитов с дублем приказов, выбор гекса при высадке из БТР, закрепление табло времени и кнопок дока, меню без дублей.
 (function () {
   'use strict';
 
@@ -750,15 +750,19 @@
       return `<option value="${id}"${Number(selectedId) === id ? ' selected' : ''}>${esc(enemy.name)} (${enemy.col},${enemy.row})</option>`;
     }).join('');
   }
-  function infantryOptions(selectedId) {
+  // ⚡ v13.088 (пункт 4): сопровождать можно ЛЮБОЙ отряд — пехоту и технику.
+  //    Исключаются уничтоженные, скрытые, сидящие в БТР и сам сопровождающий.
+  function escortTargetOptions(selectedId, excludeId) {
     const list = units();
     return list.map((unit, id) => {
       if (!unit || unit.isDestroyed || unit.col == null || unit.hidden || unit.embarkedInBtr) return '';
-      const infantry = (typeof isInfantryOpUnit === 'function') ? isInfantryOpUnit(unit) :
-        !/БТР|танк|САУ|Бронеавтомобиль|ДОТ/i.test(String(unit.name || ''));
-      if (!infantry) return '';
-      return `<option value="${id}"${Number(selectedId) === id ? ' selected' : ''}>${esc(unit.name)} (${unit.col},${unit.row})</option>`;
+      if (excludeId != null && Number(excludeId) === id) return '';
+      const kind = (typeof isVehicleMobilityUnit === 'function' && isVehicleMobilityUnit(unit)) ? 'техника' : 'пехота';
+      return `<option value="${id}"${Number(selectedId) === id ? ' selected' : ''}>${esc(unit.name)} · ${kind} (${unit.col},${unit.row})</option>`;
     }).join('');
+  }
+  function infantryOptions(selectedId) {
+    return escortTargetOptions(selectedId, null);
   }
 
   function btrOptions(passenger, selectedId) {
@@ -774,6 +778,23 @@
       return `<option value="${id}"${Number(selectedId) === id ? ' selected' : ''}>${esc(unit.name)} · ${seats} мест · (${unit.col},${unit.row})${same ? ' · на этом гексе' : ''}</option>`;
     }).join('');
   }
+  // ⚡ v13.088 (пункт 3): есть ли у отряда неотработанный приказ «Сесть в БТР»
+  //    (отдельный приказ или шаг серии) — тогда «Выйти из БТР» уже доступен.
+  function pendingEmbarkOrder(unit) {
+    const id = units().indexOf(unit);
+    if (id < 0 || typeof getAllOrdersList !== 'function') return null;
+    return getAllOrdersList().find(order => {
+      if (!order || order.status === 'cancelled' || order.status === 'completed') return false;
+      const recipients = order.type === 'company_order'
+        ? (Array.isArray(order.subUnitIdsAll) ? order.subUnitIdsAll : order.subUnitIds || [])
+        : [order.toUnitId];
+      if (!recipients.some(x => Number(x) === Number(id))) return false;
+      const type = order.type === 'company_order' ? order.orderType : order.type;
+      if (type === 'embark') return true;
+      return Array.isArray(order.series) &&
+        order.series.some(step => step && step.type === 'embark' && step.status !== 'completed' && step.status !== 'cancelled');
+    }) || null;
+  }
   function canIssueSpecial(unit, action) {
     if (!unit) return false;
     if (action === 'recon') return !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
@@ -782,7 +803,7 @@
     if (action === 'remount') return !!unit.dismounted;
     if (action === 'embark') return !unit.embarkedInBtr && !unit.hidden && unit.col != null &&
       !/БТР|танк|САУ|ДОТ|Бронеавтомобиль/i.test(String(unit.name || ''));
-    if (action === 'disembark') return !!unit.embarkedInBtr ||
+    if (action === 'disembark') return !!unit.embarkedInBtr || !!pendingEmbarkOrder(unit) ||
       ((unit.type === 'btr_platoon' || /БТР/i.test(String(unit.name || ''))) &&
        (!!unit.embarkedUnit || !!(unit.embarkedUnitIds && unit.embarkedUnitIds.length) ||
         !!(unit.isGroup && unit.vehicleList && unit.vehicleList.some(v => v && v.embarkedUnit))));
@@ -828,6 +849,7 @@
     state.error = '';
     if (clearRoute) clearRoutePreview();
     renderCommandMenu();
+    renderPinnedActions(); // ⚡ v13.088 (пункт 8): панель возвращается после приказа/закрытия
   }
   function clearRoutePreview() {
     if (typeof orderWaypoints !== 'undefined') orderWaypoints = [];
@@ -890,12 +912,14 @@
     let body = '';
 
     if (draft.category === 'move') {
+      // ⚡ v13.088 (пункт 4): «Сопровождение» — любому отряду, за любым отрядом.
       body += `<label class="op-cmd-field">Способ движения<select data-draft-field="moveMode">` +
         `<option value="simple"${draft.mode === 'simple' ? ' selected' : ''}>Простое</option>` +
         `<option value="stealth"${draft.mode === 'stealth' ? ' selected' : ''}>Скрытное</option>` +
-        `<option value="escort"${draft.mode === 'escort' ? ' selected' : ''}${isVehicleMobilityUnit(unit) ? '' : ' disabled'}>Сопровождение пехоты</option></select></label>`;
+        `<option value="escort"${draft.mode === 'escort' ? ' selected' : ''}>Сопровождение</option></select></label>`;
       if (draft.mode === 'escort') {
-        body += `<label class="op-cmd-field">Какую пехоту сопровождать<select data-draft-field="escortInfantryId"><option value="">Выберите отряд</option>${infantryOptions(draft.escortInfantryId)}</select></label>`;
+        body += `<label class="op-cmd-field">Кого сопровождать<select data-draft-field="escortInfantryId"><option value="">Выберите отряд</option>${escortTargetOptions(draft.escortInfantryId, units().indexOf(unit))}</select></label>` +
+          `<div class="op-cmd-note">Отряд идёт вместе с выбранным и повторяет все его приказы (движение, обстрел, специальные действия).</div>`;
       }
       body += contactField(draft.behavior) + timeField(draft.time) +
         `<div class="op-cmd-note">Маршрут: ${esc(routeLabel(draft.waypoints))}</div>` +
@@ -944,7 +968,12 @@
           `<div class="op-cmd-note">Отряд подойдёт к выбранной машине и сядет в неё, даже если она стоит на другом гексе.</div>`;
       }
       if (draft.specialAction === 'disembark') {
-        body += `<div class="op-cmd-note">Десант выходит на гекс машины.</div>`;
+        // ⚡ v13.088 (пункт 3): гекс высадки выбирается на карте
+        const hexKey = draft.targetHex || unitHexKey(unit);
+        body += `<div class="op-cmd-note">Гекс высадки: <b>${esc(hexKey || 'не выбран')}</b>${draft.targetHex ? '' : ' (по умолчанию — гекс машины)'}. ` +
+          `Если этого гекса нет в маршруте БТР, маршрут дополняется им: машина в любом случае доедет до точки высадки.</div>` +
+          pointPicker('Выбрать гекс высадки', 'special');
+        if (state.mapPick === 'special') body += mapPickHint();
       }
       body += contactField(draft.behavior) + timeField(draft.time);
     } else if (draft.category === 'artillery') {
@@ -973,9 +1002,10 @@
     if (state.mapPick) { host.style.display = 'none'; renderPickBar(); return; }
     host.innerHTML = state.menuPage === 'main' ? renderMain(unit, picked.id) : renderDetails(unit, state.draft || {});
     host.style.display = 'block';
-    positionUnitActions();
+    // ⚡ v13.088 (пункт 8): убираем закреплённую панель на время выбора приказа
     const quick = document.getElementById('opQuickActions');
-    if (quick) quick.classList.add('op-quick-menu-open');
+    if (quick) { quick.classList.add('op-quick-menu-open'); quick.style.display = 'none'; }
+    positionUnitActions();
     renderPickBar();
   }
   function unitAnchor() {
@@ -1042,7 +1072,10 @@
     const bar = document.getElementById('opQuickActions');
     const c = campaign();
     if (!bar) return;
-    const show = !!(c && c.active && activeMap());
+    // ⚡ v13.088 (пункт 8): пока открыто меню приказа, панель «Связь / Приказ /
+    //    Снабжение» убрана — она не должна перекрывать карту. Вернётся, когда
+    //    приказ отдан или меню закрыто.
+    const show = !!(c && c.active && activeMap()) && !state.menuOpen;
     bar.style.display = show ? 'flex' : 'none';
     const stage = getStage();
     const comm = bar.querySelector('[data-quick-action="communication"]');
@@ -1051,6 +1084,11 @@
     if (comm) comm.style.display = ['communications', 'orders'].includes(stage) ? '' : 'none';
     if (order) order.style.display = 'none'; // shown only next to a selected map unit
     if (supply) supply.style.display = stage === 'orders' ? '' : 'none';
+    // ⚡ v13.088 (пункт 6): «📦 Объединить технику» — в этой же закреплённой панели.
+    //    Видимость держит updateVehiclePanel() (нужна выбранная техника).
+    try { if (typeof updateVehiclePanel === 'function' && show) updateVehiclePanel(); } catch (e) {}
+    const merge = bar.querySelector('[data-quick-action="merge"]');
+    if (merge && !show) merge.style.display = 'none';
     if (show) positionUnitActions();
   }
 
@@ -1198,21 +1236,26 @@
     }
     if (draft.category === 'move') {
       const route = draft.waypoints || [];
-      if (!route.length) throw new Error('Сначала выберите маршрут на карте.');
-      options.waypoints = route.map(p => ({ col: Number(p.col), row: Number(p.row) }));
-      options.targetHex = `${route[route.length - 1].col},${route[route.length - 1].row}`;
-      if (draft.mode === 'stealth') { type = 'move'; options.stealth = true; }
-      else if (draft.mode === 'escort') {
-        if (typeof isVehicleMobilityUnit !== 'function' || !isVehicleMobilityUnit(unit)) {
-          throw new Error('Сопровождение назначается выбранной технике; выберите танк или бронемашину.');
-        }
+      if (draft.mode === 'escort') {
+        // ⚡ v13.088 (пункт 4): сопровождение доступно всем юнитам, цель — любой отряд.
+        //    Маршрут не нужен: отряд сам подходит к сопровождаемому и повторяет его приказы.
         type = 'escort';
-        if (draft.escortInfantryId === '' || draft.escortInfantryId == null) throw new Error('Выберите пехотный отряд для сопровождения.');
+        if (draft.escortInfantryId === '' || draft.escortInfantryId == null) throw new Error('Выберите отряд для сопровождения.');
         const id = Number(draft.escortInfantryId);
-        const escort = units()[id];
-        if (!Number.isInteger(id) || !escort || !isInfantryOpUnit(escort)) throw new Error('Выберите пехотный отряд для сопровождения.');
+        const leader = units()[id];
+        if (!Number.isInteger(id) || !leader || leader === unit || leader.isDestroyed) {
+          throw new Error('Выберите другой отряд для сопровождения.');
+        }
         options.escortInfantryId = id;
-      } else type = 'move';
+        options.waypoints = (leader.col != null && leader.row != null) ? [{ col: leader.col, row: leader.row }] : [];
+        options.targetHex = (leader.col != null && leader.row != null) ? `${leader.col},${leader.row}` : null;
+      } else {
+        if (!route.length) throw new Error('Сначала выберите маршрут на карте.');
+        options.waypoints = route.map(p => ({ col: Number(p.col), row: Number(p.row) }));
+        options.targetHex = `${route[route.length - 1].col},${route[route.length - 1].row}`;
+        if (draft.mode === 'stealth') { type = 'move'; options.stealth = true; }
+        else type = 'move';
+      }
     } else if (draft.category === 'specific') {
       if (draft.targetEnemyId === '' || draft.targetEnemyId == null) throw new Error('Выберите обнаруженную цель.');
       const targetId = Number(draft.targetEnemyId);
@@ -1252,6 +1295,10 @@
         options.targetHex = draft.targetHex || unitHexKey(unit) || null;
         if (!options.targetHex) throw new Error('Не удалось определить гекс для действия.');
       }
+      if (type === 'disembark') {
+        // ⚡ v13.088 (пункт 3): гекс высадки; по умолчанию — гекс машины
+        options.targetHex = draft.targetHex || unitHexKey(unit) || null;
+      }
       if (type === 'embark') {
         if (draft.btrUnitId === '' || draft.btrUnitId == null) throw new Error('Выберите свободный БТР подходящей вместимости.');
         const id = Number(draft.btrUnitId);
@@ -1266,8 +1313,9 @@
         options.btrUnitId = id;
         options.targetHex = `${btr.col},${btr.row}`;
       }
-      if (type === 'disembark' && !(unit.embarkedInBtr || unit.type === 'btr_platoon' || /БТР/i.test(unit.name || ''))) {
-        throw new Error('Выберите десант в БТР или сам БТР с десантом.');
+      // ⚡ v13.088 (пункт 3): «Выйти из БТР» доступно и отряду с приказом «Сесть в БТР»
+      if (type === 'disembark' && !canIssueSpecial(unit, 'disembark')) {
+        throw new Error('Выберите десант в БТР, отряд с приказом посадки или сам БТР с десантом.');
       }
     } else {
       throw new Error('Неизвестный тип приказа.');
@@ -1469,6 +1517,49 @@
     });
     return Array.from(result);
   }
+  // ⚡ v13.088 (пункт 4): сопровождение дублирует ВСЕ приказы сопровождаемого —
+  //    уже отданные копируются сразу, будущие — в issueDraftOrder (linkedEscortIds).
+  function mirrorLeaderOrdersToEscort(escortId, leaderId) {
+    if (!Number.isInteger(leaderId) || Number(escortId) === Number(leaderId)) return 0;
+    const escort = units()[Number(escortId)];
+    if (!escort || escort.isDestroyed) return 0;
+    const list = (typeof getAllOrdersList === 'function') ? getAllOrdersList() : [];
+    const hqId = findBattalionHq();
+    if (hqId < 0 || typeof createOrder !== 'function') return 0;
+    let copied = 0;
+    list.forEach(order => {
+      if (!order || ['cancelled', 'completed'].includes(order.status)) return;
+      const effectiveType = order.type === 'company_order' ? order.orderType : order.type;
+      if (!effectiveType || ['escort', 'series', 'artillery_strike', 'company_order'].includes(effectiveType)) return;
+      const recipients = order.type === 'company_order'
+        ? (Array.isArray(order.subUnitIdsAll) ? order.subUnitIdsAll : order.subUnitIds || [])
+        : [order.toUnitId];
+      if (!recipients.some(id => Number(id) === Number(leaderId))) return;
+      const mirrored = { ...order,
+        waypoints: (order.waypoints || []).map(p => ({ ...p })),
+        targetHexes: (order.targetHexes || []).slice(),
+        startHex: (escort.col != null && escort.row != null) ? `${escort.col},${escort.row}` : order.startHex };
+      try {
+        const copy = createOrder(hqId, Number(escortId), effectiveType, mirrored);
+        if (copy) { copy.escortMirrorInfantryId = Number(leaderId); copied++; }
+      } catch (e) { console.warn('escort mirror:', e.message); }
+    });
+    return copied;
+  }
+  // ⚡ v13.088 (пункт 3): приказ отряду, у которого ещё не отработан приказ
+  //    «Сесть в БТР», дописывается в серию посадки: «сесть → выйти на гексе → …».
+  function appendToPendingEmbark(unit, type, options) {
+    const order = pendingEmbarkOrder(unit);
+    if (!order) return null;
+    if (!Array.isArray(order.series) || !order.series.length) {
+      const firstType = order.type === 'company_order' ? order.orderType : order.type;
+      order.series = [seriesStep(firstType, { ...order })];
+    }
+    order.series.push(seriesStep(type, options));
+    if (order.type === 'company_order') order.orderType = 'series';
+    else order.type = 'series';
+    return order;
+  }
   function issueDraftOrder() {
     const picked = selectedUnit();
     if (!picked.unit || picked.id < 0) throw new Error('Сначала выберите отряд.');
@@ -1484,7 +1575,15 @@
       ];
       result = { type: 'series', options: { ...base, orderType: 'series', series: steps, waypoints: [], targetHex: base.targetHex || null } };
     }
-    const created = [issueOneOrder(picked.id, result.type, result.options, null)];
+    const appendedToEmbark = (result.type !== 'embark' && !picked.unit.embarkedInBtr)
+      ? appendToPendingEmbark(picked.unit, result.type, result.options) : null;
+    const created = appendedToEmbark
+      ? [appendedToEmbark]
+      : [issueOneOrder(picked.id, result.type, result.options, null)];
+    let mirroredNow = 0;
+    if (result.type === 'escort' && result.options.escortInfantryId != null) {
+      mirroredNow = mirrorLeaderOrdersToEscort(picked.id, Number(result.options.escortInfantryId));
+    }
     if (result.type !== 'escort') {
       linkedEscortIds(picked.id).forEach(vehicleId => {
         const vehicle = units()[vehicleId];
@@ -1503,7 +1602,16 @@
     try { if (typeof saveData === 'function') saveData(); } catch (e) {}
     try { if (typeof redrawOperationalMap === 'function') redrawOperationalMap(); } catch (e) {}
     const status = created[0].status;
-    setMapMessage(`📋 Приказ «${result.type}» передан ${created.length > 1 ? `отряду и ${created.length - 1} машине(ам) сопровождения` : `отряду «${picked.unit.name}»`}${status === 'delivering' ? ' · доставляется штабом' : status === 'queued' ? ' · ждёт посыльного' : ''}.`, '#27ae60');
+    // ⚡ v13.088 (пункт 9): подтверждение — что за приказ, кому, через сколько
+    //    ходов доставит посыльный и к какому времени операции он начнётся.
+    const label = (typeof getOrderTypeLabel === 'function') ? getOrderTypeLabel(result.type) : result.type;
+    const eta = (typeof describeOrderEta === 'function') ? describeOrderEta(created[0]) : '';
+    const audience = created.length > 1
+      ? `отряду «${picked.unit.name}» и ${created.length - 1} отряду(ам) сопровождения`
+      : `отряду «${picked.unit.name}»`;
+    const tail = status === 'delivering' ? ' · доставляется штабом' : status === 'queued' ? ' · ждёт посыльного' : '';
+    setMapMessage(`📋 Приказ «${label}» передан ${audience}${tail}${eta ? `. ${eta.charAt(0).toUpperCase() + eta.slice(1)}.` : '.'}`, '#27ae60');
+    try { if (typeof log === 'function') log(`📋 Приказ «${label}» для «${picked.unit.name}»${eta ? `: ${eta}` : ''}${mirroredNow ? ` · скопировано приказов сопровождаемого: ${mirroredNow}` : ''}.`); } catch (e) {}
     markChecklist('orders');
     closeCommandMenu(true);
   }
@@ -1581,6 +1689,10 @@
       if (panel && panel.style.display === 'block' && typeof panel.scrollIntoView === 'function') panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } else if (action === 'order') {
       openCommandMenu();
+    } else if (action === 'merge') {
+      // ⚡ v13.088 (пункт 6): объединение техники — из закреплённой панели
+      if (typeof showGroupDialog === 'function') showGroupDialog();
+      else setMapMessage('Объединение техники недоступно.', '#e67e22');
     } else if (action === 'supply') {
       if (typeof showSupplyPanel === 'function') showSupplyPanel();
       const panel = document.getElementById('supplyPanel');
