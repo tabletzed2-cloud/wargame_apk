@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.085 — operational-map setup wizard, placement tray and compact orders.
+// ⚡ BUILD-МАРКЕР: v13.087 — закреплённый док размещения, группировка трея, перетаскивание по иконке, приказы пассажирам.
 (function () {
   'use strict';
 
@@ -17,7 +17,10 @@
     selectedUnitId: null,
     placementSignature: '',
     drag: null,
+    canvasDrag: null,
     lastDragAt: 0,
+    ordersSig: null,
+    commCollapsed: false,
     error: ''
   };
 
@@ -110,6 +113,10 @@
     });
   }
   function renderSetup() {
+    renderSetupCore();
+    syncStageLayout();
+  }
+  function renderSetupCore() {
     const host = document.getElementById('opSetupWizard');
     if (!host) return;
     const c = campaign();
@@ -179,6 +186,335 @@
     updatePlacementTray();
   }
 
+
+  // ===== v13.087: passengers, dock, grouped tray, icon drag, pick bar, winch info =====
+  function carrierOf(passenger) {
+    const list = units();
+    const pid = list.indexOf(passenger);
+    const byIds = (passenger.btrIds || []).map(id => list[Number(id)]).find(b => b && !b.isDestroyed);
+    if (byIds) return byIds;
+    return list.find(b => b && (b.embarkedUnit === passenger.name ||
+      (b.embarkedUnitId != null && Number(b.embarkedUnitId) === pid))) || null;
+  }
+  function passengerOf(btr) {
+    if (!btr) return null;
+    const list = units();
+    const bi = list.indexOf(btr);
+    const found = list.find(u => u && u.embarkedInBtr && !u.isDestroyed &&
+      ((Array.isArray(u.btrIds) && u.btrIds.map(Number).includes(bi)) ||
+       (btr.embarkedUnitId != null && Number(btr.embarkedUnitId) === list.indexOf(u)) ||
+       (btr.embarkedUnit && btr.embarkedUnit === u.name)));
+    return found ? { unit: found, id: list.indexOf(found) } : null;
+  }
+  function unitHexKey(unit) {
+    if (!unit) return '';
+    if (unit.col != null && unit.row != null) return `${unit.col},${unit.row}`;
+    const carrier = unit.embarkedInBtr ? carrierOf(unit) : null;
+    return (carrier && carrier.col != null) ? `${carrier.col},${carrier.row}` : '';
+  }
+
+  // Dock: the deploy group (placement buttons, tray) is pinned to the bottom of the viewport.
+  function ensureDock() {
+    let dock = document.getElementById('opStageDock');
+    if (dock) return dock;
+    const deploy = document.getElementById('opPhaseDeploy');
+    if (!deploy) return null;
+    dock = document.createElement('div');
+    dock.id = 'opStageDock';
+    dock.setAttribute('role', 'region');
+    dock.setAttribute('aria-label', 'Кнопки этапа и список отрядов');
+    dock.style.display = 'none';
+    const winchBox = document.createElement('div');
+    winchBox.id = 'winchInfoBox';
+    winchBox.hidden = true;
+    winchBox.addEventListener('click', onWinchBoxClick);
+    dock.appendChild(winchBox);
+    dock.appendChild(deploy);
+    document.body.appendChild(dock);
+    return dock;
+  }
+  function dockHeight() {
+    const dock = document.getElementById('opStageDock');
+    return (dock && dock.style.display !== 'none') ? dock.offsetHeight : 0;
+  }
+  function renderOrdersListIfChanged() {
+    if (typeof getAllOrdersList !== 'function' || typeof renderActiveOrders !== 'function') return;
+    const sig = getAllOrdersList().map(o => `${o.id}:${o.status}:${(o.series || []).length}`).join('|');
+    if (sig === state.ordersSig) return;
+    state.ordersSig = sig;
+    renderActiveOrders();
+  }
+  function syncStageLayout() {
+    const c = campaign();
+    const dock = ensureDock();
+    const active = activeMap();
+    const stage = getStage();
+    const showDock = !!(dock && active && c && stage !== 'orders');
+    if (dock) dock.style.display = showDock ? 'block' : 'none';
+    const screen = document.getElementById('campaignMapScreen');
+    if (screen) screen.style.paddingBottom = showDock ? `${dock.offsetHeight + 12}px` : '';
+    document.body.classList.toggle('op-placement-stage', showDock && stage === 'placement');
+    document.body.classList.toggle('op-show-place-select', !!(c && c.opMapMode === 'placeEnemy'));
+    const commBody = document.getElementById('commPanelBody');
+    if (commBody) commBody.style.display = state.commCollapsed ? 'none' : '';
+    const commBtn = document.getElementById('commCollapseBtn');
+    if (commBtn) commBtn.textContent = state.commCollapsed ? '▾ Развернуть' : '▴ Свернуть';
+    // Панель всех отданных приказов (v13.087, пункт 11): видна на этапе приказов
+    const list = document.getElementById('activeOrdersList');
+    if (list) list.style.display = (active && stage === 'orders') ? 'block' : 'none';
+    if (active && stage === 'orders') renderOrdersListIfChanged();
+    renderPickBar();
+    positionUnitActions();
+  }
+
+  // Placement tray grouping (v13.087, пункт 5): rows by battalion structure.
+  const ROW_TITLES = { bat: 'Батальон', veh: 'Бронетехника взводов', btr: 'БТР', tank: 'Танки', sau: 'САУ',
+    art: 'Артиллерия полка', dots: 'ДОТы', coOther: 'Прочие роты', other: 'Прочее' };
+  const ROW_TAIL = ['veh', 'btr', 'tank', 'sau', 'art', 'dots', 'other'];
+  const TYPE_RANK = ['battalion_hq', 'company_hq', 'recon_platoon', 'engineer_platoon', 'mortar_battery', 'at_gun', 'hq'];
+  function typeRank(u) {
+    const i = TYPE_RANK.indexOf(u.type);
+    return i >= 0 ? i : TYPE_RANK.length;
+  }
+  function placementRows(entries) {
+    const c = campaign();
+    const bat = c && c.battalions && c.battalions.player;
+    const bu = (bat && Array.isArray(bat.units)) ? bat.units : [];
+    const nameRow = new Map();
+    const companies = [];
+    const titles = {};
+    const put = (name, key) => { if (name && !nameRow.has(String(name))) nameRow.set(String(name), key); };
+    bu.forEach(unit => {
+      if (!unit) return;
+      if (unit.type === 'infantry_company') {
+        const key = 'co:' + (unit.name || companies.length);
+        if (!titles[key]) { titles[key] = unit.name || 'Рота'; companies.push(key); }
+        put(unit.hq && unit.hq.name, key);
+        (unit.platoons || []).forEach(pl => {
+          put(pl.name, key);
+          (pl.squads || []).forEach(sq => put(sq && sq.name, key));
+        });
+        return;
+      }
+      let key = null;
+      if (['hq', 'mortar_battery', 'at_battery', 'engineer_platoon', 'recon_platoon', 'artillery_support'].includes(unit.type)) key = 'bat';
+      else if (unit.type === 'armored_vehicle_platoon') key = 'veh';
+      else if (unit.type === 'btr_platoon') key = 'btr';
+      else if (unit.type === 'tank_platoon') key = 'tank';
+      else if (unit.type === 'sau_battery') key = 'sau';
+      else if (unit.type === 'regimental_artillery') key = 'art';
+      else if (unit.type === 'dots') key = 'dots';
+      if (!key) return;
+      put(unit.name, key);
+      (unit.squads || []).forEach(sq => put(sq && sq.name, key));
+    });
+    const rowKeyOf = u => {
+      const hit = nameRow.get(String(u.name || ''));
+      if (hit) return hit;
+      if (['battalion_hq', 'hq', 'recon_platoon', 'engineer_platoon', 'mortar_battery', 'at_gun'].includes(u.type)) return 'bat';
+      if (['company_hq', 'infantry_platoon', 'bicycle_platoon', 'motorcycle_platoon'].includes(u.type)) return 'coOther';
+      if (u.type === 'vehicle') return 'veh';
+      if (u.type === 'btr_platoon') return 'btr';
+      if (u.type === 'tank_platoon') return 'tank';
+      if (u.type === 'sau_battery') return 'sau';
+      if (u.type === 'regimental_artillery') return 'art';
+      if (u.type === 'dots') return 'dots';
+      return 'other';
+    };
+    const groups = new Map();
+    entries.forEach(entry => {
+      const key = rowKeyOf(entry.u);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(entry);
+    });
+    const order = ['bat', ...companies, 'coOther', ...ROW_TAIL];
+    [...groups.keys()].forEach(k => { if (!order.includes(k)) order.push(k); });
+    const rows = [];
+    order.forEach(key => {
+      const items = groups.get(key);
+      if (!items || !items.length) return;
+      items.sort((a, b) => (typeRank(a.u) - typeRank(b.u)) || (a.i - b.i));
+      rows.push({ key, title: key.indexOf('co:') === 0 ? titles[key] : (ROW_TITLES[key] || key), items });
+    });
+    return rows;
+  }
+  function placementButton(u, i) {
+    const placed = u.col != null && u.row != null;
+    const pos = placed ? `(${u.col},${u.row})` : 'не размещён';
+    const selected = state.selectedUnitId === i || (campaign() && campaign().selectedOpUnit === u);
+    return `<button type="button" class="op-placement-unit${placed ? '' : ' is-unplaced'}${selected ? ' is-selected' : ''}" data-op-place-unit="${i}" aria-label="${esc(u.name)}; ${pos}; перетащите на карту" title="${esc(u.name)}" draggable="false">` +
+      `${safeUnitIcon(u)}<span>${esc(u.name || 'Отряд')}</span><small>${esc(pos)}</small><span class="op-drag-handle" data-op-drag-handle aria-hidden="true">⠿</span></button>`;
+  }
+
+  // Drag a placed unit by its icon directly on the map (v13.087, пункт 1).
+  function canvasPoint(event) {
+    const canvas = document.getElementById('opMapCanvas');
+    if (!canvas || !campaign()) return null;
+    const rect = canvas.getBoundingClientRect();
+    const dpr = (typeof canvasBackingScale === 'function') ? canvasBackingScale(canvas) : (window.devicePixelRatio || 1);
+    const scaleX = (canvas.width / dpr) / Math.max(1, rect.width);
+    const scaleY = (canvas.height / dpr) / Math.max(1, rect.height);
+    return {
+      inside: event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom,
+      x: (event.clientX - rect.left) * scaleX,
+      y: (event.clientY - rect.top) * scaleY
+    };
+  }
+  function unitIconCenter(unit) {
+    const zoom = campaign().opZoomLevel || 1;
+    const size = (typeof OP_HEX_SIZE === 'number' ? OP_HEX_SIZE : 40) * zoom;
+    let x = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+    let y = unit.row * 1.5 * size + size;
+    const group = units().filter(u => u && !u.isDestroyed && u.col === unit.col && u.row === unit.row);
+    if (group.length > 1) {
+      const index = group.indexOf(unit);
+      const spread = Math.max(25 * zoom, (36 * zoom + 4 * zoom) / (2 * Math.sin(Math.PI / group.length)));
+      x += Math.cos(index * 2 * Math.PI / group.length) * spread;
+      y += Math.sin(index * 2 * Math.PI / group.length) * spread;
+    }
+    return { x, y, radius: 20 * zoom };
+  }
+  function hitPlacedUnit(point) {
+    let best = null, bestDistance = Infinity;
+    units().forEach((u, i) => {
+      if (!u || u.isDestroyed || u.hidden || u.embarkedInBtr || u.col == null || u.row == null) return;
+      const c = unitIconCenter(u);
+      const d = Math.hypot(point.x - c.x, point.y - c.y);
+      if (d <= c.radius && d < bestDistance) { best = i; bestDistance = d; }
+    });
+    return best;
+  }
+  function installCanvasDrag() {
+    const canvas = document.getElementById('opMapCanvas');
+    if (!canvas || canvas.__opIconDrag) return;
+    canvas.__opIconDrag = true;
+    canvas.addEventListener('pointerdown', event => {
+      if (event.button > 0 || getStage() !== 'placement' || !activeMap() || !isOnlineTurn()) return;
+      const point = canvasPoint(event);
+      if (!point || !point.inside) return;
+      const id = hitPlacedUnit(point);
+      if (id == null) return;
+      state.canvasDrag = { id, x: event.clientX, y: event.clientY, moved: false };
+      canvas.style.touchAction = 'none';
+    });
+    document.addEventListener('pointermove', event => {
+      const drag = state.canvasDrag;
+      if (!drag) return;
+      if (!drag.moved) {
+        if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) <= 7) return;
+        drag.moved = true;
+        if (!selectPlacementUnit(drag.id)) { state.canvasDrag = null; canvas.style.touchAction = ''; return; }
+        try { if (typeof setOpMapMode === 'function') setOpMapMode('placePlayer'); } catch (e) {}
+        const ghost = document.createElement('div');
+        ghost.className = 'op-placement-ghost';
+        ghost.textContent = (units()[drag.id] && units()[drag.id].name) || 'Отряд';
+        ghost.dataset.opPlacementGhost = '1';
+        document.body.appendChild(ghost);
+      }
+      movePlacementGhost(event.clientX, event.clientY);
+    }, { passive: true });
+    document.addEventListener('pointerup', event => {
+      const drag = state.canvasDrag;
+      if (!drag) return;
+      state.canvasDrag = null;
+      canvas.style.touchAction = '';
+      removePlacementGhost();
+      if (!drag.moved) return;
+      state.lastDragAt = Date.now();
+      const point = canvasPoint(event);
+      if (!point || !point.inside) { setMapMessage('Отпустите отряд над картой, чтобы поставить его на гекс.', '#e67e22'); return; }
+      const sel = document.getElementById('opPlaceSelect');
+      if (sel) sel.value = String(drag.id);
+      if (typeof handleOpMapClick === 'function') handleOpMapClick({ clientX: event.clientX, clientY: event.clientY });
+      updatePlacementTray(true);
+      renderSetup();
+    }, { passive: true });
+    document.addEventListener('pointercancel', () => {
+      state.canvasDrag = null; canvas.style.touchAction = ''; removePlacementGhost();
+    }, { passive: true });
+  }
+
+  // Pick bar: while a route or target hex is being chosen the order menu steps aside (v13.087, пункт 8).
+  function renderPickBar() {
+    let bar = document.getElementById('opPickBar');
+    if (!bar) {
+      if (!document.body) return;
+      bar = document.createElement('div');
+      bar.id = 'opPickBar';
+      bar.className = 'op-pick-bar';
+      bar.setAttribute('role', 'toolbar');
+      bar.addEventListener('click', onPickBarClick);
+      document.body.appendChild(bar);
+    }
+    const show = !!(state.menuOpen && state.mapPick && activeMap());
+    bar.style.display = show ? 'flex' : 'none';
+    if (!show) return;
+    const hints = {
+      route: 'Маршрут: кликайте по гексам по порядку; повторный клик по последней точке снимает её.',
+      sector: 'Контроль гексов: клик добавляет гекс, повторный клик убирает.',
+      target: 'Кликните по целевому гексу на карте.',
+      ambush: 'Кликните по гексу, где отряд устроит засаду.',
+      prep: 'Кликните по гексу, который нужно расчистить.',
+      special: 'Кликните по гексу, где отряд выполнит действие.'
+    };
+    const multi = state.mapPick === 'route' || state.mapPick === 'sector';
+    const count = state.draft ? ((state.draft.waypoints || []).length || (state.draft.targetHexes || []).length) : 0;
+    bar.innerHTML = `<span class="op-pick-text">🗺️ ${esc(hints[state.mapPick] || 'Выберите гекс на карте.')}${multi ? ` Выбрано: ${count}.` : ''}</span>` +
+      (multi ? '<button type="button" data-pick-action="done" class="op-pick-done">✅ Готово</button>' : '') +
+      '<button type="button" data-pick-action="cancel">✖ Отмена выбора</button>';
+  }
+  function onPickBarClick(event) {
+    const button = event.target && event.target.closest ? event.target.closest('[data-pick-action]') : null;
+    if (!button) return;
+    const action = button.getAttribute('data-pick-action');
+    const count = state.draft ? ((state.draft.waypoints || []).length || (state.draft.targetHexes || []).length) : 0;
+    state.mapPick = null;
+    state.error = '';
+    if (typeof isPlanningRoute !== 'undefined') isPlanningRoute = false;
+    if (action === 'done') setMapMessage(count ? `✅ Выбрано гексов: ${count}. Откройте приказ и отдайте его.` : 'Гексы не выбраны.', count ? '#27ae60' : '#e67e22');
+    else setMapMessage('Выбор на карте отменён; уже выбранные гексы сохранены.', '#aaa');
+    renderCommandMenu();
+    positionUnitActions();
+    try { if (typeof redrawOperationalMap === 'function') redrawOperationalMap(); } catch (e) {}
+  }
+
+  // Winch (талреп-якорь, v13.087, пункт 6): one per battalion, description on hover/click.
+  function winchCandidate(unit) {
+    return !!unit && !unit.isDestroyed && (unit.mobility === 'vehicle' || /tank|sau|btr|armored|vehicle/i.test(String(unit.type || '')));
+  }
+  function renderWinchInfo() {
+    const box = document.getElementById('winchInfoBox');
+    if (!box) return;
+    const holder = units().find(u => u && u.winch && !u.isDestroyed) || null;
+    const picked = selectedUnit();
+    const selected = picked && picked.unit;
+    const canGive = winchCandidate(selected);
+    box.innerHTML = `<div class="op-winch-title">🏔️ Талреп-якорь · один на батальон <button type="button" class="op-winch-close" data-winch-action="close" aria-label="Закрыть">×</button></div>` +
+      `<p>Техника с якорем поднимается на <b>1 горный гекс</b> за ход (подъём занимает весь ход). Два горных гекса подряд не проходятся.</p>` +
+      `<p>Скрытный ход на холм стоит 2 ОД: за ход — минимум 1 гекс.</p>` +
+      `<p><b>Рекомендация:</b> выдать объединённому отряду бронетехники (группе машин), чтобы якорь работал на всю колонну. Выдача другому отряду снимает якорь с прежнего.</p>` +
+      `<p><b>Как назначить:</b> выберите на карте отряд техники (или объединённую группу), затем нажмите «Выдать выбранной технике».</p>` +
+      `<p class="op-winch-holder">Сейчас у: <b>${holder ? esc(holder.name) : 'никого'}</b></p>` +
+      `<div class="op-winch-actions"><button type="button" data-winch-action="give"${canGive ? '' : ' disabled'}>✅ Выдать ${selected ? '«' + esc(selected.name) + '»' : 'выбранной технике'}</button>` +
+      (canGive || !selected ? '' : '<span class="op-winch-hint">Выбранный отряд — не техника</span>') + '</div>';
+  }
+  function showWinchInfo() {
+    const box = document.getElementById('winchInfoBox');
+    if (!box) return;
+    box.hidden = false;
+    renderWinchInfo();
+  }
+  function onWinchBoxClick(event) {
+    const button = event.target && event.target.closest ? event.target.closest('[data-winch-action]') : null;
+    if (!button) return;
+    const action = button.getAttribute('data-winch-action');
+    if (action === 'close') { const box = document.getElementById('winchInfoBox'); if (box) box.hidden = true; return; }
+    if (action === 'give' && typeof window.grantWinchToSelected === 'function') {
+      window.grantWinchToSelected();
+      renderWinchInfo();
+    }
+  }
+
   function allUnitsPlaced() {
     const unplaced = (typeof getUnplacedOpUnits === 'function') ? getUnplacedOpUnits() :
       units().filter(u => u && !u.isDestroyed && u.col == null && !u.embarkedInBtr);
@@ -242,6 +578,7 @@
     const src = unit && unit.icon ? String(unit.icon) : '';
     return src ? `<img src="${esc(src)}" alt="">` : '<span aria-hidden="true">⚔️</span>';
   }
+
   function updatePlacementTray(force) {
     const tray = document.getElementById('opPlacementTray');
     if (!tray || getStage() !== 'placement') return;
@@ -252,14 +589,11 @@
     const usable = list.map((u, i) => ({ u, i })).filter(x => x.u && !x.u.isDestroyed && !x.u.embarkedInBtr);
     const oldScroll = tray.querySelector('.op-placement-units');
     const scrollTop = oldScroll ? oldScroll.scrollTop : 0;
-    tray.innerHTML = `<div class="op-placement-title">Прокрутите список вниз для всех отрядов · перетащите за ⠿ или выберите карточку и гекс</div>` +
-      `<div class="op-placement-units">${usable.map(({ u, i }) => {
-        const placed = u.col != null && u.row != null;
-        const pos = placed ? `(${u.col},${u.row})` : 'не размещён';
-        const selected = state.selectedUnitId === i || (campaign() && campaign().selectedOpUnit === u);
-        return `<button type="button" class="op-placement-unit${placed ? '' : ' is-unplaced'}${selected ? ' is-selected' : ''}" data-op-place-unit="${i}" aria-label="${esc(u.name)}; ${pos}; перетащите на карту" title="${esc(u.name)}" draggable="false">` +
-          `${safeUnitIcon(u)}<span>${esc(u.name || 'Отряд')}</span><small>${esc(pos)}</small><span class="op-drag-handle" data-op-drag-handle aria-hidden="true">⠿</span></button>`;
-      }).join('')}</div>`;
+    const rows = placementRows(usable);
+    tray.innerHTML = `<div class="op-placement-title">Перетащите отряд за ⠿ или за иконку на карте (в зелёную зону) · либо выберите карточку и кликните гекс</div>` +
+      `<div class="op-placement-units">${rows.map(row => `<div class="op-placement-row">` +
+        `<div class="op-placement-row-title">${esc(row.title)} <span>${row.items.length}</span></div>` +
+        `<div class="op-placement-row-units">${row.items.map(({ u, i }) => placementButton(u, i)).join('')}</div></div>`).join('')}</div>`;
     const scroller = tray.querySelector('.op-placement-units');
     if (scroller) scroller.scrollTop = scrollTop;
   }
@@ -404,7 +738,8 @@
     if (!state.mapPick) return '';
     const map = { route: 'Кликайте по гексам по порядку; повторный клик по последней точке снимает её.',
       target: 'Кликните по целевому гексу на карте.', sector: 'Кликайте по гексам, которые нужно контролировать; повторный клик удаляет точку.',
-      ambush: 'Кликните по гексу, где отряд должен устроить засаду.', prep: 'Кликните по гексу, который нужно расчистить.' };
+      ambush: 'Кликните по гексу, где отряд должен устроить засаду.', prep: 'Кликните по гексу, который нужно расчистить.',
+      special: 'Кликните по гексу, где отряд выполнит действие.' };
     return `<div class="op-cmd-note">🗺️ ${map[state.mapPick] || 'Выберите гекс на карте.'}</div>`;
   }
   function enemyOptions(selectedId) {
@@ -425,21 +760,23 @@
       return `<option value="${id}"${Number(selectedId) === id ? ' selected' : ''}>${esc(unit.name)} (${unit.col},${unit.row})</option>`;
     }).join('');
   }
+
   function btrOptions(passenger, selectedId) {
     const list = units();
     const required = (typeof getUnitBtrRequirement === 'function') ? getUnitBtrRequirement(passenger) : 1;
     return list.map((unit, id) => {
       const isBtr = unit && (unit.type === 'btr_platoon' || /БТР/i.test(String(unit.name || '')));
-      if (!isBtr || unit.isDestroyed || unit.col == null || unit.hidden) return '';
-      if (unit.col !== passenger.col || unit.row !== passenger.row) return '';
+      if (!isBtr || unit === passenger || unit.isDestroyed || unit.col == null || unit.hidden) return '';
       if (unit.embarkedUnit || unit.embarkedUnitId != null || (Array.isArray(unit.embarkedUnitIds) && unit.embarkedUnitIds.length)) return '';
       const seats = unit.isGroup && unit.groupSize ? unit.groupSize : 1;
       if (seats < required) return '';
-      return `<option value="${id}"${Number(selectedId) === id ? ' selected' : ''}>${esc(unit.name)} · ${seats} место(а)</option>`;
+      const same = unit.col === passenger.col && unit.row === passenger.row;
+      return `<option value="${id}"${Number(selectedId) === id ? ' selected' : ''}>${esc(unit.name)} · ${seats} мест · (${unit.col},${unit.row})${same ? ' · на этом гексе' : ''}</option>`;
     }).join('');
   }
   function canIssueSpecial(unit, action) {
     if (!unit) return false;
+    if (action === 'recon') return !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
     if (action === 'dig_in' || action === 'prep_positions') return !(typeof isVehicleMobilityUnit === 'function' && isVehicleMobilityUnit(unit)) && !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
     if (action === 'dismount') return (unit.mobility === 'bicycle' || unit.mobility === 'motorcycle') && !unit.dismounted;
     if (action === 'remount') return !!unit.dismounted;
@@ -472,7 +809,7 @@
       setMapMessage('Сначала выберите свой отряд кликом по карте, затем нажмите «Приказ».', '#e67e22');
       return;
     }
-    if (picked.unit.isDestroyed || picked.unit.hidden || picked.unit.isInBattle) {
+    if (picked.unit.isDestroyed || (picked.unit.hidden && !picked.unit.embarkedInBtr) || picked.unit.isInBattle) {
       setMapMessage('Этот отряд сейчас не может получать оперативные приказы.', '#e67e22');
       return;
     }
@@ -526,18 +863,24 @@
     state.error = '';
     renderCommandMenu();
   }
+
   function renderMain(unit, id) {
-    const artillery = unit && (unit.type === 'battalion_hq' || unit.type === 'hq') &&
+    const passenger = !!unit.embarkedInBtr;
+    const artillery = !passenger && unit && (unit.type === 'battalion_hq' || unit.type === 'hq') &&
       typeof canIssueArtilleryStrike === 'function' && canIssueArtilleryStrike();
     const artilleryLeft = campaign() ? 4 - (Number(campaign().artilleryStrikesUsed) || 0) : 0;
+    const carried = passenger ? null : passengerOf(unit);
     return `<div class="op-cmd-head"><div><div class="op-cmd-title">${esc(unit.name)}</div>` +
-      `<div class="op-cmd-subtitle">Выберите тип приказа</div></div><button type="button" class="op-cmd-close" data-cmd="close" aria-label="Закрыть">×</button></div>` +
+      `<div class="op-cmd-subtitle">${passenger ? 'Десант в БТР · выберите приказ' : 'Выберите тип приказа'}</div></div><button type="button" class="op-cmd-close" data-cmd="close" aria-label="Закрыть">×</button></div>` +
       `<div class="op-cmd-buttons">` +
       `<button type="button" data-cmd="category" data-category="move">🚶 Движение</button>` +
-      `<button type="button" data-cmd="category" data-category="fire">🎯 Обстрел</button>` +
+      (passenger ? '' : `<button type="button" data-cmd="category" data-category="fire">🎯 Обстрел</button>`) +
       `<button type="button" data-cmd="category" data-category="special">⚙️ Специальное</button>` +
       (artillery ? `<button type="button" class="op-cmd-wide" data-cmd="artillery">💣 Арт. обстрел · осталось ${Math.max(0, artilleryLeft)}</button>` : '') +
-      `</div><div class="op-cmd-note">Время по умолчанию — текущее время операции. Приказ поступит по штатной связи штаба батальона.</div>`;
+      (carried ? `<button type="button" class="op-cmd-wide" data-cmd="select-passenger" data-id="${carried.id}">👥 Приказы десанту: ${esc(carried.unit.name)}</button>` : '') +
+      `</div><div class="op-cmd-note">${passenger
+        ? 'Отряд сидит в БТР: сначала он выходит на гекс машины, затем выполняет приказ. Стрельба из машины недоступна.'
+        : 'Время по умолчанию — текущее время операции. Приказ поступит по штатной связи штаба батальона.'}</div>`;
   }
   function renderDetails(unit, draft) {
     const head = `<div class="op-cmd-head"><div><div class="op-cmd-title">${esc(unit.name)}</div>` +
@@ -582,19 +925,26 @@
       if (state.mapPick === 'ambush') body += mapPickHint();
     } else if (draft.category === 'special') {
       const actions = [
-        ['dig_in', '🕳️ Окопаться'], ['prep_positions', '🪓 Расчистка местности'],
+        ['dig_in', '🕳️ Окопаться'], ['recon', '🔍 Разведка'], ['prep_positions', '🪓 Расчистка местности'],
         ['embark', '🚌 Сесть в БТР'], ['disembark', '🚶 Выйти из БТР'],
         ['dismount', '🚲 Спешиться'], ['remount', '🚴 Сесть на велосипеды']
       ];
       body += `<label class="op-cmd-field">Действие<select data-draft-field="specialAction">` +
         actions.map(([value, label]) => `<option value="${value}"${draft.specialAction === value ? ' selected' : ''}${canIssueSpecial(unit, value) ? '' : ' disabled'}>${label}</option>`).join('') + `</select></label>`;
-      if (draft.specialAction === 'embark') {
-        body += `<label class="op-cmd-field">БТР на том же гексе<select data-draft-field="btrUnitId"><option value="">Выберите БТР</option>${btrOptions(unit, draft.btrUnitId)}</select></label>`;
+      if (unit.embarkedInBtr) {
+        body += `<div class="op-cmd-note">Отряд сидит в БТР. Действие выполняется после выхода: сначала он высаживается на гекс машины, затем выполняет выбранное действие.</div>`;
       }
-      if (draft.specialAction === 'prep_positions') {
-        body += `<div class="op-cmd-note">Гекс для расчистки: ${esc(draft.targetHex || `${unit.col},${unit.row}`)} · используется существующая подготовка позиций.</div>` +
-          pointPicker('Выбрать гекс расчистки', 'prep');
-        if (state.mapPick === 'prep') body += mapPickHint();
+      if (['dig_in', 'recon', 'prep_positions'].includes(draft.specialAction)) {
+        const hexKey = draft.targetHex || unitHexKey(unit);
+        body += `<div class="op-cmd-note">Гекс выполнения: <b>${esc(hexKey || 'не выбран')}</b>${draft.targetHex ? '' : ' (по умолчанию — текущий гекс)'}. Отряд подойдёт к нему и выполнит действие.</div>` +
+          pointPicker('Выбрать гекс на карте', 'special');
+      }
+      if (draft.specialAction === 'embark') {
+        body += `<label class="op-cmd-field">БТР для посадки<select data-draft-field="btrUnitId"><option value="">Выберите БТР</option>${btrOptions(unit, draft.btrUnitId)}</select></label>` +
+          `<div class="op-cmd-note">Отряд подойдёт к выбранной машине и сядет в неё, даже если она стоит на другом гексе.</div>`;
+      }
+      if (draft.specialAction === 'disembark') {
+        body += `<div class="op-cmd-note">Десант выходит на гекс машины.</div>`;
       }
       body += contactField(draft.behavior) + timeField(draft.time);
     } else if (draft.category === 'artillery') {
@@ -610,25 +960,28 @@
       (state.error ? `<div class="op-cmd-error">${esc(state.error)}</div>` : '') +
       `<div class="op-cmd-buttons"><button type="button" class="op-cmd-wide" data-cmd="submit">${submitText}</button></div>`;
   }
+
   function renderCommandMenu() {
     const host = document.getElementById('opCommandMenu');
     if (!host) return;
-    if (!state.menuOpen || !activeMap()) { host.style.display = 'none'; host.innerHTML = ''; return; }
+    if (!state.menuOpen || !activeMap()) { host.style.display = 'none'; host.innerHTML = ''; renderPickBar(); return; }
     const picked = selectedUnit();
     const unit = state.draft && state.draft.category === 'artillery' ?
       (units()[findBattalionHq()] || picked.unit) : picked.unit;
-    if (!unit) { host.style.display = 'none'; return; }
+    if (!unit) { host.style.display = 'none'; renderPickBar(); return; }
+    // ⚡ v13.087: пока выбирается маршрут или гекс, меню не перекрывает карту
+    if (state.mapPick) { host.style.display = 'none'; renderPickBar(); return; }
     host.innerHTML = state.menuPage === 'main' ? renderMain(unit, picked.id) : renderDetails(unit, state.draft || {});
     host.style.display = 'block';
     positionUnitActions();
     const quick = document.getElementById('opQuickActions');
     if (quick) quick.classList.add('op-quick-menu-open');
+    renderPickBar();
   }
-  // Position both controls in viewport coordinates, matching the canvas drawing
-  // coordinates (including zoom, scrolling and grouped units on the same hex).
   function unitAnchor() {
     const picked = selectedUnit();
-    const unit = picked && picked.unit;
+    let unit = picked && picked.unit;
+    if (unit && unit.embarkedInBtr) unit = carrierOf(unit) || unit;
     const canvas = document.getElementById('opMapCanvas');
     const viewport = document.getElementById('opMapContainer');
     if (!unit || !canvas || !viewport || unit.col == null || unit.row == null || unit.isDestroyed) return null;
@@ -660,7 +1013,8 @@
     const order = bar.querySelector('[data-quick-action="order"]');
     if (order) order.style.display = anchor && isOnlineTurn() ? '' : 'none';
     if (!anchor) {
-      bar.style.left = '50%'; bar.style.top = 'auto'; bar.style.bottom = 'max(8px, env(safe-area-inset-bottom))';
+      const dh = dockHeight();
+      bar.style.left = '50%'; bar.style.top = 'auto'; bar.style.bottom = dh ? `${dh + 8}px` : 'max(8px, env(safe-area-inset-bottom))';
       bar.style.transform = 'translateX(-50%)';
       if (menu && menu.style.display === 'block') menu.style.display = 'none';
       return;
@@ -672,7 +1026,7 @@
     const top = above >= 8 ? above : Math.min(window.innerHeight - barHeight - 8, anchor.y + anchor.radius + 8);
     bar.style.left = `${left}px`; bar.style.top = `${top}px`; bar.style.bottom = 'auto';
     bar.style.transform = 'none';
-    if (menu && state.menuOpen) {
+    if (menu && state.menuOpen && !state.mapPick) {
       menu.style.display = 'block';
       const menuWidth = Math.min(menu.offsetWidth || 330, window.innerWidth - 16);
       menu.style.left = `${Math.max(8, Math.min(window.innerWidth - menuWidth - 8, anchor.x - menuWidth / 2))}px`;
@@ -744,7 +1098,7 @@
     else if (field === 'targetDistance') draft.targetDistance = Math.max(1, Math.min(10, Number(value) || 3));
     else if (field === 'time') draft.time = value;
     else if (field === 'behavior') draft.behavior = value;
-    else if (field === 'specialAction') { draft.specialAction = value; draft.btrUnitId = ''; }
+    else if (field === 'specialAction') { draft.specialAction = value; draft.btrUnitId = ''; draft.targetHex = ''; }
     else if (field === 'escortInfantryId') draft.escortInfantryId = value;
     else if (field === 'btrUnitId') draft.btrUnitId = value;
     else if (field === 'targetEnemyId') draft.targetEnemyId = value;
@@ -839,6 +1193,9 @@
     };
     let type = '';
 
+    if (unit.embarkedInBtr && ['fire_at_will', 'armor_priority', 'sector_fire', 'ambush', 'specific', 'artillery'].includes(draft.category)) {
+      throw new Error('Отряд в БТР может только выйти и двигаться или выполнить специальное действие.');
+    }
     if (draft.category === 'move') {
       const route = draft.waypoints || [];
       if (!route.length) throw new Error('Сначала выберите маршрут на карте.');
@@ -890,21 +1247,24 @@
     } else if (draft.category === 'special') {
       type = draft.specialAction;
       if (!type || !canIssueSpecial(unit, type)) throw new Error('Это действие сейчас недоступно выбранному отряду.');
-      if (type === 'prep_positions') {
-        options.targetHex = draft.targetHex || `${unit.col},${unit.row}`;
+      if (type === 'dig_in' || type === 'recon' || type === 'prep_positions') {
+        // ⚡ v13.087: гекс выполнения выбирается на карте; по умолчанию — текущий
+        options.targetHex = draft.targetHex || unitHexKey(unit) || null;
+        if (!options.targetHex) throw new Error('Не удалось определить гекс для действия.');
       }
       if (type === 'embark') {
-        if (draft.btrUnitId === '' || draft.btrUnitId == null) throw new Error('Выберите свободный БТР на том же гексе.');
+        if (draft.btrUnitId === '' || draft.btrUnitId == null) throw new Error('Выберите свободный БТР подходящей вместимости.');
         const id = Number(draft.btrUnitId);
         const btr = units()[id];
         const isBtr = btr && (btr.type === 'btr_platoon' || /БТР/i.test(String(btr.name || '')));
         const capacity = btr && ((btr.isGroup && btr.groupSize) ? btr.groupSize : 1);
         const required = (typeof getUnitBtrRequirement === 'function') ? getUnitBtrRequirement(unit) : 1;
-        if (!Number.isInteger(id) || !isBtr || btr.isDestroyed || btr.embarkedUnit || btr.embarkedUnitId != null ||
-            (Array.isArray(btr.embarkedUnitIds) && btr.embarkedUnitIds.length) || btr.col !== unit.col || btr.row !== unit.row || capacity < required) {
-          throw new Error('Выберите свободный БТР подходящей вместимости на том же гексе.');
+        if (!Number.isInteger(id) || !isBtr || btr === unit || btr.isDestroyed || btr.col == null || btr.embarkedUnit || btr.embarkedUnitId != null ||
+            (Array.isArray(btr.embarkedUnitIds) && btr.embarkedUnitIds.length) || capacity < required) {
+          throw new Error('Выберите свободный БТР подходящей вместимости.');
         }
         options.btrUnitId = id;
+        options.targetHex = `${btr.col},${btr.row}`;
       }
       if (type === 'disembark' && !(unit.embarkedInBtr || unit.type === 'btr_platoon' || /БТР/i.test(unit.name || ''))) {
         throw new Error('Выберите десант в БТР или сам БТР с десантом.');
@@ -985,20 +1345,37 @@
     else if (shot.status === 'completed') unit.firedThisTurn = true;
     // Секторный приказ намеренно остаётся активным после выстрела.
   }
+
   function executeOperationalEmbarkOrder(unit, order) {
     if (!unit || !order || unit.isDestroyed || unit.isInBattle) { if (order) order.status = 'cancelled'; return; }
-    const c = campaign();
     const btrId = Number(order.btrUnitId);
     const btr = units()[btrId];
     const isBtr = btr && (btr.type === 'btr_platoon' || /БТР/i.test(String(btr.name || '')));
     const required = (typeof getUnitBtrRequirement === 'function') ? getUnitBtrRequirement(unit) : 1;
     const capacity = btr && ((btr.isGroup && btr.groupSize) ? btr.groupSize : 1);
-    if (!isBtr || !unit || unit.embarkedInBtr || unit.col == null || unit.row == null ||
-        btr.isDestroyed || btr.embarkedUnit || btr.embarkedUnitId != null ||
-        (Array.isArray(btr.embarkedUnitIds) && btr.embarkedUnitIds.length) || btr.col !== unit.col || btr.row !== unit.row || capacity < required) {
+    const free = !!(isBtr && !btr.isDestroyed && btr.col != null && !btr.embarkedUnit && btr.embarkedUnitId == null &&
+      !(Array.isArray(btr.embarkedUnitIds) && btr.embarkedUnitIds.length) && capacity >= required);
+    if (!free || unit.embarkedInBtr || unit.col == null || unit.row == null) {
       order.status = 'cancelled';
-      log(`❌ [${unit.name}] Посадка в БТР не выполнена: свободный БТР нужной вместимости не находится на том же гексе.`);
+      log(`❌ [${unit.name}] Посадка в БТР не выполнена: свободный БТР нужной вместимости не найден.`);
+      saveAndRefresh();
       return;
+    }
+    // ⚡ v13.087: отряд подходит к БТР (тратя ОД), затем садится; приказ остаётся активным в пути
+    if (unit.col !== btr.col || unit.row !== btr.row) {
+      const result = (typeof stepUnitTowardTarget === 'function') ? stepUnitTowardTarget(unit, btr.col, btr.row) : 'no_route';
+      if (result === 'no_route' || result === 'blocked') {
+        order.status = 'cancelled';
+        log(`❌ [${unit.name}] Не может добраться до БТР «${btr.name}» (${btr.col},${btr.row}). Посадка отменена.`);
+        saveAndRefresh();
+        return;
+      }
+      if (result === 'battle') { log(`⚔️ [${unit.name}] вступил в бой по пути к БТР.`); saveAndRefresh(); return; }
+      if (result !== 'reached') {
+        log(`⏳ [${unit.name}] Идёт к БТР «${btr.name}» (${btr.col},${btr.row}). Осталось ОД: ${unit.ap}.`);
+        saveAndRefresh();
+        return;
+      }
     }
     unit.embarkedInBtr = true;
     unit.btrIds = [btrId];
@@ -1015,7 +1392,6 @@
     saveAndRefresh();
     try { if (typeof updateBtrPanel === 'function') updateBtrPanel(); } catch (e) {}
   }
-
   // Orders issued to the same recipient during one planning turn share one
   // delivery and execute in sequence, rather than all racing at end-of-turn.
   function seriesStep(type, source) {
@@ -1098,7 +1474,16 @@
     if (!picked.unit || picked.id < 0) throw new Error('Сначала выберите отряд.');
     if (!isOnlineTurn()) throw new Error('Сейчас ход оппонента.');
     if (!ensureHardMode()) throw new Error('Не удалось включить режим приказов.');
-    const result = parseDraftOptions(state.draft, picked.unit);
+    let result = parseDraftOptions(state.draft, picked.unit);
+    if (picked.unit.embarkedInBtr && result.type !== 'disembark') {
+      // ⚡ v13.087: приказ десанту — сначала выход из БТР, затем действие (серия)
+      const base = result.options;
+      const steps = [
+        seriesStep('disembark', { behavior: 'hold', startTimeMin: base.startTimeMin, startHex: null }),
+        seriesStep(result.type, base)
+      ];
+      result = { type: 'series', options: { ...base, orderType: 'series', series: steps, waypoints: [], targetHex: base.targetHex || null } };
+    }
     const created = [issueOneOrder(picked.id, result.type, result.options, null)];
     if (result.type !== 'escort') {
       linkedEscortIds(picked.id).forEach(vehicleId => {
@@ -1155,6 +1540,17 @@
       return;
     }
     if (action === 'pick-map') { startMapPick(button.getAttribute('data-pick')); return; }
+    if (action === 'select-passenger') {
+      const pid = Number(button.getAttribute('data-id'));
+      const passenger = units()[pid];
+      if (!passenger || !campaign()) return;
+      campaign().selectedOpUnit = passenger;
+      state.selectedUnitId = pid;
+      state.menuPage = 'main'; state.draft = null; state.error = '';
+      renderCommandMenu();
+      positionUnitActions();
+      return;
+    }
     if (action === 'clear-route') {
       if (state.draft) { state.draft.waypoints = []; state.draft.targetHexes = []; }
       state.mapPick = null; clearRoutePreview(); renderCommandMenu(); return;
@@ -1208,6 +1604,8 @@
     if (typeof window.handleOpMapClick !== 'function' || window.handleOpMapClick.__opCommandWrapper) return;
     const original = window.handleOpMapClick;
     const wrapped = function (event) {
+      // ⚡ v13.087: сразу после перетаскивания по иконке клик не обрабатываем
+      if (Date.now() - state.lastDragAt < 500) return;
       if (state.mapPick && handleQuickMapPick(event)) return;
       const result = original.apply(this, arguments);
       const c = campaign();
@@ -1292,6 +1690,8 @@
     patchHardModeToggle();
     patchCampaignResetters();
     installPlacementInteractions();
+    installCanvasDrag();
+    ensureDock();
     const tray = document.getElementById('opPlacementTray');
     const menu = document.getElementById('opCommandMenu');
     const pinned = document.getElementById('opQuickActions');
@@ -1301,6 +1701,12 @@
       menu.addEventListener('input', onCommandChange);
     }
     if (pinned) pinned.addEventListener('click', onPinnedClick);
+    const winchButton = document.getElementById('winchBtn');
+    if (winchButton) {
+      winchButton.addEventListener('mouseenter', () => { if (activeMap()) showWinchInfo(); });
+      winchButton.addEventListener('focus', () => { if (activeMap()) showWinchInfo(); });
+    }
+    window.addEventListener('resize', () => { try { syncStageLayout(); } catch (e) {} });
     const mapViewport = document.getElementById('opMapContainer');
     if (mapViewport) mapViewport.addEventListener('scroll', positionUnitActions, { passive: true });
     window.addEventListener('resize', positionUnitActions);
@@ -1323,6 +1729,7 @@
         renderSetup();
         renderPinnedActions();
       } else {
+        syncStageLayout();
         const bar = document.getElementById('opQuickActions');
         if (bar) bar.style.display = 'none';
         const host = document.getElementById('opCommandMenu');
@@ -1340,6 +1747,9 @@
   window.opCloseCommandMenu = () => closeCommandMenu(true);
   window.opIssueQuickOrder = issueDraftOrder;
   window.opOperationalUiState = state;
+  window.toggleCommPanelBody = function () { state.commCollapsed = !state.commCollapsed; syncStageLayout(); };
+  window.showWinchInfo = showWinchInfo;
+  window.opStageLayoutSync = syncStageLayout;
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install);
   else install();

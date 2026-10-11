@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.086 — операция</title>
+  <title>Боевой модуль v13.087 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -76,7 +76,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.086</h1>
+    <h1>⚔️ Боевой модуль v13.087</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -89,7 +89,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.086</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.087</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -121,7 +121,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.086 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.087 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -419,7 +419,7 @@ function safeLocalStorage(method, ...args) {
 // v13.065: melee by real hex distance, no conditional battle cards, red debuff frames,
 //    map-template replacement and v13.058 start positions; see CHANGELOG-v13.065.md.
 // v13.064: order-list details, ETA hints and cancel confirmations; see CHANGELOG-v13.064.md.
-var APP_VERSION = 'v13.086';
+var APP_VERSION = 'v13.087';
 
 // ⚡ v13.058: кнопка меню действительно запрашивает проверку новой версии SW;
 // если новый контроллер не вступил в силу, повторно открываем страницу с cache-buster.
@@ -1443,13 +1443,8 @@ function buildOperationalUnits() {
                 isImmobilized: false,
                 isDestroyed: false
             });
-            // ⚡ v13.078: глобальный бонус A.I.R.F. «Талреп-якорь» — вся бронетехника
-            //    (mobility='vehicle' и не стационарный ДОТ) оснащена талреп-якорем.
-            //    Применяется при создании юнита; старые сейвы подхватят бонус при
-            //    следующем пересоздании операционных юнитов.
-            if (mobility === 'vehicle' && type !== 'dots' && battalion.faction === 'A.I.R.F.') {
-                opUnits[opUnits.length - 1].winch = true;
-            }
+            // ⚡ v13.087: талреп-якорь больше НЕ выдаётся автоматически. Он один на
+            //    батальон и назначается игроком на этапе ДОТов (см. grantWinchToSelected).
         }
 
         // Перебираем units батальона
@@ -1595,15 +1590,15 @@ function buildOperationalUnits() {
                 u.maxAp = 0;
                 u.ap = 0;
             }
-            // ⚡ v13.078: миграция — глобальный бонус A.I.R.F. «Талреп-якорь»:
-            //    вся бронетехника A.I.R.F. в старых сейвах получает winch=true.
-            //    Применяется в блоке «else» (юниты уже есть, не пересоздаются).
-            if (battalion.faction === 'A.I.R.F.' && u.mobility === 'vehicle' &&
-                u.type !== 'dots' && !u.winch) {
-                u.winch = true;
-                console.log('🏔️ Миграция: «' + u.name + '» получил Талреп-якорь (бонус A.I.R.F.)');
-            }
         });
+        // ⚡ v13.087: миграция — старые сейвы (v13.078–v13.086) выдавали якорь всей
+        //    бронетехнике A.I.R.F. Теперь якорь один на батальон: оставляем только
+        //    первого держателя, остальным снимаем.
+        {
+            const holders = (appData.campaign.opUnits || []).filter(u => u && u.winch);
+            holders.slice(1).forEach(u => { u.winch = false; });
+            if (holders.length > 1) console.log('🏔️ Миграция: талреп-якорь оставлен только у «' + holders[0].name + '»');
+        }
     }
 
     // ⚡ v13.039: онлайн — вражеские юниты НЕ создаются локально: они
@@ -2634,7 +2629,11 @@ function redrawOperationalMapNow() {
     const hasConfiguredPlayerZone = !!((placementZoneMap[appData.campaign.playerFaction] || []).length) ||
         (typeof zoneExtraHexes === 'function' && zoneExtraHexes(appData.campaign.scenario, appData.campaign.playerFaction).length > 0);
     const localPlacementMode = !appData.campaign.online && appData.campaign.opMapMode === 'placePlayer' && hasConfiguredPlayerZone;
-    if ((appData.campaign.online && (onlinePlacementPhase || hasUnplacedPlayerUnits)) || localPlacementMode) {
+    // ⚡ v13.087: весь этап размещения (до «Размещение завершено») зона видна —
+    //    в т.ч. при перетаскивании уже стоящих юнитов (замещении) и в режиме просмотра.
+    const localSetupZone = !appData.campaign.online && hasConfiguredPlayerZone &&
+        appData.campaign.opSetupStage === 'placement';
+    if ((appData.campaign.online && (onlinePlacementPhase || hasUnplacedPlayerUnits)) || localPlacementMode || localSetupZone) {
         ctx.fillStyle = 'rgba(39, 174, 96, 0.32)';
         ctx.strokeStyle = 'rgba(46, 204, 113, 0.95)';
         ctx.lineWidth = 2;
@@ -6497,6 +6496,11 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
         enemyUnits = [enemyUnits];
     }
 
+    // ⚡ v13.087: талреп-якорь — флаг оперативного юнита переносим в его отряды
+    playerUnits.forEach(u => {
+        if (u && Array.isArray(u.squads)) u.squads.forEach(s => { if (s) s.winch = !!u.winch; });
+    });
+
     // ⚡ v13.057: явный гекс боя (включая онлайн-зеркало) либо реальная точка
     // контакта сторон имеет приоритет над прежней позицией атакующего.
     const requestedBattleHex = opts.battleHexKey || (opts.mirrorOf && opts.mirrorOf.hexKey) || null;
@@ -10148,8 +10152,9 @@ function getMovementCost(squad, fromKey, toKey, isCrouch) {
   // ⚡ v13.078: «Талреп-якорь» — глобальный фракционный бонус A.I.R.F. (бронетехника
   //    уже оснащена якорем). Также работает, если у отряда осталась активная
   //    карточка «Талреп-якорь» (для совместимости со старыми сейвами/карточками).
+  // ⚡ v13.087: талреп-якорь — один на батальон; флаг переносится в отряды при старте боя
   const hasWinch = getScopedActiveCardsForSquad(squad).some(c => c.name === 'Талреп-якорь')
-    || (squad.faction === 'A.I.R.F.' && isVehicle);
+    || (squad.winch === true && isVehicle);
 
   // Скрытное перемещение (только пехота)
   if (!isVehicle && isCrouch) {
@@ -16759,6 +16764,15 @@ function executeSeriesOrder(unit, order) {
                 log(`✅ [${unit.name}] Разведка выполнена.`);
             }
             break;
+
+        case 'disembark':
+            // ⚡ v13.087: высадка из БТР как шаг серии (пассажир: приказ «выйти, затем…»)
+            executeDisembarkOrder(unit, currentAction);
+            if (currentAction.status !== 'cancelled') {
+                currentAction.status = 'completed';
+                log(`🚶 [${unit.name}] Высадился из БТР.`);
+            }
+            break;
             case 'dig_in':
             executeDigInOrder(unit, currentAction);
             if (currentAction.status === 'completed') {
@@ -20735,6 +20749,9 @@ function isBeveSwampTraversable(unit, col, row) {
     return false; // все 6 соседей — болото/вода → внутреннее болото
 }
 
+// ⚡ v13.087: скрытный подъём на холм стоит весь запас скрытного хода (2 ОД) —
+//    отряд всегда может сделать хотя бы 1 гекс подъёма за ход.
+const OP_STEALTH_HILL_COST = 2;
 function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
     // ⚡ v13.042 (R27#9): гексы вне игрового поля сценария — непроходимы
     if (typeof isHexInPlayableArea === 'function' &&
@@ -20755,9 +20772,14 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
     //    чтобы юнит не «застревал» до загрузки; реальный запрет сработает, как
     //    только карта прогрузится (UI пересчитает маршрут в getOpReachableHexesForUnit).
     if (terrain === 'hill' && unit.winch) {
-        // ⚡ v13.079: скрытное движение (stealthMove) — лебёдка талрепа шумит,
-        //    подъём на холм несовместим со скрытностью.
-        if (unit.stealthMove) return Infinity;
+        // ⚡ v13.087: талреп-якорь — только ОДИН горный гекс подряд: из горы
+        //    в гору заезжать нельзя (уже стоящий на холме может уйти на равнину).
+        const fromTerrain = (fromCol != null && fromRow != null)
+            ? (getOpHexTypes(fromCol, fromRow) || [])[0] : null;
+        if (fromTerrain === 'hill') return Infinity;
+        // ⚡ v13.079/v13.087: скрытный ход — лебёдка шумит, но подъём на 1 гекс
+        //    разрешён (стоимость = запас скрытного хода), а не блокируется.
+        if (unit.stealthMove) return OP_STEALTH_HILL_COST;
         const sublevel = (typeof tacticalHexHasSublevel2 === 'function')
             ? tacticalHexHasSublevel2(toCol + ',' + toRow) : 'unknown';
         if (sublevel === false) return Infinity; // нет низин на тактической карте — заехать нельзя
@@ -20818,7 +20840,8 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
     //    (3 ОД) или с талрепом (4 ОД) не помещается в лимит. Лебёдка талрепа
     //    тоже шумит — подъём на холм несовместим со скрытностью.
     if (terrain === 'hill') {
-        if (unit.stealthMove) return Infinity;
+        // ⚡ v13.087: при скрытном ходе подъём на холм = весь запас (минимум 1 гекс)
+        if (unit.stealthMove) return OP_STEALTH_HILL_COST;
         return 3;
     }
     if (terrain === 'swamp_passable') return 3;
@@ -28548,7 +28571,12 @@ function onlineOnSnapshotSync() {
   <strong>👤 Игрок</strong>
   <!-- ПАНЕЛЬ СВЯЗИ HARD MODE -->
 <div id="communicationPanel" style="display:none; margin-bottom:8px; padding:6px; background:#1a1a2e; border-radius:6px; border:1px solid #444;">
-  <strong style="color:#3498db;">📡 Связь</strong><br>
+  <!-- ⚡ v13.087 (пункт 14): панель связи сворачивается шапкой; состояние — toggleCommPanelBody() -->
+  <div class="op-comm-head">
+    <strong style="color:#3498db;">📡 Связь</strong>
+    <button type="button" id="commCollapseBtn" onclick="toggleCommPanelBody()" style="background:#555; font-size:0.75rem; padding:2px 8px;" title="Свернуть или развернуть панель связи">▴ Свернуть</button>
+  </div>
+  <div id="commPanelBody">
 
   <div style="margin-top:4px; display:flex; gap:8px; flex-wrap:wrap;">
     <!-- Рации -->
@@ -28576,6 +28604,14 @@ function onlineOnSnapshotSync() {
   <div style="margin-top:8px;">
     <button onclick="assignRadioToSelected()" style="background:#2980b9;">📻 Выдать рацию выбранному</button>
     <button onclick="assignPhoneToSelected()" style="background:#2980b9;">📞 Выдать телефон и вручную проложить кабель</button>
+  </div>
+  <!-- ⚡ v13.087 (пункт 7): справка о распределении связи -->
+  <details class="op-comm-help">
+    <summary>❔ Как работает распределение связи</summary>
+    <p><b>До старта (этапы размещения и связи):</b> выдача мгновенная. Рация или телефон сразу закрепляется за выбранным отрядом, связисты не тратят время на марш. Телефон: кабель прокладывается вручную от штаба, маршрут — до 7 гексов.</p>
+    <p><b>Во время игры (перераспределение):</b> выдача отправляет двух связистов штаба. Они идут к отряду пешим ходом, и связь появляется только по их прибытии. Кнопка «Отозвать» возвращает связистов в штаб тоже пешком; телефонный кабель при отзыве снимается сразу. Отзыв возможен только вне боя. Погибших связистов вернуть нельзя.</p>
+    <p>Доступное оборудование — в строке «Доступно: X из Y». Встроенная рация бронемашины не отзывается отдельно — она снимается вместе с машиной.</p>
+  </details>
   </div>
 </div>
 
@@ -28763,7 +28799,7 @@ function onlineOnSnapshotSync() {
   <!-- ⚡ v13.071: ФАЗЫ ИНТЕРФЕЙСА. Каждая группа видна только в своей фазе.
        Видимость управляется applyUxPhase(), она не меняет игровую логику. -->
   <div id="opPhaseDeploy" class="ux-phase-deploy" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
-    <button id="winchBtn" onclick="grantWinchToSelected()" style="background:#8e6d47; display:none;" title="Талреп-якорь: позволяет технике заехать на 1 гекс высоты; подъём занимает 1 ход">🏔️ Талреп-якорь</button>
+    <button id="winchBtn" onclick="showWinchInfo()" style="background:#8e6d47; display:none;" title="Талреп-якорь (один на батальон): описание и выдача">🏔️ Талреп-якорь</button>
     <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Размещение</button>
     <button onclick="setOpMapMode('view')" style="background:#1abc9c;" title="Кликом по отряду выбирать его, не размещая">👆 Выбор отряда</button>
     <button onclick="undoLastAction()" style="background:#7f8c8d;" title="Отменить последнее размещение, приказ или выдачу связи">↩️ Отмена</button>
@@ -28783,7 +28819,6 @@ function onlineOnSnapshotSync() {
   <div id="opPhaseBattle" class="ux-phase-battle" style="display:none; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
     <button onclick="setOpMapMode('move')" style="background:#2980b9;">🚶 Перемещение</button>
     <button onclick="startOpShooting()" style="background:#c0392b;">🎯 Обстрел</button>
-    <button onclick="checkOpDetection()" data-ux-gate="recon" style="background:#8e44ad;" title="Проверить, видит ли выбранный юнит врага в радиусе обнаружения">🔍 Проверить обнаружение</button>
     <div id="dismountPanel" data-ux-gate="dismount" style="display:none; margin-top:4px;">
       <button onclick="toggleDismount()" id="dismountBtn" data-ux-gate="dismount" style="background:#f39c12;">🚲 Спешиться</button>
     </div>
@@ -28796,20 +28831,6 @@ function onlineOnSnapshotSync() {
   </div>
 
   <div id="opBtrSlot" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
-  <div id="opPhaseRare" class="ux-phase-rare" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
-    <button onclick="removeSelectedOpUnit()" style="background:#555;" title="Удалить выбранного юнита со стартовой позиции">🗑️ Удалить</button>
-    <button id="opHexMapsBtn" onclick="showHexEditorsMenu()" style="background:#16a085;" title="Окопы / подготовка позиций на конкретном гексе">🛠️ Карта гекса</button>
-    <button id="uxMoreBtn" onclick="toggleUxMoreMenu()" style="background:#34495e;" title="Редкие действия: группировка, объединение и т.п.">⚙️ Ещё ▾</button>
-  </div>
-  <div id="uxMoreMenu" style="display:none; margin-bottom:6px; padding:6px; background:#1d252e; border:1px solid #34495e; border-radius:6px;">
-    <div style="display:flex; gap:6px; flex-wrap:wrap;">
-      <button onclick="showGroupDialog()" id="groupBtn" style="background:#8e44ad;">📦 Объединить в отряд</button>
-      <button onclick="showSplitDialog()" id="splitBtn" data-ux-gate="turn" style="display:none; background:#e67e22;">✂️ Разбить отряд</button>
-      <button onclick="renameGroup()" id="renameBtn" data-ux-gate="turn" style="display:none; background:#2980b9;">✏️ Переименовать</button>
-      <button onclick="showGroupDetails()" id="detailsBtn" data-ux-gate="turn" style="display:none; background:#27ae60;">📋 Состав</button>
-    </div>
-    <div style="font-size:.78rem; color:#7f8c8d; margin-top:6px;">Редкие действия для выбранного юнита/группы. Показываются здесь, чтобы не загромождать основной экран.</div>
-  </div>
   <div id="opHexMenuStatus" role="status" aria-live="polite" style="display:none; margin:4px 0; padding:8px; background:#14231e; border:1px solid #16a085; border-radius:6px; color:#f1c40f; font-size:.88rem;"></div>
      <div id="vehiclePanel" style="display:none; margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
     <strong>🚗 Техника</strong>
@@ -28844,7 +28865,7 @@ function onlineOnSnapshotSync() {
   </label>
 </div>
       <!-- ⚡ v13.038: селектор юнита — ВНЕ панели противника (видим всегда) -->
-      <div style="margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
+      <div id="opPlaceSelectWrap" style="margin-bottom:8px; padding:6px; background:#2a2a2a; border-radius:6px;">
   <label>Юнит: <select id="opPlaceSelect"></select></label>
 </div>
       <div id="activeBattlesPanel" style="margin:10px 0; padding:10px; background:#2a2a2a; border-radius:8px;">
@@ -28866,6 +28887,26 @@ function onlineOnSnapshotSync() {
   <!-- ⚡ v13.077: легенда векторных знаков местности (рисует те же функции,
        что и сама карта — см. initOpMapLegend) -->
   <div id="opMapLegend"></div>
+<!-- ⚡ v13.087 (пункт 15): редко используемые кнопки — под картой -->
+<div id="opBottomActions" class="op-bottom-actions">
+  <div class="op-bottom-title">Редкие действия</div>
+  <div id="opPhaseRare" class="ux-phase-rare" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
+    <!-- ⚡ v13.087: редкие кнопки — перенесены вниз карты -->
+    <button onclick="checkOpDetection()" data-ux-gate="recon" style="background:#8e44ad;" title="Проверить, видит ли выбранный юнит врага в радиусе обнаружения">🔍 Проверить обнаружение</button>
+    <button onclick="removeSelectedOpUnit()" style="background:#555;" title="Удалить выбранного юнита со стартовой позиции">🗑️ Удалить</button>
+    <button id="opHexMapsBtn" onclick="showHexEditorsMenu()" style="background:#16a085;" title="Окопы / подготовка позиций на конкретном гексе">🛠️ Карта гекса</button>
+    <button id="uxMoreBtn" onclick="toggleUxMoreMenu()" style="background:#34495e;" title="Редкие действия: группировка, объединение и т.п.">⚙️ Ещё ▾</button>
+  </div>
+  <div id="uxMoreMenu" style="display:none; margin-bottom:6px; padding:6px; background:#1d252e; border:1px solid #34495e; border-radius:6px;">
+    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+      <button onclick="showGroupDialog()" id="groupBtn" style="background:#8e44ad;">📦 Объединить в отряд</button>
+      <button onclick="showSplitDialog()" id="splitBtn" data-ux-gate="turn" style="display:none; background:#e67e22;">✂️ Разбить отряд</button>
+      <button onclick="renameGroup()" id="renameBtn" data-ux-gate="turn" style="display:none; background:#2980b9;">✏️ Переименовать</button>
+      <button onclick="showGroupDetails()" id="detailsBtn" data-ux-gate="turn" style="display:none; background:#27ae60;">📋 Состав</button>
+    </div>
+    <div style="font-size:.78rem; color:#7f8c8d; margin-top:6px;">Редкие действия для выбранного юнита/группы. Показываются здесь, чтобы не загромождать основной экран.</div>
+  </div>
+</div>
 <!-- ⚡ v13.053 (R38#3): сюда переезжает единственный #mapInfo, пока открыт экран операции -->
 <div id="opMapInfoSlot"></div>
 <div id="opQuickActions" role="toolbar" aria-label="Основные действия кампании">
@@ -29331,13 +29372,28 @@ function autoPlaceEnemyUnits(opts) {
       if (mi) mi.innerHTML = '❌ Талреп-якорь ставится только на технику.';
       return;
     }
+    if (unit.isDestroyed) {
+      const mi = document.getElementById('mapInfo');
+      if (mi) mi.innerHTML = '❌ Уничтоженной технике талреп-якорь не выдаётся.';
+      return;
+    }
+    // ⚡ v13.087: один талреп-якорь на батальон — снимаем его с прежнего держателя
+    let previous = null;
+    (camp.opUnits || []).forEach(other => {
+      if (other && other !== unit && other.winch) {
+        other.winch = false;
+        previous = other.name;
+      }
+    });
     unit.winch = true;
     saveData();
     try { redrawOperationalMap(); } catch (e) {}
     const mi = document.getElementById('mapInfo');
-    if (mi) mi.innerHTML = '🏔️ «Талреп-якорь» установлен на «' + unit.name + '»: подъём на холм доступен, но занимает весь ход.';
+    if (mi) mi.innerHTML = '🏔️ «Талреп-якорь» выдан «' + unit.name + '»' +
+      (previous ? ' (снят с «' + previous + '»)' : '') +
+      ': подъём на 1 горный гекс, занимает весь ход.';
     if (window.toast) toast('🏔️ Талреп-якорь: «' + unit.name + '» теперь может заезжать на высоты.', 'success');
-    log('🏔️ [' + unit.name + '] выдан Талреп-якорь.');
+    log('🏔️ [' + unit.name + '] выдан Талреп-якорь.' + (previous ? ' Снят с [' + previous + '].' : ''));
   }
   window.grantWinchToSelected = grantWinchToSelected;
 
