@@ -54,10 +54,14 @@ var MAP_ACTION_DEFS = [
 // Отряд выбран на карте (клик) → он же становится активным во вкладке «⚡ Бой»
 //    (действия с карты выполняются функциями этой вкладки для currentSquad)
 function mapActionsOnSelect(idx) {
+    if (typeof mapCloseQuickActionMenu === 'function') mapCloseQuickActionMenu();
     try {
         if (typeof currentSquadIndex !== 'undefined' && currentSquadIndex !== idx && typeof selectSquad === 'function') selectSquad(idx);
     } catch (e) {}
-    if (appData && appData.map) appData.map.pendingMapAttack = null;
+    if (appData && appData.map) {
+        appData.map.pendingMapAttack = null;
+        appData.map.pendingMapBinoculars = null;
+    }
     renderMapActionPanel();
 }
 
@@ -84,6 +88,38 @@ function mapActionHasSniper(squad) {
     let ws = [];
     try { ws = getFactionWeapons(squad.faction) || []; } catch (e) { return false; }
     return (squad.fighters || []).some(f => f && f.hp > 0 && ws.some(w => w.name === f.weapon && w.sniper));
+}
+
+// Боец, который может сходить за боеприпасами: не командир и не наводчик пулемёта.
+function mapActionEligibleAmmoRunners(squad) {
+    if (!squad || squad.hidden || squad.isDestroyed) return [];
+    const excluded = new Set();
+    const crewWeapons = mapActionCrewWeapons(squad);
+    (squad.crewInstances || []).forEach(ci => {
+        if (!ci) return;
+        const weapon = crewWeapons.find(w => w && w.name === ci.weaponName);
+        if (!weapon || weapon.type !== 'mg') return;
+        const indices = Array.isArray(ci.fighterIndices) ? ci.fighterIndices : [];
+        const explicit = [ci.gunnerIndex, ci.machineGunnerIndex, ci.operatorIndex]
+            .map(Number).find(Number.isInteger);
+        if (explicit !== undefined && indices.includes(explicit)) {
+            excluded.add(explicit);
+            return;
+        }
+        const namedGunner = indices.find(i => /пулем[её]тчик|наводчик.*пулем/i.test(String((squad.fighters || [])[i]?.name || '')));
+        if (namedGunner !== undefined) excluded.add(namedGunner);
+        else if (indices.length) excluded.add(indices[0]);
+    });
+    return (squad.fighters || []).map((fighter, index) => ({ fighter, index })).filter(({ fighter, index }) => {
+        if (!fighter || fighter.hp <= 0 || fighter.isAway || fighter.isCommander || excluded.has(index)) return false;
+        if (fighter.isMachineGunner || fighter.isGunner) return false;
+        return !/командир|пулем[её]тчик|наводчик.*пулем/i.test(String(fighter.name || ''));
+    });
+}
+
+function mapActionCanUseBinoculars(squad) {
+    const label = `${(squad && squad.name) || ''} ${(squad && squad.opUnitName) || ''} ${(squad && squad.opUnitType) || ''}`;
+    return /(штаб|headquarters|\bhq\b|battalion_hq|company_hq|развед)/i.test(label) && !/снабж/i.test(label);
 }
 
 function mapActionEnemyAlive(enemy) {
@@ -186,7 +222,12 @@ function renderMapActionPanel() {
         `</div>`;
 
     const pa = appData.map.pendingMapAttack;
-    if (pa) {
+    const binocularsPending = appData.map.pendingMapBinoculars;
+    if (binocularsPending) {
+        html += `<div style="background:#152c38; border:1px solid #3498db; border-radius:6px; padding:6px; margin-bottom:6px;">` +
+            `<b style="color:#5dade2;">🔭 Бинокль</b>: выберите гекс на карте для проверки скрытых противников.` +
+            `<div style="margin-top:6px;"><button onclick="mapCancelAction()" style="background:#555;">✖ Отмена</button></div></div>`;
+    } else if (pa) {
         const def = mapActionDefById(pa.type);
         html += `<div style="background:#3a2a12; border:1px solid #f39c12; border-radius:6px; padding:6px; margin-bottom:6px;">` +
             `<b style="color:#f39c12;">🎯 ${def ? def.label : pa.type}</b>: выберите отряд противника — кликните по нему на карте или в списке:` +
@@ -234,6 +275,19 @@ function renderMapActionPanel() {
             const dis = (ap <= 0 || routed || !pos || phaseLocked || (meleeEngaged && !isMeleeAction) || !actionAllowed) ? 'disabled' : '';
             html += `<button onclick="mapAction('${def.id}')" ${dis}>${def.label}</button>`;
         });
+        const utilityAllowed = typeof tacticalActionAllowed !== 'function' || tacticalActionAllowed(squad, 'utility', true);
+        const utilityDisabled = (ap < 2 || routed || !pos || phaseLocked || meleeEngaged || !utilityAllowed) ? 'disabled' : '';
+        if (mapActionCanUseBinoculars(squad)) {
+            html += `<button onclick="mapBeginBinoculars()" ${utilityDisabled} title="1 ОД: выбрать гекс и обнаружить скрытые в нём отряды">🔭 Бинокль (1 ОД)</button>`;
+        }
+        if (Number(squad.flares) > 0) {
+            html += `<button onclick="mapFireFlare(${idx})" ${utilityDisabled} title="Запустить осветительную ракету; действует до конца хода">🚀 Осветительная ракета (${Number(squad.flares)} шт.)</button>`;
+        }
+        const ammoRunners = mapActionEligibleAmmoRunners(squad);
+        const ammoRunDisabled = (routed || !pos || phaseLocked || meleeEngaged || !utilityAllowed) ? 'disabled' : '';
+        if (ammoRunners.length > 0) {
+            html += `<button onclick="mapBeginAmmoRun()" ${ammoRunDisabled} title="Случайный боец вернётся с максимальным количеством выбранного боеприпаса">📦 За боеприпасами (${ammoRunners.length} бойц.)</button>`;
+        }
         // пулемёты ДОТа — по амбразурам
         if ((squad.name || '').includes('ДОТ') && squad.crewInstances) {
             const cws = mapActionCrewWeapons(squad);
@@ -266,6 +320,129 @@ function renderMapActionPanel() {
     panel.innerHTML = html;
 }
 
+var mapQuickMenuOutsideHandler = null;
+function mapCloseQuickActionMenu() {
+    if (typeof document === 'undefined') return;
+    const menu = document.getElementById('mapQuickActionMenu');
+    if (mapQuickMenuOutsideHandler) {
+        document.removeEventListener('pointerdown', mapQuickMenuOutsideHandler, true);
+        mapQuickMenuOutsideHandler = null;
+    }
+    if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
+}
+
+function mapShowQuickActionMenu(idx, hexKey, clientX, clientY) {
+    const squad = appData && appData.squads && appData.squads[idx];
+    if (!squad || !appData.map) return;
+    mapCloseQuickActionMenu();
+    const ap = (typeof getAP === 'function') ? getAP(idx) : 0;
+    const pos = getBattleSquadHex(appData.map.grid, idx, false);
+    const routed = typeof getEffectiveMorale === 'function' && typeof currentSquadIndex !== 'undefined' && currentSquadIndex === idx
+        ? getEffectiveMorale() <= 1 : false;
+    const phaseLocked = typeof getTacticalActiveSide === 'function' && getTacticalActiveSide() !== 'player';
+    const meleeEngaged = typeof tacticalIsMeleeEngaged === 'function' && tacticalIsMeleeEngaged(squad);
+    const utilityAllowed = typeof tacticalActionAllowed !== 'function' || tacticalActionAllowed(squad, 'utility', true);
+    const attackAllowed = typeof tacticalActionAllowed !== 'function' || tacticalActionAllowed(squad, 'attack', true);
+    const meleeAllowed = typeof tacticalActionAllowed !== 'function' || tacticalActionAllowed(squad, 'melee', true);
+    const disableBase = routed || !pos || phaseLocked;
+    const esc = value => String(value || '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    const button = (id, label, disabled, title) =>
+        `<button type="button" data-map-quick-action="${id}" ${disabled ? 'disabled' : ''} ${title ? `title="${esc(title)}"` : ''} ` +
+        `style="width:100%; padding:7px 9px; text-align:left; border:1px solid #52616b; border-radius:6px; background:${disabled ? '#444' : '#263743'}; color:#f2f4f5; opacity:${disabled ? '.58' : '1'};">${label}</button>`;
+    let html = `<div style="font-weight:700; color:#f1c40f; margin-bottom:6px;">${esc(squad.name)}</div>`;
+    html += `<div style="font-size:.78rem; color:#aeb9bf; margin-bottom:6px;">Гекс ${esc(hexKey || (pos && pos.key) || '')} · ОД ${typeof getAP === 'function' ? (getAP(idx) / 2) : 0}</div>`;
+    html += '<div style="display:grid; gap:4px; max-height:50vh; overflow-y:auto;">';
+    let actionCount = 0;
+    MAP_ACTION_DEFS.forEach(def => {
+        let show = false;
+        try { show = def.show(squad); } catch (e) { show = false; }
+        if (!show) return;
+        const isMelee = def.id === 'melee';
+        const disabled = disableBase || ap <= 0 || (meleeEngaged && !isMelee) ||
+            !((isMelee ? meleeAllowed : attackAllowed));
+        html += button(`attack:${def.id}`, def.label, disabled);
+        actionCount++;
+    });
+    if (typeof isBicycleTacticalSquad === 'function' && isBicycleTacticalSquad(squad) && !squad.dismounted) {
+        html += button('dismount', '🚲 Спешиться', disableBase || meleeEngaged || !utilityAllowed);
+        actionCount++;
+    }
+    if (meleeEngaged) {
+        const allowed = typeof tacticalActionAllowed !== 'function' || tacticalActionAllowed(squad, 'retreatMelee', true);
+        html += button('retreat-melee', '↩ Отступить из рукопашной', disableBase || !allowed);
+        actionCount++;
+    }
+    const runnerCount = mapActionEligibleAmmoRunners(squad).length;
+    if (runnerCount > 0) {
+        html += button('ammo-run', `📦 За боеприпасами (${runnerCount} бойц.)`, disableBase || meleeEngaged || !utilityAllowed,
+            'Боец вернётся с 30 патронами, 10 снарядами или 5 гранатами');
+        actionCount++;
+    }
+    if (mapActionCanUseBinoculars(squad)) {
+        html += button('binoculars', '🔭 Бинокль', disableBase || ap < 2 || meleeEngaged || !utilityAllowed, '1 ОД: выбрать гекс и обнаружить скрытые отряды');
+        actionCount++;
+    }
+    if (Number(squad.flares) > 0) {
+        html += button('flare', `🚀 Осветительная ракета (${Number(squad.flares)})`, disableBase || ap < 2 || meleeEngaged || !utilityAllowed,
+            'Запустить ракету до конца текущего хода');
+        actionCount++;
+    }
+    if ((squad.name || '').includes('ДОТ') && squad.crewInstances) {
+        const cws = mapActionCrewWeapons(squad);
+        squad.crewInstances.forEach((ci, ciIdx) => {
+            if (!ci || ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') return;
+            const cw = cws.find(w => w.name === ci.weaponName);
+            if (!cw || cw.type !== 'mg') return;
+            const dotAllowed = typeof tacticalActionAllowed !== 'function' || tacticalActionAllowed(squad, 'shoot', true);
+            html += button(`dotmg:${ciIdx}`, `🏰 Пулемёт ${ciIdx + 1}-й амбразуры`, disableBase || ap < 2 || meleeEngaged || !dotAllowed);
+            actionCount++;
+        });
+    }
+    if (!actionCount) html += '<span style="color:#aaa; padding:4px;">Дополнительных действий нет.</span>';
+    html += '</div><button type="button" data-map-quick-action="close" style="width:100%; margin-top:7px; background:#555;">Закрыть</button>';
+
+    const menu = document.createElement('div');
+    menu.id = 'mapQuickActionMenu';
+    menu.setAttribute('role', 'menu');
+    menu.style.cssText = 'position:fixed; z-index:1200; width:min(300px, calc(100vw - 16px)); max-height:60vh; overflow:auto; padding:9px; background:rgba(18,25,31,.98); border:1px solid #607d8b; border-radius:9px; box-shadow:0 8px 28px rgba(0,0,0,.65); font-size:.88rem;';
+    menu.innerHTML = html;
+    menu.addEventListener('click', event => {
+        const clicked = event.target && event.target.closest ? event.target.closest('[data-map-quick-action]') : null;
+        if (!clicked || clicked.disabled) return;
+        const action = clicked.getAttribute('data-map-quick-action') || '';
+        mapCloseQuickActionMenu();
+        if (action === 'close') return;
+        if (action.startsWith('attack:')) { mapAction(action.slice(7)); return; }
+        if (action.startsWith('dotmg:')) { mapAction('dotmg', Number(action.slice(6))); return; }
+        if (action === 'ammo-run') { mapBeginAmmoRun(); return; }
+        if (action === 'binoculars') { mapBeginBinoculars(); return; }
+        if (action === 'flare') { mapFireFlare(idx); return; }
+        if (action === 'dismount') {
+            if (typeof selectSquad === 'function') selectSquad(idx);
+            if (typeof dismountBicycle === 'function') dismountBicycle();
+            renderMapActionPanel();
+            return;
+        }
+        if (action === 'retreat-melee') {
+            if (typeof selectSquad === 'function') selectSquad(idx);
+            if (typeof retreatFromMelee === 'function') retreatFromMelee();
+        }
+    });
+    document.body.appendChild(menu);
+    const rect = menu.getBoundingClientRect();
+    const viewportWidth = (typeof window !== 'undefined' && window.innerWidth) || 1024;
+    const viewportHeight = (typeof window !== 'undefined' && window.innerHeight) || 768;
+    const left = Math.max(8, Math.min((Number(clientX) || 0) - rect.width / 2, viewportWidth - rect.width - 8));
+    let top = (Number(clientY) || 0) - rect.height - 10;
+    if (top < 8) top = Math.min(viewportHeight - rect.height - 8, (Number(clientY) || 0) + 10);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${Math.max(8, top)}px`;
+    mapQuickMenuOutsideHandler = event => {
+        if (!menu.contains(event.target)) mapCloseQuickActionMenu();
+    };
+    document.addEventListener('pointerdown', mapQuickMenuOutsideHandler, true);
+}
+
 function mapActionInfo(msg, color) {
     try {
         const mi = document.getElementById('mapInfo');
@@ -287,6 +464,7 @@ function mapAction(type, extra) {
     if (typeof tacticalActionAllowed === 'function' && !tacticalActionAllowed(squad, action)) { renderMapActionPanel(); return; }
     if (!getBattleSquadHex(appData.map.grid, idx, false)) { mapActionInfo('⚠️ Отряд не размещён на карте.', '#e74c3c'); return; }
     if (typeof currentSquadIndex !== 'undefined' && currentSquadIndex !== idx && typeof selectSquad === 'function') selectSquad(idx);
+    appData.map.pendingMapBinoculars = null;
     appData.map.pendingMapAttack = { type: type, extra: (extra === undefined ? null : extra), squadIdx: idx };
     const def = mapActionDefById(type);
     mapActionInfo(`🎯 ${def ? def.label : type}: кликните по отряду противника на карте (или выберите в списке под картой).`);
@@ -295,20 +473,62 @@ function mapAction(type, extra) {
 }
 
 function mapCancelAction() {
-    if (appData && appData.map) appData.map.pendingMapAttack = null;
+    if (appData && appData.map) {
+        appData.map.pendingMapAttack = null;
+        appData.map.pendingMapBinoculars = null;
+        appData.map.pendingTargetHex = null;
+    }
     mapActionInfo('Действие отменено.', '#aaa');
     renderMapActionPanel();
     if (typeof redrawMap === 'function') redrawMap();
 }
 
 function mapDeselectSquad() {
+    mapCloseQuickActionMenu();
     if (!appData || !appData.map) return;
     appData.map.pendingMapAttack = null;
+    appData.map.pendingMapBinoculars = null;
     appData.map.selectedMoveSquadIdx = null;
     appData.map.reachableHexes = [];
     appData.map.reachableCosts = null;
     renderMapActionPanel();
     if (typeof redrawMap === 'function') redrawMap();
+}
+
+function mapBeginAmmoRun() {
+    if (typeof placementPendingReason === 'function') {
+        const reason = placementPendingReason();
+        if (reason) { mapActionInfo(reason, '#e67e22'); return; }
+    }
+    const idx = mapActionSelectedIdx();
+    if (idx < 0) { mapActionInfo('⚠️ Сначала выберите свой отряд на карте.', '#e74c3c'); return; }
+    const squad = appData.squads[idx];
+    if (typeof tacticalActionAllowed === 'function' && !tacticalActionAllowed(squad, 'utility')) return;
+    if (!getBattleSquadHex(appData.map.grid, idx, false)) { mapActionInfo('⚠️ Отряд не размещён на карте.', '#e74c3c'); return; }
+    if (typeof tacticalIsMeleeEngaged === 'function' && tacticalIsMeleeEngaged(squad)) {
+        mapActionInfo('⛔ Нельзя отправить бойца за боеприпасами во время рукопашной.', '#e67e22');
+        return;
+    }
+    const runners = mapActionEligibleAmmoRunners(squad);
+    if (!runners.length) { mapActionInfo('Нет свободного живого бойца (кроме командира и наводчика пулемёта), который может идти за боеприпасами.', '#e67e22'); return; }
+    const type = prompt('Что принести?\n1 — Патроны (30)\n2 — Снаряды (10)\n3 — Гранаты (5)', '1');
+    if (type === null) return;
+    if (!['1', '2', '3'].includes(String(type).trim())) { mapActionInfo('Выберите тип боеприпаса: 1, 2 или 3.', '#e67e22'); return; }
+    const turnsInput = prompt('Сколько тактических ходов потребуется? (положительное целое число)', '1');
+    if (turnsInput === null) return;
+    const turns = Number(String(turnsInput).trim());
+    if (!Number.isInteger(turns) || turns <= 0) { mapActionInfo('Укажите положительное целое число ходов.', '#e67e22'); return; }
+    const runner = runners[Math.floor(Math.random() * runners.length)].fighter;
+    runner.isAway = true;
+    runner.turnsToReturn = turns;
+    runner.ammoType = String(type).trim();
+    const ammoName = runner.ammoType === '1' ? 'патронами (+30)' : runner.ammoType === '2' ? 'снарядами (+10)' : 'гранатами (+5)';
+    const message = `📦 ${runner.name} из отряда «${squad.name}» отправился за ${ammoName}; вернётся через ${turns} ход(ов).`;
+    if (typeof log === 'function') log(message);
+    mapActionInfo(message, '#27ae60');
+    if (typeof updateUI === 'function') updateUI();
+    if (typeof saveData === 'function') saveData();
+    renderMapActionPanel();
 }
 
 // Следующий свой отряд, стоящий на карте (по кругу)
@@ -331,6 +551,7 @@ function mapSelectNextSquad() {
 // Выбрать свой отряд на карте (режим движения + подсветка + панель)
 function mapSelectSquadOnMap(i, key) {
     appData.map.pendingMapAttack = null;
+    appData.map.pendingMapBinoculars = null;
     if (appData.map.mode !== 'move') {
         appData.map.mode = 'move';
         try { const cl = document.getElementById('crouchLabel'); if (cl) cl.style.display = 'inline-block'; } catch (e) {}
@@ -340,6 +561,97 @@ function mapSelectSquadOnMap(i, key) {
     if (typeof recalcReachable === 'function') { try { recalcReachable(appData.squads[i], key); } catch (e) {} }
     mapActionInfo(`Выбран отряд «${appData.squads[i].name}» (гекс ${key}). Кликните по гексу для перемещения или выберите действие под картой.`);
     mapActionsOnSelect(i);
+    if (typeof redrawMap === 'function') redrawMap();
+}
+
+function mapBeginBinoculars() {
+    const idx = mapActionSelectedIdx();
+    if (idx < 0) { mapActionInfo('⚠️ Сначала выберите свой отряд на карте.', '#e74c3c'); return; }
+    const squad = appData.squads[idx];
+    if (!mapActionCanUseBinoculars(squad)) { mapActionInfo('🔭 Бинокль доступен только штабам и разведывательным отделениям.', '#e74c3c'); return; }
+    if (typeof tacticalActionAllowed === 'function' && !tacticalActionAllowed(squad, 'utility')) return;
+    if (!getBattleSquadHex(appData.map.grid, idx, false)) { mapActionInfo('⚠️ Отряд не размещён на карте.', '#e74c3c'); return; }
+    if ((typeof getAP === 'function' ? getAP(idx) : 0) < 2) { mapActionInfo('⛔ Для бинокля требуется 1 ОД.', '#e74c3c'); return; }
+    appData.map.pendingMapAttack = null;
+    appData.map.pendingMapBinoculars = { squadIdx: idx };
+    mapActionInfo('🔭 Выберите гекс на карте. Бинокль обнаружит все скрытые в нём вражеские отряды.');
+    renderMapActionPanel();
+    if (typeof redrawMap === 'function') redrawMap();
+}
+
+function mapHexClickDuringBinoculars(key) {
+    const pending = appData && appData.map && appData.map.pendingMapBinoculars;
+    if (!pending) return false;
+    const idx = Number(pending.squadIdx);
+    const squad = (appData.squads || [])[idx];
+    if (!squad || !mapActionCanUseBinoculars(squad)) {
+        mapCancelAction();
+        mapActionInfo('🔭 Действие отменено: выбранный отряд больше не доступен.', '#e74c3c');
+        return true;
+    }
+    if (typeof tacticalActionAllowed === 'function' && !tacticalActionAllowed(squad, 'utility')) {
+        mapCancelAction();
+        renderMapActionPanel();
+        return true;
+    }
+    if (!getBattleSquadHex(appData.map.grid, idx, false)) {
+        mapCancelAction();
+        mapActionInfo('⚠️ Отряд не размещён на карте.', '#e74c3c');
+        return true;
+    }
+    if (typeof getAP === 'function' && getAP(idx) < 2) {
+        mapCancelAction();
+        mapActionInfo('⛔ Для бинокля требуется 1 ОД.', '#e74c3c');
+        renderMapActionPanel();
+        return true;
+    }
+    if (!appData.map.grid[key]) {
+        mapActionInfo(`⛔ Гекс ${key} не найден на карте.`, '#e74c3c');
+        return true;
+    }
+    const enemies = appData.map.enemySquads || [];
+    const found = [];
+    enemies.forEach((enemy, enemyIdx) => {
+        if (!enemy || (typeof tacticalEnemyIsNeutralized === 'function' && tacticalEnemyIsNeutralized(enemy)) || mapActionEnemyAlive(enemy) <= 0) return;
+        let pos = getBattleSquadHex(appData.map.grid, enemyIdx, true);
+        if (!pos && Array.isArray(enemy.hexPos)) pos = { key: enemy.hexPos.join(',') };
+        if (!pos || pos.key !== key) return;
+        if (enemy.hidden === true || enemy.detected !== true) found.push(enemy);
+    });
+    if (typeof spendAP === 'function' && !spendAP(idx, 2, 'utility')) {
+        mapCancelAction();
+        mapActionInfo('⛔ Недостаточно ОД для бинокля.', '#e74c3c');
+        renderMapActionPanel();
+        return true;
+    }
+    found.forEach(enemy => {
+        enemy.hidden = false;
+        enemy.detected = true;
+        enemy.binocularsDetectedTurn = (typeof currentTurn !== 'undefined') ? currentTurn : 1;
+    });
+    appData.map.pendingMapBinoculars = null;
+    if (found.length) {
+        mapActionInfo(`🔭 На гексе ${key} обнаружены: ${found.map(e => e.name).join(', ')}.`, '#2ecc71');
+        try { log(`🔭 Бинокль: обнаружены вражеские отряды на гексе ${key}: ${found.map(e => e.name).join(', ')}.`); } catch (e) {}
+    } else {
+        mapActionInfo(`🔭 На гексе ${key} скрытых вражеских отрядов нет.`, '#aaa');
+        try { log(`🔭 Бинокль проверил гекс ${key}: скрытых вражеских отрядов нет.`); } catch (e) {}
+    }
+    try { saveData(); } catch (e) {}
+    try { if (appData.campaign && appData.campaign.online && typeof onlinePushBattles === 'function') onlinePushBattles(true); } catch (e) {}
+    renderMapActionPanel();
+    if (typeof redrawMap === 'function') redrawMap();
+    return true;
+}
+
+function mapFireFlare(idx) {
+    idx = Number.isInteger(Number(idx)) ? Number(idx) : mapActionSelectedIdx();
+    const squad = (appData.squads || [])[idx];
+    if (!squad || Number(squad.flares) <= 0) return;
+    if (typeof tacticalActionAllowed === 'function' && !tacticalActionAllowed(squad, 'utility')) return;
+    if (typeof selectSquad === 'function' && currentSquadIndex !== idx) selectSquad(idx);
+    if (typeof fireFlare === 'function') fireFlare();
+    renderMapActionPanel();
     if (typeof redrawMap === 'function') redrawMap();
 }
 

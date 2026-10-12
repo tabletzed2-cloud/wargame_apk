@@ -113,8 +113,8 @@ test('v13.078: getMovementCost (тактический бой) — hasWinch уч
 
 // ─── 8. Версия и changelog (v13.078 — это ИСТОРИЧЕСКИЙ артефакт) ───
 const APP = /var APP_VERSION = '([^']+)'/.exec(HTML)[1];
-test('v13.078: CHANGELOG-v13.078.md существует на диске (исторический релиз)', () => {
-    assert.ok(fs.existsSync(path.join(ROOT, 'CHANGELOG-v13.078.md')));
+test('v13.078: changelogs/CHANGELOG-v13.078.md существует на диске (исторический релиз)', () => {
+    assert.ok(fs.existsSync(path.join(ROOT, 'changelogs', 'CHANGELOG-v13.078.md')));
 });
 test('v13.078: APP_VERSION ушёл вперёд (текущий ≥ v13.078)', () => {
     // ⚡ v13.079+: при выходе новой версии APP_VERSION поднимается. Этот тест

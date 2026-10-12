@@ -697,11 +697,11 @@
     return `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
   }
   function parseMinuteInput(value) {
-    const parts = String(value || '').split(':');
-    if (parts.length !== 2) return null;
-    const h = Number(parts[0]), m = Number(parts[1]);
-    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
-    return ((Math.round((h * 60 + m) / 10) * 10) % 1440 + 1440) % 1440;
+    const match = /^(\d{2}):([0-5]\d)$/.exec(String(value || '').trim());
+    if (!match) return null;
+    const h = Number(match[1]), m = Number(match[2]);
+    if (h > 23 || m % 10 !== 0) return null;
+    return h * 60 + m;
   }
   function currentTimeValue() {
     const c = campaign();
@@ -724,8 +724,9 @@
       `<select data-draft-field="behavior">${contactOptions(selected || 'hold')}</select></label>`;
   }
   function timeField(value) {
-    return `<label class="op-cmd-field">Время начала` +
-      `<input type="time" step="600" data-draft-field="time" value="${esc(value || currentTimeValue())}"></label>`;
+    const displayedValue = value == null ? '' : value;
+    return `<label class="op-cmd-field">Время начала (пусто — после предыдущего приказа)` +
+      `<input type="time" step="600" data-draft-field="time" value="${esc(displayedValue)}"></label>`;
   }
   function routeLabel(points) {
     if (!points || !points.length) return 'Маршрут не задан';
@@ -902,7 +903,7 @@
       ? (specialActions.find(action => canIssueSpecial(picked.unit, action)) || 'dig_in') : '';
     state.draft = {
       category, mode: mode || '', behavior: category === 'ambush' ? 'ignore' : 'hold',
-      time: currentTimeValue(), waypoints: [], targetHex: '', targetHexes: [],
+      time: '', waypoints: [], targetHex: '', targetHexes: [],
       targetEnemyId: '', targetDistance: 3, escortInfantryId: '', btrUnitId: '',
       specialAction: firstSpecial
     };
@@ -1238,8 +1239,9 @@
   }
 
   function parseDraftOptions(draft, unit) {
-    const startTime = parseMinuteInput(draft.time || currentTimeValue());
-    if (startTime == null) throw new Error('Укажите время в формате ЧЧ:ММ.');
+    const hasManualTime = String(draft.time || '').trim() !== '';
+    const startTime = hasManualTime ? parseMinuteInput(draft.time) : null;
+    if (hasManualTime && startTime == null) throw new Error('Укажите корректное время с шагом 10 минут (ЧЧ:ММ).');
     const behavior = draft.category === 'ambush' ? 'ignore' : (draft.behavior || 'hold');
     const options = {
       behavior,
@@ -1693,12 +1695,13 @@
     if (typeof canIssueArtilleryStrike === 'function' && !canIssueArtilleryStrike()) throw new Error('У батальона нет артиллерийской поддержки.');
     if ((Number(campaign().artilleryStrikesUsed) || 0) >= 4) throw new Error('Лимит артиллерийской поддержки исчерпан: 4 обстрела за кампанию.');
     if (!state.draft.targetHex) throw new Error('Выберите гекс артиллерийского обстрела.');
-    const time = parseMinuteInput(state.draft.time || currentTimeValue());
-    if (time == null) throw new Error('Укажите время начала.');
+    const hasManualTime = String(state.draft.time || '').trim() !== '';
+    const time = hasManualTime ? parseMinuteInput(state.draft.time) : null;
+    if (hasManualTime && time == null) throw new Error('Укажите корректное время с шагом 10 минут (ЧЧ:ММ).');
     const target = document.getElementById('orderTargetHex');
     const timeEl = document.getElementById('orderStartTime');
     if (target) target.value = state.draft.targetHex;
-    if (timeEl) timeEl.value = formatMinuteInput(time);
+    if (timeEl) timeEl.value = time == null ? '' : formatMinuteInput(time);
     submitArtilleryStrikeOrder();
     markChecklist('orders');
     closeCommandMenu(true);
@@ -1714,7 +1717,7 @@
     if (action === 'fire-kind') { startFireKind(button.getAttribute('data-kind')); return; }
     if (action === 'artillery') {
       state.menuPage = 'details';
-      state.draft = { category: 'artillery', behavior: 'ignore', time: currentTimeValue(), targetHex: '' };
+      state.draft = { category: 'artillery', behavior: 'ignore', time: '', targetHex: '' };
       state.error = '';
       renderCommandMenu();
       return;

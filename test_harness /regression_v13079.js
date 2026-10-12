@@ -138,7 +138,7 @@ test('v13.079: setOpMapMode(\'move\') в HardMode = запрещён', () => {
 const APP = /var APP_VERSION = '([^']+)'/.exec(HTML)[1];
 test('v13.079: APP_VERSION = v13.079 и CHANGELOG на месте', () => {
     assert.equal(APP, 'v13.079');
-    assert.ok(fs.existsSync(path.join(ROOT, 'CHANGELOG-v13.079.md')));
+    assert.ok(fs.existsSync(path.join(ROOT, 'changelogs', 'CHANGELOG-v13.079.md')));
 });
 test('v13.079: BUILD-МАРКЕР поднят в js/data.js, js/hexmaps.js, js/cards.js, js/templates.js', () => {
     ['js/data.js', 'js/hexmaps.js', 'js/cards.js', 'js/templates.js'].forEach(f => {

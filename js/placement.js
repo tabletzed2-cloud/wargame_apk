@@ -182,6 +182,7 @@ function placementSideAllowed(battle, side, key) {
     const squads = side === 'player' ? (battle && battle.playerSquads || []) : (battle && battle.tacticalMap && battle.tacticalMap.enemySquads || []);
     if (squads.some(s => s.fixedTacticalPosition && s.fixedTacticalPosition.key === key && s.fixedTacticalPosition.hexKey === battle.hexKey)) return true;
     if (!p) return true;
+    if (p.ambush) return true;
     const zone = placementZoneKeys(p.entryDir, placementMapSize(battle));
     const inZone = zone.includes(key);
     return (p.attackerSide === side) ? inZone : !inZone;
@@ -205,6 +206,8 @@ function placementCheckPlace(side, key, wasPlaced, squad) {
     if (p.phase === 'done' && wasPlaced) return null; // после размещения — как раньше (свободная перестановка)
     if (p.phase !== 'done' && side === 'player' && p.playerReady) return '✅ Вы уже завершили размещение — переставлять отряды нельзя, ждём противника.';
     if (placementSideAllowed(battle, side, key)) return null;
+    // Обороняющемуся игроку не раскрываем направление и форму стартовой зоны атакующего.
+    if (p.attackerSide === 'enemy') return '⛔ Этот гекс недоступен для размещения. Выберите другой гекс.';
     const isAttacker = (p.attackerSide === side);
     const who = side === 'player' ? 'Ваш' : 'Вражеский';
     return isAttacker
@@ -221,6 +224,68 @@ function placementPositions(grid, field) {
         cell[field].forEach(i => { pos[i] = k; });
     });
     return pos;
+}
+
+// При срабатывании засады противник не использует стартовую полосу: его живые
+// отряды (кроме скрытого десанта внутри БТР) случайно расставляются по карте.
+function placementRandomizeAmbushEnemies(tacticalMap) {
+    if (!tacticalMap || !tacticalMap.grid || !Array.isArray(tacticalMap.enemySquads)) return {};
+    const grid = tacticalMap.grid;
+    const squads = tacticalMap.enemySquads;
+    const positions = placementPositions(grid, 'enemySquadIds');
+    const fixed = new Set();
+    squads.forEach((s, i) => {
+        if (!s || !s.fixedTacticalPosition || !s.fixedTacticalPosition.key) return;
+        const sameBattle = !s.fixedTacticalPosition.hexKey || String(s.fixedTacticalPosition.hexKey) === String(tacticalMap.hexKey);
+        if (sameBattle) fixed.add(i);
+    });
+    Object.keys(grid).forEach(key => {
+        const cell = grid[key];
+        if (!cell) return;
+        cell.enemySquadIds = (cell.enemySquadIds || []).filter(i => fixed.has(i));
+    });
+    squads.forEach((s, i) => {
+        if (!s) return;
+        s.detected = true;
+        // hidden is reserved for passengers inside carriers; all deployed enemy
+        // combat squads are revealed for an ambush deployment.
+        if (!fixed.has(i)) delete s.hexPos;
+    });
+    const passable = Object.keys(grid).filter(key => {
+        if (!/^\d+,\d+$/.test(key) || !grid[key]) return false;
+        const type = grid[key].type;
+        const terrain = (typeof TERRAIN_DATA !== 'undefined' && TERRAIN_DATA && TERRAIN_DATA[type]) || null;
+        return !terrain || !Number.isFinite(Number(terrain.baseCost)) || Number(terrain.baseCost) < 999;
+    });
+    const available = passable.filter(key => {
+        const cell = grid[key];
+        return !(cell.squadIds || []).length && !(cell.enemySquadIds || []).length;
+    });
+    for (let i = available.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [available[i], available[j]] = [available[j], available[i]];
+    }
+    // If every empty tile is taken, allow enemy stacking but never overwrite a
+    // friendly deployment cell.
+    const fallback = passable.filter(key => !(grid[key].squadIds || []).length);
+    for (let i = fallback.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [fallback[i], fallback[j]] = [fallback[j], fallback[i]];
+    }
+    const result = {};
+    let next = 0;
+    squads.forEach((s, i) => {
+        if (!s || s.hidden || s.isDestroyed || (s.fighters || []).every(f => !f || f.hp <= 0)) return;
+        let key = fixed.has(i) ? positions[i] : available[next++];
+        if (!key) key = fallback.find(k => !(grid[k].enemySquadIds || []).includes(i)) || passable[0];
+        if (!key || !grid[key]) return;
+        const cell = grid[key];
+        if (!Array.isArray(cell.enemySquadIds)) cell.enemySquadIds = [];
+        if (!cell.enemySquadIds.includes(i)) cell.enemySquadIds.push(i);
+        s.hexPos = key.split(',').map(Number);
+        result[i] = key;
+    });
+    return result;
 }
 
 function placementSideStatus(battle, side) {
@@ -251,12 +316,16 @@ function placementIntroText(battle) {
     const iAmAttacker = p.attackerSide === 'player';
     const hp = String(battle.hexKey || '').split(',');
     let s = `📍 Размещение перед боем на гексе (${hp[0]},${hp[1]}).\n\n`;
-    s += iAmAttacker
-        ? `Вы — АТАКУЮЩИЙ: ваши юниты вошли на гекс ${PLACEMENT_DIR_LABELS[p.entryDir]}. Ваша зона размещения — 3 ряда у этого края карты боя (зелёная подсветка).`
-        : `Вы — ОБОРОНЯЮЩИЙСЯ: противник вошёл на гекс ${PLACEMENT_DIR_LABELS[p.entryDir]}. Его зона (красная подсветка) — 3 ряда у этого края; свои отряды размещайте где угодно вне неё.`;
+    if (p.ambush) {
+        s += '🥷 Засада сработала: все отряды противника обнаружены и уже расставлены случайно. Вы можете разместить свои отряды в любой точке карты.';
+    } else if (iAmAttacker) {
+        s += `Вы — АТАКУЮЩИЙ: ваши юниты вошли на гекс ${PLACEMENT_DIR_LABELS[p.entryDir]}. Ваша зона размещения — 3 ряда у этого края карты боя (зелёная подсветка).`;
+    } else {
+        s += 'Вы — ОБОРОНЯЮЩИЙСЯ. Разместите свои отряды и подтвердите готовность; стартовая зона противника скрыта.';
+    }
     s += '\n\nРежим «🏷️ Разместить»: выберите отряд в списке «Отряд» и кликните по гексу. Затем нажмите «✅ Размещение завершено».';
     if (appData.campaign && appData.campaign.online) s += '\n\n🌐 Онлайн: противник размещается одновременно с вами, его расстановка откроется, когда готовы будут оба.';
-    else s += '\n\nОтряды противника размещаются в панели «Разместить врага» ниже — по тем же правилам (его зона — противоположная).';
+    else if (!p.ambush) s += '\n\nОтряды противника размещаются в панели «Разместить врага» ниже.';
     return s;
 }
 
@@ -302,15 +371,21 @@ function renderPlacementPanel() {
     const iAmAttacker = p.attackerSide === 'player';
     const mine = placementSideStatus(battle, 'player');
     let html = `<div style="font-weight:bold; color:#f1c40f; margin-bottom:4px;">📍 Размещение перед боем — вы ${iAmAttacker ? 'АТАКУЮЩИЙ' : 'ОБОРОНЯЮЩИЙСЯ'}</div>`;
-    html += `<div>Атакующий вошёл <b>${PLACEMENT_DIR_LABELS[p.entryDir]}</b>: его зона — 3 ряда у этого края ` +
-        (iAmAttacker ? '(<span style="color:#2ecc71;">зелёная подсветка</span>) — размещайтесь только в ней.'
-                     : '(<span style="color:#e74c3c;">красная подсветка</span>) — размещайте свои отряды вне неё.') + '</div>';
+    if (p.ambush) {
+        html += '<div>🥷 Засада сработала: противник расставлен случайно и обнаружен. Свои отряды размещайте в любой точке карты.</div>';
+    } else if (iAmAttacker) {
+        html += `<div>Вы вошли ${PLACEMENT_DIR_LABELS[p.entryDir]}: размещайтесь в зелёной зоне у края карты.</div>`;
+    } else {
+        html += '<div>Вы обороняетесь. Стартовая зона противника скрыта; выберите место для своих отрядов.</div>';
+    }
     html += `<div style="margin-top:4px;">Ваши отряды: размещено <b>${mine.placed.length}/${mine.total}</b>` +
         (mine.unplaced.length ? ` · не размещены: ${mine.unplaced.join(', ')}` : '') +
         (mine.violations.length ? ` · <span style="color:#e74c3c;">вне своей зоны: ${mine.violations.join(', ')}</span>` : '') + '</div>';
     if (online) {
         html += `<div>Противник: ${p.enemyReady ? '<span style="color:#2ecc71;">✅ готов</span>' : '<span style="color:#e67e22;">⏳ размещает отряды</span>'}` +
             (p.playerReady ? ' · вы: <span style="color:#2ecc71;">✅ готовы</span>' : '') + '</div>';
+    } else if (p.ambush) {
+        html += '<div>Отряды противника: случайная расстановка завершена; обнаружены все.</div>';
     } else {
         const en = placementSideStatus(battle, 'enemy');
         html += `<div>Отряды противника: размещено <b>${en.placed.length}/${en.total}</b>` +
@@ -318,7 +393,7 @@ function renderPlacementPanel() {
             (en.violations.length ? ` · <span style="color:#e74c3c;">вне своей зоны: ${en.violations.join(', ')}</span>` : '') +
             ' (панель «📌 Разместить врага» ниже)</div>';
     }
-    const canEdit = !p.playerReady && (!online || !battle.onlineMirror);
+    const canEdit = !p.ambush && iAmAttacker && !p.playerReady && (!online || !battle.onlineMirror);
     if (canEdit) {
         html += '<div style="margin-top:4px; font-size:0.85em; color:#bbb;">Поправить (если определилось неверно): сторона входа ' +
             `<select onchange="placementSetDir(this.value)" style="background:#444; color:#fff;">` +
@@ -441,7 +516,9 @@ function placementAnnounceDone(battle) {
 function drawPlacementZone(ctx, size) {
     const battle = getCurrentBattleRecord();
     const p = battle && battle.placement;
-    if (!p || !ctx) return;
+    if (!p || !ctx || p.ambush) return;
+    // The defending player must not see the attacker's deployment strip.
+    if (p.attackerSide === 'enemy') return;
     if (p.phase === 'done' && !(appData.map && appData.map.mode === 'place')) return;
     const zone = placementZoneKeys(p.entryDir, placementMapSize(battle));
     if (!zone.length) return;

@@ -29,8 +29,9 @@ const FNS = [
   'syncSupplyAssetsFromPlatoon', 'getSupplyDepotHex', 'supplyCargoOf', 'supplyAssetsMobility',
   'supplyOrdnanceFull', 'unitAmmoStatus', 'supplyAmmoPercent', 'supplyDistributeCargo',
   'supplyUnitList', 'sendSupplyDelivery', 'supplyAssetsLabel', 'supplyRearPoint',
-  'supplyRearRouteBlocked', 'supplyMoveCost', 'supplyStepToward', 'supplyAmbushCheck',
-  'supplyKillCarriers', 'advanceSupplyDeliveries', 'supplyBarHtml', 'supplyAmmoBarHtml',
+  'supplyRearRouteBlocked', 'supplyMoveCost', 'findSupplyRoute', 'supplyRouteCost', 'supplyStepToward', 'supplyAmbushCheck',
+  'supplyKillCarriers', 'notifySupplyDelivery', 'advanceSupplyDeliveries', 'supplyDeliveryDestination', 'supplyDeliveryEta', 'supplyEtaLabel',
+  'operationalHexHasActiveBattle', 'getOpHexNeighbors', 'supplyBarHtml', 'supplyAmmoBarHtml',
   'dispatchSupplyFromPanel', 'renderSupplyPanel', 'showSupplyPanel',
   // ⚡ v13.069: защита склада (охрана + захват) и «Бюрократия»
   'supplyDepotCaptured', 'syncSupplyDepotStatus', 'unitHasBureaucracy',
