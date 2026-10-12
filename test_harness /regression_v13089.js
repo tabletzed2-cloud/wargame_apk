@@ -23,13 +23,17 @@ function test(name, fn) {
 
 // ─────────────────────────── версия ───────────────────────────
 test('v13.089: версия, маркеры и кэш синхронизированы', () => {
-  assert.match(HTML, /var APP_VERSION = 'v13\.089'/);
-  assert.match(SW, /const CACHE_NAME = 'wargame-v13\.089';/);
-  assert.match(UI, /BUILD-МАРКЕР: v13\.089/);
+  // ⚡ v13.090: сверяем с текущим APP_VERSION — тест не должен падать после
+  //    каждого повышения версии, но рассинхрон маркировки обязан ловить.
+  const ver = /var APP_VERSION = '(v[\d.]+)'/.exec(HTML)[1];
+  const esc = ver.replace(/\./g, '\\.');
+  assert.match(SW, new RegExp("const CACHE_NAME = 'wargame-" + esc + "';"), 'service-worker.js');
+  assert.match(UI, new RegExp('BUILD-МАРКЕР: ' + esc), 'js/operational_ui.js');
   ['js/data.js', 'js/hexmaps.js', 'js/templates.js', 'js/cards.js'].forEach((f) => {
-    assert.match(fs.readFileSync(path.join(ROOT, f), 'utf8'), /BUILD-МАРКЕР: v13\.089/, f);
+    assert.match(fs.readFileSync(path.join(ROOT, f), 'utf8'), new RegExp('BUILD-МАРКЕР: ' + esc), f);
   });
-  assert.match(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'), /"short_name": "БМ v13\.089"/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'),
+    new RegExp('"short_name": "БМ ' + esc + '"'), 'manifest.json');
 });
 
 // ────────── 4. приказы выдаются на текущее время ──────────
@@ -199,6 +203,7 @@ test('v13.089 (п.3): БТР высаживает только названны�
   s.run(sliceFunction(HTML, 'orderDisembarkHex'));
   s.run(sliceFunction(HTML, 'ensureBtrReachesHex'));
   s.run(sliceFunction(HTML, 'driveBtrToDisembarkHex'));
+  s.run(sliceFunction(HTML, 'markJustDisembarked'));   // ⚡ v13.090 (п.1)
   s.run(sliceFunction(HTML, 'executeDisembarkOrder'));
   s.run(`
     var first = { name: '1-й взвод', embarkedInBtr: true, hidden: true, col: null, row: null, btrIds: [3], mobility: 'foot' };
@@ -228,6 +233,7 @@ test('v13.089 (п.3): БТР ждёт посадки, если отряд ещё
   s.run(sliceFunction(HTML, 'orderDisembarkHex'));
   s.run(sliceFunction(HTML, 'ensureBtrReachesHex'));
   s.run(sliceFunction(HTML, 'driveBtrToDisembarkHex'));
+  s.run(sliceFunction(HTML, 'markJustDisembarked'));   // ⚡ v13.090 (п.1)
   s.run(sliceFunction(HTML, 'executeDisembarkOrder'));
   s.run(`
     var squad = { name: '1-й взвод', embarkedInBtr: false, col: 2, row: 2, mobility: 'foot' };

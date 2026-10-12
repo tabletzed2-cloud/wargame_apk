@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.089 — сопровождение повторяет приказы отряда, высадка десанта приказом БТР, доступность высадки до посадки.
+// ⚡ BUILD-МАРКЕР: v13.090 — высаженный отряд ходит со следующего хода, новый приказ сопровождающему снимает сопровождение, БТР высаживает десант максимально близко.
 (function () {
   'use strict';
 
@@ -1505,7 +1505,13 @@
     const receiver = list[targetId];
     const hqId = findBattalionHq();
     if (!receiver || receiver.isDestroyed) throw new Error('Отряд не найден или уничтожен.');
-    const appended = appendTurnOrder(targetId, type, options);
+    // ⚡ v13.090 (пункт 2): если это копия приказа отряда для сопровождающего —
+    //    метку зеркала нужно передать сразу в createOrder, иначе снимется
+    //    действующее сопровождение (копия выглядит как новый приказ машины).
+    const createOptions = (mirrored !== null && mirrored !== undefined)
+      ? { ...options, escortMirrorInfantryId: Number(mirrored) }
+      : options;
+    const appended = appendTurnOrder(targetId, type, createOptions);
     if (appended) return appended;
     if (hqId < 0 || !list[hqId]) throw new Error('Штаб батальона не найден.');
     let order = null;
@@ -1518,10 +1524,10 @@
     if (relay) {
       const companyId = list.indexOf(relay);
       order = createOrder(hqId, companyId, 'company_order', {
-        ...options, subUnitIds: [targetId], orderType: type
+        ...createOptions, subUnitIds: [targetId], orderType: type
       });
     } else {
-      order = createOrder(hqId, targetId, type, options);
+      order = createOrder(hqId, targetId, type, createOptions);
     }
     if (!order) throw new Error(`Не удалось создать приказ «${type}».`);
     if (mirrored != null) order.escortMirrorInfantryId = mirrored;
@@ -1568,6 +1574,7 @@
       //    иначе он просто продолжает следовать за отрядом.
       if (typeof unitCanExecuteOrderType === 'function' && !unitCanExecuteOrderType(escort, effectiveType)) return;
       const mirrored = { ...order,
+        escortMirrorInfantryId: Number(leaderId),   // ⚡ v13.090 (пункт 2): метка — сразу в createOrder
         waypoints: (order.waypoints || []).map(p => ({ ...p })),
         targetHexes: (order.targetHexes || []).slice(),
         startHex: (escort.col != null && escort.row != null) ? `${escort.col},${escort.row}` : order.startHex };

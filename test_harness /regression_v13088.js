@@ -143,27 +143,26 @@ test('v13.088 (п.3): гекс высадки дописывается и в с�
   assert.equal(s.evalCtx('appData.campaign.__orders[0].series[1].targetHex'), '8,6');
 });
 
-test('v13.088 (п.3): driveBtrToDisembarkHex — true только по прибытии', () => {
+test('v13.088 (п.3): driveBtrToDisembarkHex — высадка только по прибытии', () => {
   const s = createSandbox(freshAppData());
   s.run('function getAllOrdersList(){ return []; }');
+  // ⚡ v13.090: функция возвращает 'arrived' | 'driving' | 'stuck'
   s.run(sliceFunction(HTML, 'ensureBtrReachesHex'));
   s.run(sliceFunction(HTML, 'driveBtrToDisembarkHex'));
   s.run(`
-    var carrier = { name: 'БТР №1', col: 3, row: 4 };
+    var carrier = { name: 'БТР №1', col: 3, row: 4, ap: 4 };
     appData.campaign.opUnits = [carrier];
-    var stepResult = 'partial';
-    function stepUnitTowardTarget(unit, col, row) { unit.col = col - 1; return stepResult; }
+    function stepUnitTowardTarget(unit, col, row) { unit.col = col - 1; return 'partial'; }
     var far = driveBtrToDisembarkHex(carrier, '9,7', 'десант');
-    stepResult = 'reached';
     carrier.col = 9; carrier.row = 7;
     var near = driveBtrToDisembarkHex(carrier, '9,7', 'десант');
     carrier.isInBattle = true; carrier.col = 1; carrier.row = 1;
     var busy = driveBtrToDisembarkHex(carrier, '9,7', 'десант');
   `);
-  assert.equal(s.evalCtx('far'), false, 'пока БТР в пути — высадки нет');
+  assert.equal(s.evalCtx('far'), 'driving', 'пока БТР в пути — высадки нет');
   assert.match(s.logs.join('\n'), /везёт «десант» к гексу высадки \(9,7\)/);
-  assert.equal(s.evalCtx('near'), true, 'на месте — высадка разрешена');
-  assert.equal(s.evalCtx('busy'), false, 'в бою высадка откладывается');
+  assert.equal(s.evalCtx('near'), 'arrived', 'на месте — высадка разрешена');
+  assert.equal(s.evalCtx('busy'), 'driving', 'в бою высадка откладывается');
   assert.match(s.logs.join('\n'), /в бою — высадка/);
 });
 

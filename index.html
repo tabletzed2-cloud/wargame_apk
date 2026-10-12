@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.089 — операция</title>
+  <title>Боевой модуль v13.090 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -76,7 +76,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.089</h1>
+    <h1>⚔️ Боевой модуль v13.090</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -89,7 +89,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.089</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.090</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -121,7 +121,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.089 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.090 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -428,7 +428,10 @@ function safeLocalStorage(method, ...args) {
 //    блокируется невидимым/воюющим врагом и называет отряд; высадка десанта —
 //    приказ БТР (доехать, высадить, ехать дальше), десант ждёт высадки и затем
 //    продолжает свою серию; приказы выдаются на текущее время (без «через сутки»).
-var APP_VERSION = 'v13.089';
+// v13.090: высаженный отряд действует со следующего хода; новый приказ
+//    сопровождающему прекращает сопровождение; БТР, не доехавший до гекса
+//    высадки, высаживает десант максимально близко к нему.
+var APP_VERSION = 'v13.090';
 
 // ⚡ v13.058: кнопка меню действительно запрашивает проверку новой версии SW;
 // если новый контроллер не вступил в силу, повторно открываем страницу с cache-buster.
@@ -5932,6 +5935,7 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
             hardMode.messengerQueue.push(order);
             log(`⏳ Приказ "${orderType}" для "${toUnit.name}" поставлен в очередь — ждёт посыльного (№${hardMode.messengerQueue.length} в очереди).`);
             saveData();
+            stopEscortMirroringFor(order); // ⚡ v13.090 (пункт 2)
             mirrorOrderToEscorts(order);   // ⚡ v13.089 (пункт 1)
             return order;
         }
@@ -5993,6 +5997,7 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
 
     try { pushUndoAction({ kind: 'order', orderId: order.id, type: order.type }); } catch (e) {}
     saveData();
+    stopEscortMirroringFor(order); // ⚡ v13.090 (пункт 2)
     mirrorOrderToEscorts(order);   // ⚡ v13.089 (пункт 1)
     return order;
 }
@@ -6056,6 +6061,32 @@ function escortFollowersOf(leaderId) {
         if (escort && !escort.isDestroyed && !out.some(x => x.id === id)) out.push({ id, unit: escort });
     });
     return out;
+}
+// ⚡ v13.090 (пункт 2): сопровождающий перестаёт повторять приказы отряда,
+//    как только получает СВОЙ новый приказ (не копию). Сопровождение
+//    возобновится, только когда игрок снова отдаст ему «Сопровождение».
+function stopEscortMirroringFor(order) {
+    if (!order) return 0;
+    if (order.escortMirrorInfantryId !== null && order.escortMirrorInfantryId !== undefined) return 0;
+    const type = order.type === 'company_order' ? order.orderType : order.type;
+    if (!type || type === 'escort') return 0;
+    const unitId = Number(order.toUnitId);
+    if (!Number.isInteger(unitId) || unitId < 0) return 0;
+    const list = (typeof getAllOrdersList === 'function') ? getAllOrdersList() : [];
+    const units = (appData.campaign && appData.campaign.opUnits) || [];
+    let stopped = 0;
+    list.forEach(o => {
+        if (!o || o === order || o.type !== 'escort') return;
+        if (!['active', 'delivering', 'queued', 'pending'].includes(o.status)) return;
+        if (Number(o.toUnitId) !== unitId) return;
+        o.status = 'cancelled';
+        stopped++;
+        const leader = units[Number(o.escortInfantryId)];
+        const who = (units[unitId] && units[unitId].name) || 'отряд';
+        log(`🛡️ [${who}] получил новый приказ — сопровождение${leader ? ` «${leader.name}»` : ''} прекращено.`);
+    });
+    if (stopped && typeof renderActiveOrders === 'function') { try { renderActiveOrders(); } catch (e) {} }
+    return stopped;
 }
 let escortMirrorDepth = 0;
 function mirrorOrderToEscorts(order) {
@@ -16608,6 +16639,16 @@ function executeOrder(order) {
     if (unit.isInBattle) {
         return;
     }
+    // ⚡ v13.090 (пункт 1): только что высаженный отряд в этот ход не действует —
+    //    приказ остаётся активным и отработает в следующем ходу.
+    if (justDisembarkedThisTurn(unit)) {
+        if (!order.disembarkTurnLogged) {
+            order.disembarkTurnLogged = true;
+            log(`🚌 [${unit.name}] только что высадился — приказ «${getOrderTypeLabel(order.type)}» начнёт выполняться со следующего хода.`);
+        }
+        return;
+    }
+    order.disembarkTurnLogged = false;
 
     // ⚡ v13.023 (обновлено v13.037): СИЕСТА AIRF (14:00–15:00): юнит,
     //    который дальше 3 гексов от ближайшего врага, с вероятностью 80%
@@ -17756,6 +17797,35 @@ function orderDisembarkHex(order) {
     const raw = order && order.targetHex;
     return /^\d+,\d+$/.test(String(raw || '')) ? String(raw) : null;
 }
+// ⚡ v13.090 (пункт 3): если сам гекс высадки недостижим, ищем ближайшую
+//    доступную точку рядом с ним — туда БТР и подъедет перед высадкой.
+function nearestReachableHexTo(carrier, col, row) {
+    if (!carrier || carrier.col == null || carrier.row == null) return null;
+    if (typeof getRouteToTarget !== 'function') return null;
+    const dist = (typeof getOpHexDistance === 'function')
+        ? (a, b, c, d) => getOpHexDistance(a, b, c, d)
+        : (a, b, c, d) => Math.max(Math.abs(a - c), Math.abs(b - d));
+    const c0 = Number(col), r0 = Number(row);
+    const list = [];
+    const maxC = (typeof OP_MAP_COLS !== 'undefined') ? OP_MAP_COLS - 1 : 19;
+    const maxR = (typeof OP_MAP_ROWS !== 'undefined') ? OP_MAP_ROWS - 1 : 14;
+    for (let c = Math.max(0, c0 - 4); c <= Math.min(maxC, c0 + 4); c++) {
+        for (let r = Math.max(0, r0 - 4); r <= Math.min(maxR, r0 + 4); r++) {
+            if (c === c0 && r === r0) continue;
+            list.push({ col: c, row: r, d: dist(c, r, c0, r0) });
+        }
+    }
+    list.sort((a, b) => a.d - b.d);
+    for (const point of list) {
+        if (typeof isHexInPlayableArea === 'function' &&
+            !isHexInPlayableArea(appData.campaign && appData.campaign.scenario, point.col, point.row)) continue;
+        let route = [];
+        try { route = getRouteToTarget(carrier.col, carrier.row, point.col, point.row, carrier) || []; }
+        catch (e) { route = []; }
+        if (route.length) return point;
+    }
+    return null;
+}
 // ⚡ v13.088 (пункт 3): БТР обязан доехать до гекса высадки десанта. Если гекс не
 //    лежит на его маршруте — маршрут дополняется этим гексом (приказ остаётся
 //    активным, и машина в конечном итоге приезжает куда нужно).
@@ -17776,7 +17846,16 @@ function ensureBtrReachesHex(carrier, hexKey) {
             const type = step.type === 'company_order' ? step.orderType : step.type;
             if (type !== 'move' && type !== 'escort') return;
             const points = Array.isArray(step.waypoints) ? step.waypoints : (step.waypoints = []);
-            if (points.some(p => Number(p.col) === col && Number(p.row) === row)) { extended = true; return; }
+            if (points.some(p => Number(p.col) === col && Number(p.col) !== undefined && Number(p.row) === row)) { extended = true; return; }
+            // ⚡ v13.090 (пункт 3): недостижимый гекс в маршрут не пишем — иначе
+            //    приказ движения БТР никогда не завершится. Подъездом к ближайшей
+            //    доступной точке занимается driveBtrToDisembarkHex.
+            if (typeof getRouteToTarget === 'function') {
+                let reachable = [];
+                try { reachable = getRouteToTarget(carrier.col, carrier.row, col, row, carrier) || []; }
+                catch (e) { reachable = []; }
+                if (!reachable.length) return;
+            }
             points.push({ col, row });
             step.waypoints = points;
             step.targetHex = `${col},${row}`;
@@ -17786,28 +17865,96 @@ function ensureBtrReachesHex(carrier, hexKey) {
     });
     return extended;
 }
-// ⚡ v13.088 (пункт 3): подвоз БТР к гексу высадки. true — машина уже на месте.
+// ⚡ v13.088 (пункт 3): подвоз БТР к гексу высадки.
+// ⚡ v13.090 (пункт 3): возвращает 'arrived' | 'driving' | 'stuck'.
+//    'stuck' — доехать до точки нельзя (нет маршрута/заблокировано): десант
+//    высаживается там, куда машина смогла подойти, а не ждёт вечно.
 function driveBtrToDisembarkHex(carrier, hexKey, passengerName) {
-    if (!carrier) return false;
-    if (`${carrier.col},${carrier.row}` === hexKey) return true;
-    if (carrier.isDestroyed || carrier.col == null || carrier.row == null) return false;
+    if (!carrier) return 'stuck';
+    if (`${carrier.col},${carrier.row}` === hexKey) return 'arrived';
+    if (carrier.isDestroyed || carrier.col == null || carrier.row == null) return 'stuck';
     ensureBtrReachesHex(carrier, hexKey);
     if (carrier.isInBattle) {
         log(`⚔️ [${carrier.name}] в бою — высадка «${passengerName}» на гексе (${hexKey}) откладывается.`);
-        return false;
+        return 'driving';
     }
     const [col, row] = String(hexKey).split(',').map(Number);
+    const before = `${carrier.col},${carrier.row}`;
     const step = (typeof stepUnitTowardTarget === 'function') ? stepUnitTowardTarget(carrier, col, row) : 'no_route';
     if (step === 'battle') {
         log(`⚔️ [${carrier.name}] вступил в бой по пути к гексу высадки (${hexKey}).`);
-        return false;
+        return 'driving';
     }
-    if (`${carrier.col},${carrier.row}` === hexKey) {
+    const after = `${carrier.col},${carrier.row}`;
+    if (after === hexKey) {
         log(`🚌 [${carrier.name}] прибыл к гексу высадки (${hexKey}).`);
-        return true;
+        return 'arrived';
     }
-    log(`⏳ [${carrier.name}] везёт «${passengerName}» к гексу высадки (${hexKey}): сейчас (${carrier.col},${carrier.row}).`);
-    return false;
+    if (after !== before) {
+        log(`⏳ [${carrier.name}] везёт «${passengerName}» к гексу высадки (${hexKey}): сейчас (${after}).`);
+        return 'driving';
+    }
+    // с места не сдвинулись: кончились ОД — ждём следующий ход
+    const apLeft = Number(carrier.ap);
+    if (Number.isFinite(apLeft) && apLeft <= 0) {
+        log(`⏳ [${carrier.name}] везёт «${passengerName}» к гексу высадки (${hexKey}) — ОД кончились, продолжит в следующем ходу.`);
+        return 'driving';
+    }
+    // ⚡ v13.090 (пункт 3): к самой точке не пройти — подъезжаем максимально близко.
+    //    Если ближе уже не подобраться (дистанция до цели не уменьшится) — высаживаем.
+    const hexDist = (a, b, c, d) => (typeof getOpHexDistance === 'function')
+        ? getOpHexDistance(a, b, c, d) : Math.max(Math.abs(a - c), Math.abs(b - d));
+    const near = nearestReachableHexTo(carrier, col, row);
+    const hereDist = hexDist(carrier.col, carrier.row, col, row);
+    if (near && near.d < hereDist && (near.col !== carrier.col || near.row !== carrier.row) &&
+        typeof stepUnitTowardTarget === 'function') {
+        const nearStep = stepUnitTowardTarget(carrier, near.col, near.row);
+        if (nearStep === 'battle') {
+            log(`⚔️ [${carrier.name}] вступил в бой по пути к гексу высадки (${hexKey}).`);
+            return 'driving';
+        }
+        if (`${carrier.col},${carrier.row}` !== before) {
+            log(`⏳ [${carrier.name}] к гексу высадки (${hexKey}) не пройти — приближается к ближайшей доступной точке (${near.col},${near.row}).`);
+            return 'driving';
+        }
+    }
+    log(`⚠️ [${carrier.name}] дальше не пройти к гексу высадки (${hexKey}) — десант высаживается максимально близко: (${carrier.col},${carrier.row}).`);
+    return 'stuck';
+}
+// ⚡ v13.090: кто ещё только едет на посадку в эту машину (приказ «Сесть в БТР»
+//    не закрыт). Нужно, чтобы приказ высадки не отменялся, пока десант не сел.
+function incomingEmbarkingIdsFor(carrier) {
+    const units = appData.campaign.opUnits || [];
+    const carrierId = units.indexOf(carrier);
+    if (carrierId < 0 || typeof getAllOrdersList !== 'function') return [];
+    const ids = [carrierId].concat(Array.isArray(carrier.memberIds) ? carrier.memberIds.map(Number) : []);
+    const out = [];
+    getAllOrdersList().forEach(order => {
+        if (!order || order.status === 'cancelled' || order.status === 'completed') return;
+        const steps = (Array.isArray(order.series) && order.series.length) ? order.series : [order];
+        steps.forEach(step => {
+            if (!step || step.status === 'completed' || step.status === 'cancelled') return;
+            const type = step.type === 'company_order' ? step.orderType : step.type;
+            if (type !== 'embark') return;
+            if (!ids.includes(Number(step.btrUnitId))) return;
+            const who = Number(order.toUnitId);
+            if (Number.isInteger(who) && who >= 0 && !out.includes(who)) out.push(who);
+        });
+    });
+    return out;
+}
+// ⚡ v13.090 (пункт 1): в ход высадки отряд приходит в себя — свои приказы он
+//    продолжает только со следующего хода (ОД сняты, исполнение пропущено).
+function markJustDisembarked(unit) {
+    if (!unit) return;
+    unit.justDisembarkedTurn = (appData.campaign && appData.campaign.currentTurn !== undefined)
+        ? Number(appData.campaign.currentTurn) : 0;
+    unit.ap = 0;
+}
+function justDisembarkedThisTurn(unit) {
+    if (!unit || unit.justDisembarkedTurn === undefined || unit.justDisembarkedTurn === null) return false;
+    const turn = (appData.campaign && appData.campaign.currentTurn !== undefined) ? Number(appData.campaign.currentTurn) : 0;
+    return Number(unit.justDisembarkedTurn) === turn;
 }
 // ⚡ v13.020: Приказ «Высадить десант» — для БТР, в котором едет десант.
 //    Десант появляется на гексе БТР, БТР освобождается.
@@ -17827,9 +17974,10 @@ function executeDisembarkOrder(unit, order) {
             log(`❌ [${unit.name}] «Выйти из БТР»: перевозчик не найден.`);
             return;
         }
-        // ⚡ v13.088 (пункт 3): сначала доехать до выбранного гекса высадки
+        // ⚡ v13.088/090 (пункт 3): сначала доехать до выбранного гекса высадки;
+        //    если доехать нельзя — высаживаем там, куда машина дошла.
         if (disembarkHex && `${carrier.col},${carrier.row}` !== disembarkHex) {
-            if (!driveBtrToDisembarkHex(carrier, disembarkHex, unit.name)) {
+            if (driveBtrToDisembarkHex(carrier, disembarkHex, unit.name) === 'driving') {
                 saveData();
                 redrawOperationalMap();
                 if (typeof updateBtrPanel === 'function') updateBtrPanel();
@@ -17864,8 +18012,9 @@ function executeDisembarkOrder(unit, order) {
         unit.row = row;
         delete unit.embarkedCol;
         delete unit.embarkedRow;
+        markJustDisembarked(unit);
         order.status = 'completed';
-        log(`🚌 [${unit.name}] вышел из БТР на гексе (${col},${row}).`);
+        log(`🚌 [${unit.name}] вышел из БТР на гексе (${col},${row}). Свои приказы продолжит со следующего хода.`);
         saveData();
         redrawOperationalMap();
         if (typeof updateBtrPanel === 'function') updateBtrPanel();
@@ -17882,11 +18031,12 @@ function executeDisembarkOrder(unit, order) {
         log(`❌ [${unit.name}] «Высадить десант»: БТР не размещён на карте.`);
         return;
     }
-    // ⚡ v13.088 (пункт 3): приказ отдан самому БТР — сначала доехать до гекса высадки
+    // ⚡ v13.088/090 (пункт 3): приказ отдан самому БТР — сначала доехать до гекса
+    //    высадки; если доехать нельзя — высаживаем максимально близко к точке.
     if (disembarkHex && `${unit.col},${unit.row}` !== disembarkHex) {
         const passengerName = unit.embarkedUnit ||
             ((unit.vehicleList || []).map(v => v && v.embarkedUnit).filter(Boolean).join(', ')) || 'десант';
-        if (!driveBtrToDisembarkHex(unit, disembarkHex, passengerName)) {
+        if (driveBtrToDisembarkHex(unit, disembarkHex, passengerName) === 'driving') {
             saveData();
             redrawOperationalMap();
             if (typeof updateBtrPanel === 'function') updateBtrPanel();
@@ -17906,6 +18056,7 @@ function executeDisembarkOrder(unit, order) {
         embarked.row = unit.row;
         if (embarked.embarkedCol !== undefined) delete embarked.embarkedCol;
         if (embarked.embarkedRow !== undefined) delete embarked.embarkedRow;
+        markJustDisembarked(embarked);
         disembarkedNames.push(embarked.name);
     };
 
@@ -17940,11 +18091,17 @@ function executeDisembarkOrder(unit, order) {
     if (disembarkedNames.length === 0) {
         // ⚡ v13.089 (пункт 3): нужный отряд ещё не сел в машину — приказ остаётся
         //    активным и сработает, когда десант окажется на борту.
-        const awaiting = onlyId !== null && allUnits[onlyId] && !allUnits[onlyId].isDestroyed;
-        if (awaiting) {
+        const awaitingNamed = onlyId !== null && allUnits[onlyId] && !allUnits[onlyId].isDestroyed;
+        // ⚡ v13.090: приказ отдан самой машине — ждём любого отряда, который
+        //    ещё садится (иначе приказ отменялся, если БТР доехал раньше посадки).
+        const incoming = awaitingNamed ? [] : incomingEmbarkingIdsFor(unit);
+        const awaitingAny = onlyId === null && incoming.length > 0 &&
+            incoming.some(id => allUnits[id] && !allUnits[id].isDestroyed);
+        if (awaitingNamed || awaitingAny) {
+            const waiting = awaitingNamed ? allUnits[onlyId] : allUnits[incoming[0]];
             if (!order.disembarkWaitLogged) {
                 order.disembarkWaitLogged = true;
-                log(`🚌 [${unit.name}] ждёт посадки «${allUnits[onlyId].name}» — высадка на гексе (${unit.col},${unit.row}) после посадки.`);
+                log(`🚌 [${unit.name}] ждёт посадки «${(waiting && waiting.name) || 'десанта'}» — высадка на гексе (${unit.col},${unit.row}) после посадки.`);
             }
             saveData();
             return;
