@@ -86,7 +86,8 @@ test('v13.084: createOrder preserves compact fields for delivery and relay', () 
   const s = createSandbox(freshAppData());
   s.run(`var currentTurn = 1;
     hardMode.enabled = true; hardMode.orders = []; hardMode.pendingOrders = []; hardMode.messengerQueue = [];
-    function checkCommunication(){ return 'radio'; } function pushUndoAction(){};`);
+    function checkCommunication(){ return 'radio'; } function pushUndoAction(){};
+    function mirrorOrderToEscorts(){ return 0; } // ⚡ v13.089: дублирование приказов сопровождению`);
   s.run(sliceFunction(HTML, 'createOrder'));
   s.run(`appData.campaign.opUnits = [{name:'HQ', col:0, row:0}, {name:'Infantry', col:1, row:1}];
     var createdOrder = createOrder(0, 1, 'sector_fire', {

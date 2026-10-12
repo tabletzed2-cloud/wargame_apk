@@ -103,7 +103,8 @@ test('v13.087 (п.10): приказы пассажиру и кнопка «Пр�
 
 test('v13.087 (п.9/16): специальные приказы — разведка и посадка/высадка, гекс выполнения', () => {
   assert.match(UI, /\['recon', '🔍 Разведка'\]/);
-  assert.match(UI, /\['disembark', '🚶 Выйти из БТР'\]/);
+  // ⚡ v13.089: машине — «Высадить десант», десанту — «Выйти из БТР»
+  assert.match(UI, /\['disembark', \(isBtrUnit\(unit\) && !unit\.embarkedInBtr\) \? '🚌 Высадить десант' : '🚶 Выйти из БТР'\]/);
   assert.match(UI, /options\.targetHex = draft\.targetHex/);
   assert.match(HTML, /case 'disembark':/);
 });

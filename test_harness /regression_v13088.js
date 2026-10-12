@@ -30,12 +30,15 @@ function mkUnit(name, extra) {
 
 // ─────────────────────────── версия ───────────────────────────
 test('v13.088: версия, маркеры и кэш синхронизированы', () => {
-  assert.match(HTML, /var APP_VERSION = 'v13\.088'/);
-  assert.match(SW, /const CACHE_NAME = 'wargame-v13\.088';/);
-  assert.match(UI, /BUILD-МАРКЕР: v13\.088/);
-  assert.match(fs.readFileSync(path.join(ROOT, 'js/data.js'), 'utf8'), /BUILD-МАРКЕР: v13\.088/);
-  assert.match(fs.readFileSync(path.join(ROOT, 'js/hexmaps.js'), 'utf8'), /BUILD-МАРКЕР: v13\.088/);
-  assert.match(fs.readFileSync(path.join(ROOT, 'js/templates.js'), 'utf8'), /BUILD-МАРКЕР: v13\.088/);
+  // ⚡ v13.089: сверяем с текущим APP_VERSION — тест не должен падать после
+  //    каждого следующего номера сборки.
+  const ver = /var APP_VERSION = '(v[\d.]+)'/.exec(HTML)[1];
+  const esc = ver.replace(/\./g, '\\.');
+  assert.match(SW, new RegExp("const CACHE_NAME = 'wargame-" + esc + "';"));
+  assert.match(UI, new RegExp('BUILD-МАРКЕР: ' + esc));
+  ['js/data.js', 'js/hexmaps.js', 'js/templates.js'].forEach((f) => {
+    assert.match(fs.readFileSync(path.join(ROOT, f), 'utf8'), new RegExp('BUILD-МАРКЕР: ' + esc), f);
+  });
 });
 
 // ────────────── 1. личный состав батальона ──────────────
@@ -306,6 +309,8 @@ test('v13.088 (п.9): describeOrderEta называет срок доставк�
   s.run('appData.campaign.currentTime = 0;');
   s.run(sliceFunction(HTML, 'pluralTurns'));
   s.run(sliceFunction(HTML, 'formatMinuteOfDay'));
+  // ⚡ v13.089: срок считает orderStartDelayMinutes (часы операции зациклены)
+  s.run(sliceFunction(HTML, 'orderStartDelayMinutes'));
   s.run(sliceFunction(HTML, 'describeOrderEta'));
   const delivering = s.evalCtx(`describeOrderEta({ status: 'delivering', deliveryTurnsNeeded: 3, deliveryTurnsPassed: 1, startTimeMin: 145 })`);
   assert.match(delivering, /посыльный доставит через 2 хода/, delivering);

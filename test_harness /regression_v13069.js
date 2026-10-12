@@ -225,6 +225,7 @@ test('R48#3: приказ «движение» несёт флаг stealth', () 
   s.run(`
     var currentTurn = 1;
     globalThis.checkCommunication = () => 'radio';
+    globalThis.mirrorOrderToEscorts = () => 0; // ⚡ v13.089: дубль приказов сопровождению тут не проверяется
     appData.campaign.opUnits = [{ name: 'Взвод', col: 1, row: 1 }, { name: 'Цель', col: 2, row: 2 }];
     globalThis.oStealth = createOrder(0, 1, 'move', { stealth: true });
     globalThis.oNormal = createOrder(0, 1, 'move', {});
