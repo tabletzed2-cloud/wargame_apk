@@ -394,7 +394,7 @@ const HEX_MAP_INDEX = './maps/Карты Валенсия/index.json';
 //    браузера (cache: 'reload') и проверяются маркером сборки. Раньше cache.add()
 //    мог взять js-модуль из «тёплого» HTTP-кэша (GitHub Pages отдаёт файлы с
 //    max-age=600) — в кэш новой версии попадали СТАРЫЕ файлы: игрок видел новый
-//    номер версии, а игра работала по старому коду (см. CHANGELOG-v13.070.md).
+//    номер версии, а игра работала по старому коду (см. changelogs/CHANGELOG-v13.070.md).
 const CACHE_VERSION = CACHE_NAME.replace(/^wargame-/, '');
 const BUILD_MARKER = '⚡ BUILD-МАРКЕР: ' + CACHE_VERSION;
 // Файлы, по которым проверяется версия кэша (маркер в модулях ядра + версия в index.html)

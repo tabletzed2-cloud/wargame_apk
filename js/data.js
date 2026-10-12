@@ -21,7 +21,7 @@
       //    они НЕ входят (воронки и обстрелянный лес появляются только после обстрела).
       fallen_forest:    { color: '#8D6E63', baseCost: 3,  icon: '🪵', level: 0, images: ['images/лес поваленный.png', 'images/лес поваленный1.png', 'images/лес поваленный2.png'] },
       shelled_forest:   { color: '#4E342E', baseCost: 3,  icon: '🌲', level: 0, images: ['images/лес обстрелянный.png', 'images/лес обстрелянный1.png'] },
-      craters:          { color: '#795548', baseCost: 4,  icon: '💥', level: 0, images: ['images/воронки в поле.png', 'images/воронки в поле1.png'] },
+      craters:          { color: '#795548', baseCost: 2,  icon: '💥', level: 0, images: ['images/воронки в поле.png', 'images/воронки в поле1.png'] },
    };
 
 // ⚡ v13.049 (R34): СЕМАНТИКА НОВЫХ ТИПОВ МЕСТНОСТИ
@@ -30,7 +30,7 @@
 //   • поваленный лес (fallen_forest) — лес вырублен/повален: обзор открыт,
 //     для правила глубины леса НЕ считается лесом;
 //   • воронки в поле (craters) — укрытие как у камней (штраф к меткости
-//     стреляющего), пехота ходит 4 ОД, техника не заходит.
+//     стреляющего), пехота проходит их по траве за 2 ОД, техника не заходит.
 const FOREST_LIKE_TYPES = ['forest', 'shelled_forest'];
 const COVER_LIKE_ROCKS_TYPES = ['rocks', 'craters'];
 
@@ -562,6 +562,8 @@ const markerIconMap = {
   'destroyedVehicle':       { icon: 'images/подбитый танк аирф.png',            fallback: '🔥', width: 30, height: 30 },
   'destroyedSquadFriendly': { icon: 'images/markers/destroyedSquadFriendly.png',fallback: '💀', width: 30, height: 30 },
   'destroyedSquadEnemy':    { icon: 'images/markers/destroyedSquadEnemy.png',   fallback: '☠️', width: 30, height: 30 },
+  'surrenderedFriendly':    { icon: null, fallback: '🏳️', width: 30, height: 30 },
+  'surrenderedEnemy':       { icon: null, fallback: '🏳️', width: 30, height: 30 },
   'dot':                    { icon: 'images/markers/dot.png',                   fallback: '🏰', width: 30, height: 30 },
   'trenches':               { icon: 'images/окоп оп.png',                       fallback: '🕳️', width: 30, height: 30 },
   'building':               { icon: 'images/markers/building.png',              fallback: '🏠', width: 30, height: 30 },

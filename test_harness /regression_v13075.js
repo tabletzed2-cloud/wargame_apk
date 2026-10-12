@@ -364,8 +364,8 @@ test('v13.075: BUILD-маркеры js/*.js — согласованы с APP_VE
     assert.ok(read(f).split('\n')[0].includes('BUILD-МАРКЕР: ' + APP), f);
   });
 });
-test('v13.075: CHANGELOG-v13.075.md на месте', () => {
-  assert.ok(fs.existsSync(path.join(ROOT, 'CHANGELOG-v13.075.md')));
+test('v13.075: changelogs/CHANGELOG-v13.075.md на месте', () => {
+  assert.ok(fs.existsSync(path.join(ROOT, 'changelogs', 'CHANGELOG-v13.075.md')));
 });
 
 console.log(`\nИтог v13.075: PASS ${passed} · FAIL ${failures.length}`);

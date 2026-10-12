@@ -5,7 +5,7 @@
 //    Этот файл теперь проверяет НОВОЕ поведение (всё открыто, подсказки вместо
 //    гейтов). Структурные проверки (атрибуты data-ux-gate, таблицы UX_GATES/
 //    UX_CHIP_GATE, CSS-классы) сохранены — механизм остался в коде как «предохранитель».
-//    Подробности: CHANGELOG-v13.077.md.
+//    Подробности: changelogs/CHANGELOG-v13.077.md.
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -449,8 +449,8 @@ test('v13.076: BUILD-маркеры в шапках service-worker.js и js/*.js
     assert.ok(read(f).split('\n')[0].includes('BUILD-МАРКЕР: ' + APP), f);
   });
 });
-test('v13.076: CHANGELOG-v13.076.md описывает значения по умолчанию и исправления', () => {
-  const p = path.join(ROOT, 'CHANGELOG-v13.076.md');
+test('v13.076: changelogs/CHANGELOG-v13.076.md описывает значения по умолчанию и исправления', () => {
+  const p = path.join(ROOT, 'changelogs', 'CHANGELOG-v13.076.md');
   assert.ok(fs.existsSync(p), 'файл есть');
   const t = fs.readFileSync(p, 'utf8');
   assert.ok(t.includes('F3'), 'F3');
@@ -459,8 +459,8 @@ test('v13.076: CHANGELOG-v13.076.md описывает значения по у�
   assert.ok(/талреп/i.test(t), 'решение по талрепу');
   assert.ok(/Объединить/.test(t), 'решение по «Объединить»');
 });
-test('v13.077: CHANGELOG-v13.077.md на месте и описывает отмену гейтов', () => {
-  const p = path.join(ROOT, 'CHANGELOG-v13.077.md');
+test('v13.077: changelogs/CHANGELOG-v13.077.md на месте и описывает отмену гейтов', () => {
+  const p = path.join(ROOT, 'changelogs', 'CHANGELOG-v13.077.md');
   assert.ok(fs.existsSync(p), 'файл есть');
   const t = fs.readFileSync(p, 'utf8');
   assert.ok(t.includes('F3') && /подсказк/i.test(t), 'F3 + подсказки');

@@ -252,7 +252,7 @@ test('v13.077: APP_VERSION = v13.077 уже в прошлом (сборка уш
   //    Тест v13.077 продолжает проверять наличие changelog'а и помогает заметить,
   //    если версия случайно откатится.
   assert.notEqual(APP, 'v13.077', 'сборка уже >= v13.078');
-  assert.ok(fs.existsSync(path.join(ROOT, 'CHANGELOG-v13.077.md')));
+  assert.ok(fs.existsSync(path.join(ROOT, 'changelogs', 'CHANGELOG-v13.077.md')));
 });
 
 console.log(`\nИтог v13.077: PASS ${passed} · FAIL ${failures.length}`);
