@@ -10,7 +10,9 @@ const { createSandbox, freshAppData } = require('./sandbox');
 const names = [
   'getAllOrdersList', 'getOpTurnMinutes', 'formatOrderTime', 'getOrderEta', 'orderEtaMessage',
   'getCompanyOrderRecipients', 'getOrderDetailsHtml', 'toggleOrderDetails', 'renderActiveOrders',
-  'getOrderTypeLabel', 'cancelOrder', 'moveOrderPriority'
+  'getOrderTypeLabel', 'cancelOrder', 'moveOrderPriority',
+  // ⚡ v13.089: срок «на время» считает orderStartDelayMinutes (часы зациклены)
+  'orderStartDelayMinutes'
 ];
 fs.writeFileSync('/tmp/wg_part.js', names.map(n => sliceFunction(HTML, n)).join('\n'));
 

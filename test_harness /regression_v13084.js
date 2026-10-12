@@ -9,6 +9,10 @@ const ROOT = path.join(__dirname, '..');
 const HTML = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const SW = fs.readFileSync(path.join(ROOT, 'service-worker.js'), 'utf8');
 const UI_JS = fs.readFileSync(path.join(ROOT, 'js/operational_ui.js'), 'utf8');
+// ⚡ v13.090: версия берётся из самого APP_VERSION — тесты не должны падать
+//    после каждого повышения сборки, но рассинхрон маркировки обязан ловиться.
+const VER = /var APP_VERSION = '(v[\d.]+)'/.exec(HTML)[1];
+const VER_RE = VER.replace(/\./g, '\\.');
 
 let n = 0, f = [];
 function test(name, fn) {
@@ -17,8 +21,8 @@ function test(name, fn) {
 }
 
 test('v13.084: версия и кэш', () => {
-  assert.match(HTML, /var APP_VERSION = 'v13\.084'/);
-  assert.match(SW, /const CACHE_NAME = 'wargame-v13\.084'/);
+  assert.match(HTML, new RegExp("var APP_VERSION = '" + VER_RE + "'"));
+  assert.match(SW, new RegExp("const CACHE_NAME = 'wargame-" + VER_RE + "'"));
   assert.ok(fs.existsSync(path.join(ROOT, 'images/AIRF/Взвод снабжения АИРФ №1.png')), 'файл иконки АИРФ существует');
   assert.ok(fs.existsSync(path.join(ROOT, 'images/BeVe/Взвод снабжения BeVe №1.png')), 'файл иконки BeVe существует');
   assert.ok(SW.includes('./images/AIRF/Взвод снабжения АИРФ №1.png'), 'иконка АИРФ в кэше SW');
@@ -50,11 +54,11 @@ test('v13.084: иконки взводов снабжения в BATTALION_PRESE
 
 
 test('v13.084: wizard, fixed action bar, replacement checklist, and cached UI assets', () => {
-  assert.match(HTML, /var APP_VERSION = 'v13\.084'/);
-  assert.match(SW, /const CACHE_NAME = 'wargame-v13\.084'/);
+  assert.match(HTML, new RegExp("var APP_VERSION = '" + VER_RE + "'"));
+  assert.match(SW, new RegExp("const CACHE_NAME = 'wargame-" + VER_RE + "'"));
   assert.ok(SW.includes("'./js/operational_ui.js'"));
   assert.ok(SW.includes("'./css/operational_ui.css'"));
-  assert.match(UI_JS, /BUILD-МАРКЕР: v13\.084/);
+  assert.match(UI_JS, new RegExp('BUILD-МАРКЕР: ' + VER_RE));
   for (const stage of ['placement', 'fortifications', 'communications', 'orders']) assert.ok(UI_JS.includes(`'${stage}'`));
   assert.match(UI_JS, /ensureHardMode\(\);\s*setStage\('communications'\)/);
   assert.match(UI_JS, /position|opQuickActions/);
@@ -71,8 +75,12 @@ test('v13.084: wizard, fixed action bar, replacement checklist, and cached UI as
   assert.match(HTML, /icons\.some\(icon => overlaps\(rect, icon\)\)/);
   assert.match(UI_JS, /data-draft-field="targetEnemyId"/);
   assert.match(UI_JS, /data-draft-field="btrUnitId"/);
-  assert.match(UI_JS, /created\.push\(issueOneOrder\(vehicleId, result\.type, mirroredOptions, picked\.id\)\)/);
-  assert.match(UI_JS, /waypoints: \(result\.options\.waypoints \|\| \[\]\)\.map/);
+  // ⚡ v13.089: дублирование приказов сопровождению переехало в createOrder,
+  //    мастер выдаёт один приказ через issueOneOrder (без UI-копий).
+  assert.match(UI_JS, /issueOneOrder\(issueTargetId, result\.type, result\.options, null\)/);
+  assert.doesNotMatch(UI_JS, /mirroredOptions/, 'старого UI-дублирования сопровождения больше нет');
+  // ⚡ v13.090: маршрут черновика приказа — тот же, что уходит в createOrder
+  assert.match(UI_JS, /options\.waypoints = route\.map\(p => \(\{ col: Number\(p\.col\), row: Number\(p\.row\) \}\)\)/);
   assert.match(UI_JS, /title="\$\{esc\(u\.name\)\}"/);
   assert.match(UI_JS, /updatePlacementSelectionStyles\(\); \/\/ do not replace the dragged DOM node/);
   assert.match(UI_JS, /campaign\(\)\.selectedOpUnit/);
@@ -86,7 +94,9 @@ test('v13.084: createOrder preserves compact fields for delivery and relay', () 
   const s = createSandbox(freshAppData());
   s.run(`var currentTurn = 1;
     hardMode.enabled = true; hardMode.orders = []; hardMode.pendingOrders = []; hardMode.messengerQueue = [];
-    function checkCommunication(){ return 'radio'; } function pushUndoAction(){};`);
+    function checkCommunication(){ return 'radio'; } function pushUndoAction(){};
+    function mirrorOrderToEscorts(){ return 0; } // ⚡ v13.089: дублирование приказов сопровождению
+    function stopEscortMirroringFor(){ return 0; } // ⚡ v13.090: снятие сопровождения тут не проверяется`);
   s.run(sliceFunction(HTML, 'createOrder'));
   s.run(`appData.campaign.opUnits = [{name:'HQ', col:0, row:0}, {name:'Infantry', col:1, row:1}];
     var createdOrder = createOrder(0, 1, 'sector_fire', {
@@ -184,6 +194,9 @@ test('v13.084: BTR embark/disembark preserves carrier, position and mobility', (
   assert.equal(s.evalCtx('passenger.col'), null);
   assert.equal(s.evalCtx('carrier.embarkedUnitId'), 0);
   assert.equal(s.evalCtx('embarkOrder.status'), 'completed');
+  // ⚡ v13.088: executeDisembarkOrder теперь читает гекс высадки через orderDisembarkHex
+  s.run(sliceFunction(HTML, 'orderDisembarkHex'));
+  s.run(sliceFunction(HTML, 'markJustDisembarked'));   // ⚡ v13.090 (п.1)
   s.run(sliceFunction(HTML, 'executeDisembarkOrder'));
   s.run(`var disembarkOrder = {status:'active'}; executeDisembarkOrder(passenger, disembarkOrder);`);
   assert.equal(s.evalCtx('passenger.embarkedInBtr'), false);

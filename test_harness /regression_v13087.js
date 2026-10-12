@@ -19,11 +19,15 @@ function mkOpUnit(name, faction, mobility, type) {
 }
 
 test('v13.087: версия и маркеры синхронизированы', () => {
-  assert.match(HTML, /var APP_VERSION = 'v13\.087'/);
-  assert.match(fs.readFileSync(path.join(ROOT, 'service-worker.js'), 'utf8'), /wargame-v13\.087/);
-  assert.match(UI, /BUILD-МАРКЕР: v13\.087/);
-  assert.match(DATA, /BUILD-МАРКЕР: v13\.087/);
-  assert.match(HEX, /BUILD-МАРКЕР: v13\.087/);
+  // ⚡ v13.088: сверяем маркеры с текущим APP_VERSION, а не с жёстко зашитой
+  //    версией — иначе тест падал бы после каждого следующего номера сборки.
+  const ver = /var APP_VERSION = '(v[\d.]+)'/.exec(HTML)[1];
+  assert.ok(ver, 'APP_VERSION найден');
+  const esc = ver.replace(/\./g, '\\.');
+  assert.match(fs.readFileSync(path.join(ROOT, 'service-worker.js'), 'utf8'), new RegExp('wargame-' + esc + "'"));
+  assert.match(UI, new RegExp('BUILD-МАРКЕР: ' + esc));
+  assert.match(DATA, new RegExp('BUILD-МАРКЕР: ' + esc));
+  assert.match(HEX, new RegExp('BUILD-МАРКЕР: ' + esc));
 });
 
 test('v13.087 (п.13): талреп — hill→hill запрещён, hill с плейна — разрешён', () => {
@@ -99,7 +103,8 @@ test('v13.087 (п.10): приказы пассажиру и кнопка «Пр�
 
 test('v13.087 (п.9/16): специальные приказы — разведка и посадка/высадка, гекс выполнения', () => {
   assert.match(UI, /\['recon', '🔍 Разведка'\]/);
-  assert.match(UI, /\['disembark', '🚶 Выйти из БТР'\]/);
+  // ⚡ v13.089: машине — «Высадить десант», десанту — «Выйти из БТР»
+  assert.match(UI, /\['disembark', \(isBtrUnit\(unit\) && !unit\.embarkedInBtr\) \? '🚌 Высадить десант' : '🚶 Выйти из БТР'\]/);
   assert.match(UI, /options\.targetHex = draft\.targetHex/);
   assert.match(HTML, /case 'disembark':/);
 });

@@ -8,7 +8,8 @@ const MA = fs.readFileSync(path.join(ROOT, 'js/map_actions.js'), 'utf8');
 const OB = fs.readFileSync(path.join(ROOT, 'js/online_battles.js'), 'utf8');
 let n=0,f=[];
 function test(name, fn){ try{fn();n++;console.log('✓',name);}catch(e){f.push(name);console.log('✗',name,e.message);} }
-test('version', ()=>assert.match(HTML,/var APP_VERSION = 'v13\.08[2-9]'/));
+// ⚡ v13.090: проверяем формат версии, а не конкретный номер сборки
+test('version', ()=>assert.match(HTML,/var APP_VERSION = 'v13\.0(8[2-9]|9\d)'/));
 test('no AT cards', ()=>assert.match(HTML,/function isCardSelectableOpUnit/));
 test('cards wait own place', ()=>assert.match(HTML,/не дожидаясь противника/));
 test('btr link', ()=>assert.match(HTML,/linkBtrPassengers/));
