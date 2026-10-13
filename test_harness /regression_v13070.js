@@ -13,7 +13,7 @@ const { sliceFunction, HTML, ROOT } = require('./extract');
 const { createSandbox, freshAppData } = require('./sandbox');
 const SW = fs.readFileSync(ROOT + '/service-worker.js', 'utf8');
 const MANIFEST = fs.readFileSync(ROOT + '/manifest.json', 'utf8');
-const MARKED_MODULES = ['js/data.js', 'js/hexmaps.js', 'js/templates.js'];
+const MARKED_MODULES = ['js/data.js', 'js/hexmaps.js', 'js/templates.js', 'js/operational_ui.js'];
 // свежая песочница: чужой /tmp/wg_part.js от предыдущих прогонов не подмешиваем
 try { fs.unlinkSync('/tmp/wg_part.js'); } catch (e) {}
 
@@ -66,6 +66,9 @@ test('v13.070: SW — проверка версии файлов в кэше п�
   MARKED_MODULES.forEach((m) => {
     assert.ok(SW.indexOf("url: './" + m + "'") >= 0, `в MARKED_ASSETS есть ${m}`);
   });
+  const coreAssets = /const CORE_ASSETS = \[([\s\S]*?)\];/.exec(SW);
+  assert.ok(coreAssets && coreAssets[1].includes("'./js/operational_ui.js'"),
+    'проверяемый operational_ui.js предзагружается до проверки маркеров');
 });
 
 test('v13.070: SW — установка отменяется, если в кэш попал файл другой версии', () => {
@@ -86,8 +89,8 @@ test('v13.070: SW — кэш этой версии пересобирается 
 // ─────────────────────── 3. Самопроверка сборки в приложении ───────────────────────
 test('v13.070: приложение проверяет сборку при запуске', () => {
   assert.match(HTML, /const BUILD_MARKER_PREFIX = '⚡ BUILD-МАРКЕР:'/, 'есть BUILD_MARKER_PREFIX');
-  assert.match(HTML, /const BUILD_MARKED_MODULES = \['js\/data\.js', 'js\/hexmaps\.js', 'js\/templates\.js'\]/,
-    'проверяются модули ядра');
+  assert.match(HTML, /const BUILD_MARKED_MODULES = \['js\/data\.js', 'js\/hexmaps\.js', 'js\/templates\.js', 'js\/operational_ui\.js'\]/,
+    'проверяются все модули ядра');
   assert.match(HTML, /function buildFreshnessProbe\(moduleUrl, expected\)/, 'есть buildFreshnessProbe()');
   assert.match(HTML, /function verifyBuildFreshness\(\)/, 'есть verifyBuildFreshness()');
   assert.match(HTML, /function forceDeepUpdate\(reason\)/, 'есть forceDeepUpdate()');

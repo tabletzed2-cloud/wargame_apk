@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.090 — высаженный отряд ходит со следующего хода, новый приказ сопровождающему снимает сопровождение, БТР высаживает десант максимально близко.
+// ⚡ BUILD-МАРКЕР: v13.091 — campaign card placement limits, bicycle park capture, drag-drop placement and campaign battle tab filtering.
 (function () {
   'use strict';
 
@@ -394,6 +394,7 @@
       if (!point || !point.inside) return;
       const id = hitPlacedUnit(point);
       if (id == null) return;
+      try { event.preventDefault(); } catch (e) {}
       state.canvasDrag = { id, x: event.clientX, y: event.clientY, moved: false };
       canvas.style.touchAction = 'none';
     });
@@ -425,7 +426,7 @@
       if (!point || !point.inside) { setMapMessage('Отпустите отряд над картой, чтобы поставить его на гекс.', '#e67e22'); return; }
       const sel = document.getElementById('opPlaceSelect');
       if (sel) sel.value = String(drag.id);
-      if (typeof handleOpMapClick === 'function') handleOpMapClick({ clientX: event.clientX, clientY: event.clientY });
+      if (typeof handleOpMapClick === 'function') handleOpMapClick({ clientX: event.clientX, clientY: event.clientY, __opPlacementDrop: true });
       updatePlacementTray(true);
       renderSetup();
     }, { passive: true });
@@ -674,7 +675,7 @@
       const select = document.getElementById('opPlaceSelect');
       if (select) select.value = String(drag.id);
       selectPlacementUnit(drag.id);
-      if (typeof handleOpMapClick === 'function') handleOpMapClick({ clientX: event.clientX, clientY: event.clientY });
+      if (typeof handleOpMapClick === 'function') handleOpMapClick({ clientX: event.clientX, clientY: event.clientY, __opPlacementDrop: true });
       updatePlacementTray(true);
     }, { passive: true });
     document.addEventListener('pointercancel', () => { state.drag = null; removePlacementGhost(); }, { passive: true });
@@ -904,7 +905,7 @@
     state.draft = {
       category, mode: mode || '', behavior: category === 'ambush' ? 'ignore' : 'hold',
       time: '', waypoints: [], targetHex: '', targetHexes: [],
-      targetEnemyId: '', targetDistance: 3, escortInfantryId: '', btrUnitId: '',
+      targetEnemyId: '', targetDistance: category === 'fire_at_will' ? operationalWeaponRange(picked.unit) : 3, escortInfantryId: '', btrUnitId: '',
       specialAction: firstSpecial
     };
     state.menuPage = 'details';
@@ -932,7 +933,7 @@
   }
   function renderDetails(unit, draft) {
     const head = `<div class="op-cmd-head"><div><div class="op-cmd-title">${esc(unit.name)}</div>` +
-      `<div class="op-cmd-subtitle">${draft.category === 'move' ? 'Движение' : ['specific','fire_at_will','armor_priority','sector_fire','ambush','artillery'].includes(draft.category) ? 'Обстрел' : 'Специальное действие'}</div></div>` +
+      `<div class="op-cmd-subtitle">${draft.category === 'move' ? 'Движение' : ['specific','hex_fire','fire_at_will','armor_priority','sector_fire','ambush','artillery'].includes(draft.category) ? 'Обстрел' : 'Специальное действие'}</div></div>` +
       `<button type="button" data-cmd="close" aria-label="Закрыть">×</button></div>`;
     const back = `<button type="button" data-cmd="back" class="op-cmd-back">← Назад к типам приказа</button>`;
     let body = '';
@@ -952,13 +953,18 @@
         pointPicker('Выбрать маршрут на карте', 'route') +
         `<button type="button" class="op-cmd-wide" data-cmd="clear-route">Очистить маршрут</button>`;
       if (state.mapPick === 'route') body += mapPickHint();
+    } else if (draft.category === 'hex_fire') {
+      body += `<div class="op-cmd-note">Целевой гекс: <b>${esc(draft.targetHex || 'не выбран')}</b>. Все вражеские подразделения в выбранном гексе попадут под один обстрел.</div>` +
+        pointPicker('Выбрать гекс обстрела', 'target') + contactField(draft.behavior) + timeField(draft.time);
+      if (state.mapPick === 'target') body += mapPickHint();
     } else if (draft.category === 'specific') {
       body += `<label class="op-cmd-field">Конкретная цель<select data-draft-field="targetEnemyId"><option value="">Выберите обнаруженного врага</option>${enemyOptions(draft.targetEnemyId)}</select></label>` +
         `<div class="op-cmd-note">Отряд будет следить за выбранной целью и обстреляет её, когда она окажется в дальности оружия.</div>` +
         contactField(draft.behavior) + timeField(draft.time);
     } else if (draft.category === 'fire_at_will' || draft.category === 'armor_priority') {
+      const maxFireDistance = draft.category === 'fire_at_will' ? operationalWeaponRange(unit) : 5;
       body += `<label class="op-cmd-field">Дальность огня<select data-draft-field="targetDistance">` +
-        [1, 2, 3, 4, 5].map(n => `<option value="${n}"${Number(draft.targetDistance) === n ? ' selected' : ''}>${n} гекс${n === 1 ? '' : n < 5 ? 'а' : 'ов'}</option>`).join('') +
+        Array.from({ length: Math.max(1, maxFireDistance) }, (_, i) => i + 1).map(n => `<option value="${n}"${Number(draft.targetDistance) === n ? ' selected' : ''}>${n} гекс${n === 1 ? '' : n < 5 ? 'а' : 'ов'}</option>`).join('') +
         `</select></label><div class="op-cmd-note">${draft.category === 'armor_priority' ? 'ПТО автоматически выбирает ближайшую бронетехнику; если цели нет, приказ ждёт её появления.' : 'Приказ остаётся активным и открывает огонь по обнаруженному противнику.'}</div>` +
         contactField(draft.behavior) + timeField(draft.time);
     } else if (draft.category === 'sector_fire') {
@@ -1138,9 +1144,12 @@
     const hq = (unit.type === 'battalion_hq' || unit.type === 'hq') &&
       typeof canIssueArtilleryStrike === 'function' && canIssueArtilleryStrike();
     const hasAntiTank = typeof hasAtGunWeapons === 'function' && hasAtGunWeapons(unit);
+    const canFireAtHex = (typeof isMediumArtillery === 'function' && isMediumArtillery(unit)) ||
+      hasAntiTank || unit.type === 'tank_platoon' || /танк/i.test(String(unit.name || ''));
     host.innerHTML = `<div class="op-cmd-head"><div><div class="op-cmd-title">${esc(unit.name)}</div><div class="op-cmd-subtitle">Выберите вид огня</div></div><button type="button" data-cmd="close" aria-label="Закрыть">×</button></div>` +
       `<div class="op-cmd-buttons">` +
       `<button type="button" data-cmd="fire-kind" data-kind="specific">🎯 Конкретная цель</button>` +
+      (canFireAtHex ? `<button type="button" data-cmd="fire-kind" data-kind="hex_fire">🎯 Обстрелять гекс</button>` : '') +
       `<button type="button" data-cmd="fire-kind" data-kind="fire_at_will">🔥 Огонь по готовности</button>` +
       `<button type="button" data-cmd="fire-kind" data-kind="armor_priority"${hasAntiTank ? '' : ' disabled title="Доступно только отрядам с ПТО"'}>🛡️ Приоритет бронетехники для ПТ</button>` +
       `<button type="button" data-cmd="fire-kind" data-kind="sector_fire">🧭 Контролировать выбранные гексы</button>` +
@@ -1152,7 +1161,7 @@
 
   function startFireKind(kind) {
     const mapping = {
-      specific: 'specific', fire_at_will: 'fire_at_will', armor_priority: 'armor_priority',
+      specific: 'specific', hex_fire: 'hex_fire', fire_at_will: 'fire_at_will', armor_priority: 'armor_priority',
       sector_fire: 'sector_fire', ambush: 'ambush'
     };
     if (!mapping[kind]) return;
@@ -1262,7 +1271,7 @@
     };
     let type = '';
 
-    if (unit.embarkedInBtr && ['fire_at_will', 'armor_priority', 'sector_fire', 'ambush', 'specific', 'artillery'].includes(draft.category)) {
+    if (unit.embarkedInBtr && ['fire_at_will', 'armor_priority', 'sector_fire', 'ambush', 'specific', 'hex_fire', 'artillery'].includes(draft.category)) {
       throw new Error('Отряд в БТР может только выйти и двигаться или выполнить специальное действие.');
     }
     if (draft.category === 'move') {
@@ -1287,6 +1296,13 @@
         if (draft.mode === 'stealth') { type = 'move'; options.stealth = true; }
         else type = 'move';
       }
+    } else if (draft.category === 'hex_fire') {
+      const eligible = (typeof isMediumArtillery === 'function' && isMediumArtillery(unit)) ||
+        (typeof hasAtGunWeapons === 'function' && hasAtGunWeapons(unit)) || unit.type === 'tank_platoon' || /танк/i.test(String(unit.name || ''));
+      if (!eligible) throw new Error('Приказ «Обстрелять гекс» доступен только артиллерии, САУ, танкам, миномётам и ПТО.');
+      if (!/^\d+,\d+$/.test(String(draft.targetHex || ''))) throw new Error('Выберите гекс для обстрела.');
+      type = 'shoot';
+      options.targetHex = String(draft.targetHex);
     } else if (draft.category === 'specific') {
       if (draft.targetEnemyId === '' || draft.targetEnemyId == null) throw new Error('Выберите обнаруженную цель.');
       const targetId = Number(draft.targetEnemyId);
@@ -1301,6 +1317,12 @@
       options.targetEnemyName = String(target.name || '');
       options.targetHex = `${target.col},${target.row}`;
     } else if (draft.category === 'fire_at_will') {
+      const maxDistance = operationalWeaponRange(unit);
+      const requestedDistance = Number(draft.targetDistance) || maxDistance;
+      if (requestedDistance < 1 || requestedDistance > maxDistance) {
+        throw new Error(`Дальность огня по готовности для этого подразделения — не более ${maxDistance} гексов.`);
+      }
+      options.targetDistance = requestedDistance;
       type = 'fire_at_will';
     } else if (draft.category === 'armor_priority') {
       if (typeof hasAtGunWeapons === 'function' && !hasAtGunWeapons(unit)) throw new Error('Приоритет бронетехники доступен только отрядам с ПТО.');
@@ -1791,8 +1813,9 @@
     if (typeof window.handleOpMapClick !== 'function' || window.handleOpMapClick.__opCommandWrapper) return;
     const original = window.handleOpMapClick;
     const wrapped = function (event) {
-      // ⚡ v13.087: сразу после перетаскивания по иконке клик не обрабатываем
-      if (Date.now() - state.lastDragAt < 500) return;
+      // Обычный click после drag игнорируем, но drop-событие должно дойти
+      // до handleOpMapClick, иначе перетаскивание не размещает выбранный юнит.
+      if (Date.now() - state.lastDragAt < 500 && !(event && event.__opPlacementDrop)) return;
       if (state.mapPick && handleQuickMapPick(event)) return;
       const result = original.apply(this, arguments);
       const c = campaign();
@@ -1934,6 +1957,13 @@
   window.opCloseCommandMenu = () => closeCommandMenu(true);
   window.opIssueQuickOrder = issueDraftOrder;
   window.opOperationalUiState = state;
+  // Expose the live sector-fire draft to the campaign-map renderer so selected
+  // control hexes are highlighted while the player is picking them.
+  window.uxGetSectorDraftHexes = function () {
+    if (!state.menuOpen || state.mapPick !== 'sector' || !state.draft) return [];
+    return (state.draft.targetHexes || []).map(point => ({ col: Number(point.col), row: Number(point.row) }))
+      .filter(point => Number.isFinite(point.col) && Number.isFinite(point.row));
+  };
   window.toggleCommPanelBody = function () { state.commCollapsed = !state.commCollapsed; syncStageLayout(); };
   window.showWinchInfo = showWinchInfo;
   window.opStageLayoutSync = syncStageLayout;

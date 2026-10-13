@@ -170,7 +170,7 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx) {
     let maxDist = def.maxDist;
     const shooter = (appData.squads || [])[shooterIdx];
     if (def.id === 'ordnance' && typeof is82mmMortarSquad === 'function' && is82mmMortarSquad(shooter)) {
-        maxDist = (maxDist === undefined) ? 5 : Math.min(maxDist, 5);
+        maxDist = (maxDist === undefined) ? 4 : Math.min(maxDist, 4);
     }
     if (maxDist !== undefined && out.dist > maxDist) { out.reason = `далеко (${out.dist} > ${maxDist})`; return out; }
     if (def.small) {
@@ -892,6 +892,16 @@ function reportAttackOutcome(kind, data) {
         if (retreated) res.notes.push('🏳️ противник автоматически отступил из-за низкого боевого духа');
     }
     const after = mapActionEnemyAlive(enemy);
+    if (typeof currentSquad !== 'undefined' && currentSquad) {
+        if (typeof recordTacticalAwardCombatEvent === 'function' && (kind === 'melee' || kind === 'grenades')) {
+            recordTacticalAwardCombatEvent(currentSquad, kind, enemy);
+        }
+        enemy.lastAwardAttackerSquadName = currentSquad.name;
+        enemy.lastAwardAttackerSquadIdx = (typeof currentSquadIndex === 'number') ? currentSquadIndex : null;
+        if (before > 0 && after === 0 && typeof recordTacticalAwardEnemyDefeat === 'function') {
+            recordTacticalAwardEnemyDefeat(currentSquad, enemy, idx);
+        }
+    }
     const label = (mapActionDefById(kind) || { label: kind }).label;
     let text = `${label} → «${enemy.name}»: попаданий ${res.hits}`;
     if (res.damage) text += `, урон ${res.damage}`;

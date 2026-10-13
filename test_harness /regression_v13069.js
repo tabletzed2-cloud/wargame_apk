@@ -29,6 +29,8 @@ const FNS = [
   'supplyAssetIds', 'ensureSupplyState', 'getSupplyUnit', 'supplyAssetCounts',
   'syncSupplyAssetsFromPlatoon', 'getSupplyDepotHex', 'supplyCargoOf', 'supplyAssetsMobility',
   'supplyOrdnanceFull', 'unitAmmoStatus', 'supplyAmmoPercent', 'supplyDistributeCargo',
+  'supplyPendingCargoForUnit', 'supplyUnitAmmoDeficits', 'supplyUnitHasIncompleteAmmo',
+  'supplyRearConnectionStatus', 'syncSupplyRearConnection', 'supplyRearConnectionIsLost', 'getOpHexDistance',
   'supplyUnitList', 'sendSupplyDelivery', 'supplyAssetsLabel', 'supplyRearPoint',
   'supplyRearRouteBlocked', 'supplyMoveCost', 'findSupplyRoute', 'supplyRouteCost', 'supplyStepToward', 'supplyAmbushCheck',
   'supplyKillCarriers', 'notifySupplyDelivery', 'advanceSupplyDeliveries', 'supplyDeliveryDestination', 'supplyDeliveryEta', 'supplyEtaLabel',
@@ -96,6 +98,16 @@ function supplySandbox(faction, squadDefs) {
 function clearLogs(s) { s.sandbox.logs.length = 0; }
 // Копия VM-значения в host-мир (для assert.deepEqual).
 function plain(s, expr) { return JSON.parse(JSON.stringify(s.evalCtx(expr))); }
+function depleteUnitAmmo(s, index) {
+  s.run(`{
+    const unit = appData.campaign.opUnits[${Number(index)}];
+    (unit && unit.squads || []).forEach(squad => {
+      squad.ammoSmall = 0;
+      squad.grenades = 0;
+      squad.ammoOrdnance = 0;
+    });
+  }`);
+}
 
 // Константа Math.random для детерминированных бросков ПТО-огня.
 function fixedRandom(s, value) {
@@ -181,6 +193,7 @@ test('R48#2: склад падает только когда взвод снаб
 
 test('R48#2: разбитый взвод не даёт отправить колонну, отбитый склад снова работает', () => {
   const s = supplySandbox('BeVe', BEVE_SQUADS);
+  depleteUnitAmmo(s, 2);
   s.run(`appData.campaign.opUnits[0].squads.forEach(sq => (sq.fighters || []).forEach(f => { f.hp = 0; }));`);
   const sent = s.evalCtx(`sendSupplyDelivery(2, [{ id: 'porter', count: 2 }], 'unit')`);
   assert.equal(sent, false, 'при захваченном складе отправка запрещена');
@@ -255,9 +268,9 @@ test('R48#3+v13.073: галочка скрытности видна всем п�
          updateOrderFieldVisibility('move');`);
   assert.equal(s.evalCtx(`document.getElementById('orderStealthBlock').style.display`), 'block', 'технике — блок виден (v13.073)');
   assert.equal(s.evalCtx(`document.getElementById('orderStealthMove').checked`), true, 'галочка сохранена (v13.073)');
-  // не «движение» — блока нет
+  // Скрытность доступна и при приказе атаки (v13.073).
   s.run(`document.getElementById('orderTargetUnit').value = '0'; updateOrderFieldVisibility('attack');`);
-  assert.equal(s.evalCtx(`document.getElementById('orderStealthBlock').style.display`), 'none', 'для атаки блока нет');
+  assert.equal(s.evalCtx(`document.getElementById('orderStealthBlock').style.display`), 'block', 'для атаки блок виден');
   assert.ok(/id="orderStealthMove"/.test(HTML), 'галочка есть в разметке');
 });
 
@@ -274,8 +287,8 @@ test('R48#3: скрытный юнит медленнее (2 ОД) и хуже �
                'галочка учитывается и в одиночном приказе, и при добавлении в серию');
   assert.ok(/stealth: !!order\.stealth,   \/\/ ⚡ v13\.069 \(R48#3\): скрытный марш через штаб роты/.test(HTML),
             'скрытность сохраняется при передаче через штаб роты');
-  assert.ok(/Array\.isArray\(o\.series\) && o\.series\.some\(st => st && st\.type === 'move' && st\.stealth/.test(HTML),
-            'скрытный шаг серии тоже снижает ОД');
+  assert.ok(/Array\.isArray\(o\.series\) && o\.series\.some\(st => st && st\.stealth && st\.status !== 'completed'\)/.test(HTML),
+            'активный скрытный шаг серии тоже снижает ОД');
 });
 
 // ───────────────────────── 5. R48#4 штраф по движущейся броне ─────────────────────────
@@ -509,18 +522,21 @@ test('R48#7: карточка «Бюрократия» распознаётся 
 
 test('R48#7: колонна к взводу под «Бюрократией» идёт на 1 ход дольше', () => {
   const s = supplySandbox('BeVe', BEVE_SQUADS);
+  depleteUnitAmmo(s, 2);
+  depleteUnitAmmo(s, 1);
   s.run(`appData.campaign.opUnits[2].cardSelection = { cards: ['Бюрократия'] };
          appData.campaign.opUnits[0].cardSelection = { cards: [] };`);
   const slowOk = s.evalCtx(`sendSupplyDelivery(2, [{ id: 'porter', count: 2 }], 'unit')`);
   assert.equal(slowOk, true, 'колонна к «бюрократическому» взводу отправлена');
   assert.equal(s.evalCtx('appData.campaign.supply.deliveries[0].delayTurns'), 1, 'задержка 1 ход');
-  const fastOk = s.evalCtx(`sendSupplyDelivery(0, [{ id: 'porter', count: 2 }], 'unit')`);
+  const fastOk = s.evalCtx(`sendSupplyDelivery(1, [{ id: 'porter', count: 2 }], 'unit')`);
   assert.equal(fastOk, true, 'колонна к обычному взводу отправлена');
   assert.equal(s.evalCtx('appData.campaign.supply.deliveries[1].delayTurns'), 0, 'без карточки задержки нет');
 });
 
 test('R48#7: задержанная колонна стоит ход на месте, потом продолжает путь', () => {
   const s = supplySandbox('BeVe', BEVE_SQUADS);
+  depleteUnitAmmo(s, 2);
   s.run(`appData.campaign.opUnits[2].cardSelection = { cards: ['Бюрократия'] };
          sendSupplyDelivery(2, [{ id: 'porter', count: 2 }], 'unit');
          globalThis.before = { col: appData.campaign.supply.deliveries[0].col, row: appData.campaign.supply.deliveries[0].row };
@@ -545,6 +561,7 @@ test('R48#7: карточка в cards.js больше не «информаци
 
 test('R48#7: панель снабжения помечает взводы под «Бюрократией»', () => {
   const s = supplySandbox('BeVe', BEVE_SQUADS);
+  depleteUnitAmmo(s, 2);
   s.run(`appData.campaign.opUnits[2].cardSelection = { cards: ['Бюрократия'] };
          renderSupplyPanel();
          globalThis.html = document.getElementById('supplyPanel').innerHTML;`);

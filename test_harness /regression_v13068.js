@@ -28,6 +28,8 @@ const FNS = [
   'supplyAssetIds', 'ensureSupplyState', 'getSupplyUnit', 'supplyAssetCounts',
   'syncSupplyAssetsFromPlatoon', 'getSupplyDepotHex', 'supplyCargoOf', 'supplyAssetsMobility',
   'supplyOrdnanceFull', 'unitAmmoStatus', 'supplyAmmoPercent', 'supplyDistributeCargo',
+  'supplyPendingCargoForUnit', 'supplyUnitAmmoDeficits', 'supplyUnitHasIncompleteAmmo',
+  'supplyRearConnectionStatus', 'syncSupplyRearConnection', 'supplyRearConnectionIsLost', 'getOpHexDistance',
   'supplyUnitList', 'sendSupplyDelivery', 'supplyAssetsLabel', 'supplyRearPoint',
   'supplyRearRouteBlocked', 'supplyMoveCost', 'findSupplyRoute', 'supplyRouteCost', 'supplyStepToward', 'supplyAmbushCheck',
   'supplyKillCarriers', 'notifySupplyDelivery', 'advanceSupplyDeliveries', 'supplyDeliveryDestination', 'supplyDeliveryEta', 'supplyEtaLabel',
@@ -95,6 +97,16 @@ function supplySandbox(faction, squadDefs) {
 }
 
 function json(s, expr) { return JSON.parse(JSON.stringify(s.evalCtx(expr))); }
+function depleteTargetAmmo(s) {
+  s.run(`{
+    const target = appData.campaign.opUnits[2];
+    target.squads.forEach(squad => {
+      squad.ammoSmall = 0;
+      squad.grenades = 0;
+      squad.ammoOrdnance = 0;
+    });
+  }`);
+}
 
 // ───────────────────────── 1. Состав взвода снабжения ─────────────────────────
 test('R47: взвод снабжения есть в батальоне обеих фракций', () => {
@@ -206,6 +218,7 @@ test('R47: у миномётных расчётов считается и сна
 // ───────────────────────── 4. Доставка груза ─────────────────────────
 test('R47: доставка — чужие средства не отдаём, своих больше пула не берём', () => {
   const s = supplySandbox('BeVe', BEVE_SQUADS);
+  depleteTargetAmmo(s);
   s.run(`
     alerts.length = 0;
     globalThis.__over = sendSupplyDelivery(2, [{ id: 'truck', count: 5 }], 'unit');
@@ -219,12 +232,15 @@ test('R47: доставка — чужие средства не отдаём, �
 
 test('R47: груз списывается со склада, средства уходят из пула', () => {
   const s = supplySandbox('BeVe', BEVE_SQUADS);
+  depleteTargetAmmo(s);
   s.run(`globalThis.ok = sendSupplyDelivery(2, [{ id: 'porter', count: 2 }, { id: 'cart', count: 1 }], 'unit');`);
   assert.equal(s.evalCtx('ok'), true, 'колонна отправлена');
   const stock = json(s, 'appData.campaign.supply.stock');
-  assert.equal(stock.ammoSmall, 1200 - (2 * 40 + 200), 'патроны списаны по грузоподъёмности');
-  assert.equal(stock.grenades, 300 - (2 * 8 + 40), 'гранаты списаны');
-  assert.equal(stock.ammoOrdnance, 80 - 6, 'снаряды списаны');
+  assert.equal(stock.ammoSmall, 1200 - 72, 'патроны ограничены дефицитом получателя');
+  assert.equal(stock.grenades, 300 - 18, 'гранаты ограничены дефицитом получателя');
+  assert.equal(stock.ammoOrdnance, 80, 'ненужные снаряды не отправлены');
+  assert.deepEqual(json(s, 'appData.campaign.supply.deliveries[0].cargo'),
+    { ammoSmall: 72, grenades: 18, ammoOrdnance: 0 }, 'груз содержит только недостающие виды и количества');
   const pool = json(s, 'appData.campaign.supply.assets');
   assert.equal(pool.porter.available, 6, 'двое носильщиков в пути');
   assert.equal(pool.cart.available, 0, 'повозка в пути');
@@ -284,6 +300,7 @@ test('R47: машины едут только по дорогам и траве'
 // ───────────────────────── 5. Засада и потери ─────────────────────────
 test('R47: засада убивает носильщиков, теряет груз и уменьшает пул', () => {
   const s = supplySandbox('BeVe', BEVE_SQUADS);
+  depleteTargetAmmo(s);
   const { setRandom } = require('./sandbox');
   setRandom(s, new Array(400).fill(0));   // ⚡ броски d6 = 1 — засада срабатывает
   s.run(`
@@ -385,6 +402,7 @@ test('R47: перерезанная дорога не даёт пополнит�
 // ───────────────────────── 7. Панель и оформление ─────────────────────────
 test('R47: панель снабжения — кнопка, склад, транспорт и получатели', () => {
   const s = supplySandbox('BeVe', BEVE_SQUADS);
+  depleteTargetAmmo(s);
   s.run('renderSupplyPanel(); globalThis.__html = document.getElementById("supplyPanel").innerHTML;');
   const html = String(s.evalCtx('__html'));
   ['Батальонный склад боеприпасов', '🔫 Патроны', '💣 Гранаты', '🚀 Снаряды',

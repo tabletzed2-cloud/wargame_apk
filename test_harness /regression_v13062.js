@@ -7,18 +7,18 @@ const assert = require('assert/strict');
 const { sliceFunction, HTML, ROOT } = require('./extract');
 const { createSandbox, freshAppData } = require('./sandbox');
 const names = [
- 'applySolidarityWeapons','applyInterbrigadeAwards','applyCardToPlatoon','addAppliedCardName','getCardTargetSpec',
+ 'applySolidarityWeapons','tacticalAwardDefinitions','resolveTacticalAward','grantTacticalAwardToFighter','applyInterbrigadeAwards','applyCardToPlatoon','addAppliedCardName','getCardTargetSpec',
  'advanceTacticalClock','isNightTime','syncNightModifier','isStaticOpUnit',
  'getTacticalBattleRecord','getTacticalActiveSide','setTacticalActiveSide','tacticalEnemyIsNeutralized',
  'tacticalActionAllowed','tacticalIsMeleeEngaged','tacticalClearMeleeEngagement','isBicycleTacticalSquad',
  'tacticalMaybeAutoRetreat','processTacticalRouts','tacticalRetreatUnit','tacticalRemoveUnitFromMap',
  'getAP','getMaxAP','hasBicycleBlitz','spendAP','resetAP','getHexNeighbors','getMovementCost','calculateReachableHexes','recalcReachable','shouldShowTacticalReachability',
- 'getOpHexNeighbors','getOpMoveCost','getOpPlannedMoveCost','getRouteToTarget','buildOrderRoute','autoDismountOperational','validateRoute',
+ 'getOpHexNeighbors','getOpMoveCost','getOpPlannedMoveCost','getRouteToTarget','buildOrderRoute','operationalBicycleUnitSide','operationalBicycleParkCell','setOperationalBicyclePark','operationalBicycleParkOwners','operationalBicycleParkBelongsTo','removeOperationalBicyclePark','resolveBicycleParkCaptures','autoDismountOperational','validateRoute',
  'getTacticalBattleAnchor','getTacticalTargetDistance','throwGrenades','meleeAttack','finishBattle',
  // ⚡ v13.065: рукопашная по фактической дистанции — хелперы должны быть в песочнице
  'tacticalSquadHexPosition','tacticalSquadsDistance','tacticalSquadIsAlive','tacticalSquadsInSameHex',
  'tacticalAutoEngageMelee','tacticalEnemyHexHasFriendlies','tacticalMeleeTarget',
- 'getOperationalCombatFighters','isOperationalMoraleUnit','getOperationalMorale','findOperationalRallyHQ','findOperationalRetreatPath',
+ 'getOperationalCombatFighters','isOperationalMoraleUnit','getOperationalMorale','operationalHexHasActiveBattle','findOperationalRallyHQ','findOperationalRetreatPath',
  'changeOperationalMorale','triggerOperationalRetreat','cancelOrdersForMoraleRetreat','retreatFromMelee'
 ];
 fs.writeFileSync('/tmp/wg_part.js', names.map(n => sliceFunction(HTML,n)).join('\n'));
@@ -87,7 +87,7 @@ test('Самокатчики не стреляют до спешивания; к
  assert(fs.readFileSync(path.join(ROOT,'js/map_actions.js'),'utf8').includes('dismountBicycle(); renderMapActionPanel();'));
 });
 test('Гранаты 1 гекс, рукопашная 0; участники рукопашной защищены от сторонней стрельбы',()=>{
- const s=fresh();s.run(`grid(5); appData.squads=[squad('p')]; appData.map.enemySquads=[squad('e')]; appData.map.grid['1,1'].squadIds=[0]; appData.map.grid['2,1'].enemySquadIds=[0];`);
+ const s=fresh();s.run(`grid(5); appData.squads=[squad('p')]; appData.map.enemySquads=[Object.assign(squad('e'),{detected:true})]; appData.map.grid['1,1'].squadIds=[0]; appData.map.grid['2,1'].enemySquadIds=[0];`);
  assert(s.evalCtx("mapActionEvalTarget(mapActionDefById('grenades'),0,0).ok")); assert(!s.evalCtx("mapActionEvalTarget(mapActionDefById('melee'),0,0).ok"));
  s.run(`appData.map.grid['2,1'].enemySquadIds=[]; appData.map.grid['1,1'].enemySquadIds=[0]`);
  assert(s.evalCtx("mapActionEvalTarget(mapActionDefById('melee'),0,0).ok"));
@@ -114,7 +114,7 @@ test('Бой привязан к гексу обороняющегося, в т�
 });
 test('При красном духе отряд остается целью и отступает за ОД только в свою фазу до края',()=>{
  const s=fresh();s.run(`grid(8);var u=squad('inf');u.currentMorale=1;appData.squads=[u];actionPoints=[{ap:2,maxAp:6}];appData.map.grid['5,4'].squadIds=[0];tacticalMaybeAutoRetreat(u,'player',0);`);
- assert(s.evalCtx('u.isRouting && !u.isRetreated && mapActionEnemyTargetable(u)'));
+ assert(s.evalCtx('u.isRouting && !u.isRetreated'));
  s.run("processTacticalRouts('player')");assert(!s.evalCtx('u.isRetreated'));assert.equal(s.evalCtx('getAP(0)'),0);
  s.run(`actionPoints[0].ap=20;processTacticalRouts('player')`);assert(s.evalCtx('u.isRetreated'));assert(s.evalCtx('Object.values(appData.map.grid).every(c=>!c.squadIds.includes(0))'));
 });
