@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.091 — campaign card placement limits, bicycle park capture, drag-drop placement and campaign battle tab filtering.
+// ⚡ BUILD-МАРКЕР: v13.092 — operational map panning, a taller map panel, start-position deployment for both sides and fixed DOT hexes.
 (function () {
   'use strict';
 
@@ -145,7 +145,8 @@
     } else if (stage === 'fortifications') {
       const needsDots = c.playerFaction === 'BeVe' && typeof initialFortificationHexCount === 'function' && initialFortificationHexCount() > 0;
       const dotsDone = !needsDots || (typeof initialFortificationComplete === 'function' && initialFortificationComplete());
-      copy = 'Поставьте ДОТы на выбранные оперативные гексы и при необходимости выдайте талреп-якорь выбранной технике. На этом этапе доступны только эти укрепления.';
+      // ⚡ v13.092 (п.2): гексы ДОТов — из стартовых позиций, игрок выбирает только клетку
+      copy = 'ДОТы уже стоят на своих оперативных гексах (стартовые позиции из js/data.js). Откройте «Расставить ДОТы» и укажите на карте каждого гекса клетку для ДОТа; при необходимости выдайте талреп-якорь выбранной технике.';
       detail = needsDots ? (dotsDone ? 'ДОТы расставлены.' : 'ДОТы ещё не расставлены — откройте «Расставить ДОТы».') : 'ДОТов для начальной расстановки нет; талреп-якорь можно выдать выбранной технике.';
     } else {
       copy = 'Hard Mode включён автоматически. Нажмите закреплённую кнопку «Связь», чтобы при необходимости распределить рации и телефоны. После этого подтвердите готовность перейти к приказам.';
@@ -384,21 +385,129 @@
     });
     return best;
   }
+  // ══════════ ⚡ v13.092 (п.1): ПРОКРУТКА ОПЕРАТИВНОЙ КАРТЫ «ЗА РУКУ» ══════════
+  // Карту можно листать перетаскиванием: мышью или одним пальцем (сенсорный жест
+  // берём на себя — canvas с touch-action: none, иначе браузер прокручивал бы
+  // страницу). Два пальца по-прежнему масштабируют карту (setupOpMapTouchControls).
+  // Короткий клик без сдвига — это выбор гекса, как раньше; после настоящей
+  // прокрутки клик гасится, чтобы гекс не выбирался случайно.
+  const PAN_THRESHOLD = 7;          // порог «это прокрутка, а не клик» (px)
+  const pan = { id: null, startX: 0, startY: 0, left: 0, top: 0, moved: false,
+    x: 0, y: 0, t: 0, vx: 0, vy: 0, raf: 0, suppressUntil: 0 };
+  function panViewport() { return document.getElementById('opMapContainer'); }
+  function panNow() {
+    return (typeof performance !== 'undefined' && performance && performance.now) ? performance.now() : Date.now();
+  }
+  function stopPanInertia() {
+    if (pan.raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(pan.raf);
+    pan.raf = 0;
+  }
+  function panInertia(viewport) {
+    pan.vx *= 0.92; pan.vy *= 0.92;
+    if (Math.abs(pan.vx) < 0.4 && Math.abs(pan.vy) < 0.4) { pan.raf = 0; return; }
+    viewport.scrollLeft -= pan.vx;
+    viewport.scrollTop -= pan.vy;
+    if (typeof requestAnimationFrame === 'function') pan.raf = requestAnimationFrame(() => panInertia(viewport));
+    else pan.raf = 0;
+  }
+  function beginPan(event) {
+    const viewport = panViewport();
+    if (!viewport) return false;
+    stopPanInertia();
+    pan.id = event.pointerId;
+    pan.startX = pan.x = event.clientX;
+    pan.startY = pan.y = event.clientY;
+    pan.left = viewport.scrollLeft;
+    pan.top = viewport.scrollTop;
+    pan.t = panNow();
+    pan.vx = pan.vy = 0;
+    pan.moved = false;
+    const canvas = document.getElementById('opMapCanvas');
+    if (canvas && canvas.classList) canvas.classList.add('op-map-panning');
+    return true;
+  }
+  function movePan(event) {
+    const viewport = panViewport();
+    if (!viewport || pan.id == null) return;
+    // мышь отпустили за пределами окна — прекращаем прокрутку
+    if (event.pointerType === 'mouse' && typeof event.buttons === 'number' && event.buttons === 0) { endPan(); return; }
+    const dx = event.clientX - pan.startX;
+    const dy = event.clientY - pan.startY;
+    if (!pan.moved && Math.hypot(dx, dy) < PAN_THRESHOLD) return;
+    pan.moved = true;
+    const now = panNow();
+    // скорость — px за кадр (16 мс), со сглаживанием: последнее событие одно
+    // не решает, иначе рывок получается случайным на частых pointermove
+    const dt = Math.min(64, Math.max(4, now - pan.t));
+    const instX = (event.clientX - pan.x) / dt * 16;
+    const instY = (event.clientY - pan.y) / dt * 16;
+    pan.vx = pan.vx * 0.6 + instX * 0.4;
+    pan.vy = pan.vy * 0.6 + instY * 0.4;
+    pan.x = event.clientX; pan.y = event.clientY; pan.t = now;
+    viewport.scrollLeft = pan.left - dx;
+    viewport.scrollTop = pan.top - dy;
+  }
+  function endPan() {
+    if (pan.id == null && !pan.raf) return;
+    const viewport = panViewport();
+    const canvas = document.getElementById('opMapCanvas');
+    if (canvas && canvas.classList) canvas.classList.remove('op-map-panning');
+    const moved = pan.moved;
+    pan.id = null;
+    if (!moved || !viewport) { pan.moved = false; return; }
+    // после прокрутки следующий click не должен выбирать гекс
+    pan.suppressUntil = Date.now() + 400;
+    pan.moved = false;
+    // инерция — только если палец/мышь отпустили «на ходу» (не после паузы)
+    const fresh = (panNow() - pan.t) < 90;
+    const cap = (v) => Math.max(-45, Math.min(45, v));   // не больше ~560 px пробега
+    if (fresh && (Math.abs(pan.vx) > 2 || Math.abs(pan.vy) > 2)) {
+      pan.vx = cap(pan.vx); pan.vy = cap(pan.vy);
+      stopPanInertia();
+      if (typeof requestAnimationFrame === 'function') pan.raf = requestAnimationFrame(() => panInertia(viewport));
+    }
+  }
   function installCanvasDrag() {
     const canvas = document.getElementById('opMapCanvas');
     if (!canvas || canvas.__opIconDrag) return;
     canvas.__opIconDrag = true;
+    // без pointer events свою прокрутку не построить — оставляем браузерную
+    if (typeof window === 'undefined' || typeof window.PointerEvent === 'undefined') {
+      try { canvas.style.touchAction = 'pan-x pan-y'; } catch (e) {}
+    }
+    // Клик, пришедший сразу после прокрутки, — не выбор гекса. Слушаем на
+    // контейнере в фазе перехвата: она идёт раньше onclick самого канваса.
+    const viewport = panViewport();
+    if (viewport && !viewport.__opPanClickGuard) {
+      viewport.__opPanClickGuard = true;
+      viewport.addEventListener('click', event => {
+        if (Date.now() > pan.suppressUntil) return;
+        pan.suppressUntil = 0;
+        try { event.stopPropagation(); event.preventDefault(); } catch (e) {}
+      }, true);
+      // колесо/тачпад: не отдаём прокрутку странице, пока карта не уперлась в край
+      viewport.style.overscrollBehavior = 'contain';
+    }
     canvas.addEventListener('pointerdown', event => {
-      if (event.button > 0 || getStage() !== 'placement' || !activeMap() || !isOnlineTurn()) return;
+      if (event.button > 0 || !activeMap() || !campaign()) return;
       const point = canvasPoint(event);
       if (!point || !point.inside) return;
-      const id = hitPlacedUnit(point);
-      if (id == null) return;
-      try { event.preventDefault(); } catch (e) {}
-      state.canvasDrag = { id, x: event.clientX, y: event.clientY, moved: false };
-      canvas.style.touchAction = 'none';
+      // второй палец — это щипок (масштаб), прокрутку отдаём ему
+      if (pan.id != null && event.pointerId !== pan.id) { endPan(); return; }
+      const dragUnits = getStage() === 'placement' && isOnlineTurn();
+      const id = dragUnits ? hitPlacedUnit(point) : null;
+      if (id != null) {
+        // этап размещения: тянем сам отряд за его иконку
+        try { event.preventDefault(); } catch (e) {}
+        state.canvasDrag = { id, x: event.clientX, y: event.clientY, moved: false };
+        return;
+      }
+      // иначе — прокрутка карты
+      if (event.pointerType === 'mouse') { try { event.preventDefault(); } catch (e) {} }
+      beginPan(event);
     });
     document.addEventListener('pointermove', event => {
+      if (pan.id != null && event.pointerId === pan.id) { movePan(event); return; }
       const drag = state.canvasDrag;
       if (!drag) return;
       if (!drag.moved) {
@@ -415,6 +524,7 @@
       movePlacementGhost(event.clientX, event.clientY);
     }, { passive: true });
     document.addEventListener('pointerup', event => {
+      if (pan.id != null && event.pointerId === pan.id) endPan();
       const drag = state.canvasDrag;
       if (!drag) return;
       state.canvasDrag = null;
@@ -430,9 +540,13 @@
       updatePlacementTray(true);
       renderSetup();
     }, { passive: true });
-    document.addEventListener('pointercancel', () => {
+    document.addEventListener('pointercancel', event => {
+      if (pan.id != null && (event.pointerId === pan.id || event.pointerId == null)) endPan();
       state.canvasDrag = null; canvas.style.touchAction = ''; removePlacementGhost();
     }, { passive: true });
+    window.addEventListener('blur', () => { if (pan.id != null) endPan(); });
+    // ⚡ v13.092 (п.1): прокрутка карты — на любом этапе операции
+    window.opMapPanActive = function () { return pan.id != null; };
   }
 
   // Pick bar: while a route or target hex is being chosen the order menu steps aside (v13.087, пункт 8).
