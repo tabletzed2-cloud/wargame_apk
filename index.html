@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.091 — операция</title>
+  <title>Боевой модуль v13.092 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -76,7 +76,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.091</h1>
+    <h1>⚔️ Боевой модуль v13.092</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -89,7 +89,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.091</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.092</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -121,7 +121,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.091 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.092 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -434,7 +434,13 @@ function safeLocalStorage(method, ...args) {
 // v13.090: высаженный отряд действует со следующего хода; новый приказ
 //    сопровождающему прекращает сопровождение; БТР, не доехавший до гекса
 //    высадки, высаживает десант максимально близко к нему.
-var APP_VERSION = 'v13.091';
+// v13.092: оперативная карта листается перетаскиванием (мышь и один палец,
+//    с инерцией; два пальца — масштаб) и занимает больше места (82vh, на
+//    телефоне 88vh); стартовые позиции из js/data.js применяются к обеим
+//    сторонам (и к врагу под ИИ); ДОТы всегда стоят на гексах стартовых
+//    позиций — игрок за BeVe выбирает только клетку на карте гекса; в сборке
+//    батальона BeVe поддержка «ДОТы» отмечена по умолчанию.
+var APP_VERSION = 'v13.092';
 
 // ⚡ v13.058: кнопка меню действительно запрашивает проверку новой версии SW;
 // если новый контроллер не вступил в силу, повторно открываем страницу с cache-buster.
@@ -1050,6 +1056,13 @@ function selectCampaignFaction(faction) {
     <button onclick="showScenarioSelection()" style="background:#555;">Назад к выбору сценария</button>
   `;
 }
+// ⚡ v13.092 (п.3): поддержка, выбранная за игрока ПО УМОЛЧАНИЮ при сборке
+//    батальона. У BeVe ДОТы — основа обороны по сценарию, поэтому галочка
+//    «Расчёты ДОТов и ДОТы» стоит сразу; при желании её можно снять.
+function defaultSupportIdsFor(faction) {
+    return (faction === 'BeVe') ? ['dots'] : [];
+}
+
 function startBattalionAssembly(faction) {
   document.getElementById('campaignMapScreen').style.display = 'none';
   document.getElementById('battalionRosterScreen').style.display = 'none';
@@ -1068,9 +1081,12 @@ function startBattalionAssembly(faction) {
   stdList += '</ul>';
 
   // Чекбоксы поддержки
+  // ⚡ v13.092 (п.3): у BeVe «ДОТы» отмечены по умолчанию (снять можно)
+  const defaultSupport = defaultSupportIdsFor(faction);
   let supportHtml = '';
   preset.supportOptions.forEach(opt => {
-    supportHtml += `<div><label><input type="checkbox" value="${opt.id}" class="support-check" onchange="updateAssemblySupportCheck()"> ${opt.name}</label></div>`;
+    const checked = defaultSupport.includes(opt.id) ? ' checked' : '';
+    supportHtml += `<div><label><input type="checkbox" value="${opt.id}" class="support-check" onchange="updateAssemblySupportCheck()"${checked}> ${opt.name}</label></div>`;
   });
   // ⚡ v13.037: BeVe — ровно 3 поддержки из 4
   const need3of4 = (faction === 'BeVe' && preset.supportOptions.length === 4);
@@ -1118,7 +1134,10 @@ function updateAssemblySupportCheck() {
     const checked = checks.filter(c => c.checked).length;
     const faction = appData.campaign.assemblyFaction;
     if (faction === 'BeVe' && checks.length === 4) {
-        status.innerHTML = `Выбрано ${checked} из 4 — нужно <b>ровно 3</b>`;
+        // ⚡ v13.092 (п.3): ДОТы отмечены заранее — напоминаем, что галочку можно снять
+        const dotsOn = checks.some(c => c.value === 'dots' && c.checked);
+        status.innerHTML = `Выбрано ${checked} из 4 — нужно <b>ровно 3</b>` +
+            (dotsOn ? ' <span style="color:#95a5a6;">(ДОТы отмечены по умолчанию — при желании снимите галочку)</span>' : '');
         status.style.color = checked === 3 ? '#2ecc71' : '#e67e22';
         btn.disabled = checked !== 3;
         btn.style.opacity = checked === 3 ? '1' : '0.5';
@@ -3730,6 +3749,21 @@ function handleOpMapClick(e) {
                 '❌ Вне вашей зоны расстановки — размещайте юнитов в зелёной области на карте.';
             return;
         }
+    }
+
+    // ⚡ v13.092 (п.2): ДОТ всегда стоит на гексе из стартовых позиций —
+    //    игрок за BeVe выбирает только клетку на карте гекса, а не сам гекс.
+    if (typeof isStaticOpUnit === 'function' && isStaticOpUnit(targetUnit)) {
+      const startHex = (typeof getConfiguredStartHex === 'function')
+        ? getConfiguredStartHex(appData.campaign.scenario, appData.campaign.playerFaction, targetUnit) : null;
+      const fixedKey = startHex ? `${startHex.col},${startHex.row}`
+        : (targetUnit.col != null && targetUnit.row != null ? `${targetUnit.col},${targetUnit.row}` : null);
+      if (fixedKey && fixedKey !== closestKey) {
+        document.getElementById('mapInfo').innerHTML =
+          `🏰 «${targetUnit.name}» стоит на гексе (${fixedKey}) по стартовым позициям — переставить на другой гекс нельзя. ` +
+          'Можно выбрать, где ДОТ стоит внутри этого гекса: кнопка «🪖 Расставить ДОТы».';
+        return;
+      }
     }
 
     const prevCol = targetUnit.col, prevRow = targetUnit.row;
@@ -23226,8 +23260,11 @@ function finishPlacement() {
     if (appData && appData.campaign && appData.campaign.playerFaction === 'BeVe' && (appData.campaign.currentTurn || 1) <= 1 &&
         !(typeof placementLocked !== 'undefined' && placementLocked) && canSetupDots && !dotsDone) {
         const total = initialFortificationHexCount();
-        const msg = `🪖 Сначала расставьте ДОТы: нажмите «🪖 Расставить ДОТы (${total})», выберите ${total} ` +
-            `${initialFortificationWord(total, ['гекс', 'гекса', 'гексов'])} в своей стартовой зоне и укажите на каждой карте клетку для ДОТа.`;
+        // ⚡ v13.092 (п.2): гексы ДОТов заданы стартовыми позициями — игрок за BeVe
+        //    выбирает только клетку на карте гекса
+        const msg = `🪖 Сначала расставьте ДОТы: нажмите «🪖 Расставить ДОТы (${total})» — ДОТы уже стоят на ` +
+            `${total} ${initialFortificationWord(total, ['гексе', 'гексах', 'гексах'])} стартовых позиций (js/data.js), ` +
+            'остаётся указать на карте каждого гекса клетку, где будет стоять ДОТ.';
         try { alert(msg); } catch (e) {}
         const miFort = document.getElementById('mapInfo');
         if (miFort) { miFort.innerHTML = msg; miFort.style.color = '#e67e22'; }
@@ -29983,7 +30020,8 @@ function onlineSetFaction(v) {
     if (!ONLINE.docRef) return;
     ONLINE.docRef.update({
         ['players.' + ONLINE.role + '.faction']: v,
-        ['players.' + ONLINE.role + '.supportIds']: [],
+        // ⚡ v13.092 (п.3): у BeVe ДОТы выбраны поддержкой по умолчанию
+        ['players.' + ONLINE.role + '.supportIds']: defaultSupportIdsFor(v),
         ['players.' + ONLINE.role + '.ready']: false
     }).catch(e => alert(e.message));
 }
@@ -30968,7 +31006,8 @@ function onlineOnSnapshotSync() {
     <button onclick="setOpMapMode('placePlayer')" style="background:#27ae60;">📌 Размещение</button>
     <button onclick="setOpMapMode('view')" style="background:#1abc9c;" title="Кликом по отряду выбирать его, не размещая">👆 Выбор отряда</button>
     <button onclick="undoLastAction()" style="background:#7f8c8d;" title="Отменить последнее размещение, приказ или выдачу связи">↩️ Отмена</button>
-    <button id="btnInitialFortificationSetup" onclick="startInitialFortificationSetup()" style="background:#8e44ad; display:none;">🪖 Расставить ДОТы</button>
+    <!-- ⚡ v13.092 (п.2): ДОТы стоят на гексах стартовых позиций; игрок выбирает только клетку на карте гекса -->
+    <button id="btnInitialFortificationSetup" onclick="startInitialFortificationSetup()" style="background:#8e44ad; display:none;" title="ДОТы уже стоят на гексах из стартовых позиций (js/data.js). Откроется карта каждого такого гекса — укажите на ней клетку для ДОТа.">🪖 Расставить ДОТы</button>
     <div id="initialFortificationStatus" role="status" aria-live="polite" style="display:none; margin:4px 0; padding:8px; background:#1d1726; border:1px solid #8e44ad; border-radius:6px; color:#f1c40f; font-size:.88rem;"></div>
     <button onclick="autoPlaceUnplacedUnits({ manual: true })" style="background:#16a085;" title="Расставить неразмещённые юниты в своей зоне автоматически">🎲 Авторазмещение</button>
     <button onclick="finishPlacement()" style="background:#27ae60;" id="btnFinishPlacement">✅ Продолжить</button>
@@ -31046,7 +31085,8 @@ function onlineOnSnapshotSync() {
     <button onclick="fitOpMapZoom()" style="background:#555; padding:3px 8px;">⤢ Вся карта</button>
     <span style="font-size:0.75rem; color:#777;">(на телефоне — щипок двумя пальцами)</span>
   </div>
-  <div id="opMapContainer" style="position:relative; width:100%; height:70vh; overflow: auto; border:1px solid #444; border-radius:8px; overflow:auto; background:#2c3e50;">
+  <!-- ⚡ v13.092 (п.1): панель карты выше (было 70vh) — карта больше и её удобнее листать -->
+  <div id="opMapContainer" style="position:relative; width:100%; height:82vh; overflow: auto; border:1px solid #444; border-radius:8px; overflow:auto; background:#2c3e50;">
     <canvas id="opMapCanvas" style="display:block; width:2000px; height:1500px;"></canvas>
   </div>
   <!-- ⚡ v13.077: легенда векторных знаков местности (рисует те же функции,
@@ -31227,6 +31267,22 @@ function autoPlaceEnemyUnits(opts) {
   const dFront = (h) => { try { return (typeof getOpHexDistance === 'function') ? getOpHexDistance(h.col, h.row, Math.round(front.col), Math.round(front.row)) : 0; } catch (e) { return 0; } };
   const fronts = zone.map(dFront);
   const midFront = fronts.slice().sort((a, b) => a - b)[Math.floor(fronts.length / 2)];
+  // ⚡ v13.092 (п.2): сначала — стартовые позиции врага из js/data.js
+  //    (SCENARIO_START_POSITIONS[сценарий][фракция врага]). Координаты заданы
+  //    вручную для обеих сторон, поэтому и A.I.R.F., и BeVe под ИИ встают
+  //    именно туда, куда задумано сценарием (ДОТы — всегда на своих гексах).
+  let configured = 0;
+  const configuredNames = [];
+  if (typeof getConfiguredStartHex === 'function') {
+    enemies.filter(u => u && !u.isDestroyed && (u.col === null || u.col === undefined)).forEach(u => {
+      const h = getConfiguredStartHex(scenario, oppFaction, u);
+      if (!h) return;
+      u.col = h.col; u.row = h.row;
+      u.autoPlaced = true;
+      configured++;
+      configuredNames.push(u.name);
+    });
+  }
   const occ = {};
   enemies.forEach(u => { if (u && u.col !== null && u.col !== undefined) { const k = u.col + ',' + u.row; occ[k] = (occ[k] || 0) + 1; } });
   const isArtLike = (u) => ['mortar_battery','sau_battery','regimental_artillery','artillery_support'].includes(u.type) || /миномет|миномёт|САУ|артиллер|танк|ПТО/i.test(String(u.name || ''));
@@ -31264,12 +31320,18 @@ function autoPlaceEnemyUnits(opts) {
     occ[h.col + ',' + h.row] = (occ[h.col + ',' + h.row] || 0) + 1;
     placed++;
   });
-  if (placed > 0) {
+  if (placed > 0 || configured > 0) {
     try { saveData(); } catch (e) {}
     if (typeof redrawOperationalMap === 'function') redrawOperationalMap();
-    if (typeof log === 'function') log('⚡ Вражеские юниты расставлены автоматически (' + placed + ' шт.).', '#7f8c8d');
   }
-  return placed;
+  // ⚡ v13.092 (п.2): стартовые позиции врага — по js/data.js; остальное — в зоне
+  if (configured > 0 && typeof log === 'function') {
+    log('📍 Стартовые позиции противника из js/data.js: ' + configured + ' юнит(ов) — ' + configuredNames.join(', ') + '.');
+  }
+  if (placed > 0 && typeof log === 'function') {
+    log('⚡ Вражеские юниты расставлены автоматически (' + placed + ' шт.).', '#7f8c8d');
+  }
+  return placed + configured;
 }
 
 // ⚡ v13.071: ФАЗОВЫЙ ИНТЕРФЕЙС + ЧЕК-ЛИСТ ОСВОЕНИЯ.

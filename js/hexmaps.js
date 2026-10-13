@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.091 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.092 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -364,9 +364,11 @@ function renderInitialFortificationStatus() {
     } else if (state.phase === 'edit') {
         text = `🛠️ Расстановка ДОТов: карта ${Math.min((state.nextIndex || 0) + 1, Math.max(1, total))}/${total} — гексы: ${safeKeys.map(k => `(${k})`).join(', ')}.`;
     } else if (state.phase === 'select' || camp.opMapMode === 'selectInitialFortificationHexes') {
-        text = `🪖 Выбрано гексов: ${safeKeys.length}/${total}. Кликните по оперативной карте, чтобы выбрать ещё ${Math.max(0, total - safeKeys.length)} (каждый гекс — под один ДОТ). Повторный клик снимает выбор.`;
+        // ⚡ v13.092 (п.2): гексы ДОТов заданы стартовыми позициями — игрок
+        //    выбирает только клетку на карте гекса, поэтому выбор не нужен
+        text = `🪖 ДОТы стоят на гексах стартовых позиций: ${safeKeys.map(k => `(${k})`).join(', ') || '—'}. Нажмите «🪖 Расставить ДОТы» и укажите на карте каждого гекса клетку для ДОТа.`;
     } else {
-        text = `Перед завершением начальной расстановки выберите ${total} ${initialFortificationWord(total, ['гекс', 'гекса', 'гексов'])} оперативной карты — по одному под каждый ДОТ — и укажите на тактической карте клетку для ДОТа.`;
+        text = `Перед завершением начальной расстановки укажите на карте каждого гекса клетку для ДОТа: ${safeKeys.map(k => `(${k})`).join(', ') || '—'} (гексы ДОТов — из стартовых позиций в js/data.js, их нельзя менять).`;
     }
     panel.innerHTML = text;
     panel.style.display = 'block';
@@ -388,40 +390,102 @@ function startInitialFortificationSetup() {
         renderInitialFortificationStatus();
         return false;
     }
-    let state = camp.initialFortificationSetup;
-    const staleState = !state || !Array.isArray(state.hexKeys) || state.hexKeys.length !== total;
-    if (staleState) {
-        state = { phase: 'select', hexKeys: [], nextIndex: 0, complete: false };
-        camp.initialFortificationSetup = state;
-    }
-    if (state.complete || initialFortificationComplete()) {
-        // повторное открытие редактора: заменяем уже поставленные ДОТы
-        state.phase = 'select';
-        state.hexKeys = [];
-        state.nextIndex = 0;
-        state.complete = false;
-        camp.initialFortificationHexes = [];
-    }
-    if (state.phase === 'edit' && state.hexKeys.length === total) {
-        const index = Math.max(0, Math.min(state.nextIndex || 0, total - 1));
-        state.nextIndex = index;
+    // ⚡ v13.092 (п.2): оперативные гексы ДОТов НЕ выбираются игроком — они
+    //    всегда берутся из стартовых позиций js/data.js (SCENARIO_START_POSITIONS).
+    //    Игрок за BeVe выбирает только КЛЕТКУ на карте гекса (редактор ниже).
+    const keys = initialDotStartHexes();
+    if (!keys.length) {
+        alert('Для ДОТов не заданы стартовые гексы — проверьте SCENARIO_START_POSITIONS в js/data.js.');
         renderInitialFortificationStatus();
-        saveData();
-        openHexEditorForBattle(state.hexKeys[index], 'initialFortification');
-        return true;
+        return false;
     }
-    state.phase = 'select';
+    // повторное открытие редактора: проходим те же гексы заново — уже
+    // поставленные ДОТы видны на своих картах, клетку можно заменить
+    let state = camp.initialFortificationSetup;
+    if (!state || typeof state !== 'object') state = {};
+    state.phase = 'edit';
+    state.hexKeys = keys.slice();
+    state.nextIndex = 0;
     state.complete = false;
-    if (typeof setOpMapMode === 'function') setOpMapMode('selectInitialFortificationHexes');
-    else camp.opMapMode = 'selectInitialFortificationHexes';
+    camp.initialFortificationSetup = state;
+    camp.initialFortificationHexes = keys.slice();
+    camp.opMapMode = 'view';
     renderInitialFortificationStatus();
     const mi = document.getElementById('mapInfo');
     if (mi) {
-        mi.innerHTML = `🪖 Выберите ${total} ${initialFortificationWord(total, ['гекс', 'гекса', 'гексов'])} оперативной карты — по одному под каждый ДОТ. Повторный клик снимает отметку.`;
+        mi.innerHTML = `🪖 ДОТы стоят на гексах стартовых позиций: ${keys.map(k => `(${k})`).join(', ')}. ` +
+            'Открываем карту гекса — укажите на ней клетку для ДОТа.';
         mi.style.color = '#f1c40f';
     }
     saveData();
+    openHexEditorForBattle(keys[0], 'initialFortification');
     return true;
+}
+// ⚡ v13.092 (п.2): оперативный гекс ДОТа — из стартовых позиций js/data.js
+//    (SCENARIO_START_POSITIONS), иначе — текущий гекс юнита.
+function initialDotHexForUnit(unit) {
+    const camp = appData && appData.campaign;
+    if (!camp || !unit) return null;
+    if (typeof getConfiguredStartHex === 'function') {
+        const faction = camp.playerFaction ||
+            ((camp.battalions && camp.battalions.player) || {}).faction;
+        const h = getConfiguredStartHex(camp.scenario, faction, unit);
+        if (h) return h.col + ',' + h.row;
+    }
+    if (unit.col != null && unit.row != null) return unit.col + ',' + unit.row;
+    return null;
+}
+// Ближайший свободный гекс стартовой зоны — если у двух ДОТов одна стартовая
+// позиция (или позиция не задана вовсе): один оперативный гекс — один ДОТ.
+function freeHexForInitialDot(taken, nearKey) {
+    const camp = appData && appData.campaign;
+    if (!camp || typeof getFactionPlacementHexes !== 'function') return null;
+    const zone = getFactionPlacementHexes(camp.scenario, camp.playerFaction) || [];
+    if (!zone.length) return null;
+    let near = null;
+    if (nearKey) {
+        const p = String(nearKey).split(',').map(Number);
+        if (p.length === 2 && isFinite(p[0]) && isFinite(p[1])) near = { col: p[0], row: p[1] };
+    }
+    const dist = (h) => near
+        ? ((typeof getOpHexDistance === 'function')
+            ? getOpHexDistance(h.col, h.row, near.col, near.row)
+            : Math.abs(h.col - near.col) + Math.abs(h.row - near.row))
+        : 0;
+    const free = zone.filter(h => !taken.has(h.col + ',' + h.row)).sort((a, b) => dist(a) - dist(b));
+    return free.length ? (free[0].col + ',' + free[0].row) : null;
+}
+// Номер гекса (из списка гексов ДОТов), на котором стоит ДОТ без клетки
+function initialDotFirstUnfixedIndex(keys) {
+    const list = Array.isArray(keys) ? keys : [];
+    const cands = initialDotCandidates();
+    for (let i = 0; i < cands.length; i++) {
+        const p = cands[i].squad && cands[i].squad.fixedTacticalPosition;
+        if (p) continue;
+        const key = initialDotHexForUnit(cands[i].unit);
+        const idx = key ? list.indexOf(key) : -1;
+        if (idx >= 0) return idx;
+        return Math.min(i, Math.max(0, list.length - 1));
+    }
+    return 0;
+}
+// Гексы, на которых стоят ДОТы начальной расстановки (по одному на ДОТ).
+function initialDotStartHexes() {
+    const camp = appData && appData.campaign;
+    if (!camp) return [];
+    const taken = new Set();
+    const hexes = [];
+    initialDotCandidates().forEach(x => {
+        const wanted = initialDotHexForUnit(x.unit);
+        const key = (wanted && !taken.has(wanted)) ? wanted : freeHexForInitialDot(taken, wanted);
+        if (!key) return;
+        taken.add(key);
+        hexes.push(key);
+        // ⚡ v13.092 (п.2): юнит ДОТа всегда стоит на своём гексе стартовых позиций
+        const [col, row] = String(key).split(',').map(Number);
+        if (isFinite(col) && isFinite(row)) { x.unit.col = col; x.unit.row = row; }
+    });
+    return hexes;
 }
 function selectInitialFortificationHex(hexKey) {
     const camp = appData && appData.campaign;
@@ -1380,9 +1444,13 @@ function closeHexEditor() {
         setup.nextIndex = Math.max(setup.nextIndex || 0, (st.initialSetupIndex || 0) + 1);
         appData.campaign.initialFortificationSetup = setup;
         const doneAll = initialFortificationComplete();
-        if (!doneAll && setup.nextIndex < total) {
+        // ⚡ v13.092 (п.2): гексы ДОТов заданы стартовыми позициями, поэтому
+        //    просто проходим все карты по очереди (даже если ДОТы уже стояли —
+        //    клетку можно заменить), а выбор гексов игроку больше не нужен.
+        if (setup.nextIndex < total) {
             setup.phase = 'edit';
             setup.complete = false;
+            appData.campaign.initialFortificationHexes = (setup.hexKeys || []).slice();
             renderInitialFortificationStatus();
             saveData();
             const nextKey = setup.hexKeys[setup.nextIndex];
@@ -1390,21 +1458,21 @@ function closeHexEditor() {
             return;
         }
         if (!doneAll) {
-            // ⚡ v13.066: не все ДОТы закреплены — возвращаем выбор гексов
-            setup.phase = 'select';
+            // остались ДОТы без клетки — открываем карту их гекса заново
+            setup.phase = 'edit';
             setup.complete = false;
-            setup.nextIndex = 0;
-            setup.hexKeys = [];
-            appData.campaign.initialFortificationHexes = [];
+            setup.nextIndex = initialDotFirstUnfixedIndex(setup.hexKeys);
+            appData.campaign.initialFortificationHexes = (setup.hexKeys || []).slice();
             renderInitialFortificationStatus();
             const miIncomplete = document.getElementById('mapInfo');
             if (miIncomplete) {
                 const left = initialDotCandidates().filter(x => !(x.squad && x.squad.fixedTacticalPosition)).map(x => x.squad.name || x.unit.name);
-                miIncomplete.innerHTML = `⚠️ Не закреплены ДОТы: ${left.join(', ')}. Нажмите «🪖 Расставить ДОТы», выберите гекс и укажите клетку на карте.`;
+                miIncomplete.innerHTML = `⚠️ Не закреплены ДОТы: ${left.join(', ')}. Открываем карту их гекса — укажите клетку для ДОТа.`;
                 miIncomplete.style.color = '#e67e22';
             }
             saveData();
-            if (typeof setOpMapMode === 'function') { try { setOpMapMode('selectInitialFortificationHexes'); } catch (e) {} }
+            const nextKey = setup.hexKeys[setup.nextIndex];
+            if (nextKey) setTimeout(() => openHexEditorForBattle(nextKey, 'initialFortification'), 0);
             return;
         }
         setup.nextIndex = total;
