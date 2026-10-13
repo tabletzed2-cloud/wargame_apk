@@ -311,8 +311,8 @@ test('v13.090 (п.3): без десанта и без посадки прика�
   assert.match(s.logs.join('\n'), /в БТР не везётся десант/);
 });
 
-test('v13.090: версия v13.090', () => {
-  assert.equal(VERSION, 'v13.090', `APP_VERSION = ${VERSION}`);
+test('текущая версия приложения синхронизирована с выпуском v13.091', () => {
+  assert.equal(VERSION, 'v13.091', `APP_VERSION = ${VERSION}`);
 });
 
 console.log(`\nИтог v13.090: PASS ${pass} · FAIL ${fail}`);

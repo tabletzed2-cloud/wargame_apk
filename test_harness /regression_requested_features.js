@@ -26,8 +26,8 @@ function loadModuleFunctions(s, filename, names) {
   names.forEach(name => s.run(sliceFunction(source, name)));
 }
 
-// 1. Карты и автоматический дебафф не протекают из каталога противника.
-test('карты тактического боя и авто-дебаффы ограничены фракцией игрока', () => {
+// 1. Третья бонусная карта добавляет один фракционный дебафф; каталог противника исключён.
+test('три бонусные карты дают один авто-дебафф только из пула фракции игрока', () => {
   const s = createSandbox(freshAppData());
   loadHtml(s, ['collectCardLibraryForContext', 'getFactionScopedCardEntries', 'getRandomNegativeCardForUnit', 'getUnitCardFactionContext', 'activateSelectedCards']);
   s.run(`
@@ -38,7 +38,7 @@ test('карты тактического боя и авто-дебаффы ог
     function renderActiveEffects() {}
     var airfCards = [
       { name: 'AIRF bonus 1', type: 'bonus' }, { name: 'AIRF bonus 2', type: 'bonus' },
-      { name: 'AIRF bonus 3', type: 'bonus' }, { name: 'AIRF bonus 4', type: 'bonus' },
+      { name: 'AIRF bonus 3', type: 'bonus' },
       { name: 'AIRF penalty', type: 'negative', subfaction: 'common' }
     ];
     var beveCards = [
@@ -77,7 +77,7 @@ test('карты тактического боя и авто-дебаффы ог
   excludes(shown, 'BeVe-only', 'в списке нет карт фракции противника');
   assert(!scoped.some(([name]) => name.startsWith('BeVe-only')), 'фракционный пул авто-дебаффов не содержит BeVe');
   assert(autoCandidates.every(name => ['AIRF penalty', 'Shared common penalty'].includes(name)), 'случайный дебафф выбирается только из пула игрока');
-  equal(autoAssigned.length, 1, 'четыре бонуса добавляют один автоматический дебафф');
+  equal(autoAssigned.length, 1, 'три бонуса добавляют один автоматический дебафф');
   assert(['AIRF penalty', 'Shared common penalty'].includes(autoAssigned[0]), 'автоматический дебафф взят из библиотеки игрока или общего пула, не противника');
 });
 
@@ -95,7 +95,7 @@ test('кнопка «Завершить ход» закреплена вмест
 test('время приказа необязательно и ограничено шагом 10 минут', () => {
   const source = fs.readFileSync(path.join(ROOT, 'js/operational_ui.js'), 'utf8');
   const s = createSandbox(freshAppData());
-  loadModuleFunctions(s, 'js/operational_ui.js', ['parseMinuteInput', 'timeField', 'parseDraftOptions']);
+  loadModuleFunctions(s, 'js/operational_ui.js', ['parseMinuteInput', 'timeField', 'operationalWeaponRange', 'parseDraftOptions']);
   loadHtml(s, ['parseOperationalOrderTime']);
   s.run(`
     function esc(value) { return String(value == null ? '' : value); }
@@ -550,6 +550,7 @@ test('ETA показывает ход прибытия, а недоступны�
     function getSupplyDepotHex() { return { col: 0, row: 0 }; }
     function supplyRearPoint() { return { col: 0, row: 0 }; }
     function ensureSupplyState() { return appData.campaign.supply; }
+    function supplyRearConnectionIsLost() { return false; }
     function syncSupplyDepotStatus() {}
     function syncSupplyAssetsFromPlatoon() {}
     function redrawOperationalMap() {}
@@ -626,6 +627,432 @@ test('засада каравана сообщает потери и не спи
   equal(s.evalCtx('result.cargoLoss.ammoOrdnance'), 3, 'потеря снарядов учитывается');
   equal(s.evalCtx('delivery.cargo.ammoSmall'), 0, 'патроны не уходят в отрицательное значение');
   equal(s.evalCtx('delivery.cargo.ammoOrdnance'), 7, 'остаток снарядов корректен');
+});
+
+// 19. Общая карточка, удалённая «Велостоянка» и новый значок штаба BeVe.
+test('каталог добавляет общий «Двойной БК», удаляет дебафф «Велостоянка» и использует новый значок штаба', () => {
+  const s = createSandbox(freshAppData());
+  const globalCard = s.evalCtx(`GLOBAL_CARDS.find(c => c.name === 'Двойной БК')`);
+  equal(globalCard && globalCard.type, 'bonus', '«Двойной БК» — бонусная карта');
+  equal(globalCard && globalCard.subfaction, 'common', 'карта общая для фракций');
+  equal(s.evalCtx(`GLOBAL_CARDS.some(c => c.name === 'Велостоянка') || BEVE_CARDS.some(c => c.name === 'Велостоянка') || AIRF_CARDS.some(c => c.name === 'Велостоянка')`), false, 'карта «Велостоянка» удалена из исходных каталогов');
+  equal(s.evalCtx(`SQUAD_TEMPLATES.find(t => t.name === 'Штаб роты №1 Бельгийцы').icon`), 'images/BeVe/штаб роты BeVe бел.jpg', 'штаб бельгийской роты использует заданный файл');
+
+  loadHtml(s, ['getDefaultData', 'syncFactionCatalogs']);
+  s.run(`
+    appData.factions = {
+      _global: { cardLibrary: [{ name: 'Велостоянка', type: 'negative' }, { name: 'Пользовательская карта', type: 'bonus' }] },
+      BeVe: { cardLibrary: [{ name: 'Велостоянка', type: 'negative' }] },
+      'A.I.R.F.': { cardLibrary: [] }
+    };
+    appData.activeCards = [{ name: 'Велостоянка' }];
+    appData.campaign.opUnits = [{ name: 'Самокатный взвод', cardSelection: { cards: [{ name: 'Велостоянка', type: 'negative' }] } }];
+    syncFactionCatalogs();
+  `);
+  equal(s.evalCtx(`appData.factions._global.cardLibrary.some(c => c.name === 'Велостоянка')`), false, 'устаревшая карта удаляется из старого сейва');
+  equal(s.evalCtx(`appData.factions.BeVe.cardLibrary.some(c => c.name === 'Велостоянка')`), false, 'устаревшая карта удаляется из каталога BeVe');
+  equal(s.evalCtx(`appData.factions._global.cardLibrary.some(c => c.name === 'Двойной БК')`), true, 'общая карта добавляется в заполненный старый сейв');
+  equal(s.evalCtx(`appData.factions._global.cardLibrary.some(c => c.name === 'Пользовательская карта')`), true, 'пользовательские карты сохраняются');
+  equal(s.evalCtx(`appData.activeCards.some(c => c.name === 'Велостоянка')`), false, 'устаревшая карта снимается из активных');
+  equal(s.evalCtx(`appData.campaign.opUnits[0].cardSelection.cards.length`), 0, 'устаревшая карта снимается из назначений');
+});
+
+// 20. Только нужные типы взводов могут выбирать карты; бонус ограничен тремя экземплярами на батальон.
+test('выбор карт разрешён пехоте, разведке и сапёрам; лимит бонуса — 3 на батальон', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['isCardSelectableOpUnit', 'countBattalionBonusCardCopies', 'campaignBonusCardLimitReached']);
+  s.run(`
+    function getCurrentCampaignBattle() { return { id: 1 }; }
+    function getCardDefinitionByName() { return null; }
+    const live = [{ name: 'Стрелковое отделение', fighters: [{ hp: 3 }] }];
+    var allowedTypes = ['infantry_platoon', 'bicycle_platoon', 'motorcycle_platoon', 'recon_platoon', 'engineer_platoon'];
+    var allowed = allowedTypes.map(type => isCardSelectableOpUnit({ type, squads: live }));
+    var deniedTypes = ['mortar_battery', 'company_hq', 'at_battery', 'sau_battery', 'other_platoon'];
+    var denied = deniedTypes.map(type => isCardSelectableOpUnit({ type, squads: live }));
+    appData.campaign.opUnits = [
+      { name: 'Взвод 1', cardSelection: { cards: [{ name: 'Обычная карта', type: 'bonus' }] } },
+      { name: 'Взвод 2', cardSelection: { cards: [{ name: 'Обычная карта', type: 'bonus' }] } },
+      { name: 'Взвод 3', cardSelection: { cards: [{ name: 'Обычная карта', type: 'bonus' }] } }
+    ];
+    var copies = countBattalionBonusCardCopies('Обычная карта');
+    var exhausted = campaignBonusCardLimitReached({ name: 'Обычная карта', type: 'bonus' }, { name: 'Взвод 4' });
+    var differentCardAvailable = campaignBonusCardLimitReached({ name: 'Другая карта', type: 'bonus' }, { name: 'Взвод 4' });
+  `);
+  assert(JSON.parse(s.evalCtx('JSON.stringify(allowed)')).every(Boolean), 'пехота, велосипедисты, мотоциклисты, разведка и сапёры имеют право на карты');
+  assert(JSON.parse(s.evalCtx('JSON.stringify(denied)')).every(value => !value), 'штабы, батареи и неизвестные типы карт не выбирают');
+  equal(s.evalCtx('copies'), 3, 'считаются экземпляры по всему батальону');
+  equal(s.evalCtx('exhausted'), true, 'четвёртый экземпляр запрещён');
+  equal(s.evalCtx('differentCardAvailable'), false, 'лимит одной карты не блокирует другие');
+});
+
+// 21. «Двойной БК» удваивает боеприпасы конкретного выбранного отряда ровно один раз.
+test('«Двойной БК» удваивает патроны, гранаты и снаряды выбранного отряда', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['addAppliedCardName', 'applyCardToPlatoon']);
+  s.run(`
+    var unit = { name: 'Стрелковый взвод', squads: [] };
+    var selected = { name: 'Отделение 1', fighters: [{ hp: 3 }], ammoSmall: 10, grenades: 2, ammoOrdnance: 4 };
+    var untouched = { name: 'Отделение 2', fighters: [{ hp: 3 }], ammoSmall: 7, grenades: 1, ammoOrdnance: 3 };
+    var squads = [selected, untouched];
+    var card = { name: 'Двойной БК', type: 'bonus' };
+    applyCardToPlatoon(card, '_global', unit, squads, ['Отделение 1'], { initial: true });
+    var afterInitial = [selected.ammoSmall, selected.grenades, selected.ammoOrdnance];
+    var unchangedOther = [untouched.ammoSmall, untouched.grenades, untouched.ammoOrdnance];
+    applyCardToPlatoon(card, '_global', unit, squads, ['Отделение 1'], { initial: false });
+    var afterRefresh = [selected.ammoSmall, selected.grenades, selected.ammoOrdnance];
+  `);
+  equal(s.evalCtx('JSON.stringify(afterInitial)'), '[20,4,8]', 'все три вида боезапаса выбранного подразделения умножены на два');
+  equal(s.evalCtx('JSON.stringify(unchangedOther)'), '[7,1,3]', 'невыбранный отряд не меняется');
+  equal(s.evalCtx('JSON.stringify(afterRefresh)'), '[20,4,8]', 'повторная загрузка боя не удваивает боезапас повторно');
+});
+
+// 22. Велосипедная стоянка хранит владельца и теряется при входе противника на гекс.
+test('захват велостоянки лишает велосипедный взвод транспорта и снижает дух на 1', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['operationalBicycleUnitSide', 'operationalBicycleParkCell', 'setOperationalBicyclePark', 'operationalBicycleParkOwners', 'operationalBicycleParkBelongsTo', 'removeOperationalBicyclePark', 'resolveBicycleParkCaptures']);
+  s.run(`
+    function isBicycleTacticalSquad() { return true; }
+    function changeOperationalMorale(unit, delta) { unit.operationalMorale = (unit.operationalMorale || 0) + delta; }
+    var biker = { name: 'Самокатный взвод', faction: 'BeVe', type: 'bicycle_platoon', mobility: 'bicycle', col: 2, row: 3, operationalMorale: 80, squads: [{ name: 'Самокатное отделение', fighters: [{ hp: 3 }] }] };
+    appData.campaign.opUnits = [biker];
+    appData.campaign.enemyOpUnits = [];
+    appData.campaign.opMapGrid = { '2,3': { types: ['grass'], markers: [] } };
+    biker.dismountedFromMobility = 'bicycle'; biker.dismounted = true; biker.mobility = 'foot';
+    var park = setOperationalBicyclePark(biker);
+    var ownerCanRemount = operationalBicycleParkBelongsTo(biker, '2,3');
+    var noCapture = resolveBicycleParkCaptures('2,3');
+    appData.campaign.enemyOpUnits.push({ name: 'Вражеский взвод', faction: 'A.I.R.F.', col: 2, row: 3 });
+    var didCapture = resolveBicycleParkCaptures('2,3');
+    var markerAfterCapture = appData.campaign.opMapGrid['2,3'].markers.includes('bicyclePark');
+    var secondCapture = resolveBicycleParkCaptures('2,3');
+  `);
+  equal(s.evalCtx('ownerCanRemount'), true, 'до захвата велосипеды принадлежат самокатному взводу');
+  equal(s.evalCtx('noCapture'), false, 'союзное присутствие не считается захватом');
+  equal(s.evalCtx('didCapture'), true, 'вход вражеского подразделения фиксирует захват');
+  equal(s.evalCtx('biker.bicycleLost'), true, 'взвод теряет велосипеды');
+  equal(s.evalCtx('biker.operationalMorale'), 79, 'оперативный дух уменьшается ровно на 1');
+  equal(s.evalCtx('biker.squads[0].bicycleLost'), true, 'потеря транспорта сохраняется на тактическом отряде');
+  equal(s.evalCtx('markerAfterCapture'), false, 'захваченная стоянка удалена и на ней нельзя снова сесть');
+  equal(s.evalCtx('secondCapture'), false, 'повторная отрисовка не накладывает штраф повторно');
+});
+
+// 23. Drop-событие не блокируется антидублем; в кампанийном бою скрыты редакторские вкладки.
+test('перетаскивание размещает юнит, а запрещённые вкладки скрываются только в кампанийном бою', () => {
+  const ui = fs.readFileSync(path.join(ROOT, 'js/operational_ui.js'), 'utf8');
+  const dragCallCount = (ui.match(/__opPlacementDrop:\s*true/g) || []).length;
+  equal(dragCallCount, 2, 'оба способа перетаскивания передают явное drop-событие');
+  includes(sliceFunction(ui, 'patchMapClick'), 'event.__opPlacementDrop', 'антидубль пропускает именно drop, но блокирует лишний click');
+
+  const s = createSandbox(freshAppData());
+  const tabTargets = ['rosterTab', 'weaponTab', 'crewTab', 'activeEffectsTab', 'cardsEditorTab', 'saveTab', 'mapTemplatesTab', 'cardsTab'];
+  s.run(`
+    var inStandaloneBattle = false;
+    const CAMPAIGN_HIDDEN_BATTLE_TABS = new Set(['mapTemplatesTab', 'saveTab', 'cardsEditorTab', 'activeEffectsTab', 'crewTab', 'weaponTab', 'rosterTab']);
+    var testTabs = ${JSON.stringify(tabTargets)}.map(target => ({
+      getAttribute(name) { return name === 'onclick' ? "openTab(event,'" + target + "')" : null; },
+      style: { display: 'inline-block' }, dataset: {}
+    }));
+    document.querySelectorAll = selector => selector === '#battleApp .tablinks' ? testTabs : [];
+    appData.currentBattleId = 99;
+    appData.campaign.active = true;
+  `);
+  loadHtml(s, ['syncCampaignBattleTabVisibility']);
+  s.run('syncCampaignBattleTabVisibility()');
+  const hiddenDisplays = JSON.parse(s.evalCtx('JSON.stringify(testTabs.slice(0,7).map(t => t.style.display))'));
+  assert(hiddenDisplays.every(display => display === 'none'), 'в кампанийном бою скрыты все семь заданных вкладок');
+  equal(s.evalCtx('testTabs[7].style.display'), 'inline-block', 'вкладка карточек остаётся доступна');
+  s.run('inStandaloneBattle = true; syncCampaignBattleTabVisibility()');
+  const restoredDisplays = JSON.parse(s.evalCtx('JSON.stringify(testTabs.slice(0,7).map(t => t.style.display))'));
+  assert(restoredDisplays.every(display => display === 'inline-block'), 'в одиночном бою вкладки восстановлены');
+});
+
+
+// 24. Черновые гексы сектора подсвечиваются, а разрешённый прямой огонь выбирает все цели гекса.
+test('подсветка сектора и приказ «Обстрелять гекс» работают по выбранной клетке', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['drawOperationalSectorDraftHighlights']);
+  s.run(`
+    window.uxGetSectorDraftHexes = () => [{ col: 2, row: 3 }];
+    var drawCalls = { fill: 0, stroke: 0, labels: [] };
+    var ctx = {
+      save() {}, restore() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {},
+      fill() { drawCalls.fill++; }, stroke() { drawCalls.stroke++; }, fillText(text) { drawCalls.labels.push(text); }
+    };
+    drawOperationalSectorDraftHighlights(ctx, 20);
+  `);
+  equal(s.evalCtx('drawCalls.fill'), 1, 'выбранный гекс залит подсветкой');
+  equal(s.evalCtx('drawCalls.stroke'), 1, 'выбранный гекс обведён');
+  includes(s.evalCtx('JSON.stringify(drawCalls.labels)'), '✓', 'в гексе отображается отметка выбора');
+
+  const ui = fs.readFileSync(path.join(ROOT, 'js/operational_ui.js'), 'utf8');
+  includes(ui, 'data-kind="hex_fire"', 'меню огня содержит прямой приказ по гексу');
+  includes(ui, "pointPicker('Выбрать гекс обстрела', 'target')", 'гекс выбирается прямо на оперативной карте');
+  loadModuleFunctions(s, 'js/operational_ui.js', ['parseDraftOptions']);
+  s.run(`
+    function hasAtGunWeapons() { return false; }
+    function isMediumArtillery() { return false; }
+    var parsedHexFire = parseDraftOptions({ category: 'hex_fire', targetHex: '4,5' },
+      { name: 'Лёгкий танк CL/39', type: 'tank_platoon', col: 1, row: 1 });
+    var ineligibleFireError = '';
+    try { parseDraftOptions({ category: 'hex_fire', targetHex: '4,5' },
+      { name: 'Стрелковый взвод', type: 'infantry_platoon', col: 1, row: 1 }); }
+    catch (e) { ineligibleFireError = e.message; }
+  `);
+  equal(s.evalCtx('parsedHexFire.type'), 'shoot', 'прямой обстрел сериализуется как приказ по гексу');
+  equal(s.evalCtx('parsedHexFire.options.targetHex'), '4,5', 'координаты цели сохраняются');
+  includes(s.evalCtx('ineligibleFireError'), 'доступен только артиллерии', 'обычная пехота не получает этот приказ');
+
+  loadHtml(s, ['operationalHexFireRange', 'executeShootOrder']);
+  s.run(`
+    function isMediumArtillery() { return false; }
+    function getFactionCrewWeapons() { return []; }
+    function hasAtGunWeapons() { return false; }
+    function hasMgWeapons() { return false; }
+    function canUnitShoot() { return true; }
+    function isArmoredUnit() { return false; }
+    function getOpHexDistance(a, b, c, d) { return Math.abs(a-c) + Math.abs(b-d); }
+    var shotTargets = [];
+    function executeOpShoot(targets) { shotTargets = targets.map(target => target.name); }
+    function executeOpShootAt(targets) { shotTargets = targets.map(target => target.name); }
+    var tank = { name: 'Танк CL/39', type: 'tank_platoon', col: 0, row: 0, ap: 4 };
+    appData.campaign.enemyOpUnits = [
+      { name: 'Пехота А', col: 5, row: 0, fighters: [{ hp: 3 }] },
+      { name: 'Пехота Б', col: 5, row: 0, fighters: [{ hp: 3 }] },
+      { name: 'Пехота В', col: 6, row: 0, fighters: [{ hp: 3 }] }
+    ];
+    var order = { type: 'shoot', targetHex: '5,0', status: 'active' };
+    executeShootOrder(tank, order);
+  `);
+  equal(s.evalCtx('JSON.stringify(shotTargets)'), '["Пехота А","Пехота Б"]', 'под обстрел попали все, и только юниты целевого гекса');
+  equal(s.evalCtx('order.status'), 'completed', 'приказ завершён после залпа');
+});
+
+// 25. Дальность огня по готовности динамическая, а 82-мм миномёт имеет дальность 4.
+test('огонь по готовности ограничен 3 гексами, артиллерия — максимальной дальностью, миномёт 82 мм — четырьмя', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['operationalFireAtWillRange', 'operationalMediumArtilleryRange', 'getTacticalCrewWeaponRange', 'unitAutoFire']);
+  loadModuleFunctions(s, 'js/operational_ui.js', ['operationalWeaponRange', 'parseDraftOptions']);
+  s.run(`
+    function isMediumArtillery(unit) { return !!unit.medium; }
+    function isMortarUnit(unit) { return !!unit.mortar; }
+    function artilleryCaliberMm(unit) { return Number(unit.caliber) || 0; }
+    function hasAtGunWeapons() { return false; }
+    var rifle = { name: 'Взвод пехоты', medium: false };
+    var sau = { name: 'САУ', medium: true, mortar: false };
+    var mortar82 = { name: 'Батарея миномётов', medium: true, mortar: true, caliber: 82 };
+    var rangeValues = [operationalWeaponRange(rifle), operationalWeaponRange(sau), operationalWeaponRange(mortar82)];
+    var tacticalRangeValues = [
+      getTacticalCrewWeaponRange({ type: 'mortar', name: 'Минометный расчёт 82мм', effectiveRange: 10 }),
+      getTacticalCrewWeaponRange({ type: 'mortar', name: 'Минометный расчёт 50мм', effectiveRange: 10 })
+    ];
+    function canUnitShoot() { return true; }
+    function isMortarUnit(unit) { return !!unit.mortar; }
+    function artilleryCaliberMm(unit) { return Number(unit.caliber) || 0; }
+    function isStaticOpUnit() { return false; }
+    function isArmoredUnit() { return false; }
+    function getOpHexDistance(a, b, c, d) { return Math.abs(a-c) + Math.abs(b-d); }
+    function getNearestOpUnit(list, col, row) { return list.length ? { unit: list[0], dist: getOpHexDistance(col, row, list[0].col, list[0].row) } : null; }
+    function mortarRoundsForUnit(_unit, rounds) { return rounds; }
+    var mortarShots = [];
+    function executeMortarSalvo(unit, targets, distance, rounds) { mortarShots.push({ unit: unit.name, target: targets[0].name, distance, rounds }); }
+    var autoMortar = { name: '82-мм батарея', type: 'mortar_battery', medium: true, mortar: true, caliber: 82, col: 0, row: 0, ap: 3 };
+    appData.campaign.enemyOpUnits = [{ name: 'Цель на пятом гексе', col: 5, row: 0, detected: true }];
+    var autoFireAtFive = unitAutoFire(autoMortar, 10);
+    appData.campaign.enemyOpUnits = [{ name: 'Цель на четвёртом гексе', col: 4, row: 0, detected: true }];
+    var autoFireAtFour = unitAutoFire(autoMortar, 10);
+    var rejectedRange = '';
+    try { parseDraftOptions({ category: 'fire_at_will', targetDistance: 4 }, { name: 'Взвод', col: 0, row: 0 }); }
+    catch (e) { rejectedRange = e.message; }
+  `);
+  equal(s.evalCtx('JSON.stringify(rangeValues)'), '[3,10,4]', 'пределы обычного огня, САУ и миномёта верны');
+  equal(s.evalCtx('JSON.stringify(tacticalRangeValues)'), '[4,10]', 'тактические 82-мм миномёты тоже ограничены четырьмя гексами');
+  equal(s.evalCtx('autoFireAtFive'), false, '82-мм батарея не ведёт огонь за пределами четырёх гексов');
+  equal(s.evalCtx('autoFireAtFour'), true, '82-мм батарея успешно открывает огонь в пределах четырёх гексов');
+  equal(s.evalCtx('mortarShots.length'), 1, 'операционный огонь по готовности дошёл до залпа');
+  includes(s.evalCtx('rejectedRange'), 'не более 3 гексов', 'обычный взвод не может запросить четыре гекса');
+  const weapons = fs.readFileSync(path.join(ROOT, 'js/weapons.js'), 'utf8');
+  assert(!/effectiveRange\s*:\s*5[^\n]*82/i.test(weapons), 'записи 82-мм миномётов не сохраняют дальность 5');
+});
+
+// 26. Завершённые шаги скрывают и чек-лист, и панель следующего шага.
+test('после выполнения всех шагов чек-лист и панель следующего шага скрыты', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(ROOT, 'css/operational_ui.css'), 'utf8');
+  includes(html, "panel.style.display = doneCount === CHECKLIST.length ? 'none' : 'flex'", 'чек-лист скрывается при полном выполнении');
+  includes(html, "stepBar.style.display = next && !allStepsComplete ? 'flex' : 'none'", 'панель следующего шага скрывается после выполнения всех пунктов');
+  includes(css, 'body.op-placement-stage #opMapCanvas', 'стадия развёртывания оформляет карту размещения');
+  includes(css, 'touch-action: none', 'сенсорный drag не перехватывается браузерной прокруткой');
+});
+
+// 27. Снабжение ограничено дефицитом каждого типа; полные юниты не попадают в список.
+test('список получателей снабжения содержит только дефицитные юниты и учитывает уже идущие грузы', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['supplyOrdnanceFull', 'unitAmmoStatus', 'supplyPendingCargoForUnit', 'supplyUnitAmmoDeficits', 'supplyUnitHasIncompleteAmmo', 'supplyUnitList']);
+  s.run(`
+    const SUPPLY_AMMO_PER_MAN = 8, SUPPLY_GREN_PER_MAN = 2;
+    appData.templates = [{ name: 'Пехотный взвод', ammoOrdnance: 5 }];
+    var partial = { name: 'Пехотный взвод', squads: [{ name: 'Пехотный взвод', fighters: [{ hp: 3 }, { hp: 3 }], ammoSmall: 10, grenades: 2, ammoOrdnance: 0 }] };
+    var full = { name: 'Полный взвод', squads: [{ name: 'Полный взвод', fighters: [{ hp: 3 }], ammoSmall: 8, grenades: 2, ammoOrdnance: 0 }] };
+    var supplyPlatoon = { name: 'Взвод снабжения', squads: [] };
+    appData.templates.push({ name: 'Полный взвод', ammoOrdnance: 0 });
+    appData.campaign.opUnits = [partial, full, supplyPlatoon];
+    appData.campaign.supply = { deliveries: [{ kind: 'unit', targetUnitId: 0, cargo: { ammoSmall: 3, grenades: 2, ammoOrdnance: 1 }, status: 'outbound' }] };
+    var deficitsAfterPending = supplyUnitAmmoDeficits(partial, 0);
+    var recipients = supplyUnitList().map(item => item.idx);
+  `);
+  equal(s.evalCtx('deficitsAfterPending.ammoSmall'), 3, 'патроны уменьшаются на уже отправленные');
+  equal(s.evalCtx('deficitsAfterPending.grenades'), 0, 'гранаты с ожидающей доставкой не запрашиваются повторно');
+  equal(s.evalCtx('deficitsAfterPending.ammoOrdnance'), 4, 'снаряды доставляются только в пределах дефицита');
+  equal(s.evalCtx('JSON.stringify(recipients)'), '[0]', 'полный юнит и сам взвод снабжения скрыты');
+});
+
+// 28. Потеря точки связи останавливает доставку и блокирует маршрут снабжения.
+test('захват точки эвакуации прекращает снабжение и создаёт угрозу окружения', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['supplyRearConnectionStatus', 'syncSupplyRearConnection', 'supplyRearConnectionIsLost', 'supplyRearRouteBlocked']);
+  s.run(`
+    const SUPPLY_EVAC_POINTS = { BeVe: { col: 7, row: 0 }, 'A.I.R.F.': { col: 0, row: 11 } };
+    function supplyRearPoint() { return { col: 7, row: 0 }; }
+    function getOpHexDistance(a,b,c,d) { return Math.max(Math.abs(a-c), Math.abs(b-d)); }
+    function ensureSupplyState() { return appData.campaign.supply; }
+    function getSupplyDepotHex() { return { col: 2, row: 2 }; }
+    var unitDelivery = { kind: 'unit', status: 'outbound', targetUnitId: 0 };
+    appData.campaign.playerFaction = 'BeVe';
+    appData.campaign.opUnits = [];
+    appData.campaign.enemyOpUnits = [{ name: 'Враг', col: 7, row: 0 }];
+    appData.campaign.supply = { rearPointCaptured: false, encirclementThreat: false, deliveries: [unitDelivery] };
+    var lostStatus = syncSupplyRearConnection();
+    var blocked = supplyRearRouteBlocked();
+    appData.campaign.enemyOpUnits = [{ name: 'Враг рядом', col: 6, row: 0 }];
+    appData.campaign.opUnits = [{ name: 'Свои', col: 7, row: 0 }];
+    var recoveredStatus = syncSupplyRearConnection();
+  `);
+  equal(s.evalCtx('lostStatus.lost'), true, 'враг на точке фиксирует её потерю');
+  equal(s.evalCtx('lostStatus.threatened'), true, 'потерянная точка отмечена как угроза окружения');
+  equal(s.evalCtx('unitDelivery.status'), 'returning', 'уже идущая доставка отзывается');
+  equal(s.evalCtx('unitDelivery.returnReason'), 'rear_connection_lost', 'возврат связан с потерей тыла');
+  equal(s.evalCtx('blocked'), true, 'маршрут к тылу блокируется');
+  equal(s.evalCtx('recoveredStatus.lost'), false, 'занятие точки своим подразделением восстанавливает связь');
+  equal(s.evalCtx('recoveredStatus.threatened'), true, 'соседняя вражеская угроза отдельно отображается');
+});
+
+// 29. Цели Валенсии учитывают срок 05:00, удержание, уничтожение DOTs и бонусы.
+test('основные и дополнительные задачи сценария оцениваются по времени и сохраняют бонусы', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['campaignObjectiveDefinitions', 'ensureCampaignObjectiveState', 'campaignObjectiveHexControl', 'campaignObjectiveUnitIsNeutralized', 'campaignObjectiveRoadDotsDestroyed', 'campaignObjectiveSetStatus', 'updateCampaignObjectives']);
+  const objectiveDefs = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').match(/const CAMPAIGN_OBJECTIVE_DEFINITIONS = \{[\s\S]*?\n\};/);
+  assert(objectiveDefs, 'scenario objective definition exists');
+  s.run(objectiveDefs[0]);
+  s.run(`
+    appData.campaign.scenario = 'valencia';
+    appData.campaign.playerFaction = 'A.I.R.F.';
+    appData.campaign.currentTime = 0;
+    appData.campaign.opUnits = [
+      { name: 'Взвод на цели', col: 11, row: 8 },
+      { name: 'Взвод удержания', col: 7, row: 0 }
+    ];
+    appData.campaign.enemyOpUnits = [
+      { name: 'ДОТ Bosh', col: 4, row: 7, isDestroyed: false },
+      { name: 'ДОТ Van Hees', col: 8, row: 10, isDestroyed: false }
+    ];
+    var state = updateCampaignObjectives(false);
+    for (var i = 0; i < 6; i++) { appData.campaign.currentTime += 10; state = updateCampaignObjectives(true); }
+    var heldAfterHour = state.status.airf_hold_7_0;
+    appData.campaign.enemyOpUnits = [];
+    updateCampaignObjectives(false);
+    var dotsDoneAfterRemoval = state.status.airf_destroy_dots;
+    for (var j = 6; j < 30; j++) { appData.campaign.currentTime += 10; state = updateCampaignObjectives(true); }
+    var scenarioResult = appData.campaign.scenarioOutcome;
+    var unlockedIds = (appData.campaign.scenarioBonusUnlocks || []).map(item => item.id);
+  `);
+  equal(s.evalCtx('heldAfterHour'), 'completed', 'дополнительное удержание завершается после 60 минут');
+  equal(s.evalCtx('dotsDoneAfterRemoval'), 'completed', 'уничтоженные и удалённые DOTs распознаются по сохранённому списку');
+  equal(s.evalCtx('state.status.airf_capture_11_8'), 'completed', 'основная цель A.I.R.F. удержана к 05:00');
+  equal(s.evalCtx('scenarioResult'), 'victory', 'основные задачи определяют победу');
+  assert(JSON.parse(s.evalCtx('JSON.stringify(unlockedIds)')).includes('airf_destroy_dots'), 'выполненная дополнительная задача сохранена как бонус');
+
+  const b = createSandbox(freshAppData());
+  loadHtml(b, ['campaignObjectiveDefinitions', 'ensureCampaignObjectiveState', 'campaignObjectiveHexControl', 'campaignObjectiveUnitIsNeutralized', 'campaignObjectiveRoadDotsDestroyed', 'campaignObjectiveSetStatus', 'updateCampaignObjectives']);
+  b.run(objectiveDefs[0]);
+  b.run(`
+    appData.campaign.scenario = 'valencia'; appData.campaign.playerFaction = 'BeVe'; appData.campaign.currentTime = 0;
+    appData.campaign.opUnits = [{ name: 'Свои 11,8', col: 11, row: 8 }, { name: 'Свои DOT 1', col: 4, row: 7 }, { name: 'Свои DOT 2', col: 8, row: 10 }];
+    appData.campaign.enemyOpUnits = [{ name: 'Противник', col: 7, row: 0 }];
+    var beveState = updateCampaignObjectives(false);
+    for (var k = 0; k < 7; k++) { appData.campaign.currentTime += 10; beveState = updateCampaignObjectives(true); }
+    var enemyHoldFailed = beveState.status.beve_enemy_hold_7_0;
+    for (var m = 7; m < 30; m++) { appData.campaign.currentTime += 10; beveState = updateCampaignObjectives(true); }
+  `);
+  equal(b.evalCtx('enemyHoldFailed'), 'failed', 'удержание врагом больше часа проваливает главную задачу BeVe');
+  equal(b.evalCtx('beveState.status.beve_hold_11_8'), 'completed', 'BeVe контролирует основной гекс к 05:00');
+  equal(b.evalCtx('appData.campaign.scenarioOutcome'), 'defeat', 'провал основной цели отменяет победу сценария');
+  equal(b.evalCtx('beveState.status.beve_hold_dot_hexes'), 'completed', 'удержание обоих гексов DOT засчитывается отдельно');
+});
+
+// 30. Первая танковая атака BeVe фиксируется один раз и провал не сбрасывается позже.
+test('первая танковая атака BeVe фиксирует победу или окончательный провал', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['campaignObjectiveDefinitions', 'ensureCampaignObjectiveState', 'campaignObjectiveSetStatus', 'registerFirstBeVeTankBattle', 'resolveFirstBeVeTankBattle']);
+  const objectiveDefs = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').match(/const CAMPAIGN_OBJECTIVE_DEFINITIONS = \{[\s\S]*?\n\};/);
+  assert(objectiveDefs, 'scenario objective definition exists');
+  s.run(objectiveDefs[0]);
+  s.run(`
+    appData.campaign.scenario = 'valencia'; appData.campaign.playerFaction = 'BeVe'; appData.campaign.currentTime = 0;
+    var firstTank = { name: 'Лёгкий танк CL/39', faction: 'A.I.R.F.', fighters: [{ hp: 3 }] };
+    var battle = { id: 10, enemySquads: [firstTank] };
+    var registered = registerFirstBeVeTankBattle(battle, [{ name: 'Танковый взвод', faction: 'A.I.R.F.', type: 'tank_platoon' }]);
+    appData.map = { enemySquads: [{ name: 'Лёгкий танк CL/39', isDestroyed: true, fighters: [{ hp: 0 }] }] };
+    var won = resolveFirstBeVeTankBattle(battle, true, false);
+    var statusAfterWin = appData.campaign.objectiveProgress.status.beve_first_tank_battle;
+    appData.campaign.objectiveProgress = null;
+    var otherState = ensureCampaignObjectiveState();
+    var failedBattle = { id: 11, enemySquads: [{ name: 'Танк Т-26', fighters: [{ hp: 3 }] }] };
+    registerFirstBeVeTankBattle(failedBattle, [{ name: 'Танк Т-26', faction: 'A.I.R.F.', type: 'tank_platoon' }]);
+    var lost = resolveFirstBeVeTankBattle(failedBattle, false, true);
+    var cannotReplaceFirst = registerFirstBeVeTankBattle({ id: 12 }, [{ name: 'Танк №2', faction: 'A.I.R.F.', type: 'tank_platoon' }]);
+  `);
+  equal(s.evalCtx('registered'), true, 'танковый бой распознан как первая атака');
+  equal(s.evalCtx('won'), true, 'победа с уничтожением всех танков завершает задачу');
+  equal(s.evalCtx('statusAfterWin'), 'completed', 'задача получила статус выполненной');
+  equal(s.evalCtx('lost'), false, 'поражение/отступление не засчитывается победой');
+  equal(s.evalCtx('otherState.firstTankBattle.status'), 'failed', 'провал первой атаки сохранён');
+  equal(s.evalCtx('cannotReplaceFirst'), false, 'последующий бой не заменяет первый');
+});
+
+// 31. Награды автоматически выдаются по критериям, дубли не добавляются.
+test('автоматические критерии выдают фракционные награды, а Интербригада — двум выбранным отделениям', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['tacticalAwardDefinitions', 'resolveTacticalAward', 'grantTacticalAwardToFighter', 'grantTacticalAwardToLivingSquad', 'applyInterbrigadeAwards', 'ensureTacticalAwardProgress', 'recordTacticalAwardEnemyDefeat', 'recordTacticalAwardCombatEvent', 'recordDaggerApproachIfEligible', 'tacticalAwardSquadFled', 'tacticalAwardGroupKey', 'checkAndGrantTacticalAwards', 'assignAwardToFighter']);
+  s.run(`
+    appData.factions = { BeVe: { awards: BEVE_AWARDS }, 'A.I.R.F.': { awards: AIRF_AWARDS } };
+    var beve = { name: 'Пехотное отделение', opUnitName: 'BeVe взвод', faction: 'BeVe', fighters: [{ name: 'Боец 1', hp: 1 }, { name: 'Боец 2', hp: 1 }],
+      awardProgress: { defeatedEnemies: { a: 1, b: 1, c: 1, d: 1, e: 1 }, combatEvents: { m1: 1, m2: 1, g1: 1 }, daggerApproachEligible: false } };
+    var initialAirf = { name: 'Саперное отделение №1', opUnitName: 'AIRF взвод', faction: 'A.I.R.F.', fighters: Array.from({ length: 10 }, (_, i) => ({ name: 'initial ' + i, hp: 3 })) };
+    var airf = { name: 'Саперное отделение №1', opUnitName: 'AIRF взвод', faction: 'A.I.R.F.', fighters: [
+      { name: 'Командир', hp: 1, isCommander: true }, { name: 'Сапер 1', hp: 2, sapperChargeSuccess: true },
+      { name: 'Сапер 2', hp: 3 }, { name: 'Сапер 3', hp: 3 }, { name: 'Сапер 4', hp: 3 }, { name: 'Пулеметчик', hp: 3 }, { name: 'Погибший', hp: 0 }
+    ], awardProgress: { defeatedEnemies: {}, combatEvents: {}, daggerApproachEligible: true } };
+    var battle = { awardInitialPlayerSquads: [initialAirf] };
+    var beveAwardsGranted = checkAndGrantTacticalAwards({ awardInitialPlayerSquads: [] }, [beve], true);
+    var airfAwardsGranted = checkAndGrantTacticalAwards(battle, [airf], false);
+    checkAndGrantTacticalAwards({ awardInitialPlayerSquads: [] }, [beve], true);
+    var currentSquad = beve;
+    var manualAward = assignAwardToFighter(0, 'colonial');
+    var deniedManualAward = assignAwardToFighter(0, 'valor');
+    var interUnit = { name: 'AIRF volunteers', interbrigadeSquadNames: ['Добровольцы №1', 'Добровольцы №2'] };
+    var volunteers = ['Добровольцы №1', 'Добровольцы №2', 'Добровольцы №3'].map(name => ({ name, faction: 'A.I.R.F.', fighters: [{ name: name + ' боец', hp: 3 }] }));
+    applyInterbrigadeAwards(volunteers, interUnit);
+  `);
+  const beveAwards = JSON.parse(s.evalCtx('JSON.stringify(beve.fighters.map(f => f.awards || []))'));
+  for (const award of ['wound', 'valor', 'melee', 'leopold']) assert(beveAwards.flat().includes(award), `BeVe получает награду ${award}`);
+  equal(beveAwards[0].filter(id => id === 'valor').length, 1, 'повторная проверка не выдаёт дубликат');
+  const airfAwards = JSON.parse(s.evalCtx('JSON.stringify(airf.fighters.map(f => f.awards || []))'));
+  assert(airfAwards[0].includes('wound_airf') && airfAwards[0].includes('red_sun') && airfAwards[0].includes('loyalty') && airfAwards[0].includes('dagger'), 'командир AIRF получает положенные командирские и боевые награды');
+  assert(airfAwards[1].includes('sapper') && airfAwards[1].includes('dagger'), 'выживший сапёр получает медаль и знак за скрытное сближение');
+  equal(s.evalCtx('manualAward'), true, 'ручная награда с ручным критерием разрешена');
+  equal(s.evalCtx('deniedManualAward'), false, 'награду с боевым критерием нельзя назначить вручную');
+  assert(JSON.parse(s.evalCtx('JSON.stringify(volunteers.map(s => s.fighters[0].awards || []))')).slice(0,2).every(a => a.includes('interbrigade')), 'обе выбранные группы Интербригады получили награду');
+  equal(s.evalCtx('volunteers[2].fighters[0].awards'), undefined, 'третья группа Интербригады не награждена');
 });
 
 console.log(`\nИтог пользовательских исправлений: PASS ${pass} · FAIL ${fail}`);

@@ -106,7 +106,7 @@ console.log('== v13.061 field regressions ==');
        'Слияние облачных данных не копирует бюджеты окопов/позиций соперника');
 }
 
-// 82-mm mortars have a hard five-hex limit in operational fire and map-target selection.
+// 82-mm mortars have a hard four-hex limit across operational and tactical fire.
 {
     const { appData, s } = fresh();
     s.sandbox.getFactionCrewWeapons = () => [{ type: 'mortar', name: 'Минометный расчёт 82мм' }];
@@ -120,38 +120,37 @@ console.log('== v13.061 field regressions ==');
     const recognized = s.evalCtx('is82mmMortarSquad(squad82)');
     vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/map_actions.js'), 'utf8'), s.ctx, { filename: 'js/map_actions.js' });
     s.run(`
-      var targetDistanceForTest = 6;
+      var targetDistanceForTest = 5;
       function getBattleSquadHex(_grid, idx, isEnemy) { const col = isEnemy ? targetDistanceForTest : 0; return { key: col + ',0', col, row: 0 }; }
       function hexGridDistance(c1, r1, c2, r2) { return Math.max(Math.abs(c1-c2), Math.abs(r1-r2)); }
-      function getTacticalCoverInfoForEnemy() { return { mod: 0, label: '', pos: { col: 6, row: 0, key: '6,0' } }; }
+      function getTacticalCoverInfoForEnemy() { return { mod: 0, label: '', pos: { col: targetDistanceForTest, row: 0, key: targetDistanceForTest + ',0' } }; }
       function smallArmsBlockedByForest() { return null; }
       appData.squads = [squad82];
-      appData.map = { grid: {}, enemySquads: [{ name: 'Цель', fighters: [{ hp: 1 }] }] };
-      var rangeEval6 = mapActionEvalTarget({ id: 'ordnance', targets: 'any' }, 0, 0);
-      targetDistanceForTest = 5;
+      appData.map = { grid: {}, enemySquads: [{ name: 'Цель', detected: true, fighters: [{ hp: 1 }] }] };
       var rangeEval5 = mapActionEvalTarget({ id: 'ordnance', targets: 'any' }, 0, 0);
+      targetDistanceForTest = 4;
+      var rangeEval4 = mapActionEvalTarget({ id: 'ordnance', targets: 'any' }, 0, 0);
     `);
-    ok(range82 === 5 && range50 === 10 && rangeSau === 10 && recognized,
-       '82-мм ограничен пятью гексами; дальность 50-мм миномёта и прочей артиллерии не меняется');
+    ok(range82 === 4 && range50 === 10 && rangeSau === 10 && recognized,
+       '82-мм ограничен четырьмя гексами; дальность 50-мм миномёта и прочей артиллерии не меняется');
     s.run(`var manualMortarShots = [];
       executeMortarSalvo = function() { manualMortarShots.push(Array.from(arguments)); };
       mortarRoundsForUnit = function(_unit, n) { return n; };
       opShootingState.shooter = op82;
-      executeOpShoot([{ name: 'цель', col: 5, row: 0 }], 5);
+      executeOpShoot([{ name: 'цель', col: 4, row: 0 }], 4);
       opShootingState.shooter = op82;
-      executeOpShoot([{ name: 'дальняя цель', col: 6, row: 0 }], 6);`);
-    ok(s.evalCtx('manualMortarShots.length === 1 && manualMortarShots[0][2] === 5 && manualMortarShots[0][3] === 15'),
-       'Ручная стрельба 82-мм миномёта доступна на пяти гексах и блокируется дальше пяти');
-    ok(s.evalCtx('rangeEval6.ok === false && /6 > 5/.test(rangeEval6.reason) && rangeEval5.ok === true'),
-       'Действие «орудия/миномёты» отклоняет цель дальше пяти гексов, но допускает ровно пять');
+      executeOpShoot([{ name: 'дальняя цель', col: 5, row: 0 }], 5);`);
+    ok(s.evalCtx('manualMortarShots.length === 1 && manualMortarShots[0][2] === 4 && manualMortarShots[0][3] === 15'),
+       'Ручная стрельба 82-мм миномёта доступна на четырёх гексах и блокируется дальше четырёх');
+    ok(s.evalCtx('rangeEval5.ok === false && /5 > 4/.test(rangeEval5.reason) && rangeEval4.ok === true'),
+       'Действие «орудия/миномёты» отклоняет цель дальше четырёх гексов, но допускает ровно четыре');
     const shootOrderBody = sliceFunction(HTML, 'executeShootOrder');
-    ok(/is82mmMortarSquad\(currentSquad\) && dist > 5/.test(HTML) &&
-       /const maxRange = isMediumArt \? operationalMediumArtilleryRange\(unit\) : 3/.test(shootOrderBody) &&
-       /effectiveRange": 5/.test(fs.readFileSync(path.join(ROOT, 'js/weapons.js'), 'utf8')),
-       'Пять гексов проверяются в атаке и операционном приказе, оружейная дальность 82-мм обновлена');
+    ok(/is82mmMortarSquad\(currentSquad\) && dist > 4/.test(HTML) &&
+       /const maxRange = operationalHexFireRange\(unit\)/.test(shootOrderBody) &&
+       /effectiveRange": 4/.test(fs.readFileSync(path.join(ROOT, 'js/weapons.js'), 'utf8')),
+       'Четыре гекса проверяются в атаке, оперативной дальности и оружейном каталоге 82-мм');
 
-    // Execute the tactical path at the boundary: five hexes must fire without a missing-helper error;
-    // six hexes must be rejected before AP or ammunition is spent.
+    // Execute the tactical path at the boundary: four hexes fire; five are rejected before AP/ammo are spent.
     s.sandbox.getFactionCrewWeapons = () => [{
         type: 'mortar', name: 'Минометный расчёт 82мм', effectiveRange: 10,
         shotRule: 'fixed_per_crew', crewSize: 3, shotsFull: 1
@@ -176,13 +175,13 @@ console.log('== v13.061 field regressions ==');
       function rollD6() { return 1; }
       function reportAttackOutcome() {}
     `);
+    s.run("document.getElementById('targetDistance').value = '4'; attackOrdnance();");
+    const atFour = JSON.parse(s.evalCtx('JSON.stringify({ shots: tacticalShots, ap: tacticalApSpent, ammo: currentSquad.ammoOrdnance })'));
     s.run("document.getElementById('targetDistance').value = '5'; attackOrdnance();");
     const atFive = JSON.parse(s.evalCtx('JSON.stringify({ shots: tacticalShots, ap: tacticalApSpent, ammo: currentSquad.ammoOrdnance })'));
-    s.run("document.getElementById('targetDistance').value = '6'; attackOrdnance();");
-    const atSix = JSON.parse(s.evalCtx('JSON.stringify({ shots: tacticalShots, ap: tacticalApSpent, ammo: currentSquad.ammoOrdnance })'));
-    ok(atFive.shots === 1 && atFive.ap === 1 && atFive.ammo === 11 &&
-       atSix.shots === 1 && atSix.ap === 1 && atSix.ammo === 11,
-       'Тактический выстрел 82-мм разрешён на пяти гексах и не расходует ОД/боеприпасы за пределом');
+    ok(atFour.shots === 1 && atFour.ap === 1 && atFour.ammo === 11 &&
+       atFive.shots === 1 && atFive.ap === 1 && atFive.ammo === 11,
+       'Тактический выстрел 82-мм разрешён на четырёх гексах и не расходует ОД/боеприпасы за пределом');
 }
 
 console.log(`\nИтог v13.061: PASS ${pass} · FAIL ${fail}`);
