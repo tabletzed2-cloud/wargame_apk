@@ -1,13 +1,14 @@
-// ⚡ BUILD-МАРКЕР: v13.094 — campaign-start cards, post-move phone relays, and requested campaign/tactical fixes.
+// ⚡ BUILD-МАРКЕР: v13.095 — bonus cards after communications, DOT sector widths, tactical-retreat consequences.
 (function () {
   'use strict';
 
-  const STAGES = ['placement', 'fortifications', 'communications', 'orders'];
+  const STAGES = ['placement', 'fortifications', 'communications', 'cards', 'orders'];
   const STAGE_TITLES = {
-    placement: 'Этап 1 из 4 · Размещение',
-    fortifications: 'Этап 2 из 4 · ДОТы и талреп-якоря',
-    communications: 'Этап 3 из 4 · Связь',
-    orders: 'Этап 4 из 4 · Приказы'
+    placement: 'Этап 1 из 5 · Размещение',
+    fortifications: 'Этап 2 из 5 · ДОТы и талреп-якоря',
+    communications: 'Этап 3 из 5 · Связь',
+    cards: 'Этап 4 из 5 · Бонусные карты',
+    orders: 'Этап 5 из 5 · Приказы'
   };
   const state = {
     menuOpen: false,
@@ -44,7 +45,7 @@
     const c = campaign();
     if (!c || !STAGES.includes(stage)) return;
     c.opSetupStage = stage;
-    if (typeof placementLocked !== 'undefined') placementLocked = stage === 'orders';
+    if (typeof placementLocked !== 'undefined') placementLocked = stage === 'orders' || stage === 'cards';
     if (typeof placementUnlockCount !== 'undefined') placementUnlockCount = 0;
     try { saveData(); } catch (e) {}
     renderSetup();
@@ -96,8 +97,8 @@
       c.opSetupStage = ((typeof placementLocked !== 'undefined' && placementLocked) || (c.currentTurn || 1) > 1)
         ? 'orders' : 'placement';
     }
-    if (typeof placementLocked !== 'undefined') placementLocked = c.opSetupStage === 'orders';
-    if (c.opSetupStage === 'communications' || c.opSetupStage === 'orders') ensureHardMode();
+    if (typeof placementLocked !== 'undefined') placementLocked = c.opSetupStage === 'orders' || c.opSetupStage === 'cards';
+    if (['communications', 'cards', 'orders'].includes(c.opSetupStage)) ensureHardMode();
   }
 
   function setDisplay(id, show, displayValue) {
@@ -148,22 +149,27 @@
       // ⚡ v13.092 (п.2): гексы ДОТов — из стартовых позиций, игрок выбирает только клетку
       copy = 'ДОТы уже стоят на своих оперативных гексах (стартовые позиции из js/data.js). Откройте «Расставить ДОТы» и укажите на карте каждого гекса клетку для ДОТа; при необходимости выдайте талреп-якорь выбранной технике.';
       detail = needsDots ? (dotsDone ? 'ДОТы расставлены.' : 'ДОТы ещё не расставлены — откройте «Расставить ДОТы».') : 'ДОТов для начальной расстановки нет; талреп-якорь можно выдать выбранной технике.';
+    } else if (stage === 'cards') {
+      copy = 'Связь настроена. Теперь отдельным меню распределите бонусные карты между пехотными, сапёрными и разведывательными взводами: до 3 карт на взвод (третья добавит случайный дебафф), не более 3 копий одной карты на батальон.';
+      detail = c.initialPlatoonCardsAssigned ? 'Карты уже закреплены за взводами.' : 'Нажмите «Распределить карты», чтобы открыть меню раздачи.';
     } else {
-      copy = 'Hard Mode включён автоматически. Нажмите закреплённую кнопку «Связь», чтобы при необходимости распределить рации и телефоны. После этого подтвердите готовность перейти к приказам.';
+      copy = 'Hard Mode включён автоматически. Нажмите закреплённую кнопку «Связь», чтобы при необходимости распределить рации и телефоны. После этого подтвердите готовность перейти к картам.';
       detail = 'Связь штаба уже настроена; дополнительные рации/телефоны можно распределить сейчас или позже.';
     }
     const progress = STAGES.indexOf(stage) + 1;
     host.innerHTML = `<div class="op-setup-title">${STAGE_TITLES[stage]}</div>` +
       `<div class="op-setup-copy">${copy}</div>` +
       `<div class="op-setup-actions"><span class="op-setup-note">${detail}</span>` +
-      `<span class="op-setup-progress">${progress}/4</span></div>`;
+      `<span class="op-setup-progress">${progress}/${STAGES.length}</span></div>`;
 
     const button = document.getElementById('btnFinishPlacement');
     if (button) {
       button.textContent = stage === 'placement' ? '✅ Размещение завершено' :
-        stage === 'fortifications' ? '➡️ Перейти к связи' : '✅ Перейти к приказам';
+        stage === 'fortifications' ? '➡️ Перейти к связи' :
+        stage === 'cards' ? (c.initialPlatoonCardsAssigned ? '✅ Перейти к приказам' : '🎖️ Распределить карты') : '🎖️ Перейти к картам';
       button.title = stage === 'placement' ? 'Перейти к этапу ДОТов и талреп-якорей' :
-        stage === 'fortifications' ? 'Завершить этап укреплений' : 'Подтвердить готовность к началу приказов';
+        stage === 'fortifications' ? 'Завершить этап укреплений' :
+        stage === 'cards' ? 'Открыть меню распределения бонусных карт по взводам' : 'Подтвердить готовность и перейти к распределению карт';
       button.style.display = 'inline-block';
     }
 
@@ -670,13 +676,39 @@
       const before = (typeof placementLocked !== 'undefined') && placementLocked;
       if (typeof state.originalFinishPlacement === 'function') state.originalFinishPlacement();
       if (typeof placementLocked !== 'undefined' && placementLocked && !before) {
-        setStage('orders');
         markChecklist('communication');
-        setMapMessage('✅ Этап связи завершён. Теперь выберите отряд на карте и нажмите «Приказ».', '#27ae60');
+        // ⚡ v13.095 (п.1): раздача бонусных карт — ОТДЕЛЬНЫЙ этап ПОСЛЕ связи.
+        if (!c.initialPlatoonCardsAssigned) {
+          setStage('cards');
+          setMapMessage('🎖️ Этап связи завершён. Теперь распределите бонусные карты по взводам.', '#f1c40f');
+          if (typeof window.openInitialCardDistributionStage === 'function') window.openInitialCardDistributionStage();
+        } else {
+          setStage('orders');
+          setMapMessage('✅ Этап связи завершён. Теперь выберите отряд на карте и нажмите «Приказ».', '#27ae60');
+        }
       } else {
         renderSetup();
       }
       return;
+    }
+    if (stage === 'cards') {
+      if (c.initialPlatoonCardsAssigned) {
+        setStage('orders');
+        setMapMessage('✅ Карты закреплены за взводами. Теперь выберите отряд на карте и нажмите «Приказ».', '#27ae60');
+      } else if (typeof window.openInitialCardDistributionStage === 'function') {
+        window.openInitialCardDistributionStage();
+      } else {
+        renderSetup();
+      }
+      return;
+    }
+  }
+  // ⚡ v13.095 (п.1): меню раздачи карт завершено — закрываем его и идём к приказам.
+  function completeCardStage() {
+    if (typeof window.closeInitialCardDistributionStage === 'function') window.closeInitialCardDistributionStage();
+    if (getStage() === 'cards') {
+      setStage('orders');
+      setMapMessage('✅ Бонусные карты распределены. Теперь выберите отряд на карте и нажмите «Приказ».', '#27ae60');
     }
   }
   function markChecklist(id) {
@@ -2062,6 +2094,7 @@
     }, 800);
   }
 
+  window.completeInitialCardStage = completeCardStage;
   window.executeOperationalTargetOrder = executeOperationalTargetOrder;
   window.executeOperationalSectorFireOrder = executeOperationalSectorFireOrder;
   window.executeOperationalEmbarkOrder = executeOperationalEmbarkOrder;

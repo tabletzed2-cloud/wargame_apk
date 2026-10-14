@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.094 — операция</title>
+  <title>Боевой модуль v13.095 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -76,7 +76,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.094</h1>
+    <h1>⚔️ Боевой модуль v13.095</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -89,7 +89,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.094</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.095</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -121,7 +121,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.094 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.095 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -455,7 +455,10 @@ function safeLocalStorage(method, ...args) {
 // v13.094: отчёт игрока п.1–14 — зона BeVe 10,6/9,5, сектора ДОТов кликом по карте,
 //    мгновенный отзыв связи на этапе распределения, бронеавтомобили BeVe (болотоход),
 //    порядок «сначала приказы взводам», карточки сапёрам, отмена действия, десант БТР.
-var APP_VERSION = 'v13.094';
+// v13.095: раздача бонусных карт — отдельным меню ПОСЛЕ этапа связи; сектора ДОТов
+//    по типу (Van Hees ПТ 360°/МГ 90°, Bosh МГ 60°×2/орудие 90°) и на оперативной
+//    карте; отступивший в такт. бою отряд теряет приказы и отходит на 3 гекса.
+var APP_VERSION = 'v13.095';
 
 // ⚡ v13.058: кнопка меню действительно запрашивает проверку новой версии SW;
 // если новый контроллер не вступил в силу, повторно открываем страницу с cache-buster.
@@ -1369,9 +1372,10 @@ appData.campaign.opTurnStartTime = 0;
 updateOperationalTimeDisplay();
 
   buildOperationalUnits();
-  // ⚡ п.10: перед выходом на оперативную карту — отдельная раздача карт трём
-  //    типам взводов. Выбор закрепляется за взводом на всю кампанию.
-  renderInitialCampaignCardDistribution();
+  // ⚡ v13.095 (п.1): раздача бонусных карт перенесена ПОСЛЕ этапа связи на
+  //    оперативной карте (отдельный этап «Бонусные карты» и отдельное меню).
+  //    Здесь — только экран готовности батальона и переход к карте.
+  showCampaignReadyAfterCardDistribution();
 }
 
 const INITIAL_CAMPAIGN_CARD_CATEGORIES = [
@@ -1382,6 +1386,30 @@ const INITIAL_CAMPAIGN_CARD_CATEGORIES = [
 function renderInitialCampaignCardDistribution() {
   const container = document.getElementById('campaignContent');
   if (!container) return false;
+  container.innerHTML = initialCardDistributionHtml();
+  return true;
+}
+// ⚡ v13.095 (п.1): ОТДЕЛЬНОЕ меню раздачи карт на оперативной карте (этап после
+//    связи). Полноэкранный лист: одинаково удобен на компьютере и телефоне.
+function openInitialCardDistributionStage() {
+  let overlay = document.getElementById('initialCardStageOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'initialCardStageOverlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-label', 'Распределение бонусных карт');
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = initialCardDistributionHtml(true);
+  overlay.style.display = 'block';
+  overlay.scrollTop = 0;
+  return true;
+}
+function closeInitialCardDistributionStage() {
+  const overlay = document.getElementById('initialCardStageOverlay');
+  if (overlay) overlay.style.display = 'none';
+}
+function initialCardDistributionHtml(inStageMenu) {
   const units = (appData.campaign && appData.campaign.opUnits) || [];
   const sections = INITIAL_CAMPAIGN_CARD_CATEGORIES.map(category => {
     const members = units.map((unit, index) => ({ unit, index }))
@@ -1393,17 +1421,18 @@ function renderInitialCampaignCardDistribution() {
     return `<section class="initial-card-category" data-initial-card-category="${category.id}">
       <h3>${category.title}</h3>${content}</section>`;
   }).join('');
-  container.innerHTML = `<div class="initial-card-screen">
+  return `<div class="initial-card-screen">
     <h2>🎖️ Распределение бонусных карт</h2>
-    <p>Перед началом кампании назначьте карты отдельно пехотным, сапёрным и разведывательным взводам. Выбор действует для взвода на протяжении кампании. До 3 бонусных карт на взвод; третья добавляет случайный дебафф.</p>
+    <p>${inStageMenu
+      ? 'Этап связи завершён. Теперь назначьте карты отдельно пехотным, сапёрным и разведывательным взводам. Выбор действует для взвода на протяжении кампании. До 3 бонусных карт на взвод; третья добавляет случайный дебафф; не более 3 копий одной карты на батальон.'
+      : 'Перед началом кампании назначьте карты отдельно пехотным, сапёрным и разведывательным взводам. Выбор действует для взвода на протяжении кампании. До 3 бонусных карт на взвод; третья добавляет случайный дебафф.'}</p>
     ${sections}
     <div class="initial-card-actions">
       <button class="menu-btn" onclick="selectInitialCampaignBonusCards()">✅ Закрепить карты и продолжить</button>
       <button onclick="skipInitialCampaignBonusCards()" style="background:#555;">Продолжить без карт</button>
-      <button onclick="closeCampaign()" style="background:#333;">Выход в меню</button>
+      ${inStageMenu ? '' : '<button onclick="closeCampaign()" style="background:#333;">Выход в меню</button>'}
     </div>
   </div>`;
-  return true;
 }
 function initialCampaignCardUnitHtml(unit, unitIndex) {
   const context = (typeof getUnitCardFactionContext === 'function')
@@ -1551,6 +1580,13 @@ function skipInitialCampaignBonusCards() {
   return true;
 }
 function showCampaignReadyAfterCardDistribution() {
+  // ⚡ v13.095 (п.1): раздача шла отдельным меню ПОСЛЕ этапа связи — закрываем
+  //    меню и переходим к этапу приказов, а не на экран формирования.
+  if (appData.campaign && appData.campaign.opSetupStage === 'cards' &&
+      typeof window.completeInitialCardStage === 'function') {
+    window.completeInitialCardStage();
+    return;
+  }
   const container = document.getElementById('campaignContent');
   if (!container) return;
   const battalion = appData.campaign && appData.campaign.battalions && appData.campaign.battalions.player;
@@ -1563,7 +1599,7 @@ function showCampaignReadyAfterCardDistribution() {
     total + (unit && unit.cardSelection && Array.isArray(unit.cardSelection.cards)
       ? unit.cardSelection.cards.filter(card => card && card.type !== 'negative').length : 0), 0);
   container.innerHTML = `<h2>Батальон сформирован!</h2>
-    <p>В составе ${squadCount} отделений/расчётов. Бонусных карт назначено: ${assignedCount}.</p>
+    <p>В составе ${squadCount} отделений/расчётов. Бонусных карт назначено: ${assignedCount}.${appData.campaign && appData.campaign.initialPlatoonCardsAssigned ? '' : ' Раздача бонусных карт пехотным, сапёрным и разведывательным взводам пройдёт отдельным меню после этапа связи на оперативной карте.'}</p>
     <button class="menu-btn" onclick="showOperationalMap()">Перейти к карте</button>
     <button onclick="closeCampaign()" style="background:#555;">Выход в меню</button>`;
 }
@@ -8087,6 +8123,8 @@ function finishBattle() {
 
     // Синхронизируем потери
     syncBattleLossesToCampaign(battleId);
+    // ⚡ v13.095 (п.3): последствия отступления отрядов в тактическом бою
+    try { applyTacticalRetreatConsequences(battle); } catch (e) { console.warn('tactical retreat consequences:', e); }
 
     // ⚡ v13.051 (R36#5): онлайн — сообщаем оппоненту, что бой с моей стороны завершён
     if (typeof onlineBattleFinished === 'function') { try { onlineBattleFinished(battle); } catch (e) { console.warn('onlineBattleFinished:', e.message); } }
@@ -8221,6 +8259,75 @@ function cancelOrdersForMoraleRetreat(unit) {
     });
     hardMode.orders = (hardMode.orders || []).filter(o => o && o.status !== 'cancelled');
     hardMode.pendingOrders = (hardMode.pendingOrders || []).filter(o => o && o.status !== 'cancelled');
+}
+// ⚡ v13.095 (п.3): отряд, потерпевший поражение и ОТСТУПИВШИЙ в тактическом бою:
+//    все его последующие оперативные приказы отменяются, а сам юнит отступает
+//    на 3 гекса от гекса боя — прочь от противника, чтобы выйти из зоны обстрела.
+function cancelAllOrdersAfterTacticalRetreat(unit, isEnemySide) {
+    if (!unit) return;
+    if (!isEnemySide) { cancelOrdersForMoraleRetreat(unit); return; }
+    if (typeof hardMode === 'undefined' || !appData.campaign) return;
+    const idx = (appData.campaign.enemyOpUnits || []).indexOf(unit);
+    if (idx < 0) return;
+    const match = o => o && o.status !== 'cancelled' &&
+        (o.enemyUnitId === idx || o.enemyUnitIndex === idx ||
+         ((o.side === 'enemy' || o.isEnemy === true) && (o.toUnitId === idx || o.unitId === idx || o.unitIndex === idx)));
+    (hardMode.orders || []).forEach(o => { if (match(o)) o.status = 'cancelled'; });
+    (hardMode.pendingOrders || []).forEach(o => { if (match(o)) o.status = 'cancelled'; });
+    hardMode.messengerQueue = (hardMode.messengerQueue || []).filter(o => !match(o));
+    hardMode.orders = (hardMode.orders || []).filter(o => o && o.status !== 'cancelled');
+    hardMode.pendingOrders = (hardMode.pendingOrders || []).filter(o => o && o.status !== 'cancelled');
+}
+function findTacticalDefeatRetreatHex(unit, battleCol, battleRow, opponents) {
+    if (!unit || !Number.isFinite(unit.col) || !Number.isFinite(unit.row)) return null;
+    const opp = (opponents || []).filter(e => e && !e.isDestroyed && !e.isSurrendered &&
+        Number.isFinite(e.col) && Number.isFinite(e.row));
+    const nearestOpp = (c, r) => opp.length ? Math.min(...opp.map(e => getOpHexDistance(c, r, e.col, e.row))) : 99;
+    const candidates = [];
+    for (let c = battleCol - 3; c <= battleCol + 3; c++) {
+        for (let r = battleRow - 3; r <= battleRow + 3; r++) {
+            const distFromBattle = getOpHexDistance(battleCol, battleRow, c, r);
+            if (distFromBattle < 1 || distFromBattle > 3) continue;
+            if (operationalHexHasActiveBattle(c, r)) continue;
+            if (opp.some(e => e.col === c && e.row === r)) continue;
+            const route = getRouteToTarget(unit.col, unit.row, c, r, unit);
+            if (!Array.isArray(route) || route.length < 1 || route.length > 3) continue;
+            candidates.push({ col: c, row: r, steps: route.length, distFromBattle, safety: nearestOpp(c, r) });
+        }
+    }
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => (b.safety - a.safety) || (b.distFromBattle - a.distFromBattle) || (b.steps - a.steps));
+    return candidates[0];
+}
+function applyTacticalRetreatConsequences(battle) {
+    if (!battle || !appData.campaign) return;
+    const [battleCol, battleRow] = String(battle.hexKey || '').split(',').map(Number);
+    if (!Number.isFinite(battleCol) || !Number.isFinite(battleRow)) return;
+    const sides = [
+        { units: appData.campaign.opUnits || [], squads: battle.playerSquads || [], opponents: appData.campaign.enemyOpUnits || [], isEnemySide: false },
+        { units: appData.campaign.enemyOpUnits || [], squads: battle.enemySquads || [], opponents: appData.campaign.opUnits || [], isEnemySide: true }
+    ];
+    sides.forEach(({ units, squads, opponents, isEnemySide }) => {
+        units.forEach(unit => {
+            if (!unit || unit.isDestroyed || unit.isSurrendered || unit.hidden) return;
+            if (typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit)) return; // ДОТы не отступают
+            if (unit._tacticalRetreatHandled === battle.id) return;
+            const retreated = squads.some(bs => bs && (bs.isRetreated || bs.status === 'retreated' || bs.retreated) &&
+                (bs.opUnitName === unit.name || (unit.squads || []).some(sq => sq && sq.name === bs.name)));
+            if (!retreated) return;
+            unit._tacticalRetreatHandled = battle.id;
+            cancelAllOrdersAfterTacticalRetreat(unit, isEnemySide);
+            unit.firedThisTurn = false;
+            const hex = findTacticalDefeatRetreatHex(unit, battleCol, battleRow, opponents);
+            if (hex) {
+                opRecordPrevPos(unit);
+                unit.col = hex.col; unit.row = hex.row;
+                log(`🏃 ${isEnemySide ? 'Вражеский отряд' : 'Отряд'} «${unit.name}» после поражения в тактическом бою отступил на 3 гекса — на гекс (${hex.col},${hex.row}); все его последующие приказы отменены.`);
+            } else {
+                log(`🏃 Отряд «${unit.name}» потерпел поражение и отступил в тактическом бою: все его последующие приказы отменены (путь отхода на 3 гекса не найден).`);
+            }
+        });
+    });
 }
 function triggerOperationalRetreat(unit, reason) {
     if (!unit || unit.operationalRouted || !isOperationalMoraleUnit(unit)) return;
@@ -16537,7 +16644,7 @@ if (appData.map.mode === 'move' && shouldShowTacticalReachability() && appData.m
         const cand = initialDotCandidates().find(item => item.id === hexEditorState.dotId);
         const pos = cand && cand.squad.fixedTacticalPosition;
         if (cand && pos && String(pos.hexKey) === String(hexEditorState.hexKey) && String(pos.key) === String(hexKey)) {
-          squads = [{ squad: { fixedTacticalPosition: { hexKey: pos.hexKey, key: pos.key,
+          squads = [{ squad: { name: cand.squad.name, fixedTacticalPosition: { hexKey: pos.hexKey, key: pos.key,
             weaponSectors: hexEditorState.dotWeaponSectors || pos.weaponSectors || {} },
             crewInstances: cand.squad.crewInstances || [], faction: cand.squad.faction }, index: 0 }];
         } else squads = [];
@@ -16556,17 +16663,24 @@ if (appData.map.mode === 'move' && shouldShowTacticalReachability() && appData.m
           const dirIndex = TACTICAL_FIRE_SECTOR_OPTIONS.indexOf(direction);
           const angle = dirIndex * Math.PI / 3;
           const reach = size * 0.78;
+          // ⚡ v13.095 (п.2): ширина веера — по типу ДОТа/оружия; 360° — круг.
+          const widthDeg = (typeof dotSectorWidthDeg === 'function') ? dotSectorWidthDeg(squad, Number(crewIndex)) : 60;
           const color = weapon && weapon.type === 'mg' ? colors[1 + (sectorIndex % (colors.length - 1))] : colors[0];
           ctx.save();
           ctx.globalAlpha = 0.85;
           ctx.strokeStyle = color;
           ctx.lineWidth = Math.max(1.5, size * 0.045);
           ctx.setLineDash([Math.max(3, size * 0.08), Math.max(2, size * 0.05)]);
-          [-Math.PI / 6, Math.PI / 6].forEach(offset => {
-            ctx.beginPath(); ctx.moveTo(x, y);
-            ctx.lineTo(x + Math.cos(angle + offset) * reach, y + Math.sin(angle + offset) * reach);
-            ctx.stroke();
-          });
+          if (widthDeg >= 360) {
+            ctx.beginPath(); ctx.arc(x, y, reach * 0.82, 0, Math.PI * 2); ctx.stroke();
+          } else {
+            const half = (widthDeg / 2) * Math.PI / 180;
+            [-half, half].forEach(offset => {
+              ctx.beginPath(); ctx.moveTo(x, y);
+              ctx.lineTo(x + Math.cos(angle + offset) * reach, y + Math.sin(angle + offset) * reach);
+              ctx.stroke();
+            });
+          }
           ctx.setLineDash([]);
           ctx.lineWidth = Math.max(2, size * 0.06);
           ctx.beginPath(); ctx.moveTo(x, y);
@@ -19632,7 +19746,9 @@ function unitAutoFire(unit, maxDist) {
         // ⚡ v13.046 (R31#3): ДОТ автоогонь (пехота/ПТО) не берёт — только арт. >70мм
         !isStaticOpUnit(e) &&
         getOpHexDistance(unit.col, unit.row, e.col, e.row) <= range &&
-        (isArmoredUnit(e) || !e.isInBattle)
+        (isArmoredUnit(e) || !e.isInBattle) &&
+        // ⚡ v13.095 (п.2): автоогонь ДОТа — только по целям в секторах амбразур
+        (typeof operationalDotSectorAllows !== 'function' || operationalDotSectorAllows(unit, e.col, e.row))
     );
     if (enemies.length === 0) return false;
 
@@ -19734,6 +19850,13 @@ function executeShootOrder(unit, order) {
 
     if (distance > maxRange) {
         log(`❌ ${unit.name} не может обстрелять (${targetCol},${targetRow}) - слишком далеко (${distance} гексов, максимум ${maxRange}).`);
+        order.status = 'cancelled';
+        return;
+    }
+
+    // ⚡ v13.095 (п.2): ДОТ обстреливает только гексы внутри секторов своих амбразур
+    if (typeof operationalDotSectorAllows === 'function' && !operationalDotSectorAllows(unit, targetCol, targetRow)) {
+        log(`❌ ${unit.name}: гекс (${targetCol},${targetRow}) вне секторов обстрела амбразур ДОТа.`);
         order.status = 'cancelled';
         return;
     }
@@ -25007,6 +25130,8 @@ function retreatFromBattle(automatic) {
 
     // Синхронизируем потери (уничтоженные удалятся)
     syncBattleLossesToCampaign(battleId);
+    // ⚡ v13.095 (п.3): отступившие в бою отряды — отмена приказов и отход на 3 гекса
+    try { applyTacticalRetreatConsequences(battle); } catch (e) { console.warn('tactical retreat consequences:', e); }
 
     if (typeof onlineBattleFinished === 'function') onlineBattleFinished(battle);
     const retreatingNames = new Set(battle.playerUnitNames || []);
@@ -26486,6 +26611,14 @@ function executeOpShoot(targets, distance) {
         return;
     }
 
+    // ⚡ v13.095 (п.2): ДОТ не стреляет по целям вне секторов своих амбразур
+    if (typeof operationalDotSectorAllows === 'function' &&
+        !targets.some(t => t && operationalDotSectorAllows(shooter, t.col, t.row))) {
+        document.getElementById('mapInfo').innerHTML = '❌ Цель вне секторов обстрела амбразур ДОТа.';
+        log(`⚠️ [${shooter.name}]: цель вне секторов обстрела амбразур — выстрел не ведётся.`);
+        cancelOpShooting();
+        return;
+    }
     // ⚡ v13.046 (R31#3): пехота НЕ может обстреливать ДОТ
     if (targets.some(t => isStaticOpUnit(t))) {
         document.getElementById('mapInfo').innerHTML = '❌ Пехота не может обстреливать ДОТ. Только артиллерия калибром более 70мм (повреждает амбразуру).';
