@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.093 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.095 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -833,6 +833,25 @@ const TACTICAL_FIRE_SECTOR_OPTIONS = [
     { id: 'nw', label: '↖ Северо-запад', cube: { x: 0, y: 1, z: -1 } },
     { id: 'ne', label: '↗ Северо-восток', cube: { x: 1, y: 0, z: -1 } }
 ];
+// ⚡ v13.095 (п.2): ШИРИНА сектора обстрела амбразуры ДОТа зависит от типа ДОТа
+//    и оружия: ДОТ «Van Hees»: ПТ-орудие — круговой сектор 360°, пулемёт — 90°.
+//    ДОТ «Bosh»: два пулемёта — по 60°, орудие — 90°. Секторы разных амбразур
+//    МОГУТ совпадать/перекрываться. Направление по-прежнему задаёт игрок.
+function dotSectorWeaponKind(squad, crewIndex) {
+    const crew = squad && Array.isArray(squad.crewInstances) ? squad.crewInstances[crewIndex] : null;
+    const name = String((crew && crew.weaponName) || '');
+    if (/пулем|максим|шварцлозе|виккерс|браунинг|hotchkiss|гочкис|\bmg\b/i.test(name)) return 'mg';
+    if (/оруд|пушк|противотанк|bohler|бёлер|белер|гаубиц|миномёт|миномет|птр/i.test(name)) return 'gun';
+    return null;
+}
+function dotSectorWidthDeg(squad, crewIndex) {
+    const squadName = String((squad && squad.name) || '');
+    const kind = dotSectorWeaponKind(squad, crewIndex);
+    if (/van hees|ван хеес/i.test(squadName)) return kind === 'gun' ? 360 : 90;
+    if (/bosh|бош/i.test(squadName)) return kind === 'mg' ? 60 : 90;
+    return 60; // прочие ДОТы — прежний веер 60°
+}
+function _cubeToPixel2D(cube) { return { x: Math.sqrt(3) * (cube.x + cube.z / 2), y: 1.5 * cube.z }; }
 function _hexCubeCoords(c, r) { const x = c - (r - (r & 1)) / 2; const z = r; return { x, y: -x - z, z }; }
 
 function hexGridDistance(c1, r1, c2, r2) {
@@ -862,19 +881,40 @@ function tacticalDotHasConfiguredSectors(squad) {
     return !!squad && !!squad.fixedTacticalPosition &&
         !!(squad.fixedTacticalPosition.weaponSectors && Object.keys(squad.fixedTacticalPosition.weaponSectors).length);
 }
-function tacticalHexInFireSector(fromKey, targetKey, sectorId) {
+function tacticalHexInFireSector(fromKey, targetKey, sectorId, widthDeg) {
     const direction = TACTICAL_FIRE_SECTOR_OPTIONS.find(option => option.id === sectorId);
     if (!direction || !fromKey || !targetKey) return true;
     const from = String(fromKey).split(',').map(Number), target = String(targetKey).split(',').map(Number);
     if (from.length !== 2 || target.length !== 2 || !from.every(Number.isFinite) || !target.every(Number.isFinite)) return false;
     const a = _hexCubeCoords(from[0], from[1]), b = _hexCubeCoords(target[0], target[1]);
-    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
-    const distance = Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz));
+    const distance = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y), Math.abs(b.z - a.z));
     if (distance <= 0) return false;
-    const v = direction.cube;
-    const dot = dx * v.x + dy * v.y + dz * v.z;
-    // 60-градусный сектор вокруг заданной линии (30° по каждую сторону).
-    return dot > 0 && dot >= Math.sqrt(3) * distance;
+    const width = Number.isFinite(Number(widthDeg)) ? Number(widthDeg) : 60;
+    if (width >= 360) return true; // круговой обстрел (ПТ-амбразура Van Hees)
+    // Угол между осью сектора и направлением на цель (в пиксельной плоскости).
+    const tp = _cubeToPixel2D({ x: b.x - a.x, y: b.y - a.y, z: b.z - a.z });
+    const dp = _cubeToPixel2D(direction.cube);
+    const tLen = Math.hypot(tp.x, tp.y), dLen = Math.hypot(dp.x, dp.y);
+    if (tLen <= 0 || dLen <= 0) return false;
+    const cos = Math.max(-1, Math.min(1, (tp.x * dp.x + tp.y * dp.y) / (tLen * dLen)));
+    const angleDeg = Math.acos(cos) * 180 / Math.PI;
+    return angleDeg <= width / 2 + 0.5;
+}
+// ⚡ v13.095 (п.2): те же сектора действуют и на ОПЕРАТИВНОЙ карте: ДОТ может
+//    обстреливать только те оперативные гексы, что попадают в сектор хотя бы
+//    одной его амбразуры (ширина — по типу ДОТа/оружия).
+function operationalDotSectorAllows(unit, targetCol, targetRow) {
+    if (!unit || !Array.isArray(unit.squads)) return true;
+    const dotSquads = unit.squads.filter(sq => sq && /ДОТ/i.test(String(sq.name || '')) && tacticalDotHasConfiguredSectors(sq));
+    if (!dotSquads.length) return true; // сектора не настроены — ограничений нет
+    const fromKey = unit.col + ',' + unit.row, targetKey = targetCol + ',' + targetRow;
+    return dotSquads.some(squad => {
+        const sectors = (squad.fixedTacticalPosition && squad.fixedTacticalPosition.weaponSectors) || {};
+        return Object.keys(sectors).some(key => {
+            const crewIndex = Number(key);
+            return tacticalHexInFireSector(fromKey, targetKey, sectors[key], dotSectorWidthDeg(squad, crewIndex));
+        });
+    });
 }
 function tacticalDotWeaponCanTarget(squadIndex, targetIndex, crewIndex) {
     const squad = (appData && appData.squads || [])[squadIndex];
@@ -884,7 +924,7 @@ function tacticalDotWeaponCanTarget(squadIndex, targetIndex, crewIndex) {
     if (!squad || !target || !appData.map || !appData.map.grid) return false;
     const from = getBattleSquadHex(appData.map.grid, squadIndex, false);
     const to = getBattleSquadHex(appData.map.grid, targetIndex, true);
-    return !!(from && to && tacticalHexInFireSector(from.key, to.key, sector));
+    return !!(from && to && tacticalHexInFireSector(from.key, to.key, sector, dotSectorWidthDeg(squad, crewIndex)));
 }
 function tacticalDotCanFireAtTarget(squadIndex, targetIndex, crewIndices) {
     const squad = (appData && appData.squads || [])[squadIndex];
@@ -1030,9 +1070,11 @@ function grantTrenchPoints(hexKey, squadsCount, unitName, enemySide) {
     const currentBudget = Math.max(0, Math.floor(Number(ov.trenchPoints) || 0));
     const granted = n;
     ov.trenchPoints = currentBudget + granted;
+    ov.placedByMe = true;
     saveHexOverlays(hexKey);
     if (granted > 0) {
         log(`🕳️ ${unitName || 'Отряд'}: доступно гексов окопов на гексе (${hexKey}) — +${granted} (всего ${ov.trenchPoints}).`);
+        try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast(`🕳️ Окопы готовы: гекс (${hexKey}) — можно разместить ${ov.trenchPoints} окоп(а).`, 'success'); } catch (e) {}
         showHexEditButton(hexKey, 'trenches');
         queueHexEditPrompt(hexKey, 'trenches', unitName);
     } else {
@@ -1052,8 +1094,10 @@ function grantPrepPoints(hexKey, squadsCount, unitName, enemySide) {
     }
     const n = Math.max(1, Math.floor(Number(squadsCount) || 1));
     ov.prepPoints = (ov.prepPoints || 0) + n;
+    ov.placedByMe = true;
     saveHexOverlays(hexKey);
     log(`🪓 ${unitName || 'Отряд'}: доступно правок «подготовка позиций» на гексе (${hexKey}) — +${n} (всего ${ov.prepPoints}).`);
+    try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast(`🪓 Расчистка позиций готова: гекс (${hexKey}) — доступно правок: ${ov.prepPoints}.`, 'success'); } catch (e) {}
     showHexEditButton(hexKey, 'prep');
     queueHexEditPrompt(hexKey, 'prep', unitName);
     return ov.prepPoints;
@@ -1100,14 +1144,22 @@ function promptPendingHexEdits() {
 //    доступными правками и кнопки открытия карты (не зависит от строки сообщений)
 function renderHexEditsPanel() {
     const all = (typeof appData !== 'undefined' && appData.campaign && appData.campaign.hexOverlays) || {};
-    const rows = Object.keys(all).filter(k => all[k] && ((all[k].trenchPoints || 0) > 0 || (all[k].prepPoints || 0) > 0 || countHexTrenchCells(all[k]) > 0));
+    // ⚡ v13.094 (п.8): панель видна, только пока есть НЕИСПОЛЬЗОВАННЫЕ очки
+    //    своих приказов; после расстановки она скрывается до новых приказов.
+    //    Чужие работы в онлайне не показываем, пока гекс не раскрыт боем.
+    const rows = Object.keys(all).filter(k => {
+        const ov = all[k];
+        if (!ov || !((ov.trenchPoints || 0) > 0 || (ov.prepPoints || 0) > 0)) return false;
+        if (appData.campaign && appData.campaign.online && !ov.placedByMe && !operationalHexIsRevealed(k)) return false;
+        return true;
+    });
     const rowHtml = (k, inRunningBattle = false) => {
         const ov = all[k];
         const placed = countHexTrenchCells(ov);
         // В уже идущем тактическом бою, если бюджет расстановки исчерпан,
         // больше не открываем редактор окопов только ради повторной расстановки.
         // В оперативном интерфейсе текстуру/поворот существующих окопов менять можно.
-        const canOpenTrenchEditor = (ov.trenchPoints || 0) > 0 || (!inRunningBattle && placed > 0);
+        const canOpenTrenchEditor = (ov.trenchPoints || 0) > 0;
         return `· гекс <b>(${k})</b>: ` +
             (canOpenTrenchEditor ? `<button onclick="openHexEditorForBattle('${k}','trenches')" style="background:#8e44ad; font-size:0.85rem;">🕳️ ${(ov.trenchPoints || 0) ? `Расставить окопы (${ov.trenchPoints})` : `Текстура/поворот окопов (${placed})`}</button> ` : '') +
             ((ov.prepPoints || 0) ? `<button onclick="openHexEditorForBattle('${k}','prep')" style="background:#16a085; font-size:0.85rem;">🪓 Подготовка позиций (${ov.prepPoints})</button>` : '');
@@ -1445,7 +1497,10 @@ function hexEditClick(hexKeyCell) {
         return true;
     }
     appData.map.lastEditedHex = hexKeyCell;
-    if (st.kind === 'initialFortification') return initialFortificationEditClick(st, hexKeyCell, baseCell, working);
+    if (st.kind === 'initialFortification') {
+        if (st.dotSectorPickCrew !== null && st.dotSectorPickCrew !== undefined) return applyInitialDotSectorPick(st, hexKeyCell);
+        return initialFortificationEditClick(st, hexKeyCell, baseCell, working);
+    }
 
     // Окоп уже поставлен: повторный клик листает его текстуры, не расходуя правку.
     if (ov.hexEdits[hexKeyCell]) {
@@ -1882,7 +1937,67 @@ function setInitialDotWeaponSector(crewIndex, sectorId) {
     if (!TACTICAL_FIRE_SECTOR_OPTIONS.some(option => option.id === sectorId)) return;
     st.dotWeaponSectors[String(crewIndex)] = sectorId;
     st.dotSectorCandidateId = st.dotId;
+    persistInitialDotSectors(st);
     showHexEditorBanner();
+    try { redrawMap(); } catch (e) {}
+}
+// ⚡ v13.094 (п.3): сектор амбразуры задаётся КЛИКОМ по клетке карты: линия от
+//    клетки ДОТа к кликнутой клетке = ось сектора (веер ±30° рисуется на карте).
+function tacticalSectorIdBetween(fromKey, toKey) {
+    const from = String(fromKey || '').split(',').map(Number);
+    const to = String(toKey || '').split(',').map(Number);
+    if (from.length !== 2 || to.length !== 2 || !from.every(Number.isFinite) || !to.every(Number.isFinite)) return null;
+    if (from[0] === to[0] && from[1] === to[1]) return null;
+    const a = _hexCubeCoords(from[0], from[1]), b = _hexCubeCoords(to[0], to[1]);
+    const d = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z };
+    let best = null, bestDot = -Infinity;
+    TACTICAL_FIRE_SECTOR_OPTIONS.forEach(option => {
+        const v = option.cube;
+        const dot = d.x * v.x + d.y * v.y + d.z * v.z;
+        if (dot > bestDot) { bestDot = dot; best = option.id; }
+    });
+    return best;
+}
+function setInitialDotSectorPick(crewIndex) {
+    const st = hexEditorState;
+    if (!st || st.kind !== 'initialFortification') return;
+    st.dotSectorPickCrew = (st.dotSectorPickCrew === crewIndex) ? null : crewIndex;
+    showHexEditorBanner();
+    try { redrawMap(); } catch (e) {}
+}
+function persistInitialDotSectors(st) {
+    const candidate = initialDotCandidates().find(item => item.id === st.dotId);
+    if (!candidate || !candidate.squad.fixedTacticalPosition) return false;
+    if (String(candidate.squad.fixedTacticalPosition.hexKey) !== String(st.hexKey)) return false;
+    candidate.squad.fixedTacticalPosition.weaponSectors = Object.assign({}, st.dotWeaponSectors || {});
+    saveHexOverlays(st.hexKey);
+    return true;
+}
+function applyInitialDotSectorPick(st, cellKey) {
+    const candidate = initialDotCandidates().find(item => item.id === st.dotId);
+    const infoBox = document.getElementById('mapInfo');
+    const pos = candidate && candidate.squad.fixedTacticalPosition;
+    if (!candidate || !pos || String(pos.hexKey) !== String(st.hexKey)) {
+        if (infoBox) { infoBox.innerHTML = '⛔ Сначала поставьте ДОТ на клетку этой карты, затем указывайте сектора амбразур.'; infoBox.style.color = '#e74c3c'; }
+        st.dotSectorPickCrew = null;
+        showHexEditorBanner();
+        return true;
+    }
+    const sectorId = tacticalSectorIdBetween(pos.key, cellKey);
+    if (!sectorId) {
+        if (infoBox) { infoBox.innerHTML = '⛔ Кликните по другой клетке — направление сектора задаётся от клетки ДОТа к кликнутой.'; infoBox.style.color = '#e74c3c'; }
+        return true;
+    }
+    if (!st.dotWeaponSectors || st.dotSectorCandidateId !== st.dotId) setInitialDotCandidate(st.dotId);
+    st.dotWeaponSectors[String(st.dotSectorPickCrew)] = sectorId;
+    st.dotSectorCandidateId = st.dotId;
+    persistInitialDotSectors(st);
+    const label = (TACTICAL_FIRE_SECTOR_OPTIONS.find(o => o.id === sectorId) || {}).label || sectorId;
+    if (infoBox) { infoBox.innerHTML = `🎯 Сектор амбразуры: линия от ДОТа (${pos.key}) к клетке ${cellKey} — ${label}. Линии сектора нарисованы на карте.`; infoBox.style.color = '#27ae60'; }
+    st.dotSectorPickCrew = null;
+    showHexEditorBanner();
+    try { redrawMap(); } catch (e) {}
+    return true;
 }
 function initialDotSectorControls(st) {
     const candidate = initialDotCandidates().find(item => item.id === st.dotId);
@@ -1901,9 +2016,12 @@ function initialDotSectorControls(st) {
             const value = st.dotWeaponSectors[String(index)] || 'e';
             const options = TACTICAL_FIRE_SECTOR_OPTIONS.map(option =>
                 `<option value="${option.id}" ${option.id === value ? 'selected' : ''}>${option.label}</option>`).join('');
-            return `<label style="color:#ddd; font-size:.82rem;">${label} — ${String(weapon.name || crew.weaponName)}: ` +
-                `<select onchange="setInitialDotWeaponSector(${index},this.value)">${options}</select></label>`;
-        }).join('') + '</div><div style="color:#888; font-size:.78rem;">У каждого расчёта свой сектор (веер ±30° от выбранной линии); цель вне сектора для этого оружия недоступна.</div>';
+            const picking = st.dotSectorPickCrew === index;
+            const widthDeg = dotSectorWidthDeg(candidate.squad, index);
+            return `<label style="color:#ddd; font-size:.82rem;">${label} — ${String(weapon.name || crew.weaponName)} (сектор ${widthDeg >= 360 ? '360° — круговой' : widthDeg + '°'}): ` +
+                `<select onchange="setInitialDotWeaponSector(${index},this.value)">${options}</select> ` +
+                `<button type="button" onclick="setInitialDotSectorPick(${index})" style="${picking ? 'background:#e67e22;' : 'background:#2980b9;'} font-size:.78rem;">${picking ? '🎯 Кликните клетку направления…' : '🎯 Указать на карте'}</button></label>`;
+        }).join('') + '</div><div style="color:#888; font-size:.78rem;">У каждого расчёта свой сектор: Van Hees — ПТ-орудие 360° (круговой), пулемёт 90°; Bosh — пулемёты по 60°, орудие 90°. Секторы могут перекрываться. Цель вне сектора для этого оружия недоступна — и в тактическом бою, и на оперативной карте. «🎯 Указать на карте» — затем кликните клетку, куда смотрит амбразура: линии сектора появятся на карте от клетки ДОТа.</div>';
 }
 function initialDotSelector(st) {
     const escape = text => String(text).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

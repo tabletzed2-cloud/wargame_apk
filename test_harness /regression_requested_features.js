@@ -121,7 +121,7 @@ test('время приказа необязательно и ограничен
 });
 
 // 4. Термитный заряд достаётся двум живым сапёрным отделениям AIRF.
-test('термитный заряд выдаётся двум сапёрным отделениям AIRF', () => {
+test('термитный заряд выдаётся всем сапёрным отделениям взвода AIRF (v13.094 п.11)', () => {
   const s = createSandbox(freshAppData());
   loadHtml(s, ['isAirfSapperSquad', 'applyCardToPlatoon', 'getCardTargetSpec']);
   s.run(`
@@ -137,12 +137,12 @@ test('термитный заряд выдаётся двум сапёрным �
     var targetSpec = getCardTargetSpec('Термитный заряд');
     var cardDesc = AIRF_CARDS.find(c => c.name === 'Термитный заряд').desc;
   `);
-  equal(s.evalCtx('targetSpec.count'), 2, 'карта требует две цели');
+  equal(s.evalCtx('targetSpec'), null, 'выбор целей не нужен — заряды получают все сапёрные отделения');
   equal(s.evalCtx('sappers[0].thermiteCharges'), 3, 'первый сапёр получает три заряда');
   equal(s.evalCtx('sappers[1].thermiteCharges'), 3, 'второй сапёр получает три заряда');
-  equal(s.evalCtx('sappers[2].thermiteCharges'), undefined, 'третий сапёр не получает лишние заряды');
+  equal(s.evalCtx('sappers[2].thermiteCharges'), 3, 'третий сапёр тоже получает заряды (всем отделениям взвода)');
   equal(s.evalCtx('sappers[3].thermiteCharges'), undefined, 'карта не выдаётся другой фракции');
-  includes(s.evalCtx('cardDesc'), 'Два сапёрных отделения AIRF', 'описание карты соответствует эффекту');
+  includes(s.evalCtx('cardDesc'), 'Все сапёрные отделения взвода', 'описание карты соответствует эффекту');
 });
 
 // 5. Три указанных гекса входят в стартовую/расстановочную зону BeVe.
@@ -302,7 +302,7 @@ test('зона стартовых позиций BeVe включает 11,8, 10,
     var requestedBeveHexes = [[11, 8], [10, 7], [9, 6]];
     var requestedBeveAllowed = requestedBeveHexes.map(([col, row]) => isHexInPlacementZone('valencia', 'BeVe', col, row).ok);
   `);
-  equal(s.evalCtx('JSON.stringify(beveZoneExtras)'), '[[2,7],[3,7],[4,7],[11,8],[10,7],[9,6]]', 'явные гексы расстановки включают все три новые координаты');
+  equal(s.evalCtx('JSON.stringify(beveZoneExtras)'), '[[2,7],[3,7],[4,7],[11,8],[10,7],[9,6],[10,6],[9,5]]', 'явные гексы расстановки включают 11,8/10,7/9,6 и добавленные в v13.094 10,6/9,5');
   equal(s.evalCtx('requestedBeveAllowed.every(Boolean)'), true, 'каждый указанный гекс допустим для размещения BeVe');
 });
 

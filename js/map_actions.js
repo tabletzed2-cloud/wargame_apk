@@ -310,6 +310,28 @@ function renderMapActionPanel() {
         if (Number(squad.flares) > 0) {
             html += `<button onclick="mapFireFlare(${idx})" ${utilityDisabled} title="Запустить осветительную ракету; действует до конца хода">🚀 Осветительная ракета (${Number(squad.flares)} шт.)</button>`;
         }
+        // ⚡ v13.094 (п.13): БТР — высадить десант в гекс машины
+        if (squad.embarkedSquadIndex !== null && squad.embarkedSquadIndex !== undefined &&
+            typeof appData !== 'undefined' && appData.squads && appData.squads[squad.embarkedSquadIndex]) {
+            html += `<button onclick="selectSquad(${idx}); disembarkSquad(); renderMapActionPanel();" ${utilityDisabled} title="Десант высаживается в тот же гекс, где стоит БТР">🚌 Высадить десант</button>`;
+        }
+        // ⚡ v13.094 (п.9): способности от бонусных карточек — в возможных действиях отряда
+        if ((squad.thermiteCharges || 0) > 0) {
+            html += `<button onclick="selectSquad(${idx}); useThermiteCharge(); renderMapActionPanel();" ${utilityDisabled} title="Карточка «Термитный заряд»: против техники/амбразуры рядом">🧨 Термитный заряд (${Number(squad.thermiteCharges)})</button>`;
+        }
+        if ((squad.panzerblindeCharges || 0) > 0) {
+            html += `<button onclick="selectSquad(${idx}); usePanzerblinde(); renderMapActionPanel();" ${utilityDisabled} title="Карточка «Ослепляющие гранаты Panzerblinde»">💥 Ослепляющая граната (${Number(squad.panzerblindeCharges)})</button>`;
+        }
+        if ((squad.smokeGrenades || 0) >= 3 && !squad.armor) {
+            html += `<button onclick="selectSquad(${idx}); deploySmokeScreen(); renderMapActionPanel();" ${utilityDisabled} title="Карточка «Дымовые гранаты»: завеса на своём гексе (3 гранаты)">🌫️ Дымовая завеса (${Number(squad.smokeGrenades)} гр.)</button>`;
+        }
+        if (!squad.armor && (squad.fighters || []).some(f => f && f.hp > 0 && f.weapon === 'РОКС-3')) {
+            html += `<button onclick="selectSquad(${idx}); useFlamethrower(); renderMapActionPanel();" ${utilityDisabled} title="Карточка «Ранцевый огнемёт РОКС-3»">🔥 Огнемёт РОКС-3</button>`;
+        }
+        // ⚡ v13.094 (п.12): отмена последнего действия этого боя
+        if (typeof tacticalUndoStack !== 'undefined' && tacticalUndoStack.length > 0) {
+            html += `<button onclick="undoLastTacticalAction()" style="background:#8e44ad;" title="Вернуть состояние боя до последнего действия (ОД, боеприпасы, урон, потери)">↩️ Отменить последнее действие</button>`;
+        }
         const ammoRunners = mapActionEligibleAmmoRunners(squad);
         const ammoRunDisabled = (routed || !pos || phaseLocked || meleeEngaged || !utilityAllowed) ? 'disabled' : '';
         if (ammoRunners.length > 0) {
