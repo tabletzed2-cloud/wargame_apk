@@ -182,7 +182,7 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx) {
 }
 
 function mapActionDefById(id) {
-    if (id === 'dotmg') return { id: 'dotmg', label: 'Пулемёт ДОТа', targets: 'any', small: true };
+    if (id === 'dotmg') return { id: 'dotmg', label: 'Пулемёт ДОТа', targets: 'infantry', small: true };
     return MAP_ACTION_DEFS.find(d => d.id === id) || null;
 }
 
@@ -217,7 +217,7 @@ function renderMapActionPanel() {
         `<span>Дух: ${morale}/${squad.baseMorale}</span>` +
         (squad.armor ? '' : `<span>Патроны: ${squad.ammoSmall || 0} · Гранаты: ${squad.grenades || 0}</span>`) +
         (squad.ammoOrdnance ? `<span>Снаряды: ${squad.ammoOrdnance}</span>` : '') +
-        (squad.suppressed ? `<span style="color:#f39c12;">💫 подавлен</span>` : '') +
+        (squad.suppressed ? `<span style="color:#f39c12;">💫 подавлен: без движения, стрельба −2</span>` : '') +
         (pos ? `<span style="color:#aaa;">гекс ${pos.key}</span>` : `<span style="color:#e74c3c;">не размещён</span>`) +
         `</div>`;
 
@@ -835,8 +835,11 @@ function reportAttackOutcome(kind, data) {
     const before = mapActionEnemyAlive(enemy);
     switch (kind) {
         case 'smallArms':
-        case 'dotmg':
             applyDamagePointsToEnemy(enemy, data.hits || 0, res);
+            break;
+        case 'dotmg':
+            if (mapActionEnemyIsVehicle(enemy)) res.notes.push('пулемёт ДОТа не наносит урон бронетехнике');
+            else applyDamagePointsToEnemy(enemy, data.hits || 0, res);
             break;
         case 'sniper':
             applyDamagePointsToEnemy(enemy, (data.hits ? (data.damage || 0) : 0), res);
@@ -866,9 +869,13 @@ function reportAttackOutcome(kind, data) {
         }
         case 'suppressiveFire':
             if ((data.hits || 0) > 0 || (data.shots || 0) > 0) {
-                enemy.suppressed = true;
-                enemy.suppressedTurn = (typeof currentTurn !== 'undefined') ? currentTurn : 1;
-                res.notes.push('💫 цель подавлена');
+                if (typeof markTacticalSuppressed === 'function') markTacticalSuppressed(enemy, 'player');
+                else {
+                    enemy.suppressed = true;
+                    enemy.suppressedTurn = (typeof currentTurn !== 'undefined') ? currentTurn : 1;
+                    enemy.suppressedBySide = 'player';
+                }
+                res.notes.push('💫 цель подавлена; перемещение запрещено в следующей фазе');
                 mapActionMarkSuppressOut(enemy.name);
             }
             break;
