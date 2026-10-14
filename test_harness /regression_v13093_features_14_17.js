@@ -113,9 +113,10 @@ test('15: пулемёт ДОТа не выбирает бронетехнику
 // 16. Suppression blocks movement for the target's next phase, but leaves fire available at −2 accuracy.
 test('16: подавленный отряд не двигается, стреляет со штрафом, а статус снимается после своей фазы', () => {
   const s = createSandbox(freshAppData());
-  loadHtml(s, ['isBicycleTacticalSquad', 'tacticalActionAllowed', 'markTacticalSuppressed', 'clearTacticalSuppressionForSide', 'getTacticalSuppressionAccuracyPenalty']);
+  loadHtml(s, ['isBicycleTacticalSquad', 'tacticalActionAllowed', 'markTacticalSuppressed', 'clearTacticalSuppressionForSide', 'getTacticalSuppressionAccuracyPenalty', 'resetAP']);
   s.run(`
-    var currentTurn = 4;
+    var currentTurn = 4, actionPoints = [];
+    function getMaxAP() { return 6; }
     var player = { name: 'Пехотное отделение', fighters: [{ hp: 3 }], suppressed: true };
     var enemy = { name: 'Вражеское отделение', fighters: [{ hp: 3 }], suppressed: false };
     appData.squads = [player]; appData.map = { activeSide: 'player', attackTargetEnemyIdx: null, enemySquads: [enemy] };
@@ -131,6 +132,8 @@ test('16: подавленный отряд не двигается, стрел�
     clearTacticalSuppressionForSide('enemy');
     var playerStillSuppressed = player.suppressed;
     var enemyCleared = !enemy.suppressed;
+    resetAP();
+    var playerSuppressedAfterAPReset = player.suppressed;
     clearTacticalSuppressionForSide('player');
     var playerClearedAfterOwnPhase = !player.suppressed;
   `);
@@ -140,6 +143,7 @@ test('16: подавленный отряд не двигается, стрел�
   equal(s.evalCtx('enemySuppressedTurn'), 4, 'сохраняется ход, когда наложили подавление');
   equal(s.evalCtx('enemySuppressedBySide'), 'player', 'сохраняется сторона, наложившая подавление');
   equal(s.evalCtx('playerStillSuppressed'), true, 'окончание чужой фазы не снимает подавление с игрока');
+  equal(s.evalCtx('playerSuppressedAfterAPReset'), true, 'пересчёт ОД не снимает подавление до конца собственной фазы');
   equal(s.evalCtx('enemyCleared'), true, 'статус цели снимается после её собственной фазы');
   equal(s.evalCtx('playerClearedAfterOwnPhase'), true, 'свой статус снимается после завершения своей фазы');
 });

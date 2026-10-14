@@ -84,6 +84,15 @@ function mapActionHasCrewFlag(squad, flag) {
         return !!cw && !!cw[flag];
     });
 }
+function mapActionDotCrewIndices(squad, types) {
+    const cws = mapActionCrewWeapons(squad);
+    return (squad && squad.crewInstances || []).map((ci, index) => ({ ci, index }))
+        .filter(({ ci }) => {
+            if (!ci || ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') return false;
+            const cw = cws.find(w => w.name === ci.weaponName);
+            return !!cw && types.includes(cw.type);
+        }).map(item => item.index);
+}
 function mapActionHasSniper(squad) {
     let ws = [];
     try { ws = getFactionWeapons(squad.faction) || []; } catch (e) { return false; }
@@ -143,7 +152,7 @@ function mapActionSelectedIdx() {
 }
 
 // Цель по индексу: дистанция/укрытие/причина недопустимости для действия
-function mapActionEvalTarget(def, shooterIdx, enemyIdx) {
+function mapActionEvalTarget(def, shooterIdx, enemyIdx, extra) {
     const grid = appData.map.grid;
     const enemy = (appData.map.enemySquads || [])[enemyIdx];
     const out = { idx: enemyIdx, enemy, ok: false, reason: '', dist: null, cover: null };
@@ -154,6 +163,9 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx) {
     const tPos = getBattleSquadHex(grid, enemyIdx, true);
     if (!sPos) { out.reason = 'ваш отряд не на карте'; return out; }
     if (!tPos) { out.reason = 'не на карте'; return out; }
+    if (def.id !== 'melee' && typeof tacticalSmokeBlocksSight === 'function' && tacticalSmokeBlocksSight(sPos.key, tPos.key, appData.map)) {
+        out.reason = 'линия обстрела перекрыта дымом'; return out;
+    }
     out.dist = hexGridDistance(sPos.col, sPos.row, tPos.col, tPos.row);
     out.cover = getTacticalCoverInfoForEnemy(grid, enemyIdx);
     const shooterSquad = appData.squads[shooterIdx];
@@ -169,6 +181,21 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx) {
     if (def.targets === 'infantry' && isVeh) { out.reason = 'по технике так нельзя'; return out; }
     let maxDist = def.maxDist;
     const shooter = (appData.squads || [])[shooterIdx];
+    if (shooter && /ДОТ/i.test(String(shooter.name || '')) && typeof tacticalDotCanFireAtTarget === 'function') {
+        if (def.id === 'ordnance') {
+            const crewIndices = mapActionDotCrewIndices(shooter, ['at_gun', 'mortar', 'tank_gun']);
+            if (crewIndices.length && !tacticalDotCanFireAtTarget(shooterIdx, enemyIdx, crewIndices)) {
+                out.reason = 'цель вне сектора орудий ДОТа'; return out;
+            }
+        } else if (def.id === 'dotmg') {
+            const crewIndices = mapActionDotCrewIndices(shooter, ['mg']);
+            const selectedCrew = Number.isInteger(Number(extra)) ? Number(extra) : null;
+            const relevant = selectedCrew === null ? crewIndices : crewIndices.filter(i => i === selectedCrew);
+            if (relevant.length && !tacticalDotCanFireAtTarget(shooterIdx, enemyIdx, relevant)) {
+                out.reason = 'цель вне сектора пулемётной амбразуры'; return out;
+            }
+        }
+    }
     if (def.id === 'ordnance' && typeof is82mmMortarSquad === 'function' && is82mmMortarSquad(shooter)) {
         maxDist = (maxDist === undefined) ? 4 : Math.min(maxDist, 4);
     }
@@ -234,7 +261,7 @@ function renderMapActionPanel() {
             `<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">`;
         const enemies = appData.map.enemySquads || [];
         const hexFilter = appData.map.pendingTargetHex;
-        const evals = enemies.map((e, i) => mapActionEvalTarget(def || { targets: 'any' }, idx, i))
+        const evals = enemies.map((e, i) => mapActionEvalTarget(def || { targets: 'any' }, idx, i, pa.extra))
             .filter(ev => ev.enemy && ev.enemy.hidden !== true && ev.enemy.detected && ev.dist !== null)
             .filter(ev => {
                 if (!hexFilter) return true;
@@ -511,19 +538,30 @@ function mapBeginAmmoRun() {
     }
     const runners = mapActionEligibleAmmoRunners(squad);
     if (!runners.length) { mapActionInfo('Нет свободного живого бойца (кроме командира и наводчика пулемёта), который может идти за боеприпасами.', '#e67e22'); return; }
+    if (typeof syncLiveMapSupplyPoints === 'function') syncLiveMapSupplyPoints();
+    const pos = getBattleSquadHex(appData.map.grid, idx, false);
+    const supplyKeys = typeof activeSupplyPointKeys === 'function'
+        ? activeSupplyPointKeys(appData.map, 'player') : [];
+    if (!supplyKeys.length) {
+        mapActionInfo('⛔ Нет действующего пункта боепитания — отправка за БК запрещена.', '#e74c3c');
+        return;
+    }
+    const turns = (pos && typeof estimateAmmoDeliveryTurns === 'function')
+        ? estimateAmmoDeliveryTurns(appData.map, pos.key, 'player') : null;
+    if (!Number.isInteger(turns) || turns <= 0) {
+        mapActionInfo('⛔ Не удалось рассчитать маршрут до пункта боепитания.', '#e74c3c');
+        return;
+    }
     const type = prompt('Что принести?\n1 — Патроны (30)\n2 — Снаряды (10)\n3 — Гранаты (5)', '1');
     if (type === null) return;
     if (!['1', '2', '3'].includes(String(type).trim())) { mapActionInfo('Выберите тип боеприпаса: 1, 2 или 3.', '#e67e22'); return; }
-    const turnsInput = prompt('Сколько тактических ходов потребуется? (положительное целое число)', '1');
-    if (turnsInput === null) return;
-    const turns = Number(String(turnsInput).trim());
-    if (!Number.isInteger(turns) || turns <= 0) { mapActionInfo('Укажите положительное целое число ходов.', '#e67e22'); return; }
     const runner = runners[Math.floor(Math.random() * runners.length)].fighter;
     runner.isAway = true;
     runner.turnsToReturn = turns;
     runner.ammoType = String(type).trim();
+    runner.ammoSupplyHex = nearestSupplyPoint(appData.map, pos.key, 'player')?.key || null;
     const ammoName = runner.ammoType === '1' ? 'патронами (+30)' : runner.ammoType === '2' ? 'снарядами (+10)' : 'гранатами (+5)';
-    const message = `📦 ${runner.name} из отряда «${squad.name}» отправился за ${ammoName}; вернётся через ${turns} ход(ов).`;
+    const message = `📦 ${runner.name} из отряда «${squad.name}» отправился за ${ammoName} к пункту ${runner.ammoSupplyHex}; ETA ${turns} такт. фаз(ы) / ${turns * 2} мин.`;
     if (typeof log === 'function') log(message);
     mapActionInfo(message, '#27ae60');
     if (typeof updateUI === 'function') updateUI();
@@ -607,6 +645,11 @@ function mapHexClickDuringBinoculars(key) {
     }
     if (!appData.map.grid[key]) {
         mapActionInfo(`⛔ Гекс ${key} не найден на карте.`, '#e74c3c');
+        return true;
+    }
+    const observerPos = getBattleSquadHex(appData.map.grid, idx, false);
+    if (observerPos && typeof tacticalSmokeBlocksSight === 'function' && tacticalSmokeBlocksSight(observerPos.key, key, appData.map)) {
+        mapActionInfo('💨 Дымовая завеса закрывает линию обзора — цель не обнаружена.');
         return true;
     }
     const enemies = appData.map.enemySquads || [];
@@ -700,7 +743,7 @@ function mapPickTarget(enemyIdx) {
         return;
     }
     const def = mapActionDefById(pa.type) || { targets: 'any' };
-    const ev = mapActionEvalTarget(def, idx, enemyIdx);
+    const ev = mapActionEvalTarget(def, idx, enemyIdx, pa.extra);
     if (!ev.ok) {
         mapActionInfo(`⛔ Цель «${ev.enemy ? ev.enemy.name : enemyIdx}» недопустима: ${ev.reason}.`, '#e74c3c');
         renderMapActionPanel();
@@ -830,6 +873,10 @@ function reportAttackOutcome(kind, data) {
     if (idx === null || idx === undefined || idx < 0) return null;
     const enemy = (appData.map.enemySquads || [])[idx];
     if (!enemy) return null;
+    if (kind !== 'melee' && typeof currentSquadIndex === 'number' && typeof tacticalSmokeBlocksAttack === 'function' && tacticalSmokeBlocksAttack(currentSquadIndex, idx)) {
+        try { log('⛔ Дымовая завеса блокирует обнаружение и обстрел цели.'); } catch (e) {}
+        return { blocked: true, target: enemy.name, damage: 0 };
+    }
     const shooterName = (typeof currentSquad !== 'undefined' && currentSquad) ? currentSquad.name : '';
     const res = { kind, target: enemy.name, hits: data.hits || 0, damage: 0, killed: [], wounded: [], notes: [], vehicleResults: [] };
     const before = mapActionEnemyAlive(enemy);

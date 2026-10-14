@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { createSandbox, freshAppData, setRandom, sliceFunction } = require('./sandbox');
-const { HTML, ROOT } = require('./extract');
+const { HTML, ROOT, sliceConst } = require('./extract');
 
 let pass = 0, fail = 0;
 function test(name, fn) {
@@ -145,6 +145,300 @@ test('термитный заряд выдаётся двум сапёрным �
   includes(s.evalCtx('cardDesc'), 'Два сапёрных отделения AIRF', 'описание карты соответствует эффекту');
 });
 
+// 5. Три указанных гекса входят в стартовую/расстановочную зону BeVe.
+test('в уже идущем бою меню окопов скрыто, если очки расстановки израсходованы', () => {
+  const s = createSandbox(freshAppData());
+  s.run(`
+    appData.currentBattleId = 77;
+    appData.campaign.activeBattles = [{ id: 77, hexKey: '4,4' }];
+    appData.campaign.hexOverlays = { '4,4': { trenchPoints: 0, prepPoints: 0, hexEdits: { '1,1': 'trenches' } } };
+    renderHexEditsPanel();
+  `);
+  equal(s.elements.battleHexEditsPanel.style.display, 'none', 'при уже размещённых окопах и нулевом бюджете battle-панель скрыта');
+  assert(!s.elements.battleHexEditsPanel.innerHTML.includes('Расставить окопы'), 'в бою не предлагается повторная расстановка');
+  s.run(`appData.campaign.hexOverlays['4,4'].prepPoints = 2; renderHexEditsPanel();`);
+  equal(s.elements.battleHexEditsPanel.style.display, 'block', 'панель доступна, если осталась подготовка позиций');
+  assert(s.elements.battleHexEditsPanel.innerHTML.includes('Подготовка позиций'), 'доступное действие подготовки не скрывается');
+  assert(!s.elements.battleHexEditsPanel.innerHTML.includes('Текстура/поворот окопов'), 'в бою редактор окопов не показывается повторно');
+  s.run(`appData.campaign.hexOverlays['4,4'].trenchPoints = 1; renderHexEditsPanel();`);
+  assert(s.elements.battleHexEditsPanel.innerHTML.includes('Расставить окопы (1)'), 'новые неиспользованные очки по-прежнему дают право расставить окопы');
+});
+
+test('онлайн-работы противника по окопам и расчистке скрыты до раскрытия гекса', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['opMarkerIsFogged']);
+  s.run(`
+    appData.campaign.playerFaction = 'BeVe';
+    appData.campaign.activeBattles = [];
+    appData.campaign.hexOverlays = {};
+    appData.campaign.opMapGrid = {
+      '6,6': { markers: ['trenches'], markerOwners: { trenches: 'A.I.R.F.' } }
+    };
+    var ONLINE = { role: 'p2' };
+    TACTICAL_HEX_MAPS['1,2'] = { grid: {
+      '0,0': { type: 'grass' }, '1,1': { type: 'forest' }, '2,2': { type: 'bushes' }
+    } };
+    var enemyWorks = {
+      '1,2': {
+        hexEdits: { '0,0': 'trenches', '1,1': 'fallen_forest', '2,2': 'grass' },
+        hexVariants: {}, hexRotations: { '0,0': 60 },
+        hexEditSources: { '0,0': 'trenches', '1,1': 'prep' },
+        initialFortifications: { trenchCells: ['3,3'], dotCells: [] },
+        trenchPoints: 5, prepPoints: 4, shellings: 1
+      }
+    };
+    var hiddenMergeChanged = mergeHexOverlays(enemyWorks);
+    var hiddenOverlay = JSON.parse(JSON.stringify(appData.campaign.hexOverlays['1,2']));
+    var hiddenOperationalMarker = opMarkerIsFogged('trenches', 6, 6);
+    appData.campaign.fogRevealedHexes = ['1,2', '6,6'];
+    var revealedMergeChanged = mergeHexOverlays(enemyWorks);
+    var revealedOverlay = JSON.parse(JSON.stringify(appData.campaign.hexOverlays['1,2']));
+    var revealedOperationalMarker = opMarkerIsFogged('trenches', 6, 6);
+  `);
+  equal(s.evalCtx('Object.keys(hiddenOverlay.hexEdits).length'), 0, 'до боя не приняты правки окопов и расчистки');
+  equal(s.evalCtx('hiddenOverlay.initialFortifications.trenchCells.length'), 0, 'скрыты и начальные вражеские траншеи');
+  equal(s.evalCtx('hiddenOverlay.trenchPoints'), 0, 'не синхронизируется бюджет вражеских работ');
+  equal(s.evalCtx('hiddenOperationalMarker'), true, 'вражеская оперативная метка скрыта туманом');
+  equal(s.evalCtx("revealedOverlay.hexEdits['0,0']"), 'trenches', 'после раскрытия доступны траншеи');
+  equal(s.evalCtx("revealedOverlay.hexEdits['1,1']"), 'fallen_forest', 'после раскрытия доступна расчистка леса');
+  equal(s.evalCtx("revealedOverlay.hexEdits['2,2']"), 'grass', 'старый cloud без источника распознаёт расчистку кустов');
+  equal(s.evalCtx('revealedOverlay.initialFortifications.trenchCells[0]'), '3,3', 'после боя синхронизируется начальная траншея');
+  equal(s.evalCtx('revealedOperationalMarker'), false, 'после раскрытия оперативная метка видна');
+});
+
+test('8: оперативные юниты остаются доступными для выбора после смены отряда и сброса маршрута', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['handleOpMapClick']);
+  s.run(`
+    var OP_HEX_SIZE = 55, pickingTargetHex = false;
+    function canvasBackingScale() { return 1; }
+    function tryMoveSelectedOpUnitToHex() { return false; }
+    function updateDismountPanel() {} function updateBtrPanel() {} function updateVehiclePanel() {}
+    function renderVehicleStatus() {} function showContactModal() {}
+    var firstUnit = { name:'Первый взвод', type:'infantry_platoon', col:2, row:2, ap:4, availableHexes:[{col:12,row:12}] };
+    var secondUnit = { name:'Второй взвод', type:'infantry_platoon', col:4, row:2, ap:4 };
+    appData.campaign.opMapMode = 'view';
+    appData.campaign.opZoomLevel = 1;
+    appData.campaign.opUnits = [firstUnit, secondUnit];
+    appData.campaign.enemyOpUnits = [];
+    appData.campaign.opCenters = [
+      {key:'2,2', x:2*Math.sqrt(3)*55 + Math.sqrt(3)*55/2, y:2*1.5*55+55},
+      {key:'4,2', x:4*Math.sqrt(3)*55 + Math.sqrt(3)*55/2, y:2*1.5*55+55}
+    ];
+    var canvas = document.getElementById('opMapCanvas'); canvas.width=1000; canvas.height=1000;
+    canvas.getBoundingClientRect = () => ({left:0,top:0,width:1000,height:1000});
+    var scale = Math.sqrt(3)*55;
+    handleOpMapClick({clientX: 2*scale + scale/2, clientY: 2*1.5*55+55});
+    var firstSelected = appData.campaign.selectedOpUnit === firstUnit;
+    handleOpMapClick({clientX: 4*scale + scale/2, clientY: 2*1.5*55+55});
+    var secondSelected = appData.campaign.selectedOpUnit === secondUnit;
+    var oldRouteCleared = !firstUnit.availableHexes;
+  `);
+  equal(s.evalCtx('firstSelected'), true, 'первый взвод можно выбрать на карте');
+  equal(s.evalCtx('secondSelected'), true, 'следующий взвод выбирается обычным кликом');
+  equal(s.evalCtx('oldRouteCleared'), true, 'смена выбора очищает устаревшую подсветку маршрута');
+});
+
+test('онлайн-потери от огня/рукопашной считаются один раз и отображаются в начале фазы игрока', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['tacticalRecordIncomingCasualty', 'tacticalBeginPlayerTurn']);
+  loadModule(s, 'js/online_battles.js');
+  s.run(`
+    function getMaxAP() { return 6; }
+    appData.campaign.online = true;
+    appData.map = { grid: { }, enemySquads: [] };
+    var localSquad = { name: 'Мой отряд', fighters: [
+      { name: 'Боец 1', hp: 1, maxHp: 1 }, { name: 'Боец 2', hp: 1, maxHp: 1 }
+    ], currentMorale: 5, baseMorale: 5 };
+    var onlineBattle = { id: 1, hexKey: '3,3', onlineOppBattleId: 2, activeSide: 'enemy',
+      phaseRevision: 0, currentTurn: 1, playerSquads: [localSquad], enemySquads: [],
+      tacticalMap: { grid: {}, enemySquads: [] } };
+    appData.campaign.activeBattles = [onlineBattle];
+    var enemySnapshot = { id: 2, oppBattleId: 1, status: 'active', turn: 2,
+      phaseRevision: 1, activeSide: 'attacker', squads: [], dmgOut: { 'Мой отряд': [1, 1] } };
+    var incomingMergeChanged = onlineMergeOppBattle(onlineBattle, enemySnapshot);
+    var lossesAfterFirstMerge = localSquad.lossesAtTurnStart;
+    var pendingAfterStart = localSquad.pendingCombatLosses;
+    var duplicateMergeChanged = onlineMergeOppBattle(onlineBattle, enemySnapshot);
+    var lossesAfterDuplicate = localSquad.lossesAtTurnStart;
+  `);
+  equal(s.evalCtx('incomingMergeChanged'), true, 'приняты входящий урон и смена фазы');
+  equal(s.evalCtx("onlineBattle.activeSide"), 'player', 'противник передал ход игроку');
+  equal(s.evalCtx('lossesAfterFirstMerge'), 2, 'две гибели от входящего онлайн-урона показаны на начале фазы');
+  equal(s.evalCtx('pendingAfterStart'), 0, 'учтённые потери перенесены из очереди в бейдж текущего хода');
+  equal(s.evalCtx('duplicateMergeChanged'), false, 'повторный снимок не применяется второй раз');
+  equal(s.evalCtx('lossesAfterDuplicate'), 2, 'дубликат не удваивает счётчик потерь');
+});
+
+test('тактическая иконка рисует число потерь и статусы «подавлен»/«бегут»', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['drawHex']);
+  s.run(`
+    if (typeof loadedImages === 'undefined') globalThis.loadedImages = {};
+    if (typeof loadedMarkerImages === 'undefined') globalThis.loadedMarkerImages = {};
+    if (typeof drawTacticalSmokeOverlay !== 'function') globalThis.drawTacticalSmokeOverlay = function() {};
+    getAP = function() { return 2; };
+    getMaxAP = function() { return 6; };
+    appData.squads = [{ name: 'Пехота', fighters: [], detected: true, lossesAtTurnStart: 2,
+      suppressed: true, isRouting: true }];
+    appData.map = { mode: 'view', enemySquads: [], selectedMoveSquadIdx: -1 };
+    globalThis.__r21DrawCalls = [];
+    globalThis.__r21Canvas = new Proxy({}, { get: function(t, k) {
+      if (k === 'fillText') return function(text) { __r21DrawCalls.push(String(text)); };
+      if (k === 'createLinearGradient' || k === 'createRadialGradient') return function() { return { addColorStop: function() {} }; };
+      return function() {};
+    }, set: function() { return true; } });
+    drawHex(__r21Canvas, 0, 0, 50, { type: 'grass', squadIds: [0], enemySquadIds: [], markers: [] }, '0,0');
+  `);
+  equal(s.evalCtx("__r21DrawCalls.includes('2')"), true, 'над иконкой нарисовано число потерь');
+  equal(s.evalCtx("__r21DrawCalls.includes('👁️💫🏃')"), true, 'на иконке отображаются обнаружение, подавление и бегство');
+});
+
+test('зона стартовых позиций BeVe включает 11,8, 10,7 и 9,6', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['pointInPolygon', 'zoneExtraHexes', 'isHexInPlacementZone']);
+  s.run(`
+    var beveZoneExtras = zoneExtraHexes('valencia', 'BeVe');
+    var requestedBeveHexes = [[11, 8], [10, 7], [9, 6]];
+    var requestedBeveAllowed = requestedBeveHexes.map(([col, row]) => isHexInPlacementZone('valencia', 'BeVe', col, row).ok);
+  `);
+  equal(s.evalCtx('JSON.stringify(beveZoneExtras)'), '[[2,7],[3,7],[4,7],[11,8],[10,7],[9,6]]', 'явные гексы расстановки включают все три новые координаты');
+  equal(s.evalCtx('requestedBeveAllowed.every(Boolean)'), true, 'каждый указанный гекс допустим для размещения BeVe');
+});
+
+test('удалённые гексы и нижняя линия отсутствуют только на оперативной карте Валенсии', () => {
+  const s = createSandbox(freshAppData());
+  s.run(`
+    var removedOperationalHexes = SCENARIO_REMOVED_HEXES.valencia.slice();
+    var allRemovedReject = removedOperationalHexes.every(key => {
+      const [col, row] = key.split(',').map(Number);
+      return isHexRemovedFromOperationalMap('valencia', col, row) && !isHexInPlayableArea('valencia', col, row);
+    });
+    var unaffectedOperationalHexes = !isHexRemovedFromOperationalMap('other', 12, 1) && isHexInPlayableArea('other', 12, 1);
+  `);
+  equal(s.evalCtx('removedOperationalHexes.length'), 20, 'список содержит семь точечных гексов и линию 0,14–12,14');
+  equal(s.evalCtx('allRemovedReject'), true, 'удалённые позиции не считаются игровыми гексами операционной карты');
+  equal(s.evalCtx('unaffectedOperationalHexes'), true, 'удаление ограничено сценарием Валенсии');
+  const terrain = JSON.parse(fs.readFileSync(path.join(ROOT, 'maps/valencia_terrain.json'), 'utf8'));
+  for (const key of ['12,1', '12,3', '12,5', '12,7', '12,9', '12,11', '12,13', ...Array.from({ length: 13 }, (_, i) => `${i},14`)]) {
+    assert(!Object.prototype.hasOwnProperty.call(terrain, key), `террейн удалённого гекса ${key} убран из оперативной карты`);
+  }
+  assert(fs.existsSync(path.join(ROOT, 'maps/Карты Валенсия')), 'тактическая коллекция карт Валенсии не удалялась');
+});
+
+test('сектора ДОТа разделены по орудиям и ограничивают выбор цели', () => {
+  const s = createSandbox(freshAppData());
+  loadModuleFunctions(s, 'js/map_actions.js', [
+    'mapActionCrewWeapons', 'mapActionDotCrewIndices', 'mapActionEnemyAlive', 'mapActionEnemyIsVehicle', 'mapActionEvalTarget'
+  ]);
+  s.run(`
+    function getFactionCrewWeapons() { return [{ name: 'Пулемёт амбразуры 1', type: 'mg' }]; }
+    function getTacticalCoverInfoForEnemy() { return null; }
+    function tacticalEnemyHexHasFriendlies() { return null; }
+    function tacticalIsMeleeEngaged() { return false; }
+    function tacticalSmokeBlocksSight() { return false; }
+    function smallArmsBlockedByForest() { return false; }
+    var dot = { name: 'ДОТ Bosh', faction: 'BeVe', crewInstances: [{ weaponName: 'Пулемёт амбразуры 1' }],
+      fixedTacticalPosition: { hexKey: '5,5', key: '5,5', weaponSectors: { '0': 'e' } } };
+    var enemy = { name: 'Вражеский взвод', fighters: [{ hp: 3 }], detected: true };
+    appData.squads = [dot];
+    appData.map = { grid: {
+      '5,5': { squadIds: [0], enemySquadIds: [] },
+      '8,5': { squadIds: [], enemySquadIds: [0] },
+      '2,5': { squadIds: [], enemySquadIds: [] }
+    }, enemySquads: [enemy] };
+    var eastTarget = mapActionEvalTarget({ id: 'dotmg', targets: 'infantry' }, 0, 0, 0);
+    appData.map.grid['8,5'].enemySquadIds = [];
+    appData.map.grid['2,5'].enemySquadIds = [0];
+    var westTarget = mapActionEvalTarget({ id: 'dotmg', targets: 'infantry' }, 0, 0, 0);
+  `);
+  equal(s.evalCtx('eastTarget.ok'), true, 'цель в восточном секторе разрешена');
+  equal(s.evalCtx('westTarget.ok'), false, 'цель за спиной не разрешена');
+  includes(s.evalCtx('westTarget.reason'), 'сектора', 'причина отказа указывает на сектор амбразуры');
+});
+
+test('дым скрывает отряд, блокирует обнаружение и стрельбу и истекает по сроку', () => {
+  const s = createSandbox(freshAppData());
+  s.run(sliceConst(HTML, 'TACTICAL_SMOKE_DURATION_PHASES'));
+  loadHtml(s, [
+    'tacticalCubeRound', 'tacticalHexLineKeys', 'tacticalSmokeActiveClouds', 'tacticalHexIsSmoky',
+    'tacticalSmokeBlocksSight', 'tacticalSquadBattlePosition', 'tacticalSmokeBlocksAttack',
+    'tacticalSmokeAllEnemyObserversBlocked', 'tacticalApplySmokeConcealment', 'tacticalCreateSmokeCloud',
+    'tacticalExpireSmoke', 'tacticalMergeSmokeClouds', 'tacticalSmokeWindDestination', 'deploySmokeScreen', 'autoDetectOneSquad'
+  ]);
+  loadModuleFunctions(s, 'js/map_actions.js', ['mapActionEnemyAlive', 'mapActionEnemyIsVehicle', 'mapActionEvalTarget']);
+  s.run(`
+    function getTacticalCoverInfoForEnemy() { return null; }
+    function tacticalEnemyHexHasFriendlies() { return null; }
+    function tacticalIsMeleeEngaged() { return false; }
+    function smallArmsBlockedByForest() { return false; }
+    var smokeGrid = {};
+    for (var row = 0; row < 5; row++) for (var col = 0; col < 5; col++) smokeGrid[col + ',' + row] = { squadIds: [], enemySquadIds: [] };
+    var observer = { name: 'Наш отряд', fighters: [{ hp: 3 }], detected: true };
+    var smokedEnemy = { name: 'Враг', fighters: [{ hp: 3 }], detected: true, actionsThisTurn: { shots: 2 } };
+    smokeGrid['0,2'].squadIds = [0]; smokeGrid['4,2'].enemySquadIds = [0];
+    appData.squads = [observer];
+    appData.map = { grid: smokeGrid, enemySquads: [smokedEnemy], smokeClouds: [] };
+    var cloud = tacticalCreateSmokeCloud('2,2', 'player');
+    var lineBlocked = tacticalSmokeBlocksSight('0,2', '4,2', appData.map);
+    var enemyHidden = smokedEnemy.detected === false;
+    autoDetectOneSquad(smokedEnemy, 'враг');
+    var hiddenAfterDetection = smokedEnemy.detected === false;
+    smokedEnemy.detected = true;
+    var shotEval = mapActionEvalTarget({ id: 'smallArms', targets: 'any', small: true }, 0, 0);
+    var cloudExpired = tacticalExpireSmoke(3);
+    var smokeGone = !tacticalHexIsSmoky('2,2', appData.map, 3);
+  `);
+  equal(s.evalCtx('cloud.center'), '2,2', 'облако привязано к целевому гексу');
+  assert(s.evalCtx('cloud.hexes.length') > 1, 'дым покрывает несколько соседних гексов');
+  equal(s.evalCtx('lineBlocked'), true, 'дым на линии блокирует обзор');
+  equal(s.evalCtx('enemyHidden'), true, 'отряд за дымом скрывается сразу');
+  equal(s.evalCtx('hiddenAfterDetection'), true, 'автообнаружение не раскрывает отряд в дыму');
+  equal(s.evalCtx('shotEval.ok'), false, 'цель за дымом нельзя обстрелять');
+  includes(s.evalCtx('shotEval.reason'), 'дымом', 'отказ объясняет перекрытие дымом');
+  equal(s.evalCtx('cloudExpired'), true, 'истекшее облако удалено');
+  equal(s.evalCtx('smokeGone'), true, 'после срока гексы больше не считаются дымными');
+  s.run(`
+    var smokeThrower = { name: 'Наш пехотный отряд', fighters: [{hp:3}], smokeGrenades: 3, armor: null };
+    appData.squads = [smokeThrower];
+    appData.map.smokeClouds = [];
+    appData.map.grid['0,2'].squadIds = [0];
+    var currentSquad = smokeThrower, currentSquadIndex = 0, currentTurn = 1;
+    function tacticalActionAllowed() { return true; }
+    function spendAP() { return true; }
+    function rollD12() { return 3; }
+    deploySmokeScreen();
+    var smokeActionCenter = appData.map.smokeClouds[0] && appData.map.smokeClouds[0].center;
+  `);
+  equal(s.evalCtx('smokeActionCenter'), '1,2', 'действие дымовых гранат создаёт облако с учётом сноса ветром на один гекс');
+  equal(s.evalCtx('smokeThrower.smokeGrenades'), 0, 'за облако списываются три дымовые гранаты');
+  loadHtml(s, ['throwGrenades']);
+  s.run(`
+    var phosphorusThrower = { name: 'Фосфорный отряд', fighters: [{hp:3},{hp:3},{hp:3},{hp:3}],
+      grenades: 7, effects: { phosphorusGrenades: true }, armor: null };
+    appData.squads = [phosphorusThrower];
+    appData.map.smokeClouds = [];
+    appData.map.grid['0,2'].squadIds = [0];
+    appData.map.attackTargetEnemyIdx = null;
+    currentSquad = phosphorusThrower; currentSquadIndex = 0; currentTurn = 1;
+    var phosRolls = [8,8,8,1], phosRollIndex = 0;
+    function rollD10() { return phosRolls[phosRollIndex++]; }
+    function getTacticalTargetDistance() { return 1; }
+    function getEffectiveMorale() { return 5; }
+    function getSuppressionThreshold() { return 2; }
+    function getScopedActiveModifiersForSquad() { return []; }
+    function getActionCost() { return 1; }
+    function reportAttackOutcome() {}
+    throwGrenades();
+    var cloudAfterThreeHits = appData.map.smokeClouds.length;
+    phosRolls = [8,8,8,8]; phosRollIndex = 0; phosphorusThrower.grenades = 7;
+    throwGrenades();
+    var cloudAfterFourHits = appData.map.smokeClouds.length;
+  `);
+  equal(s.evalCtx('cloudAfterThreeHits'), 0, 'фосфорный залп менее чем с четырьмя попаданиями не создаёт облако');
+  equal(s.evalCtx('cloudAfterFourHits'), 1, 'четыре попадания фосфорными гранатами создают дымовую завесу');
+});
+
 // 5. 82-мм миномёт тратит боеприпасы типа ordnance.
 test('стрельба 82-мм миномёта расходует снаряды, а не патроны', () => {
   const s = createSandbox(freshAppData());
@@ -282,7 +576,7 @@ test('пехота проходит воронку за ту же стоимос
 });
 
 // 9. «За боеприпасами» выбирает бойца случайно, но исключает командира и наводчика пулемёта.
-test('действие «За боеприпасами» отправляет случайного доступного бойца', () => {
+test('действие «За боеприпасами» отправляет бойца к действующему пункту с автоматической ETA', () => {
   const s = createSandbox(freshAppData());
   loadModule(s, 'js/map_actions.js');
   setRandom(s, [0]);
@@ -296,7 +590,8 @@ test('действие «За боеприпасами» отправляет с
     function getAP() { return 4; }
     function tacticalActionAllowed() { return true; }
     function tacticalIsMeleeEngaged() { return false; }
-    var promptValues = ['2', '3'];
+    function syncLiveMapSupplyPoints() {}
+    var promptValues = ['2'];
     function prompt() { return promptValues.shift(); }
     appData.squads = [{ name: 'Разведывательное отделение', faction: 'A.I.R.F.', ammoSmall: 10, ammoOrdnance: 2, grenades: 0,
       fighters: [
@@ -305,7 +600,9 @@ test('действие «За боеприпасами» отправляет с
         { name: 'Стрелок', hp: 3 },
         { name: 'Сержант', hp: 3 }
       ], crewInstances: [{ weaponName: 'Пулемёт MG', fighterIndices: [1, 2] }] }];
-    appData.map = { grid: { '0,0': { squadIds: [0], enemySquadIds: [] } }, selectedMoveSquadIdx: 0, mode: 'move' };
+    appData.map = { autoSupplyKeysPlayer: ['1,0'], grid: {
+      '0,0': { squadIds: [0], enemySquadIds: [] }, '1,0': { squadIds: [], enemySquadIds: [], markers: ['ammoPoint'] }
+    }, selectedMoveSquadIdx: 0, mode: 'move' };
     var eligibleNames = mapActionEligibleAmmoRunners(appData.squads[0]).map(x => x.fighter.name);
     mapBeginAmmoRun();
   `);
@@ -315,8 +612,29 @@ test('действие «За боеприпасами» отправляет с
   assert(eligible.includes('Сержант'), 'не-командир может быть выбран');
   equal(s.evalCtx('appData.squads[0].fighters[2].isAway'), true, 'случайный стрелок отправлен');
   equal(s.evalCtx('appData.squads[0].fighters[2].ammoType'), '2', 'сохранён выбранный тип снарядов');
-  equal(s.evalCtx('appData.squads[0].fighters[2].turnsToReturn'), 3, 'сохранён срок возвращения');
+  equal(s.evalCtx('appData.squads[0].fighters[2].turnsToReturn'), 1, 'ETA автоматически рассчитана до ближайшего пункта (1 тактическая фаза)');
+  equal(s.evalCtx('appData.squads[0].fighters[2].ammoSupplyHex'), '1,0', 'сохранён выбранный действующий пункт боепитания');
   includes(s.logs.join('\n'), 'снарядами (+10)', 'отправленный боец несёт максимальную порцию выбранного типа');
+});
+
+test('без действующего пункта боепитания отправка за БК запрещена', () => {
+  const s = createSandbox(freshAppData());
+  loadModule(s, 'js/map_actions.js');
+  s.run(`
+    function getBattleSquadHex() { return { key: '0,0' }; }
+    function getAP() { return 4; }
+    function tacticalActionAllowed() { return true; }
+    function tacticalIsMeleeEngaged() { return false; }
+    function syncLiveMapSupplyPoints() {}
+    var promptCalls = 0;
+    function prompt() { promptCalls++; return '1'; }
+    appData.squads = [{ name: 'Отделение', fighters: [{ name: 'Стрелок', hp: 3 }] }];
+    appData.map = { grid: { '0,0': { squadIds: [0], enemySquadIds: [] } }, selectedMoveSquadIdx: 0 };
+    mapBeginAmmoRun();
+  `);
+  equal(s.evalCtx('promptCalls'), 0, 'игроку не предлагают выбирать груз без пункта снабжения');
+  equal(s.evalCtx('appData.squads[0].fighters[0].isAway'), undefined, 'боец не отправлен');
+  includes(s.elements.mapInfo.innerHTML.toLowerCase(), 'нет действующего пункта боепитания', 'на карте показана причина запрета');
 });
 
 // 10. Плавающее меню открывается двойным кликом и закрывается при выборе команды.
@@ -635,6 +953,8 @@ test('каталог добавляет общий «Двойной БК», уд
   const globalCard = s.evalCtx(`GLOBAL_CARDS.find(c => c.name === 'Двойной БК')`);
   equal(globalCard && globalCard.type, 'bonus', '«Двойной БК» — бонусная карта');
   equal(globalCard && globalCard.subfaction, 'common', 'карта общая для фракций');
+  equal(globalCard && globalCard.icon, 'images/Двойной БК.png', 'карте назначена иконка');
+  assert(fs.existsSync(path.join(ROOT, globalCard.icon)), 'файл иконки «Двойной БК» существует');
   equal(s.evalCtx(`GLOBAL_CARDS.some(c => c.name === 'Велостоянка') || BEVE_CARDS.some(c => c.name === 'Велостоянка') || AIRF_CARDS.some(c => c.name === 'Велостоянка')`), false, 'карта «Велостоянка» удалена из исходных каталогов');
   equal(s.evalCtx(`SQUAD_TEMPLATES.find(t => t.name === 'Штаб роты №1 Бельгийцы').icon`), 'images/BeVe/штаб роты BeVe бел.jpg', 'штаб бельгийской роты использует заданный файл');
 
@@ -707,6 +1027,30 @@ test('«Двойной БК» удваивает патроны, гранаты 
 });
 
 // 22. Велосипедная стоянка хранит владельца и теряется при входе противника на гекс.
+test('13: тактический БТР высаживает пассажира в собственный текущий гекс', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['disembarkSquad']);
+  s.run(`
+    var currentSquadIndex = 0, currentSquad = null;
+    var actionPoints = {0:{ap:3}};
+    function spendAP(index, cost) { if (actionPoints[index].ap < cost) return false; actionPoints[index].ap -= cost; return true; }
+    function getActionCost() { return 1; }
+    function renderSquadSelector() {} function renderEmbarkPanel() {} function updateUI() {}
+    var carrier = {name:'БТР №1', armor:{front:4}, embarkedSquadIndex:1};
+    var passenger = {name:'Пехотный взвод', hidden:true, fighters:[{hp:3}]};
+    appData.squads = [carrier, passenger]; currentSquad = carrier;
+    appData.map = {grid:{'2,3':{squadIds:[0],enemySquadIds:[]},'1,1':{squadIds:[1],enemySquadIds:[]}}};
+    disembarkSquad();
+    var destination = getBattleSquadHex(appData.map.grid, 1, false);
+    var passengerLocations = Object.keys(appData.map.grid).filter(key => appData.map.grid[key].squadIds.includes(1));
+  `);
+  equal(s.evalCtx('destination.key'), '2,3', 'пассажир появляется на гексе БТР');
+  equal(s.evalCtx('passenger.hidden'), false, 'пассажир снова видим и активен');
+  equal(s.evalCtx('passengerLocations.length'), 1, 'старая позиция пассажира удалена');
+  equal(s.evalCtx('carrier.embarkedSquadIndex'), null, 'связь с десантом очищена');
+  equal(s.evalCtx('actionPoints[0].ap'), 2, 'высадка тратит ОД БТР');
+});
+
 test('захват велостоянки лишает велосипедный взвод транспорта и снижает дух на 1', () => {
   const s = createSandbox(freshAppData());
   loadHtml(s, ['operationalBicycleUnitSide', 'operationalBicycleParkCell', 'setOperationalBicyclePark', 'operationalBicycleParkOwners', 'operationalBicycleParkBelongsTo', 'removeOperationalBicyclePark', 'resolveBicycleParkCaptures']);

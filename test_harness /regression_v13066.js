@@ -92,7 +92,7 @@ test('R44#1: пункт боепитания встаёт в гекс штаба
   assert.ok(!s.evalCtx("appData.map.grid['0,0'].markers").includes('ammoPoint'), 'пехотное отделение — без метки');
 });
 
-test('R44#1: метка следует за штабом и снимается при уничтожении', () => {
+test('R44#1 / п.19: метка остаётся на исходном гексе и снимается при уничтожении', () => {
   const s = sandbox();
   s.run(`
     appData.squads = [{ name: 'Штаб взвода №2 Голландцы', fighters: [{ hp: 3, maxHp: 3 }] }];
@@ -107,9 +107,10 @@ test('R44#1: метка следует за штабом и снимается �
     syncLiveMapSupplyPoints();
     globalThis.__afterDeath = JSON.parse(JSON.stringify(appData.map));
   `);
-  eq(s, '__afterMove.grid["4,4"].markers', [], 'старый гекс очищен');
-  assert.ok(s.evalCtx('__afterMove.grid["7,7"].markers').includes('ammoPoint'), 'метка переехала со штабом');
-  eq(s, '__afterDeath.grid["7,7"].markers', [], 'у уничтоженного штаба метки нет');
+  assert.ok(s.evalCtx('__afterMove.grid["4,4"].markers').includes('ammoPoint'), 'пункт остаётся на исходном гексе');
+  assert.ok(!s.evalCtx('__afterMove.grid["7,7"].markers').includes('ammoPoint'), 'метка не переезжает вместе со штабом');
+  eq(s, '__afterMove.autoSupplyKeysPlayer', ['4,4'], 'активный пункт сохраняет исходные координаты');
+  eq(s, '__afterDeath.grid["4,4"].markers', [], 'у уничтоженного штаба исходная метка снимается');
   eq(s, 'appData.map.autoSupplyKeysPlayer', []);
 });
 

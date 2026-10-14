@@ -129,6 +129,7 @@ function onlineBattleSnapshot(battle, status) {
     const live = onlineBattleIsLive(battle);
     const squads = onlineBattleMySquads(battle);
     const pos = onlineSquadPositions(onlineBattleGrid(battle), 'squadIds');
+    const tacticalMap = live ? ((typeof appData !== 'undefined' && appData.map) || {}) : (battle.tacticalMap || {});
     onlineAccumulateDmgOut(battle);
     // ⚡ v13.055 (R39#3): фаза размещения — позиции своих отрядов уходят оппоненту
     //    только после «✅ Размещение завершено» (расстановка скрыта до готовности обоих)
@@ -193,6 +194,11 @@ function onlineBattleSnapshot(battle, status) {
         moraleIn: onlineSupPlain(battle.onlineMoraleIn),
         dmgOut: onlineDmgPlain(battle.onlineDmgOut),
         dmgIn: onlineDmgPlain(battle.onlineDmgIn),
+        smokeClouds: (Array.isArray(tacticalMap.smokeClouds) ? tacticalMap.smokeClouds : []).map(cloud => ({
+            id: cloud.id, center: cloud.center, hexes: Array.isArray(cloud.hexes) ? cloud.hexes.slice() : [],
+            sourceSide: cloud.sourceSide || null, createdTurn: Number(cloud.createdTurn) || 1,
+            expiresAfterTurn: Number(cloud.expiresAfterTurn) || 0
+        })),
         // ⚡ v13.054 (R39#4): подавление отрядов оппонента моим огнём с карты
         //    {имя отряда: метка времени} — у оппонента отряд получит «Подавлен»
         supOut: onlineSupPlain(battle.onlineSupOut)
@@ -486,6 +492,10 @@ function onlineMergeOppBattle(battle, e) {
     const live = onlineBattleIsLive(battle);
     const enemies = onlineBattleEnemySquads(battle);
     const grid = onlineBattleGrid(battle);
+    const tacticalMap = live ? ((typeof appData !== 'undefined' && appData.map) || null) : (battle.tacticalMap || null);
+    if (tacticalMap && Array.isArray(e.smokeClouds) && typeof tacticalMergeSmokeClouds === 'function') {
+        if (tacticalMergeSmokeClouds(tacticalMap, e.smokeClouds, e.turn)) changed = true;
+    }
     if (!battle.onlineOppHpSeen) battle.onlineOppHpSeen = {};
     if (!battle.onlineDmgOut) battle.onlineDmgOut = {};
     if (!battle.onlineDmgIn) battle.onlineDmgIn = {};
@@ -522,7 +532,8 @@ function onlineMergeOppBattle(battle, e) {
     }
     const oppPositionsVisible = !myPl || myPl.phase === 'done' || (!!myPl.playerReady && oppPlaced);
 
-    if (onlineAcceptBattlePhase(battle, e, live)) changed = true;
+    const acceptedPlayerPhase = onlineAcceptBattlePhase(battle, e, live);
+    if (acceptedPlayerPhase) changed = true;
     if (Number.isFinite(Number(e.tacticalPhasesCompleted))) {
         const phases = Number(e.tacticalPhasesCompleted);
         if (battle.tacticalPhasesCompleted !== phases) { battle.tacticalPhasesCompleted = phases; changed = true; }
@@ -668,6 +679,7 @@ function onlineMergeOppBattle(battle, e) {
             f.hp = Math.max(0, before - delta);
             applied[i] = (applied[i] || 0) + delta;
             if (before > 0 && f.hp <= 0) {
+                if (typeof tacticalRecordIncomingCasualty === 'function') tacticalRecordIncomingCasualty(s);
                 const morale = (s.currentMorale !== undefined && s.currentMorale !== null) ? Number(s.currentMorale) : Number(s.baseMorale || 5);
                 s.currentMorale = Math.max(0, (Number.isFinite(morale) ? morale : 5) - (f.isCommander ? 2 : 1));
             }
@@ -695,11 +707,17 @@ function onlineMergeOppBattle(battle, e) {
             try { log(`🏳️ Ваш отряд «${s.name}» автоматически отступил из-за низкого боевого духа.`); } catch (err) {}
         }
     });
+    if (acceptedPlayerPhase && battle.activeSide === 'player' && typeof tacticalBeginPlayerTurn === 'function') {
+        tacticalBeginPlayerTurn(mySquads);
+    }
     if (hurt.length > 0) {
         const msg = `💥 Бой на гексе (${battle.hexKey}): противник нанёс урон — ` + hurt.join(', ');
         try { log(msg); } catch (err) {}
         const mi = document.getElementById('mapInfo');
         if (mi && !live) { mi.innerHTML = msg; mi.style.color = '#e74c3c'; }
+    }
+    if (live && tacticalMap && typeof tacticalApplySmokeConcealment === 'function' && tacticalApplySmokeConcealment(tacticalMap)) {
+        changed = true;
     }
 
     // --- служебное ---

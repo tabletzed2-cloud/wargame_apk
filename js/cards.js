@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.092 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.093 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // v13.062: platoon-wide IPP, two veteran squads, one rifle replacement per squad.
 // ⚡ v13.061: «Велоблиц» получает тактический бонус движения и фланговой меткости.
 // ==================== БИБЛИОТЕКА КАРТОЧЕК ====================
@@ -17,7 +17,7 @@ const GLOBAL_CARDS = [
   { "name": "Упрямство", "desc": "Выбранное подразделение не отступает с заданного гекса ни при каких условиях, даже по приказу.", "effect": "Не отступает", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/Бельгийское упрямтсво.png", "subfaction": "common", "informational": true, "type": "negative" },
   { "name": "Собачья упряжка", "desc": "Расчёт пулемёта/миномёта +1 гекс за ход.", "effect": "+1 гекс перемещения", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/собачья упряжка.jpg", "subfaction": "common", "informational": true, "type": "bonus" },
   { "name": "Велоблиц", "desc": "Велосипедный отряд получает +3 гекса движения за ход и +1 к меткости при фланговой атаке.", "effect": "+3 гекса движения; +1 меткость во фланг", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/Велоблиц.png", "subfaction": "common", "informational": true, "type": "bonus" },
-  { "name": "Двойной БК", "desc": "Выбранный взвод получает двойной боезапас.", "effect": "Патроны, гранаты и снаряды всех отрядов взвода ×2", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "", "subfaction": "common", "doubleAmmo": true, "type": "bonus" },
+  { "name": "Двойной БК", "desc": "Выбранный взвод получает двойной боезапас.", "effect": "Патроны, гранаты и снаряды всех отрядов взвода ×2", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "images/Двойной БК.png", "subfaction": "common", "doubleAmmo": true, "type": "bonus" },
   // ⚡ v13.056 (R39#3): это бонусная карточка, не штрафная.
   { "name": "Скоординированный заградительный огонь", "desc": "Отделение поддержки подавляет 2 смежных гекса.", "effect": "Подавление 2 гексов", "shotMod": 0, "accuracyMod": 0, "moraleMod": 0, "icon": "", "subfaction": "common", "informational": true, "type": "bonus" },
   // ⚡ v13.079: «Аварийный тормоз» (Noodrem) убран из карт — это стандартная

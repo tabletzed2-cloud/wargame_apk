@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.092 — operational map panning, a taller map panel, start-position deployment for both sides and fixed DOT hexes.
+// ⚡ BUILD-МАРКЕР: v13.093 — campaign-start cards, post-move phone relays, and requested campaign/tactical fixes.
 (function () {
   'use strict';
 

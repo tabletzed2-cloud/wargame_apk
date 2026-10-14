@@ -68,6 +68,9 @@ test('18: офлайн-бои остаются на паузе до ручног
   equal(s.evalCtx('resumed'), true, 'после завершения оперативных приказов пауза снимается');
   equal(s.evalCtx('appData.campaign.activeBattles.some(b => b.pausedForOrders)'), false, 'все параллельные бои снова доступны');
   equal(s.evalCtx('appData.campaign.tacticalOrdersBarrier'), null, 'барьер оперативных приказов закрыт');
+  equal(s.evalCtx('sourceBattle.tacticalPhasesCompleted'), 0, 'после приказов открывается новый отсчёт тактических фаз');
+  s.run(`var phaseCountAfterResume = registerCompletedTacticalPhase(sourceBattle); for (var n = 0; n < 4; n++) phaseCountAfterResume = registerCompletedTacticalPhase(sourceBattle);`);
+  equal(s.evalCtx('phaseCountAfterResume'), 5, 'до следующей общей паузы бой может провести ещё пять фаз');
 });
 
 test('18: онлайн-бои ждут новый номер хода, то есть готовность обоих игроков', () => {

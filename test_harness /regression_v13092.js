@@ -240,13 +240,13 @@ test('v13.092 (п.3): галочка ДОТов стоит в сборке ба�
   assert.includes(HTML, "if (total === 4 && supportIds.length !== 3)", 'правило «ровно 3 из 4» не сломано');
 });
 
-test('текущая версия приложения синхронизирована с выпуском v13.092', () => {
-  assert.equal(VERSION, 'v13.092', `APP_VERSION = ${VERSION}`);
+test('текущая версия приложения, маркеры и кэш сервис-воркера синхронизированы', () => {
+  assert.match(VERSION, /^v\d+\.\d+$/, `APP_VERSION = ${VERSION}`);
   const sw = fs.readFileSync(path.join(ROOT, 'service-worker.js'), 'utf8');
-  assert.includes(sw, "const CACHE_NAME = 'wargame-v13.092';", 'кэш сервис-воркера обновлён');
+  assert.includes(sw, `const CACHE_NAME = 'wargame-${VERSION}';`, 'кэш сервис-воркера обновлён');
   ['js/data.js', 'js/hexmaps.js', 'js/templates.js', 'js/operational_ui.js'].forEach(mod => {
     const text = fs.readFileSync(path.join(ROOT, mod), 'utf8');
-    assert.includes(text, '⚡ BUILD-МАРКЕР: v13.092', `маркер сборки в ${mod}`);
+    assert.includes(text, `⚡ BUILD-МАРКЕР: ${VERSION}`, `маркер сборки в ${mod}`);
   });
 });
 

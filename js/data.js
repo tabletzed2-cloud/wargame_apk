@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.092 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.093 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.061: current release data and terrain definitions; absent texture variants no longer referenced.
 // ==================== КОНСТАНТЫ И ДАННЫЕ ==================== 
 // Типы местности
@@ -19,7 +19,7 @@
       //    v13.050: текстуры — авторские файлы пользователя (лес поваленный /
       //    лес обстрелянный / воронки в поле); в варианты обычной травы и леса
       //    они НЕ входят (воронки и обстрелянный лес появляются только после обстрела).
-      fallen_forest:    { color: '#8D6E63', baseCost: 3,  icon: '🪵', level: 0, images: ['images/лес поваленный.png', 'images/лес поваленный1.png', 'images/лес поваленный2.png'] },
+      fallen_forest:    { color: '#8D6E63', baseCost: 3,  icon: '🪵', level: 0, images: ['images/лес поваленный.png', 'images/лес поваленный1.png'] },
       shelled_forest:   { color: '#4E342E', baseCost: 3,  icon: '🌲', level: 0, images: ['images/лес обстрелянный.png', 'images/лес обстрелянный1.png'] },
       craters:          { color: '#795548', baseCost: 2,  icon: '💥', level: 0, images: ['images/воронки в поле.png', 'images/воронки в поле1.png'] },
    };
@@ -51,14 +51,15 @@ const SCENARIO_OP_MAP_SETTINGS = {
 //      BeVe — 69 гекса (верх/центр карты), A.I.R.F. — 10 гексов (нижний левый угол).
 //    Если сценария/фракции нет в списке — зон нет (размещение свободно).
 // ⚡ v13.038: ЯВНЫЕ ДОБАВЛЕНИЯ к зонам расстановки (по требованию игрока):
-//    BeVe — расширение зоны на гексы 2,7 / 3,7 / 4,7 (их центры лежат НА
-//    границе полигона, и ray casting исключал их из зоны).
+//    BeVe — гексы 2,7 / 3,7 / 4,7 на границе полигона.
+// ⚡ п.5: BeVe — дополнительные стартовые гексы 11,8 / 10,7 / 9,6;
+//    11,8 и 10,7 лежат на границе и ray casting исключал их из зоны.
 // ⚡ v13.040: A.I.R.F. — расширение зоны на гексы 0,13 / 1,13 / 2,13 / 4,13
 //    (тот же случай — центры на границе полигона).
 // ⚡ v13.042 (R27#8): A.I.R.F. — добавлен гекс 3,13.
 const SCENARIO_PLACEMENT_ZONE_EXTRA_HEXES = {
   valencia: {
-    'BeVe': [[2,7],[3,7],[4,7]],
+    'BeVe': [[2,7],[3,7],[4,7],[11,8],[10,7],[9,6]],
     'A.I.R.F.': [[0,13],[1,13],[2,13],[3,13],[4,13]]
   }
 };
@@ -70,10 +71,23 @@ const SCENARIO_PLACEMENT_ZONE_EXTRA_HEXES = {
 const SCENARIO_PLAYABLE_AREA = {
   valencia: { minCol: 0, maxCol: 12, minRow: 0, maxRow: 14 }
 };
+// Удалённые клетки оперативной карты Валенсии (не затрагивает карты тактических боёв).
+const SCENARIO_REMOVED_HEXES = {
+  valencia: [
+    '12,1', '12,3', '12,5', '12,7', '12,9', '12,11', '12,13',
+    '0,14', '1,14', '2,14', '3,14', '4,14', '5,14', '6,14',
+    '7,14', '8,14', '9,14', '10,14', '11,14', '12,14'
+  ]
+};
 
+function isHexRemovedFromOperationalMap(scenario, col, row) {
+  const removed = SCENARIO_REMOVED_HEXES[scenario] || [];
+  return removed.includes(`${Number(col)},${Number(row)}`);
+}
 function isHexInPlayableArea(scenario, col, row) {
   const area = SCENARIO_PLAYABLE_AREA[scenario];
   if (!area) return true; // сценарий без ограничений
+  if (isHexRemovedFromOperationalMap(scenario, col, row)) return false;
   return col >= area.minCol && col <= area.maxCol && row >= area.minRow && row <= area.maxRow;
 }
 

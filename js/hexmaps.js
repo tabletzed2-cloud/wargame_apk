@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.092 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.093 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -324,6 +324,32 @@ function isEnemyOperationalUnit(unitOrName) {
             (typeof unitOrName === 'string' || !unitOrName.faction || !enemy.faction || enemy.faction === unitOrName.faction))
     ));
 }
+function operationalFactionForUnit(unit) {
+    const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || {};
+    if (unit && unit.faction) return unit.faction;
+    const enemy = isEnemyOperationalUnit(unit);
+    if (!enemy) return camp.playerFaction || null;
+    const onlineEnemy = camp.onlineOpponent && camp.onlineOpponent.faction;
+    if (onlineEnemy) return onlineEnemy;
+    return camp.playerFaction === 'BeVe' ? 'A.I.R.F.' : 'BeVe';
+}
+function markOperationalMarkerOwner(hexKey, markerType, unit) {
+    const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
+    const grid = camp && camp.opMapGrid;
+    if (!grid || !hexKey || !markerType) return null;
+    let cell = grid[hexKey];
+    if (Array.isArray(cell)) cell = grid[hexKey] = { types: cell.slice(), markers: [] };
+    if (!cell || typeof cell !== 'object') cell = grid[hexKey] = { types: ['grass'], markers: [] };
+    if (!Array.isArray(cell.markers)) cell.markers = [];
+    if (!cell.markers.includes(markerType)) cell.markers.push(markerType);
+    if (!cell.markerOwners || typeof cell.markerOwners !== 'object') cell.markerOwners = {};
+    cell.markerOwners[markerType] = operationalFactionForUnit(unit) || (isEnemyOperationalUnit(unit) ? 'enemy' : 'player');
+    return cell.markerOwners[markerType];
+}
+function logOperationalFortificationActivity(unit, message) {
+    if (typeof isEnemyOperationalUnit === 'function' && isEnemyOperationalUnit(unit)) return;
+    if (typeof log === 'function') log(message);
+}
 function getInitialFortificationData(hexKey, create) {
     const ov = getHexOverlay(hexKey, !!create);
     return ov ? ov.initialFortifications : null;
@@ -614,11 +640,34 @@ function saveHexOverlays(hexKey) {
     if (typeof onlinePushHexOverlays === 'function') { try { onlinePushHexOverlays(); } catch (e) {} }
 }
 
+function operationalHexIsRevealed(hexKey) {
+    const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
+    if (!camp || !hexKey) return false;
+    if (Array.isArray(camp.fogRevealedHexes) && camp.fogRevealedHexes.indexOf(String(hexKey)) >= 0) return true;
+    return !!(appData.currentBattleId && appData.map && String(appData.map.hexKey || '') === String(hexKey));
+}
+function hexOverlayEditIsCovert(hexOverlay, cellKey, operationalHexKey) {
+    const source = hexOverlay && hexOverlay.hexEditSources && hexOverlay.hexEditSources[cellKey];
+    if (source === 'trenches' || source === 'prep' || source === 'prep_positions' || source === 'dig_in') return true;
+    const terrain = hexOverlay && hexOverlay.hexEdits && hexOverlay.hexEdits[cellKey];
+    if (terrain === 'trenches' || terrain === 'fallen_forest') return true;
+    // Совместимость с облачными/старыми сохранениями без hexEditSources:
+    // подготовка кустов меняет их на grass, а подготовка леса — на fallen_forest.
+    if (terrain === 'grass') {
+        const md = operationalHexKey && TACTICAL_HEX_MAPS[operationalHexKey];
+        const baseType = md && md.grid && md.grid[cellKey] && md.grid[cellKey].type;
+        return baseType === 'bushes' || (typeof isForestHexType === 'function' && isForestHexType(baseType));
+    }
+    return false;
+}
+
 // Слияние облачных правок с локальными.
 // ⚡ v13.053 (R38#2): объединение — одинаковое у обоих игроков: клетка, которую
 //    правили ОБА (например, воронки двух обстрелов легли на одну клетку с разной
 //    текстурой), берётся у игрока p1 — у обоих получается одна и та же карта.
 //    Изменившиеся гексы сразу накладываются на карты идущих боёв.
+//    Работы противника по окопам и расчистке открываются только при раскрытии
+//    соответствующего оперативного гекса боем.
 function mergeHexOverlays(cloud) {
     if (!cloud || typeof cloud !== 'object') return false;
     const local = getHexOverlays();
@@ -636,18 +685,31 @@ function mergeHexOverlays(cloud) {
         if (!l.hexEdits) l.hexEdits = {};
         if (!l.hexVariants) l.hexVariants = {};
         if (!l.hexRotations || typeof l.hexRotations !== 'object') l.hexRotations = {};
+        if (!l.hexEditSources || typeof l.hexEditSources !== 'object') l.hexEditSources = {};
         if (!l.initialFortifications || typeof l.initialFortifications !== 'object') l.initialFortifications = { trenchCells: [], dotCells: [] };
         if (!Array.isArray(l.initialFortifications.trenchCells)) l.initialFortifications.trenchCells = [];
         if (!Array.isArray(l.initialFortifications.dotCells)) l.initialFortifications.dotCells = [];
+        const revealed = operationalHexIsRevealed(hexKey);
         Object.keys(c.hexEdits || {}).forEach(k => {
+            if (!revealed && hexOverlayEditIsCovert(c, k, hexKey)) return;
             const cv = c.hexEdits[k];
             const cvar = (c.hexVariants && c.hexVariants[k] !== undefined) ? c.hexVariants[k] : 0;
-            if (!(k in l.hexEdits)) { l.hexEdits[k] = cv; l.hexVariants[k] = cvar; hexChanged = true; return; }
+            const source = c.hexEditSources && c.hexEditSources[k];
+            if (!(k in l.hexEdits)) {
+                l.hexEdits[k] = cv; l.hexVariants[k] = cvar;
+                if (source) l.hexEditSources[k] = source;
+                hexChanged = true; return;
+            }
             if (cloudWins && (l.hexEdits[k] !== cv || (l.hexVariants[k] || 0) !== cvar)) {
-                l.hexEdits[k] = cv; l.hexVariants[k] = cvar; hexChanged = true;
+                l.hexEdits[k] = cv; l.hexVariants[k] = cvar;
+                if (source) l.hexEditSources[k] = source;
+                hexChanged = true;
+            } else if (source && !l.hexEditSources[k]) {
+                l.hexEditSources[k] = source;
             }
         });
         Object.keys(c.hexRotations || {}).forEach(k => {
+            if (!revealed && hexOverlayEditIsCovert(c, k, hexKey)) return;
             const value = normalizeHexRotation(c.hexRotations[k]);
             if (!(k in l.hexRotations)) { l.hexRotations[k] = value; hexChanged = true; return; }
             if (cloudWins && normalizeHexRotation(l.hexRotations[k]) !== value) {
@@ -657,6 +719,7 @@ function mergeHexOverlays(cloud) {
         });
         const cf = c.initialFortifications || {};
         ['trenchCells', 'dotCells'].forEach(field => {
+            if (field === 'trenchCells' && !revealed) return;
             const merged = Array.from(new Set([...(l.initialFortifications[field] || []), ...(Array.isArray(cf[field]) ? cf[field] : [])].map(String))).sort();
             const bounded = field === 'trenchCells' ? merged.slice(0, INITIAL_FORTIFICATION_TRENCH_LIMIT) : merged;
             if (JSON.stringify(l.initialFortifications[field]) !== JSON.stringify(bounded)) {
@@ -762,6 +825,14 @@ function openHexMapForBattle(hexKey, tacticalMap) {
 
 // ─────────────────── ПРАВИЛА: ГЛУБИНА ЛЕСА И УКРЫТИЕ ───────────────────
 
+const TACTICAL_FIRE_SECTOR_OPTIONS = [
+    { id: 'e', label: '→ Восток', cube: { x: 1, y: -1, z: 0 } },
+    { id: 'se', label: '↘ Юго-восток', cube: { x: 0, y: -1, z: 1 } },
+    { id: 'sw', label: '↙ Юго-запад', cube: { x: -1, y: 0, z: 1 } },
+    { id: 'w', label: '← Запад', cube: { x: -1, y: 1, z: 0 } },
+    { id: 'nw', label: '↖ Северо-запад', cube: { x: 0, y: 1, z: -1 } },
+    { id: 'ne', label: '↗ Северо-восток', cube: { x: 1, y: 0, z: -1 } }
+];
 function _hexCubeCoords(c, r) { const x = c - (r - (r & 1)) / 2; const z = r; return { x, y: -x - z, z }; }
 
 function hexGridDistance(c1, r1, c2, r2) {
@@ -780,6 +851,48 @@ function getBattleSquadHex(grid, idx, isEnemy) {
         }
     }
     return null;
+}
+function tacticalWeaponFireSector(squad, crewIndex) {
+    const pos = squad && squad.fixedTacticalPosition;
+    const sectors = (pos && pos.weaponSectors) || (squad && squad.weaponSectors) || {};
+    const value = sectors[String(crewIndex)];
+    return TACTICAL_FIRE_SECTOR_OPTIONS.some(option => option.id === value) ? value : null;
+}
+function tacticalDotHasConfiguredSectors(squad) {
+    return !!squad && !!squad.fixedTacticalPosition &&
+        !!(squad.fixedTacticalPosition.weaponSectors && Object.keys(squad.fixedTacticalPosition.weaponSectors).length);
+}
+function tacticalHexInFireSector(fromKey, targetKey, sectorId) {
+    const direction = TACTICAL_FIRE_SECTOR_OPTIONS.find(option => option.id === sectorId);
+    if (!direction || !fromKey || !targetKey) return true;
+    const from = String(fromKey).split(',').map(Number), target = String(targetKey).split(',').map(Number);
+    if (from.length !== 2 || target.length !== 2 || !from.every(Number.isFinite) || !target.every(Number.isFinite)) return false;
+    const a = _hexCubeCoords(from[0], from[1]), b = _hexCubeCoords(target[0], target[1]);
+    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+    const distance = Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz));
+    if (distance <= 0) return false;
+    const v = direction.cube;
+    const dot = dx * v.x + dy * v.y + dz * v.z;
+    // 60-градусный сектор вокруг заданной линии (30° по каждую сторону).
+    return dot > 0 && dot >= Math.sqrt(3) * distance;
+}
+function tacticalDotWeaponCanTarget(squadIndex, targetIndex, crewIndex) {
+    const squad = (appData && appData.squads || [])[squadIndex];
+    const target = (appData && appData.map && appData.map.enemySquads || [])[targetIndex];
+    const sector = tacticalWeaponFireSector(squad, crewIndex);
+    if (!sector) return true; // старые сохранения без направления остаются совместимы
+    if (!squad || !target || !appData.map || !appData.map.grid) return false;
+    const from = getBattleSquadHex(appData.map.grid, squadIndex, false);
+    const to = getBattleSquadHex(appData.map.grid, targetIndex, true);
+    return !!(from && to && tacticalHexInFireSector(from.key, to.key, sector));
+}
+function tacticalDotCanFireAtTarget(squadIndex, targetIndex, crewIndices) {
+    const squad = (appData && appData.squads || [])[squadIndex];
+    const indices = Array.isArray(crewIndices) ? crewIndices : [];
+    if (!tacticalDotHasConfiguredSectors(squad)) return true;
+    if (!indices.length) return false;
+    return indices.some(index => !tacticalWeaponFireSector(squad, index) ||
+        tacticalDotWeaponCanTarget(squadIndex, targetIndex, index));
 }
 
 function isForestHexType(type) { return (typeof FOREST_LIKE_TYPES !== 'undefined') && FOREST_LIKE_TYPES.indexOf(type) >= 0; }
@@ -911,7 +1024,7 @@ function grantTrenchPoints(hexKey, squadsCount, unitName, enemySide) {
     const n = Math.max(1, Math.floor(Number(squadsCount) || 1));
     if (enemySide === undefined) enemySide = isEnemyOperationalUnit(unitName);
     if (enemySide) {
-        log(`🕳️ ${unitName || 'Вражеский отряд'} завершил окапывание на гексе (${hexKey}); бюджет редактирования игроку не выдаётся.`);
+        // Скрываем от игрока ход выполнения и результат вражеского окапывания.
         return ov.trenchPoints || 0;
     }
     const currentBudget = Math.max(0, Math.floor(Number(ov.trenchPoints) || 0));
@@ -934,7 +1047,7 @@ function grantPrepPoints(hexKey, squadsCount, unitName, enemySide) {
     const ov = getHexOverlay(hexKey, true);
     if (enemySide === undefined) enemySide = isEnemyOperationalUnit(unitName);
     if (enemySide) {
-        log(`🪓 ${unitName || 'Вражеский отряд'} завершил подготовку позиций на гексе (${hexKey}); бюджет редактирования игроку не выдаётся.`);
+        // Скрываем от игрока ход выполнения и результат вражеской подготовки.
         return ov.prepPoints || 0;
     }
     const n = Math.max(1, Math.floor(Number(squadsCount) || 1));
@@ -988,11 +1101,15 @@ function promptPendingHexEdits() {
 function renderHexEditsPanel() {
     const all = (typeof appData !== 'undefined' && appData.campaign && appData.campaign.hexOverlays) || {};
     const rows = Object.keys(all).filter(k => all[k] && ((all[k].trenchPoints || 0) > 0 || (all[k].prepPoints || 0) > 0 || countHexTrenchCells(all[k]) > 0));
-    const rowHtml = (k) => {
+    const rowHtml = (k, inRunningBattle = false) => {
         const ov = all[k];
         const placed = countHexTrenchCells(ov);
+        // В уже идущем тактическом бою, если бюджет расстановки исчерпан,
+        // больше не открываем редактор окопов только ради повторной расстановки.
+        // В оперативном интерфейсе текстуру/поворот существующих окопов менять можно.
+        const canOpenTrenchEditor = (ov.trenchPoints || 0) > 0 || (!inRunningBattle && placed > 0);
         return `· гекс <b>(${k})</b>: ` +
-            ((ov.trenchPoints || 0) || placed ? `<button onclick="openHexEditorForBattle('${k}','trenches')" style="background:#8e44ad; font-size:0.85rem;">🕳️ ${ov.trenchPoints ? `Расставить окопы (${ov.trenchPoints})` : `Текстура/поворот окопов (${placed})`}</button> ` : '') +
+            (canOpenTrenchEditor ? `<button onclick="openHexEditorForBattle('${k}','trenches')" style="background:#8e44ad; font-size:0.85rem;">🕳️ ${(ov.trenchPoints || 0) ? `Расставить окопы (${ov.trenchPoints})` : `Текстура/поворот окопов (${placed})`}</button> ` : '') +
             ((ov.prepPoints || 0) ? `<button onclick="openHexEditorForBattle('${k}','prep')" style="background:#16a085; font-size:0.85rem;">🪓 Подготовка позиций (${ov.prepPoints})</button>` : '');
     };
     const setPanel = (panel, html) => {
@@ -1011,8 +1128,12 @@ function renderHexEditsPanel() {
     if (typeof appData !== 'undefined' && appData.currentBattleId && !hexEditorState) {
         const b = (appData.campaign.activeBattles || []).find(x => x && x.id === appData.currentBattleId);
         if (b && b.hexKey && rows.includes(b.hexKey)) {
-            battleHtml = `<b style="color:#2ecc71;">🛠️ На гексе этого боя (${b.hexKey}) доступны правки карты</b> ` +
-                '<span style="color:#aaa; font-size:0.8rem;">(после «✅ Готово» вернётесь в этот бой; правки увидит и противник)</span><br>' + rowHtml(b.hexKey);
+            const battleOverlay = all[b.hexKey] || {};
+            const hasUnusedEditPoints = (battleOverlay.trenchPoints || 0) > 0 || (battleOverlay.prepPoints || 0) > 0;
+            if (hasUnusedEditPoints) {
+                battleHtml = `<b style="color:#2ecc71;">🛠️ На гексе этого боя (${b.hexKey}) доступны правки карты</b> ` +
+                    '<span style="color:#aaa; font-size:0.8rem;">(после «✅ Готово» вернётесь в этот бой; правки увидит и противник)</span><br>' + rowHtml(b.hexKey, true);
+            }
         }
     }
     setPanel(document.getElementById('battleHexEditsPanel'), battleHtml);
@@ -1247,6 +1368,7 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
           `<span style="color:#ccc; font-size:.85rem;">${st.rule.hint}</span><br>` +
           `<span style="color:#f1c40f;">ДОТов на этой карте: <b>${here}</b> · всего ДОТов: <b>${initialDotCandidates().length}</b> · Инструмент: <b>${st.tool === 'erase' ? 'ластик' : 'ДОТ'}</b></span> ` +
           initialDotSelector(st) +
+          initialDotSectorControls(st) +
           `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">` +
             `<button onclick="setInitialFortificationTool('dot')" style="${active('dot')}">🏰 Поставить ДОТ</button>` +
             `<button onclick="setInitialFortificationTool('erase')" style="${active('erase')}">🧹 Стереть</button>` +
@@ -1362,6 +1484,8 @@ function hexEditClick(hexKeyCell) {
     const newType = (st.kind === 'trenches') ? 'trenches'
         : (isForestHexType(baseType) ? 'fallen_forest' : 'grass');
     ov.hexEdits[hexKeyCell] = newType;
+    if (!ov.hexEditSources || typeof ov.hexEditSources !== 'object') ov.hexEditSources = {};
+    ov.hexEditSources[hexKeyCell] = st.kind;
     const tData = (typeof TERRAIN_DATA !== 'undefined') ? TERRAIN_DATA[newType] : null;
     const nVar = (tData && tData.images && tData.images.length) ? tData.images.length : 1;
     // ⚡ v13.087: вырубка леса → «лес поваленный1», вырубка кустов → «трава1».
@@ -1399,6 +1523,7 @@ function hexEditUndo() {
         delete ov.hexEdits[k];
         if (ov.hexVariants) delete ov.hexVariants[k];
         if (ov.hexRotations) delete ov.hexRotations[k];
+        if (ov.hexEditSources) delete ov.hexEditSources[k];
         ov[st.rule.pointsField] = (ov[st.rule.pointsField] || 0) + 1;
         st.placed = Math.max(0, st.placed - 1);
         // восстанавливаем исходный тип на рабочей сетке
@@ -1514,12 +1639,12 @@ function countSquadsForHexEdit(unit) {
 function executePrepPositionsOrder(unit, order) {
     if (unit.isInBattle) {
         order.status = 'cancelled';
-        log(`❌ ${unit.name} вступил в тактический бой! Подготовка позиций прервана.`);
+        logOperationalFortificationActivity(unit, `❌ ${unit.name} вступил в тактический бой! Подготовка позиций прервана.`);
         return;
     }
     if (unit.isDestroyed) {
         order.status = 'cancelled';
-        log(`❌ ${unit.name} уничтожен!`);
+        logOperationalFortificationActivity(unit, `❌ ${unit.name} уничтожен!`);
         return;
     }
 
@@ -1530,42 +1655,42 @@ function executePrepPositionsOrder(unit, order) {
             const result = stepUnitTowardTarget(unit, targetCol, targetRow);
             if (result === 'no_route') {
                 order.status = 'cancelled';
-                log(`❌ ${unit.name} не может достичь гекса (${targetCol},${targetRow}) для подготовки позиций. Приказ отменён.`);
+                logOperationalFortificationActivity(unit, `❌ ${unit.name} не может достичь гекса (${targetCol},${targetRow}) для подготовки позиций. Приказ отменён.`);
                 saveData();
                 redrawOperationalMap();
                 return;
             }
             if (result === 'battle') {
-                log(`⚔️ ${unit.name} вступил в бой на пути к позициям. Продолжение в следующем ходу.`);
+                logOperationalFortificationActivity(unit, `⚔️ ${unit.name} вступил в бой на пути к позициям. Продолжение в следующем ходу.`);
                 saveData();
                 redrawOperationalMap();
                 return;
             }
             if (result !== 'reached') {
-                log(`⏳ ${unit.name} выдвигается на гекс (${targetCol},${targetRow}) для подготовки позиций. Осталось ОД: ${unit.ap}.`);
+                logOperationalFortificationActivity(unit, `⏳ ${unit.name} выдвигается на гекс (${targetCol},${targetRow}) для подготовки позиций. Осталось ОД: ${unit.ap}.`);
                 saveData();
                 redrawOperationalMap();
                 return;
             }
-            log(`🚶 ${unit.name} выдвинулся на гекс (${unit.col},${unit.row}) для подготовки позиций.`);
+            logOperationalFortificationActivity(unit, `🚶 ${unit.name} выдвинулся на гекс (${unit.col},${unit.row}) для подготовки позиций.`);
         }
     }
     if (order.originalHex && order.originalHex !== `${unit.col},${unit.row}`) {
         order.status = 'cancelled';
-        log(`❌ ${unit.name} покинул гекс подготовки позиций. Приказ отменён.`);
+        logOperationalFortificationActivity(unit, `❌ ${unit.name} покинул гекс подготовки позиций. Приказ отменён.`);
         saveData();
         redrawOperationalMap();
         return;
     }
     if (unit.ap <= 0) {
-        log(`⏳ ${unit.name} не хватает ОД для подготовки позиций. Ожидание следующего хода.`);
+        logOperationalFortificationActivity(unit, `⏳ ${unit.name} не хватает ОД для подготовки позиций. Ожидание следующего хода.`);
         return;
     }
 
     if (!order.digProgress) order.digProgress = 0;
     unit.ap = 0;
     order.digProgress++;
-    log(`🪓 ${unit.name} готовит позиции (валят лес, вырубают кусты)... Прогресс: ${order.digProgress}/3`);
+    logOperationalFortificationActivity(unit, `🪓 ${unit.name} готовит позиции (валят лес, вырубают кусты)... Прогресс: ${order.digProgress}/3`);
 
     if (order.digProgress >= 3) {
         const hexKey = `${unit.col},${unit.row}`;
@@ -1577,13 +1702,14 @@ function executePrepPositionsOrder(unit, order) {
                 const hx = appData.campaign.opMapGrid[hexKey];
                 if (Array.isArray(hx)) appData.campaign.opMapGrid[hexKey] = { types: hx, markers: [] };
                 if (!appData.campaign.opMapGrid[hexKey].markers) appData.campaign.opMapGrid[hexKey].markers = [];
-                if (!appData.campaign.opMapGrid[hexKey].markers.includes('prep_positions')) {
+                if (typeof markOperationalMarkerOwner === 'function') markOperationalMarkerOwner(hexKey, 'prep_positions', unit);
+                else if (!appData.campaign.opMapGrid[hexKey].markers.includes('prep_positions')) {
                     appData.campaign.opMapGrid[hexKey].markers.push('prep_positions');
                 }
             }
         } catch (e) {}
         order.status = 'completed';
-        log(`✅ ${unit.name} завершил подготовку позиций на гексе (${unit.col},${unit.row})!`);
+        logOperationalFortificationActivity(unit, `✅ ${unit.name} завершил подготовку позиций на гексе (${unit.col},${unit.row})!`);
         const enemySide = isEnemyOperationalUnit(unit);
         grantPrepPoints(hexKey, countSquadsForHexEdit(unit), unit.name, enemySide);
         saveData();
@@ -1619,6 +1745,18 @@ function fillModalTargets(attackType) {
         const d = hexGridDistance(shooterPos.col, shooterPos.row, pos.col, pos.row);
         const cov = getTacticalCoverInfoForEnemy(appData.map.grid, idx);
         if (!e.detected) return;
+        if (attackType !== 'melee' && typeof tacticalSmokeBlocksAttack === 'function' && tacticalSmokeBlocksAttack(shooterIdx, idx)) return;
+        if (attackType === 'ordnance' && /ДОТ/i.test(String(currentSquad.name || '')) &&
+            typeof tacticalDotHasConfiguredSectors === 'function' && tacticalDotHasConfiguredSectors(currentSquad)) {
+            const weapons = (typeof getFactionCrewWeapons === 'function') ? getFactionCrewWeapons(currentSquad.faction) || [] : [];
+            const crewIndices = (currentSquad.crewInstances || []).map((ci, crewIndex) => ({ ci, crewIndex }))
+                .filter(({ ci }) => {
+                    if (!ci || ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') return false;
+                    const weapon = weapons.find(w => w.name === ci.weaponName);
+                    return weapon && ['at_gun', 'mortar', 'tank_gun'].includes(weapon.type);
+                }).map(item => item.crewIndex);
+            if (crewIndices.length && !tacticalDotCanFireAtTarget(shooterIdx, idx, crewIndices)) return;
+        }
         html += `<option value="${idx}" data-dist="${d}" data-cover="${cov ? cov.mod : 0}">${e.name} @ ${pos.key} — ${d} гекс(ов)` +
                 `${cov && cov.mod ? ', укрытие ' + cov.label + ' +' + cov.mod : ''}</option>`;
     });
@@ -1718,12 +1856,61 @@ function initialDotIdForHex(hexKey) {
     const free = candidates.find(x => !(x.squad && x.squad.fixedTacticalPosition));
     return (free || candidates[0]).id;
 }
+function initialDotSectorCrewEntries(candidate) {
+    if (!candidate || !candidate.squad || !Array.isArray(candidate.squad.crewInstances)) return [];
+    let weapons = [];
+    try { weapons = (typeof getFactionCrewWeapons === 'function') ? getFactionCrewWeapons(candidate.squad.faction) || [] : []; } catch (e) {}
+    return candidate.squad.crewInstances.map((crew, index) => {
+        const weapon = weapons.find(item => item && crew && item.name === crew.weaponName);
+        return { crew, index, weapon };
+    }).filter(item => item.weapon && ['at_gun', 'tank_gun', 'mg'].includes(item.weapon.type));
+}
+function setInitialDotCandidate(candidateId) {
+    const st = hexEditorState;
+    if (!st || st.kind !== 'initialFortification') return;
+    st.dotId = String(candidateId || '');
+    const candidate = initialDotCandidates().find(item => item.id === st.dotId);
+    st.dotSectorCandidateId = st.dotId;
+    st.dotWeaponSectors = Object.assign({}, (candidate && candidate.squad.fixedTacticalPosition &&
+        candidate.squad.fixedTacticalPosition.weaponSectors) || {});
+    showHexEditorBanner();
+}
+function setInitialDotWeaponSector(crewIndex, sectorId) {
+    const st = hexEditorState;
+    if (!st || st.kind !== 'initialFortification') return;
+    if (!st.dotWeaponSectors || st.dotSectorCandidateId !== st.dotId) setInitialDotCandidate(st.dotId);
+    if (!TACTICAL_FIRE_SECTOR_OPTIONS.some(option => option.id === sectorId)) return;
+    st.dotWeaponSectors[String(crewIndex)] = sectorId;
+    st.dotSectorCandidateId = st.dotId;
+    showHexEditorBanner();
+}
+function initialDotSectorControls(st) {
+    const candidate = initialDotCandidates().find(item => item.id === st.dotId);
+    const entries = initialDotSectorCrewEntries(candidate);
+    if (!entries.length) return '<div style="color:#888; font-size:.8rem;">Для этого ДОТа не заданы отдельные орудийные/пулемётные расчёты.</div>';
+    if (!st.dotWeaponSectors || st.dotSectorCandidateId !== st.dotId) {
+        st.dotWeaponSectors = Object.assign({}, (candidate.squad.fixedTacticalPosition &&
+            candidate.squad.fixedTacticalPosition.weaponSectors) || {});
+        st.dotSectorCandidateId = st.dotId;
+    }
+    const counters = { mg: 0, gun: 0 };
+    return '<div style="display:flex; flex-wrap:wrap; gap:8px; margin:6px 0; align-items:center;">' +
+        entries.map(({ crew, index, weapon }) => {
+            const isMg = weapon.type === 'mg';
+            const label = isMg ? `Амбразура ${++counters.mg}` : `Орудие ${++counters.gun}`;
+            const value = st.dotWeaponSectors[String(index)] || 'e';
+            const options = TACTICAL_FIRE_SECTOR_OPTIONS.map(option =>
+                `<option value="${option.id}" ${option.id === value ? 'selected' : ''}>${option.label}</option>`).join('');
+            return `<label style="color:#ddd; font-size:.82rem;">${label} — ${String(weapon.name || crew.weaponName)}: ` +
+                `<select onchange="setInitialDotWeaponSector(${index},this.value)">${options}</select></label>`;
+        }).join('') + '</div><div style="color:#888; font-size:.78rem;">У каждого расчёта свой сектор (веер ±30° от выбранной линии); цель вне сектора для этого оружия недоступна.</div>';
+}
 function initialDotSelector(st) {
     const escape = text => String(text).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const candidates = initialDotCandidates();
     if (!candidates.length) return '<span>В батальоне нет доступных ДОТов.</span>';
     if (!candidates.some(x => x.id === st.dotId)) st.dotId = initialDotIdForHex(st.hexKey) || candidates[0].id;
-    return '<label>ДОТ: <select onchange="hexEditorState.dotId=this.value">' + candidates.map(x => {
+    return '<label>ДОТ: <select onchange="setInitialDotCandidate(this.value)">' + candidates.map(x => {
         const p = x.squad && x.squad.fixedTacticalPosition;
         const where = (p && String(p.hexKey) !== String(st.hexKey)) ? ` — уже на гексе (${p.hexKey})` : '';
         return `<option value="${x.id}" ${x.id === st.dotId ? 'selected' : ''}>${escape(x.squad.name || x.unit.name)}${where}</option>`;
@@ -1742,11 +1929,20 @@ function bindInitialDot(st, key) {
         oldFort.dotCells = oldFort.dotCells.filter(k => k !== old.key);
         saveHexOverlays(old.hexKey);
     }
+    const weaponSectors = Object.assign({}, (st.dotSectorCandidateId === st.dotId && st.dotWeaponSectors) ||
+        (old && old.weaponSectors) || {});
+    initialDotSectorCrewEntries(candidate).forEach(({ index }) => {
+        if (!TACTICAL_FIRE_SECTOR_OPTIONS.some(option => option.id === weaponSectors[String(index)])) {
+            weaponSectors[String(index)] = 'e';
+        }
+    });
     // ⚡ v13.066: ДОТы одного юнита (например «ДОТ Bosh» и «ДОТ Van Hees»)
     //    МОГУТ стоять на разных оперативных гексах — игрок выбирает по гексу
     //    на каждый ДОТ. На оперативной карте юнит остаётся на первом гексе,
     //    а в бой на втором гексе он попадает по позиции своего ДОТа.
-    squad.fixedTacticalPosition = { hexKey: st.hexKey, key };
+    const fixedPosition = { hexKey: st.hexKey, key };
+    if (Object.keys(weaponSectors).length) fixedPosition.weaponSectors = weaponSectors;
+    squad.fixedTacticalPosition = fixedPosition;
     // ⚡ v13.066: иконка ДОТа — от самого юнита, чтобы на тактической карте
     //    (и в бою) рисовалась иконка конкретного ДОТа, а не общая метка.
     if (!squad.icon) squad.icon = unit.icon || 'images/BeVe/ДОТ Bosh.png';
@@ -1792,10 +1988,14 @@ function isPlatoonHQBattleSquad(squad) {
 function supplyPointStateKey(side) {
     return side === 'enemy' ? 'autoSupplyKeysEnemy' : 'autoSupplyKeysPlayer';
 }
+function supplyPointOriginStateKey(side) {
+    return side === 'enemy' ? 'supplyPointOriginsEnemy' : 'supplyPointOriginsPlayer';
+}
 // Пересчёт меток пунктов боепитания на карте: mapLike — appData.map или
 // battle.tacticalMap; squads — отряды стороны; field — 'squadIds' | 'enemySquadIds'.
-// Автоматически поставленные метки запоминаются в mapLike[autoSupplyKeys*],
-// чтобы не тронуть метки, выставленные игроком вручную.
+// Метка закрепляется в гексе, где штаб впервые появился в этом бою, а не следует
+// за штабом при его последующем перемещении. Автоматические и ручные метки
+// хранятся раздельно, чтобы пересчёт не удалял пользовательскую 📦.
 function syncSupplyPointsOnGrid(mapLike, squads, field, side) {
     if (!mapLike || !mapLike.grid || !Array.isArray(squads)) return [];
     const pos = {};
@@ -1804,19 +2004,33 @@ function syncSupplyPointsOnGrid(mapLike, squads, field, side) {
         if (!cell || !Array.isArray(cell[field])) return;
         cell[field].forEach(i => { pos[i] = k; });
     });
+    const stateKey = supplyPointStateKey(side);
+    const originKey = supplyPointOriginStateKey(side);
+    const prev = Array.isArray(mapLike[stateKey]) ? mapLike[stateKey] : [];
+    const origins = (mapLike[originKey] && typeof mapLike[originKey] === 'object')
+        ? mapLike[originKey] : {};
+    let changed = false;
     const wanted = [];
+    let hqOrdinal = 0;
     squads.forEach((s, i) => {
         if (!isPlatoonHQBattleSquad(s)) return;
+        const currentKey = pos[i];
+        // Для старых сохранений используем предыдущую автоматически отмеченную
+        // клетку как исходную, иначе привязываем пункт при первом размещении.
+        if (!origins[i] && currentKey) {
+            origins[i] = prev[hqOrdinal] || currentKey;
+            changed = true;
+        }
+        hqOrdinal++;
         if (s.hidden || s.isDestroyed || s.isRetreated || s.status === 'retreated') return;
         if (!(s.fighters || []).some(f => f && f.hp > 0)) return;
-        const k = pos[i];
-        if (k && mapLike.grid[k] && wanted.indexOf(k) < 0) wanted.push(k);
+        const anchor = origins[i] || currentKey;
+        if (anchor && mapLike.grid[anchor] && wanted.indexOf(anchor) < 0) wanted.push(anchor);
     });
-    const stateKey = supplyPointStateKey(side);
-    const prev = Array.isArray(mapLike[stateKey]) ? mapLike[stateKey] : [];
-    let changed = false;
+    const otherSideKey = supplyPointStateKey(side === 'enemy' ? 'player' : 'enemy');
+    const otherWanted = Array.isArray(mapLike[otherSideKey]) ? mapLike[otherSideKey] : [];
     prev.forEach(k => {
-        if (wanted.indexOf(k) >= 0) return;
+        if (wanted.indexOf(k) >= 0 || otherWanted.indexOf(k) >= 0) return;
         const cell = mapLike.grid[k];
         if (cell && Array.isArray(cell.markers) && cell.markers.indexOf(SUPPLY_POINT_MARKER) >= 0) {
             cell.markers = cell.markers.filter(m => m !== SUPPLY_POINT_MARKER);
@@ -1829,13 +2043,45 @@ function syncSupplyPointsOnGrid(mapLike, squads, field, side) {
         if (!Array.isArray(cell.markers)) cell.markers = [];
         if (cell.markers.indexOf(SUPPLY_POINT_MARKER) < 0) { cell.markers.push(SUPPLY_POINT_MARKER); changed = true; }
     });
+    mapLike[originKey] = origins;
+    if (JSON.stringify(mapLike[stateKey] || []) !== JSON.stringify(wanted)) changed = true;
     mapLike[stateKey] = wanted.slice();
     if (changed && typeof log === 'function') {
         try {
-            log(`📦 Пункт боепитания (${side === 'enemy' ? 'противник' : 'наши'}) — гекс(ы): ${wanted.length ? wanted.join(', ') : 'штаб взвода не размещён'}.`);
+            log(`📦 Пункт боепитания (${side === 'enemy' ? 'противник' : 'наши'}) — исходный гекс(ы): ${wanted.length ? wanted.join(', ') : 'штаб взвода не размещён'}.`);
         } catch (e) {}
     }
     return wanted;
+}
+function activeSupplyPointKeys(mapLike, side) {
+    if (!mapLike || !mapLike.grid) return [];
+    const stateKey = supplyPointStateKey(side || 'player');
+    return (Array.isArray(mapLike[stateKey]) ? mapLike[stateKey] : []).filter(k => {
+        const cell = mapLike.grid[k];
+        return !!(cell && Array.isArray(cell.markers) && cell.markers.includes(SUPPLY_POINT_MARKER));
+    });
+}
+function nearestSupplyPoint(mapLike, fromKey, side) {
+    const from = String(fromKey || '').split(',').map(Number);
+    if (from.length !== 2 || !from.every(Number.isFinite)) return null;
+    let best = null;
+    activeSupplyPointKeys(mapLike, side || 'player').forEach(key => {
+        const to = String(key).split(',').map(Number);
+        if (to.length !== 2 || !to.every(Number.isFinite)) return;
+        const distance = (typeof hexGridDistance === 'function')
+            ? hexGridDistance(from[0], from[1], to[0], to[1])
+            : Math.max(Math.abs(from[0] - to[0]), Math.abs(from[1] - to[1]));
+        if (!best || distance < best.distance) best = { key, distance };
+    });
+    return best;
+}
+// Боец идёт пешком к ближайшему пункту и возвращается. Обычная пехота
+// проходит до трёх травяных гексов за фазу (6 полу-ОД, по 2 на гекс);
+// одна фаза тактики длится 2 минуты.
+function estimateAmmoDeliveryTurns(mapLike, fromKey, side) {
+    const point = nearestSupplyPoint(mapLike, fromKey, side || 'player');
+    if (!point) return null;
+    return Math.max(1, Math.ceil((point.distance * 2) / 3));
 }
 function syncBattleRecordSupplyPoints(battle) {
     if (!battle || !battle.tacticalMap) return;
