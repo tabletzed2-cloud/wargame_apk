@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.095 — bonus cards after communications, DOT sector widths, tactical-retreat consequences.
+// ⚡ BUILD-МАРКЕР: v13.097 — embarked orders wait, resumable card draft, visible tactical rounds and operational pause.
 (function () {
   'use strict';
 
@@ -97,6 +97,9 @@
       c.opSetupStage = ((typeof placementLocked !== 'undefined' && placementLocked) || (c.currentTurn || 1) > 1)
         ? 'orders' : 'placement';
     }
+    // v13.097: сохранение могло успеть закрепить карты, но не сменить UI-этап.
+    if (c.opSetupStage === 'cards' && c.initialPlatoonCardsAssigned) c.opSetupStage = 'orders';
+    if (c.initialPlatoonCardsAssigned) delete c.initialCardDraft;
     if (typeof placementLocked !== 'undefined') placementLocked = c.opSetupStage === 'orders' || c.opSetupStage === 'cards';
     if (['communications', 'cards', 'orders'].includes(c.opSetupStage)) ensureHardMode();
   }
@@ -174,7 +177,7 @@
     }
 
     const deployGroup = document.getElementById('opPhaseDeploy');
-    if (deployGroup) deployGroup.style.display = (typeof placementLocked !== 'undefined' && placementLocked) ? 'none' : 'flex';
+    if (deployGroup) deployGroup.style.display = stage === 'orders' ? 'none' : 'flex';
     setButtonByOnclick("setOpMapMode('placePlayer')", stage === 'placement');
     setButtonByOnclick("setOpMapMode('view')", stage === 'placement');
     setButtonByOnclick('autoPlaceUnplacedUnits', stage === 'placement');
@@ -1069,12 +1072,12 @@
       `<div class="op-cmd-subtitle">${passenger ? 'Десант в БТР · выберите приказ' : 'Выберите тип приказа'}</div></div><button type="button" class="op-cmd-close" data-cmd="close" aria-label="Закрыть">×</button></div>` +
       `<div class="op-cmd-buttons">` +
       `<button type="button" data-cmd="category" data-category="move">🚶 Движение</button>` +
-      (passenger ? '' : `<button type="button" data-cmd="category" data-category="fire">🎯 Обстрел</button>`) +
+      `<button type="button" data-cmd="category" data-category="fire">🎯 Обстрел${passenger ? ' (после высадки)' : ''}</button>` +
       `<button type="button" data-cmd="category" data-category="special">⚙️ Специальное</button>` +
       (artillery ? `<button type="button" class="op-cmd-wide" data-cmd="artillery">💣 Арт. обстрел · осталось ${Math.max(0, artilleryLeft)}</button>` : '') +
       (carried ? `<button type="button" class="op-cmd-wide" data-cmd="select-passenger" data-id="${carried.id}">👥 Приказы десанту: ${esc(carried.unit.name)}</button>` : '') +
       `</div><div class="op-cmd-note">${passenger
-        ? 'Отряд сидит в БТР: сначала он выходит на гекс машины, затем выполняет приказ. Стрельба из машины недоступна.'
+        ? 'Отряд в БТР: приказ сохранится и будет ждать отдельной высадки. Приказ высадки отдайте БТР; десант начнёт действовать со следующего оперативного хода после неё. Стрельба с борта недоступна.'
         : 'Время по умолчанию — текущее время операции. Приказ поступит по штатной связи штаба батальона.'}</div>`;
   }
   function renderDetails(unit, draft) {
@@ -1135,8 +1138,8 @@
       ];
       body += `<label class="op-cmd-field">Действие<select data-draft-field="specialAction">` +
         actions.map(([value, label]) => `<option value="${value}"${draft.specialAction === value ? ' selected' : ''}${canIssueSpecial(unit, value) ? '' : ' disabled'}>${label}</option>`).join('') + `</select></label>`;
-      if (unit.embarkedInBtr) {
-        body += `<div class="op-cmd-note">Отряд сидит в БТР. Действие выполняется после выхода: сначала он высаживается на гекс машины, затем выполняет выбранное действие.</div>`;
+      if (unit.embarkedInBtr && draft.specialAction !== 'disembark') {
+        body += `<div class="op-cmd-note">Отряд в БТР. Действие ждёт отдельной высадки: оно не высаживает десант автоматически и начнёт выполняться со следующего оперативного хода после высадки.</div>`;
       }
       if (['dig_in', 'recon', 'prep_positions'].includes(draft.specialAction)) {
         const hexKey = draft.targetHex || unitHexKey(unit);
@@ -1417,9 +1420,7 @@
     };
     let type = '';
 
-    if (unit.embarkedInBtr && ['fire_at_will', 'armor_priority', 'sector_fire', 'ambush', 'specific', 'hex_fire', 'artillery'].includes(draft.category)) {
-      throw new Error('Отряд в БТР может только выйти и двигаться или выполнить специальное действие.');
-    }
+    // Приказы огня можно планировать на борту; исполнение ждёт отдельной высадки.
     if (draft.category === 'move') {
       const route = draft.waypoints || [];
       if (draft.mode === 'escort') {
@@ -1805,16 +1806,9 @@
     if (!picked.unit || picked.id < 0) throw new Error('Сначала выберите отряд.');
     if (!isOnlineTurn()) throw new Error('Сейчас ход оппонента.');
     if (!ensureHardMode()) throw new Error('Не удалось включить режим приказов.');
-    let result = parseDraftOptions(state.draft, picked.unit);
-    if (picked.unit.embarkedInBtr && result.type !== 'disembark') {
-      // ⚡ v13.087: приказ десанту — сначала выход из БТР, затем действие (серия)
-      const base = result.options;
-      const steps = [
-        seriesStep('disembark', { behavior: 'hold', startTimeMin: base.startTimeMin, startHex: null }),
-        seriesStep(result.type, base)
-      ];
-      result = { type: 'series', options: { ...base, orderType: 'series', series: steps, waypoints: [], targetHex: base.targetHex || null } };
-    }
+    const result = parseDraftOptions(state.draft, picked.unit);
+    // v13.097: обычный приказ НЕ высаживает десант автоматически.
+    // executeOrder сохраняет его активным до отдельной высадки БТР.
     // ⚡ v13.089 (пункт 3): «Высадить десант» — приказ МАШИНЕ: БТР доезжает до
     //    выбранного гекса, выпускает отряд и дальше живёт своими приказами,
     //    а высаженный отряд продолжает свою серию («сесть → штурмовать …»).
@@ -1851,7 +1845,9 @@
     const audience = created.length > 1
       ? `отряду «${receiverName}» и ${created.length - 1} отряду(ам) сопровождения`
       : `отряду «${receiverName}»` + (issueTargetId === picked.id ? '' : ` (высадка десанта «${picked.unit.name}»)`);
-    const tail = status === 'delivering' ? ' · доставляется штабом' : status === 'queued' ? ' · ждёт посыльного' : '';
+    const tail = (status === 'delivering' ? ' · доставляется штабом' : status === 'queued' ? ' · ждёт посыльного' : '') +
+      (issueTargetId === picked.id && picked.unit.embarkedInBtr && result.type !== 'disembark'
+        ? ' · выполнение ждёт отдельной высадки' : '');
     setMapMessage(`📋 Приказ «${label}» передан ${audience}${tail}${eta ? `. ${eta.charAt(0).toUpperCase() + eta.slice(1)}.` : '.'}`, '#27ae60');
     try { if (typeof log === 'function') log(`📋 Приказ «${label}» для «${picked.unit.name}»${eta ? `: ${eta}` : ''}${mirroredNow ? ` · скопировано приказов сопровождаемого: ${mirroredNow}` : ''}.`); } catch (e) {}
     markChecklist('orders');
@@ -1991,6 +1987,22 @@
     state.selectedUnitId = null; state.placementSignature = ''; state.error = '';
     clearRoutePreview(); renderCommandMenu();
   }
+  function restoreCardStage() {
+    const c = campaign();
+    if (!c || !c.active || !activeMap()) return;
+    setInitialStage();
+    renderSetup();
+    renderPinnedActions();
+    const overlay = document.getElementById('initialCardStageOverlay');
+    if (getStage() === 'cards' && !c.initialPlatoonCardsAssigned) {
+      if ((!overlay || overlay.style.display === 'none') && typeof window.openInitialCardDistributionStage === 'function') {
+        window.openInitialCardDistributionStage();
+      }
+    } else if (overlay && overlay.style.display !== 'none' && typeof window.closeInitialCardDistributionStage === 'function') {
+      window.closeInitialCardDistributionStage();
+    }
+    if (typeof window.showTacticalOrdersPauseNotice === 'function') window.showTacticalOrdersPauseNotice();
+  }
   function applyCompactMapUi() {
     const c = campaign();
     if (!c) return;
@@ -2032,6 +2044,7 @@
         state.selectedUnitId = null; state.placementSignature = '';
         setInitialStage();
         applyCompactMapUi();
+        restoreCardStage();
         return result;
       };
       state.showOperationalMapPatched = true;
@@ -2062,6 +2075,9 @@
       winchButton.addEventListener('mouseenter', () => { if (activeMap()) showWinchInfo(); });
       winchButton.addEventListener('focus', () => { if (activeMap()) showWinchInfo(); });
     }
+    document.addEventListener('resume', restoreCardStage);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) restoreCardStage(); });
+    window.addEventListener('pageshow', restoreCardStage);
     window.addEventListener('resize', () => { try { syncStageLayout(); } catch (e) {} });
     const mapViewport = document.getElementById('opMapContainer');
     if (mapViewport) mapViewport.addEventListener('scroll', positionUnitActions, { passive: true });
@@ -2075,6 +2091,7 @@
     if (tray) tray.setAttribute('aria-live', 'polite');
     renderSetup();
     renderPinnedActions();
+    restoreCardStage();
     setInterval(() => {
       if (!campaign() || !campaign().active) return;
       if (!state.finishPatched) patchFinishPlacement();

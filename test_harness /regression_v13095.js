@@ -144,10 +144,10 @@ test('3b: applyTacticalRetreatConsequences вызывается при заве�
 });
 
 // ── Версия ───────────────────────────────────────────────────────────────────
-test('4: версия v13.095 синхронизирована', () => {
-  includes(HTML, "var APP_VERSION = 'v13.095';", 'APP_VERSION');
-  includes(source('service-worker.js'), "const CACHE_NAME = 'wargame-v13.095';", 'CACHE_NAME');
-  includes(source('manifest.json'), '"БМ v13.095"', 'manifest');
+test('4: текущая версия приложения, кэша и manifest синхронизирована', () => {
+  const version = /var APP_VERSION = '([^']+)'/.exec(HTML)[1];
+  includes(source('service-worker.js'), `const CACHE_NAME = 'wargame-${version}';`, 'CACHE_NAME');
+  includes(source('manifest.json'), `"БМ ${version}"`, 'manifest');
 });
 
 console.log(`\n=== v13.095 regression: ${pass} PASS, ${fail} FAIL ===`);

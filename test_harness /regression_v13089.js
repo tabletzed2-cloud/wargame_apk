@@ -75,8 +75,19 @@ test('v13.089 (п.4): срок в подтверждении и в панели 
 });
 
 test('v13.089 (п.4): время начала по умолчанию — текущее время операции', () => {
-  assert.match(UI, /time: currentTimeValue\(\)/, 'черновик приказа начинается с текущего времени');
-  assert.match(UI, /parseMinuteInput\(draft\.time \|\| currentTimeValue\(\)\)/);
+  // v13.095: пустое поле времени означает «сейчас», а не замороженный час открытия меню.
+  const s = createSandbox(freshAppData());
+  s.run(sliceFunction(UI, 'parseDraftOptions'));
+  s.run(sliceFunction(HTML, 'orderStartDelayMinutes'));
+  s.run(sliceFunction(HTML, 'orderShouldExecuteNow'));
+  s.run(`var draft = {category:'move',mode:'simple',time:'',waypoints:[{col:2,row:1}]};
+    var parsed = parseDraftOptions(draft,{col:1,row:1});`);
+  assert.equal(s.evalCtx('parsed.options.startTimeMin'), null, 'без ручного времени приказ готов сразу');
+  for (const time of [1420, 5]) {
+    s.run(`appData.campaign.currentTime = ${time};`);
+    assert.equal(s.evalCtx('orderShouldExecuteNow(parsed.options)'), true, 'нет ожидания, в том числе после полуночи');
+  }
+  assert.match(UI, /time:\s*''/, 'нет устаревшего времени, зафиксированного при открытии черновика');
   assert.match(UI, /function currentTimeValue\(\)[\s\S]{0,220}campaign\(\)/);
 });
 

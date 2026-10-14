@@ -144,11 +144,11 @@ test('2: перезагрузка в бою возвращает в бой; ош
 });
 
 // Version synchronisation.
-test('версия v13.094 синхронна', () => {
-  includes(HTML, "var APP_VERSION = 'v13.094';", 'APP_VERSION');
-  includes(source('service-worker.js'), "wargame-v13.094", 'CACHE_NAME');
+test('текущая версия приложения и маркеры сборки синхронны', () => {
+  const version = /var APP_VERSION = '([^']+)'/.exec(HTML)[1];
+  includes(source('service-worker.js'), `const CACHE_NAME = 'wargame-${version}';`, 'CACHE_NAME');
   ['js/data.js', 'js/hexmaps.js', 'js/templates.js', 'js/operational_ui.js'].forEach(f =>
-    includes(source(f), 'BUILD-МАРКЕР: v13.094', f));
+    includes(source(f), 'BUILD-МАРКЕР: ' + version, f));
 });
 
 console.log(`\n${pass} PASS, ${fail} FAIL`);

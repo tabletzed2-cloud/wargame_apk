@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.095 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.097 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1920,15 +1920,103 @@ function initialDotSectorCrewEntries(candidate) {
         return { crew, index, weapon };
     }).filter(item => item.weapon && ['at_gun', 'tank_gun', 'mg'].includes(item.weapon.type));
 }
+// Цвет совпадает с легендой у соответствующего орудия/амбразуры.
+function initialDotSectorColor(crewIndex) {
+    const colors = ['#f1c40f', '#33d6ff', '#ff5c8a', '#b36bff', '#65d46e'];
+    return colors[Number(crewIndex) % colors.length] || colors[0];
+}
+
+// Отдельный верхний слой: рисуется ПОСЛЕ всех клеток карты. Короткий веер
+// внутри drawHex закрывался иконкой ДОТа, а длинные линии — соседними клетками.
+function drawInitialDotSectorOverlay(ctx, size) {
+    const st = hexEditorState;
+    const map = appData.map;
+    if (!st || st.kind !== 'initialFortification' || !map || map.mode !== 'hexEdit') return;
+    const candidate = initialDotCandidates().find(item => item.id === st.dotId);
+    const pos = candidate && candidate.squad.fixedTacticalPosition;
+    if (!pos || String(pos.hexKey) !== String(st.hexKey)) return;
+    const centers = map.centers || [];
+    const origin = centers.find(center => String(center.key) === String(pos.key));
+    if (!origin) return;
+    const sectors = st.dotSectorCandidateId === st.dotId && st.dotWeaponSectors
+        ? st.dotWeaponSectors : pos.weaponSectors || {};
+    const activeCrew = st.dotSectorPickCrew != null ? st.dotSectorPickCrew : st.dotSectorHighlightCrew;
+    const entries = initialDotSectorCrewEntries(candidate);
+    // Активный сектор рисуем последним, чтобы он оставался виден при перекрытии.
+    entries.sort((a, b) => Number(a.index === activeCrew) - Number(b.index === activeCrew));
+    const reach = centers.reduce((max, center) => Math.max(max,
+        Math.hypot(center.x - origin.x, center.y - origin.y) + size), size);
+
+    entries.forEach(({ index }) => {
+        const sectorId = sectors[String(index)] || 'e';
+        const direction = TACTICAL_FIRE_SECTOR_OPTIONS.find(option => option.id === sectorId);
+        if (!direction) return;
+        const widthDeg = dotSectorWidthDeg(candidate.squad, index);
+        const active = index === activeCrew;
+        const color = initialDotSectorColor(index);
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.globalAlpha = active ? 0.26 : activeCrew != null ? 0.045 : 0.13;
+        centers.forEach(center => {
+            // Точно та же геометрия, что у проверки допустимой цели для оружия.
+            if (!tacticalHexInFireSector(pos.key, center.key, sectorId, widthDeg)) return;
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) {
+                const angle = (60 * i - 30) * Math.PI / 180;
+                const x = center.x + Math.cos(angle) * size * 0.94;
+                const y = center.y + Math.sin(angle) * size * 0.94;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+            ctx.fill();
+        });
+        ctx.globalAlpha = active || activeCrew == null ? 0.95 : 0.35;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = active ? 3.5 : 2;
+        ctx.shadowColor = '#000';
+        ctx.shadowBlur = 4;
+        if (widthDeg < 360) {
+            const vector = _cubeToPixel2D(direction.cube);
+            const angle = Math.atan2(vector.y, vector.x);
+            const half = widthDeg * Math.PI / 360;
+            ctx.setLineDash([10, 6]);
+            [-half, half].forEach(offset => {
+                ctx.beginPath();
+                // Не закрываем иконку: линии начинаются на краю клетки ДОТа.
+                ctx.moveTo(origin.x + Math.cos(angle + offset) * size * 0.65,
+                    origin.y + Math.sin(angle + offset) * size * 0.65);
+                ctx.lineTo(origin.x + Math.cos(angle + offset) * reach,
+                    origin.y + Math.sin(angle + offset) * reach);
+                ctx.stroke();
+            });
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.moveTo(origin.x + Math.cos(angle) * size * 0.65,
+                origin.y + Math.sin(angle) * size * 0.65);
+            ctx.lineTo(origin.x + Math.cos(angle) * reach, origin.y + Math.sin(angle) * reach);
+            ctx.stroke();
+        } else {
+            // Круговой сектор не имеет направления: вся карта уже подсвечена.
+            ctx.beginPath();
+            ctx.arc(origin.x, origin.y, size * 0.65, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        ctx.restore();
+    });
+}
+
 function setInitialDotCandidate(candidateId) {
     const st = hexEditorState;
     if (!st || st.kind !== 'initialFortification') return;
     st.dotId = String(candidateId || '');
+    st.dotSectorPickCrew = null;
+    st.dotSectorHighlightCrew = null;
     const candidate = initialDotCandidates().find(item => item.id === st.dotId);
     st.dotSectorCandidateId = st.dotId;
     st.dotWeaponSectors = Object.assign({}, (candidate && candidate.squad.fixedTacticalPosition &&
         candidate.squad.fixedTacticalPosition.weaponSectors) || {});
     showHexEditorBanner();
+    try { redrawMap(); } catch (e) {}
 }
 function setInitialDotWeaponSector(crewIndex, sectorId) {
     const st = hexEditorState;
@@ -1936,13 +2024,14 @@ function setInitialDotWeaponSector(crewIndex, sectorId) {
     if (!st.dotWeaponSectors || st.dotSectorCandidateId !== st.dotId) setInitialDotCandidate(st.dotId);
     if (!TACTICAL_FIRE_SECTOR_OPTIONS.some(option => option.id === sectorId)) return;
     st.dotWeaponSectors[String(crewIndex)] = sectorId;
+    st.dotSectorHighlightCrew = crewIndex;
     st.dotSectorCandidateId = st.dotId;
     persistInitialDotSectors(st);
     showHexEditorBanner();
     try { redrawMap(); } catch (e) {}
 }
 // ⚡ v13.094 (п.3): сектор амбразуры задаётся КЛИКОМ по клетке карты: линия от
-//    клетки ДОТа к кликнутой клетке = ось сектора (веер ±30° рисуется на карте).
+//    клетки ДОТа к кликнутой клетке = ось сектора (ширина — по типу оружия).
 function tacticalSectorIdBetween(fromKey, toKey) {
     const from = String(fromKey || '').split(',').map(Number);
     const to = String(toKey || '').split(',').map(Number);
@@ -1962,6 +2051,7 @@ function setInitialDotSectorPick(crewIndex) {
     const st = hexEditorState;
     if (!st || st.kind !== 'initialFortification') return;
     st.dotSectorPickCrew = (st.dotSectorPickCrew === crewIndex) ? null : crewIndex;
+    st.dotSectorHighlightCrew = crewIndex;
     showHexEditorBanner();
     try { redrawMap(); } catch (e) {}
 }
@@ -1990,6 +2080,7 @@ function applyInitialDotSectorPick(st, cellKey) {
     }
     if (!st.dotWeaponSectors || st.dotSectorCandidateId !== st.dotId) setInitialDotCandidate(st.dotId);
     st.dotWeaponSectors[String(st.dotSectorPickCrew)] = sectorId;
+    st.dotSectorHighlightCrew = st.dotSectorPickCrew;
     st.dotSectorCandidateId = st.dotId;
     persistInitialDotSectors(st);
     const label = (TACTICAL_FIRE_SECTOR_OPTIONS.find(o => o.id === sectorId) || {}).label || sectorId;
@@ -2018,10 +2109,11 @@ function initialDotSectorControls(st) {
                 `<option value="${option.id}" ${option.id === value ? 'selected' : ''}>${option.label}</option>`).join('');
             const picking = st.dotSectorPickCrew === index;
             const widthDeg = dotSectorWidthDeg(candidate.squad, index);
-            return `<label style="color:#ddd; font-size:.82rem;">${label} — ${String(weapon.name || crew.weaponName)} (сектор ${widthDeg >= 360 ? '360° — круговой' : widthDeg + '°'}): ` +
+            const color = initialDotSectorColor(index);
+            return `<label style="color:#ddd; font-size:.82rem; border-left:4px solid ${color}; padding-left:6px;">${label} — ${String(weapon.name || crew.weaponName)} (сектор ${widthDeg >= 360 ? '360° — круговой' : widthDeg + '°'}): ` +
                 `<select onchange="setInitialDotWeaponSector(${index},this.value)">${options}</select> ` +
                 `<button type="button" onclick="setInitialDotSectorPick(${index})" style="${picking ? 'background:#e67e22;' : 'background:#2980b9;'} font-size:.78rem;">${picking ? '🎯 Кликните клетку направления…' : '🎯 Указать на карте'}</button></label>`;
-        }).join('') + '</div><div style="color:#888; font-size:.78rem;">У каждого расчёта свой сектор: Van Hees — ПТ-орудие 360° (круговой), пулемёт 90°; Bosh — пулемёты по 60°, орудие 90°. Секторы могут перекрываться. Цель вне сектора для этого оружия недоступна — и в тактическом бою, и на оперативной карте. «🎯 Указать на карте» — затем кликните клетку, куда смотрит амбразура: линии сектора появятся на карте от клетки ДОТа.</div>';
+        }).join('') + '</div><div style="color:#888; font-size:.78rem;">У каждого расчёта свой сектор: Van Hees — ПТ-орудие 360° (круговой), пулемёт 90°; Bosh — пулемёты по 60°, орудие 90°. Цвет каждой амбразуры совпадает с подсветкой на карте; выбранная амбразура выделяется ярче. Подсветка показывает направление и ширину сектора, а не дальность стрельбы. Секторы могут перекрываться. Цель вне сектора для этого оружия недоступна — и в тактическом бою, и на оперативной карте. «🎯 Указать на карте» — затем кликните клетку, куда смотрит амбразура: линии сектора появятся на карте от клетки ДОТа.</div>';
 }
 function initialDotSelector(st) {
     const escape = text => String(text).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
