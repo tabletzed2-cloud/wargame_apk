@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.092 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.093 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // v13.077: разблокировка интерфейса (F3) — инвалидация offline-кэша кода.
 // v13.065: invalidate offline code cache after the melee/cards/map-template fixes.
 // v13.064: invalidate offline code cache after the orders-list rework.
@@ -11,7 +11,7 @@
 // ⚡ v13.061: cache update for retreat, turn-order and initial fortification fixes.
 // v13.072: invalidate offline code cache after the reliable-update (cache: 'reload'
 //    precache + build-marker verification) and build self-check fixes.
-const CACHE_NAME = 'wargame-v13.092';
+const CACHE_NAME = 'wargame-v13.093';
 
 const ASSETS = [
     './images/AIRF/Взвод снабжения АИРФ №1.png',
@@ -52,6 +52,7 @@ const ASSETS = [
     './images/Горные охотники.png',
     './images/Дисковый магазин к FN model D.png',
     './images/Длинное дыхание.png',
+    './images/Двойной БК.png',
     './images/За республику.png',
     './images/Знак колониальной службы.png',
     './images/ИПП БеВе.png',
@@ -363,9 +364,8 @@ const ASSETS = [
     './maps/index.json',
     './maps/высота_142.json',
     './maps/Высота 63.json',
-    // карты полей боя для гексов оперативной карты: список берётся из
-    // индекса (node tools/build_hex_map_index.js) — см. precacheHexMaps()
-    './maps/Карты Валенсия/index.json',
+    // Карты гексов оперативной карты загружаются по общему maps/index.json
+    // (см. precacheHexMaps()).
 ];
 
 // ⚡ v13.050: файлы, без которых приложение не работает. Только они кэшируются
@@ -389,7 +389,7 @@ const CORE_ASSETS = [
     './js/operational_ui.js',
 ];
 
-const HEX_MAP_INDEX = './maps/Карты Валенсия/index.json';
+const HEX_MAP_INDEX = './maps/index.json';
 
 // ⚡ v13.070: надёжная предзагрузка ядра — файлы скачиваются В ОБХОД HTTP-кэша
 //    браузера (cache: 'reload') и проверяются маркером сборки. Раньше cache.add()
@@ -440,7 +440,7 @@ function precacheSoft(cache, urls) {
   return Promise.all(workers);
 }
 
-// Карты гексов оперативной карты — по индексу maps/Карты Валенсия/index.json
+// Карты гексов оперативной карты — по общему индексу maps/index.json
 function precacheHexMaps(cache) {
   return fetch(HEX_MAP_INDEX, { cache: 'no-cache' })
     .then((r) => (r.ok ? r.json() : []))

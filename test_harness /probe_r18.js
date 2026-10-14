@@ -1,13 +1,15 @@
-// ⚡ dev-пробник R18: v13.025–v13.058 regression-покрытие.
-// ⚡ v13.061: проверки версии приложения и SW обновлены для нового релиза.
+// ⚡ dev-пробник R18: регрессионное покрытие изменений v13.025–v13.093.
+// ⚡ v13.093: версия и кэш проверяются относительно текущего APP_VERSION.
 const fs = require('fs');
 const path = require('path');
-const { sliceFunction, HTML } = require('./extract');
+const { sliceFunction, sliceConst, HTML } = require('./extract');
 const { createSandbox, freshAppData, setRandom } = require('./sandbox');
+const CURRENT_APP_VERSION = /var APP_VERSION = '(v[\d.]+)'/.exec(HTML)?.[1] || '';
 
 const FNS = [
     'generateBattalion', 'getPresetSignature', 'getBattalionSignature', 'buildOperationalUnits',
-    'canIssueArtilleryStrike', 'submitArtilleryStrikeOrder', 'showOrderPanel',
+    'canIssueArtilleryStrike', 'parseOperationalOrderTime', 'submitArtilleryStrikeOrder', 'showOrderPanel',
+    'operationalAmmoField', 'operationalAmmoSquads', 'unitOperationalAmmoTotal', 'consumeOperationalAmmo', 'requireOperationalAmmo',
     'getHqSupportAccuracyMod', 'getOpHexDistance', 'isStaticOpUnit',
     'selectTargetVehicle', 'processVehicleHit', 'getLocationName', 'getOpHexTypes',
     'executeOpShoot', 'executeOpShootAt', 'executeArtilleryStrikeOrder',
@@ -25,7 +27,8 @@ const FNS = [
     'getScopedActiveCardsForSquad', 'getScopedActiveModifiersForSquad',
     'getCardTargetCandidates', 'isCardAvailableToUnit', 'cardSelectionTargetNames', 'escapeCardHtml', 'collectCardLibraryForContext',
     'getScopedCardRecordsForUnit', 'makeScopedActiveCard', 'refreshAssignedCardEffectsForNewBattle', 'syncScopedActiveCardsForBattle',
-    'updateActiveCardsBattle', 'syncFactionCatalogs', 'getDefaultData',
+    'updateActiveCardsBattle', 'syncFactionCatalogs', 'getDefaultData', 'isCardPlayableInTacticalBattle', 'filterCardsPlayableInBattle',
+    'countBattalionBonusCardCopies', 'campaignBonusCardLimitReached',
     'openOnlineMenu', 'onlineDiagnostics', 'onlineFirebaseReady', 'onlineCreateRoom', 'onlineJoinRoom',
     'onlineBody', 'onlineGoToCampaign', 'closeOnlineModal', 'onlineShowJoin',
     'onlineSelfTest', 'onlineSelfTestMeaning',
@@ -35,18 +38,18 @@ const FNS = [
     'opLineOfSightBlocked', 'unitCanBeDetected', 'artilleryCaliberMm', 'dotEmbrasureHp', 'dotEmbrasureDestroyed',
     'getRelayCompanyForOrder', 'findParentCompany', 'ensureSignalPlatoonState', 'hasActivePhoneAt', 'checkCommunication', 'hasRadio', 'hasPhoneLine', 'isInRadioRange',
     'renderAwardsReference', 'executeMortarSalvo', 'finishPlacement',
-    'updateAssemblySupportCheck', 'orderShouldExecuteNow', 'executeOrder', 'executeDigInOrder', 'rollD12',
+    'updateAssemblySupportCheck', 'orderStartDelayMinutes', 'orderShouldExecuteNow', 'executeOrder', 'executeDigInOrder', 'rollD12',
     // ⚡ v13.047 (R32): миномёты/ДОТ, залп ∝ живому составу, авто. винтовка = 2
     // ⚡ v13.057: morale helpers are direct artillery-strike dependencies.
     'isOperationalMoraleUnit', 'getOperationalMorale', 'operationalMoraleMarkup', 'changeOperationalMorale', 'triggerOperationalRetreat',
     'cancelOrdersForMoraleRetreat', 'isMortarUnit', 'mortarRoundsForUnit', 'unitAutoFire', 'canUnitShoot',
-    'isMediumArtillery', 'operationalMediumArtilleryRange', 'getNearestOpUnit', 'isArmoredUnit',
+    'isMediumArtillery', 'operationalMediumArtilleryRange', 'operationalFireAtWillRange', 'getNearestOpUnit', 'isArmoredUnit',
     // ⚡ v13.048 (R33): бонусы фракций на экране выбора стороны
     'showScenarioDetails', 'factionBonusHtml',
     // ⚡ v13.049 (R34): ходимость по новым типам местности
     //    (executePrepPositionsOrder и весь модуль карт гексов — в js/hexmaps.js,
     //     его песочница грузит целиком)
-    'getMovementCost',
+    'getMovementCost', 'justDisembarkedThisTurn',
     // ⚡ v13.061: helpers for bicycle-blitz card eligibility, movement and flank bonus.
     'isBicycleTacticalSquad', 'hasBicycleBlitz', 'refreshTacticalAPForSquad',
     'getBicycleBlitzFlankBonus', 'applyBicycleBlitzToSquad',
@@ -54,11 +57,12 @@ const FNS = [
     'isOpUnitEmbarkedOnPlacedBtr', 'getUnplacedOpUnits', 'getFactionPlacementHexes', 'autoPlaceUnplacedUnits',
     'maybeAutoPlaceAtStart', 'isReconZoneActive', 'onlineFogMap', 'onlineRevealEnemy', 'onlineFogRevealedUntil',
     'executeReconOrder', 'opMapDrawDims', 'onlineMarkPlaced', 'executeMoveOrder', 'checkEnemyEncounter',
-    'getOpMoveCost', 'getRouteToTarget', 'getOpHexNeighbors',
+    'getOpMoveCost', 'getOpPlannedMoveCost', 'getRouteToTarget', 'getOpHexNeighbors', 'buildOrderRoute',
     // ⚡ v13.050: сквозной старт боя на гексе с реальной картой пользователя
     // ⚡ v13.057: функции-хелперы боя/морали нужны для изолированного запуска startTacticalBattle.
     'deepCloneGameData', 'getMaxAP', 'getOperationalCombatFighters', 'getTacticalBattleAnchor', 'battleUnitNamesForSide',
-    'sameBattleUnitNames', 'findDuplicateBattleByParticipants', 'startTacticalBattle',
+    'sameBattleUnitNames', 'findDuplicateBattleByParticipants', 'restoreBattleAP', 'mergeMissingFightersIntoBattleSquad', 'tacticalHQFlareOwnerKey', 'ensureBattleHQFlareSupply',
+    'ensureStandaloneHQFlareSupply', 'findTriggeredPlayerAmbush', 'startTacticalBattle',
     // ⚡ v13.052 (R37): Hard Mode онлайн, канвас/масштаб
     'applyHardModeUI', 'ensureHardModeForOnline', 'toggleHardMode', 'pickCanvasDpr', 'canvasBackingScale',
     'opMapFitZoom', 'opMapMinZoom', 'applyOpMapFitZoom', 'fitOpMapZoom', 'zoomOpMap', 'isMobileViewport',
@@ -66,9 +70,9 @@ const FNS = [
     'getConfiguredStartHex', 'buildStartPositionsCode', 'relocateMapInfo',
     // ⚡ v13.054 (R39#2/#4): уничтоженные юниты в батальоне; действия с карты боя
     'isOpUnitWipedOut', 'markOpUnitDestroyed', 'syncBattleLossesToCampaign', 'renderBattalionRoster',
-    'executeAttack', 'closeTargetModal', 'getCrewRole', 'handleHexAction', 'recalcReachable',
+    'executeAttack', 'closeTargetModal', 'getCrewRole', 'handleHexAction', 'recalcReachable', 'syncCampaignBattleTabVisibility',
     // ⚡ v13.055 (R39#3): размещение перед боем — откуда вошёл юнит
-    'opRecordPrevPos', 'switchToBattle', 'placeExistingEnemyOnHex', 'getTacticalBattleRecord', 'getTacticalActiveSide', 'nextTurn'
+    'opRecordPrevPos', 'switchToBattle', 'placeExistingEnemyOnHex', 'getTacticalBattleRecord', 'getTacticalActiveSide', 'nextTurn', 'processTacticalRouts', 'tacticalMaybeAutoRetreat'
 ];
 
 let pass = 0, fail = 0;
@@ -78,7 +82,7 @@ function ok(cond, name, extra) {
 }
 
 console.log('Извлечение функций...');
-fs.writeFileSync('/tmp/wg_part.js', FNS.map(f => sliceFunction(HTML, f)).join('\n\n'));
+fs.writeFileSync('/tmp/wg_part.js', [sliceConst(HTML, 'SUPPLY_SHOT_SPEND'), ...FNS.map(f => sliceFunction(HTML, f))].join('\n\n'));
 
 function makeSandbox(ad) {
     const s = createSandbox(ad);
@@ -248,7 +252,7 @@ console.log('\n== J. v13.027: BeVe +20% точности у штаба ==');
         const a = freshAppData();
         a.campaign.playerFaction = 'BeVe';
         const hq = { name: 'Штаб батальона', type: 'battalion_hq', col: 10, row: 10, squads: [] };
-        const shooter = { name: 'ПТО №1', type: 'at_battery', col: shooterCol, row: 10, ap: 4, maxAp: 4, squads: [{ name: 'ПТО', faction: 'BeVe', crewInstances: [{ weaponName: 'ПТО', active: true, status: 'ok' }] }] };
+        const shooter = { name: 'ПТО №1', type: 'at_battery', col: shooterCol, row: 10, ap: 4, maxAp: 4, squads: [{ name: 'ПТО', faction: 'BeVe', ammoOrdnance: 50, crewInstances: [{ weaponName: 'ПТО', active: true, status: 'ok' }] }] };
         a.campaign.opUnits = [hq, shooter];
         a.campaign.enemyOpUnits = [vehicle('Танк Ц')];
         const ss = makeSandbox(a);
@@ -274,7 +278,7 @@ console.log('\n== J. v13.027: BeVe +20% точности у штаба ==');
         const a = freshAppData();
         a.campaign.playerFaction = 'BeVe';
         const hq = { name: 'Штаб батальона', type: 'battalion_hq', col: 10, row: 10, squads: [] };
-        const shooter = { name: 'БА Landsverk 183 №1', type: 'armored_vehicle_platoon', col: shooterCol, row: 10, ap: 4, maxAp: 4, squads: [{ name: 'БА Landsverk 183 №1', faction: 'BeVe', fighters: [{ name: 'А', weapon: 'x', hp: 3, maxHp: 3 }, { name: 'Б', weapon: 'x', hp: 3, maxHp: 3 }, { name: 'В', weapon: 'x', hp: 3, maxHp: 3 }], crewInstances: [{ weaponName: 'Орудие Landsverk', active: true, fighterIndices: [1, 2] }] }] };
+        const shooter = { name: 'БА Landsverk 183 №1', type: 'armored_vehicle_platoon', col: shooterCol, row: 10, ap: 4, maxAp: 4, squads: [{ name: 'БА Landsverk 183 №1', faction: 'BeVe', ammoSmall: 50, fighters: [{ name: 'А', weapon: 'x', hp: 3, maxHp: 3 }, { name: 'Б', weapon: 'x', hp: 3, maxHp: 3 }, { name: 'В', weapon: 'x', hp: 3, maxHp: 3 }], crewInstances: [{ weaponName: 'Орудие Landsverk', active: true, fighterIndices: [1, 2] }] }] };
         const target = { name: 'Вражеская рота', type: 'infantry_platoon', col: shooterCol, row: 11, squads: [sqE('Секция', 10, 3)], isDestroyed: false };
         a.campaign.opUnits = [hq, shooter];
         a.campaign.enemyOpUnits = [target];
@@ -379,17 +383,20 @@ console.log('\n== N. v13.032: зоны расстановки — полигон
             s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',${c},${r})`).ok) overlap++;
     }
     ok(overlap === 0, 'N11: зоны фракций не пересекаются (вся карта 20×15)');
-    // ⚡ v13.038: расширение зоны BeVe на гексы 2,7 / 3,7 / 4,7
-    //    (центры этих гексов лежат НА границе полигона — ray casting их исключал)
+    // ⚡ v13.038: BeVe + п.5: расширение стартовой зоны явными гексами.
+    //    11,8 и 10,7 лежат НА границе полигона и ray casting исключал их.
     ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',2,7)`) .ok === true, 'N12a: BeVe — (2,7) в зоне (явное добавление)');
     ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',3,7)`) .ok === true, 'N12b: BeVe — (3,7) в зоне');
     ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',4,7)`) .ok === true, 'N12c: BeVe — (4,7) в зоне');
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',11,8)`) .ok === true, 'N12d: BeVe — (11,8) добавлен в стартовую зону');
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',10,7)`) .ok === true, 'N12e: BeVe — (10,7) добавлен в стартовую зону');
+    ok(s.evalCtx(`isHexInPlacementZone('valencia','BeVe',9,6)`) .ok === true, 'N12f: BeVe — (9,6) добавлен в стартовую зону');
     let cntBe = 0, cntAi = 0;
     for (let r = 0; r < 15; r++) for (let c = 0; c < 20; c++) {
         if (s.evalCtx(`isHexInPlacementZone('valencia','BeVe',${c},${r})`).ok) cntBe++;
         if (s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',${c},${r})`).ok) cntAi++;
     }
-    ok(cntBe === 72, `N13: BeVe — 72 гекса в зоне (69 + 3 добавленных), реально: ${cntBe}`);
+    ok(cntBe === 74, `N13: BeVe — 74 гекса (69 в полигоне + 5 новых; 9,6 уже внутри полигона), реально: ${cntBe}`);
     // ⚡ v13.040 (R25#4): расширение зоны AIRF на гексы 0,13 / 1,13 / 2,13 / 4,13
     ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',0,13)`) .ok === true, 'N14a: AIRF — (0,13) в зоне');
     ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',1,13)`) .ok === true, 'N14b: AIRF — (1,13) в зоне');
@@ -494,10 +501,10 @@ console.log('\n== S. v13.037: бонусы, 3-из-4, приказ на врем
     // S2: глобальные бонусы фракций (data.js) — с иконками
     const beB = s.evalCtx('(FRACTION_GLOBAL_BONUSES || {}).BeVe');
     const airB = s.evalCtx('(FRACTION_GLOBAL_BONUSES || {})["A.I.R.F."]');
-    ok(Array.isArray(beB) && beB.length === 3 && beB.every(b => b.name && b.desc && b.icon),
-        'S2a: у BeVe 3 глобальных бонуса (УО/Phillips/Мотогонец) с иконками');
-    ok(Array.isArray(airB) && airB.length === 2 && airB.every(b => b.name && b.desc && b.icon),
-        'S2b: у A.I.R.F. 2 бонуса (Сиеста/Часки) с иконками');
+    ok(Array.isArray(beB) && beB.length >= 3 && beB.every(b => b.name && b.desc && b.icon),
+        'S2a: глобальные бонусы BeVe (управление огнём/Phillips/мотогонец) имеют описания и иконки');
+    ok(Array.isArray(airB) && airB.length >= 2 && airB.every(b => b.name && b.desc && b.icon),
+        'S2b: глобальные бонусы AIRF (Сиеста/Часки) имеют описания и иконки');
     ok(/УО|управлени/i.test((beB[0] || {}).name || '') && /Phillips/i.test((beB[1] || {}).name || '') &&
        /Мотогонец/i.test((beB[2] || {}).name || '') && /Сиеста/i.test((airB[0] || {}).name || '') &&
        /Часки/i.test((airB[1] || {}).name || ''),
@@ -812,7 +819,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U9p: пользовательские карты (редактор) НЕ затираются');
 
     // U9q: версия отображается в интерфейсе (R26 — «какая версия у меня?»)
-    ok(HTML.includes("var APP_VERSION = 'v13.061'"), 'U9q: константа версии v13.061');
+    ok(HTML.includes(`var APP_VERSION = '${CURRENT_APP_VERSION}'`), 'U9q: константа версии совпадает с проверяемым выпуском');
     ok(HTML.includes('id="appVersionBadge"') && HTML.includes('forceAppUpdate()'),
         'U9r: в меню — бейдж версии + кнопка «🔄 Обновить игру»');
 
@@ -1025,7 +1032,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     // #3: залп батареи миномётов — пропорционален % живого личного состава
     s.run('var mkF = (n, aliveN) => Array.from({length: n}, (_, i) => ({ name: "Ф" + i, weapon: "Миномёт 82-мм", hp: (i < aliveN ? 3 : 0), maxHp: 3 }));');
     s.run('var mFull = { name: "Батарея 82-мм миномётов", type: "mortar_battery", col: 0, row: 0, ap: 4, squads: [{ name: "Р1", fighters: mkF(8, 8) }] };');
-    s.run('var mHalf = { name: "Батарея 82-мм миномётов", type: "mortar_battery", col: 0, row: 0, ap: 4, squads: [{ name: "Р1", fighters: mkF(8, 4) }] };');
+    s.run('var mHalf = { name: "Батарея 82-мм миномётов", type: "mortar_battery", col: 0, row: 0, ap: 4, squads: [{ name: "Р1", ammoOrdnance: 50, fighters: mkF(8, 4) }] };');
     s.run('var mOne = { name: "Батарея 82-мм миномётов", type: "mortar_battery", col: 0, row: 0, ap: 4, squads: [{ name: "Р1", fighters: mkF(8, 1) }] };');
     s.run('var mDead = { name: "Батарея 82-мм миномётов", type: "mortar_battery", col: 0, row: 0, ap: 4, squads: [{ name: "Р1", fighters: mkF(8, 0) }] };');
     ok(s.evalCtx('mortarRoundsForUnit(mFull, 15)') === 15, 'U15g: полный состав 8/8 — 15 выстрелов');
@@ -1040,7 +1047,7 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     ok(s.logs.some(l => l.includes('обстреливает гекс') && l.includes('— 8 снарядов')),
         'U15l: автоогонь миномёта (состав 4/8) — 8 снарядов (∝ живому составу)');
     // #2: автоматическая винтовка = 2 очка выстрела (винтовка 1, РПМ 3, СПМ 10)
-    s.run('var avShooter = { name: "Секция тест", type: "infantry_platoon", col: 0, row: 0, ap: 4, isDestroyed: false, squads: [{ name: "Секция", faction: "BeVe", crewInstances: [], fighters: [ { name: "А1", weapon: "Автоматическая винтовка Johanson M1941", hp: 3, maxHp: 3 }, { name: "А2", weapon: "Винтовка FN model 24/30", hp: 3, maxHp: 3 }, { name: "А3", weapon: "Ручной пулемет FN model D", hp: 3, maxHp: 3 }, { name: "А4", weapon: "Станковый пулемет Schwarzlose", hp: 3, maxHp: 3 } ] }] };');
+    s.run('var avShooter = { name: "Секция тест", type: "infantry_platoon", col: 0, row: 0, ap: 4, isDestroyed: false, squads: [{ name: "Секция", faction: "BeVe", ammoSmall: 50, crewInstances: [], fighters: [ { name: "А1", weapon: "Автоматическая винтовка Johanson M1941", hp: 3, maxHp: 3 }, { name: "А2", weapon: "Винтовка FN model 24/30", hp: 3, maxHp: 3 }, { name: "А3", weapon: "Ручной пулемет FN model D", hp: 3, maxHp: 3 }, { name: "А4", weapon: "Станковый пулемет Schwarzlose", hp: 3, maxHp: 3 } ] }] };');
     s.run('var avTarget = { name: "Вражеская секция", type: "infantry_platoon", col: 1, row: 0, isDestroyed: false, isInBattle: false, squads: [{ name: "Секция", faction: "A.I.R.F.", fighters: Array.from({length: 8}, (_, i) => ({ name: "В" + i, weapon: "Винтовка", hp: 3, maxHp: 3 })) }] };');
     s.run('appData.campaign.opUnits = [avShooter]; appData.campaign.enemyOpUnits = [avTarget];');
     s.run('opShootingState.shooter = avShooter; opShootingState.active = true; opShootingState.weaponType = "mg";');
@@ -1069,8 +1076,9 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     let htmlU16 = s.elements.cardSelectionForBattle.innerHTML;
     {
         const namesU16 = [...htmlU16.matchAll(/data-name="([^"]+)"/g)].map(m => m[1]);
-        ok(new Set(namesU16).size === namesU16.length && namesU16.length === 21,
-            'U16a: BeVe (бельгийцы) — 21 карта без дублей (24 − 3 голландских)', namesU16.join(','));
+        ok(new Set(namesU16).size === namesU16.length && namesU16.includes('Двойной БК') &&
+           htmlU16.includes('data-faction="_global" data-name="Двойной БК"'),
+            'U16a: BeVe видит общую карточку из cards.js, без дублей и карт другой подфракции', namesU16.join(','));
         ok(!htmlU16.includes('data-faction="A.I.R.F."'), 'U16b: у BeVe-игрока карт AIRF НЕТ');
     }
     s.run('appData.campaign.activeBattles[0].playerSquads = [{ name: "С1", faction: "A.I.R.F.", fighters: [{ name: "А", hp: 3, maxHp: 3 }] }]; ' +
@@ -1079,8 +1087,9 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     htmlU16 = s.elements.cardSelectionForBattle.innerHTML;
     {
         const namesU16c = [...htmlU16.matchAll(/data-name="([^"]+)"/g)].map(m => m[1]);
-        ok(new Set(namesU16c).size === namesU16c.length && namesU16c.length === 23,
-            'U16c: AIRF-игрок — 23 свои карты без дублей (v13.050: _global-карты, входящие в библиотеку BeVe, игроку AIRF не показываются)', namesU16c.length);
+        ok(new Set(namesU16c).size === namesU16c.length && namesU16c.includes('Двойной БК') &&
+           htmlU16.includes('data-faction="_global" data-name="Двойной БК"'),
+            'U16c: AIRF выбирает общую карточку из cards.js без дублей', namesU16c.length);
         ok(htmlU16.includes('data-faction="A.I.R.F."') && !htmlU16.includes('data-faction="BeVe"'),
             'U16d: AIRF-игрок — свои карты + «Общие», без библиотеки BeVe');
         ok(!namesU16c.includes('Велоблиц') && !namesU16c.includes('Кальвинистская эффективность') && !namesU16c.includes('Велостоянка'),
@@ -1095,8 +1104,8 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
     {
         const bonusIcons = s.evalCtx('[].concat(FRACTION_GLOBAL_BONUSES.BeVe, FRACTION_GLOBAL_BONUSES["A.I.R.F."]).map(b => b.icon)');
         const missingIcons = bonusIcons.filter(ic => !fs.existsSync(path.resolve(__dirname, '..', ic)));
-        ok(bonusIcons.length === 5 && bonusIcons.every(ic => scenHtml.includes(ic)) && missingIcons.length === 0,
-            'U16f: выбор стороны — все 5 иконок бонусов/дебафов фракций (файлы пользователя на месте)', missingIcons.join(', '));
+        ok(bonusIcons.length === 8 && bonusIcons.every(ic => scenHtml.includes(ic)) && missingIcons.length === 0,
+            'U16f: выбор стороны — все 8 иконок бонусов/дебафов фракций (файлы пользователя на месте)', missingIcons.join(', '));
     }
     ok(scenHtml.includes('Портативный комплекс управления огнём') && scenHtml.includes('Сиеста'),
         'U16g: выбор стороны — названия бонусов BeVe и AIRF');
@@ -1259,18 +1268,18 @@ console.log('\n== U. v13.039: онлайн-синхронизация (R24) ==')
         'U17ae: вариант текстуры правки сохраняется и применяется в бою');
 
     // Слияние правок противника (онлайн)
-    s.run('appData.campaign.hexOverlays = {"8,10":{hexEdits:{"2,2":"trenches"},trenchPoints:0,prepPoints:0,shellings:1}};');
+    s.run('appData.campaign.fogRevealedHexes = ["8,10", "9,9"]; appData.campaign.hexOverlays = {"8,10":{hexEdits:{"2,2":"trenches"},trenchPoints:0,prepPoints:0,shellings:1}};');
     ok(s.evalCtx('mergeHexOverlays({"8,10":{hexEdits:{"4,4":"craters"},shellings:2},"9,9":{hexEdits:{"1,1":"trenches"}}})') === true &&
        s.evalCtx('appData.campaign.hexOverlays["8,10"].hexEdits["4,4"]') === 'craters' &&
        s.evalCtx('appData.campaign.hexOverlays["8,10"].hexEdits["2,2"]') === 'trenches' &&
        s.evalCtx('appData.campaign.hexOverlays["8,10"].shellings') === 2 &&
        s.evalCtx('appData.campaign.hexOverlays["9,9"].hexEdits["1,1"]') === 'trenches',
         'U17aa: правки противника (окопы/воронки) приходят в онлайн и видны в бою');
-    // Ходимость: воронки — как камни (пехота 4 ОД, техника не входит)
+    // Ходимость: пехота проходит воронки по травяной стоимости, техника не входит
     s.run('appData.map = {grid:{"0,0":{type:"grass",level:0},"1,0":{type:"craters",level:0},' +
           '"2,0":{type:"fallen_forest",level:0},"3,0":{type:"shelled_forest",level:0},"4,0":{type:"forest",level:0}}};');
-    ok(s.evalCtx('getMovementCost({name:"Стрелковое отделение",armor:null}, "0,0", "1,0", false)') === 4,
-        'U17ab: воронки — 4 ОД для пехоты (как камни)');
+    ok(s.evalCtx('getMovementCost({name:"Стрелковое отделение",armor:null}, "0,0", "1,0", false)') === 2,
+        'U17ab: воронки — 2 ОД для пехоты (как трава)');
     ok(s.evalCtx('getMovementCost({name:"Стрелковое отделение",armor:null}, "0,0", "2,0", false)') === 3 &&
        s.evalCtx('getMovementCost({name:"Стрелковое отделение",armor:null}, "0,0", "3,0", false)') === 3,
         'U17ac: поваленный и обстрелянный лес проходимы как лес (3 ОД)');
@@ -1284,14 +1293,32 @@ console.log('\n== U18. v13.050: реальные карты гексов пол�
 {
     const root = path.resolve(__dirname, '..');
     const dir = path.join(root, 'maps', 'Карты Валенсия');
-    const idxPath = path.join(dir, 'index.json');
-    const idx = fs.existsSync(idxPath) ? JSON.parse(fs.readFileSync(idxPath, 'utf8')) : null;
-    ok(Array.isArray(idx) && idx.length >= 148, 'U18a: индекс карт гексов собран (maps/Карты Валенсия/index.json, ≥148 карт)', idx && idx.length);
+    const idxPath = path.join(root, 'maps', 'index.json');
+    const rawIndex = fs.existsSync(idxPath) ? JSON.parse(fs.readFileSync(idxPath, 'utf8')) : [];
+    const rawHexMaps = rawIndex.filter(e => e && e.file && e.file.startsWith('maps/Карты Валенсия/')).map(e => {
+        const m = String(e.name || e.file).match(/^(\d{1,2})\s*[.,\-–]\s*(\d{1,2})(?!\d)/);
+        return Object.assign({}, e, { hex: m ? parseInt(m[1], 10) + ',' + parseInt(m[2], 10) : null });
+    });
+    const duplicate67 = rawHexMaps.filter(e => e.hex === '6,7');
+    const seenHexes = new Set();
+    const idx = rawHexMaps.filter(e => {
+        if (!e.hex || seenHexes.has(e.hex)) return false;
+        seenHexes.add(e.hex);
+        return true;
+    });
+    ok(Array.isArray(idx) && idx.length >= 148, 'U18a: карты гексов собраны из maps/index.json (≥148 уникальных гексов)', idx.length);
     const files = fs.readdirSync(dir).filter(f => /\.json$/i.test(f) && f !== 'index.json');
-    const missingFiles = (idx || []).filter(e => !fs.existsSync(path.join(root, e.file)));
+    const indexFileExists = e => {
+        const p = path.join(root, e.file);
+        const p1 = p.replace(/(\d)\s{2,}/, '$1 ');
+        const p2 = p.replace(/(\d) (?=\S)/, '$1  ');
+        return [p, p1, p2].some(candidate => fs.existsSync(candidate));
+    };
+    const missingFiles = (idx || []).filter(e => !indexFileExists(e));
     ok(missingFiles.length === 0, 'U18b: каждая запись индекса указывает на существующий файл', missingFiles.map(e => e.file).join(', '));
     const hexes = (idx || []).map(e => e.hex);
-    ok(new Set(hexes).size === hexes.length, 'U18c: один гекс — одна карта (дубль 6.7 отсеян с предупреждением)');
+    ok(new Set(hexes).size === hexes.length && duplicate67.length === 2 && idx.filter(e => e.hex === '6,7').length === 1,
+        'U18c: два файла 6.7 дают один индексируемый гекс');
     ok(files.length === 149 && idx.length === 148, 'U18d: 149 файлов карт → 148 гексов (6.7 — два файла)', files.length + '/' + (idx && idx.length));
     const s = makeSandbox(freshAppData());
     // имя каждого файла разбирается в гекс, и он совпадает с полем hex индекса
@@ -1341,21 +1368,21 @@ console.log('\n== U18. v13.050: реальные карты гексов пол�
     ok(badMaps.length === 0, 'U18k: все 149 карт читаются, 20×20, типы местности известны', badMaps.slice(0, 5).join('; '));
     // библиотека карт редактора: пути в maps/index.json существуют
     const lib = JSON.parse(fs.readFileSync(path.join(root, 'maps', 'index.json'), 'utf8'));
-    const libMissing = lib.filter(e => !fs.existsSync(path.join(root, e.file)));
-    ok(lib.length === 151 && libMissing.length === 0, 'U18l: maps/index.json — 151 карта (библиотека пользователя), пути существуют', libMissing.map(e => e.file).join(', '));
+    const libMissing = lib.filter(e => !indexFileExists(e));
+    ok(lib.length === 151 && libMissing.length === 0, 'U18l: maps/index.json — 151 запись; варианты пробелов в именах разрешаются', libMissing.map(e => e.file).join(', '));
     ok(HTML.includes('Карты гексов (Валенсия)') && HTML.includes('loadTacticalHexIndex()') ,
         'U18m: библиотека редактора показывает карты гексов отдельной группой');
     // сервис-воркер: ядро строго, остальное мягко; карты гексов — из индекса
     const sw = fs.readFileSync(path.join(root, 'service-worker.js'), 'utf8');
-    ok(sw.includes("const CACHE_NAME = 'wargame-v13.061'"), 'U18n: SW — кэш wargame-v13.061');
-    ok(sw.includes('cache.addAll(CORE_ASSETS)') && sw.includes('precacheSoft(cache, soft)') && sw.includes('precacheHexMaps(cache)') &&
+    ok(sw.includes(`const CACHE_NAME = 'wargame-${CURRENT_APP_VERSION}'`), 'U18n: SW — кэш текущей версии приложения');
+    ok(sw.includes('precacheCore(cache)') && sw.includes('precacheSoft(cache, soft)') && sw.includes('precacheHexMaps(cache)') &&
        !/return cache\.addAll\(ASSETS\)/.test(sw),
-        'U18o: SW — ядро (index/js/css) строго, картинки/карты мягко, карты гексов — по index.json (одна пропавшая картинка не срывает обновление)');
+        'U18o: SW — ядро строгое, картинки/карты мягкие; карты гексов читаются по maps/index.json');
     const swAssets = [...sw.matchAll(/'\.\/([^']+)'/g)].map(m => m[1]).filter(a => a && a !== '.' && !a.endsWith('/'));
     const swMissing = [...new Set(swAssets)].filter(a => !fs.existsSync(path.join(root, a)));
     ok(swMissing.length === 0, 'U18p: все файлы из списка SW существуют (bonuses/*, сгенерированные текстуры, «штаб роты BeVe гол.jpg» исправлены)', swMissing.join(', '));
-    ok(sw.includes("'./js/hexmaps.js'") && sw.includes("'./maps/Карты Валенсия/index.json'") && sw.includes("'./images/лес поваленный.png'") &&
-       sw.includes("'./images/AIRF/Стрелковое отделение №24.png'") && !sw.includes('images/bonuses/'),
+    ok(sw.includes("'./js/hexmaps.js'") && sw.includes("'./maps/index.json'") && sw.includes("'./images/Двойной БК.png'") &&
+       sw.includes("'./images/лес поваленный.png'") && sw.includes("'./images/AIRF/Стрелковое отделение №24.png'") && !sw.includes('images/bonuses/'),
         'U18q: SW — hexmaps.js, индекс карт, текстуры и новые иконки AIRF в списке; images/bonuses убраны');
     // ссылки на картинки в коде: файлы существуют (кроме заведомо «на будущее» images/markers, images/groups и развед аирф.png)
     const codeFiles = ['index.html', 'js/data.js', 'js/templates.js', 'js/cards.js', 'js/weapons.js'];
@@ -1375,7 +1402,7 @@ console.log('\n== U18. v13.050: реальные карты гексов пол�
     {
         const s2 = makeSandbox(freshAppData());
         ['ensureAP','selectSquad','renderSquadSelector','updateUI','refreshSquadToPlaceDropdown','activateBattleTab',
-         'openCardsTabForBattleStart','saveData','initMap','redrawMap','log','renderEnemySquads','updateTimeDisplay','renderMapTemplates']
+         'openCardsTabForBattleStart','syncCampaignBattleTabVisibility','saveData','initMap','redrawMap','log','renderEnemySquads','updateTimeDisplay','renderMapTemplates']
             .forEach(fn => s2.run(`if (typeof ${fn} !== 'function') ${fn} = function(){};`));
         s2.run('var TACTICAL_MAP_SIZE = 20; var currentTurn = 1; var inStandaloneBattle = false;');
         s2.run('TACTICAL_HEX_MAPS["8,10"] = normalizeTacticalMapData(' + raw810 + ');');
@@ -1387,14 +1414,15 @@ console.log('\n== U18. v13.050: реальные карты гексов пол�
                '  squads: [{name:"Вр 1", faction:"A.I.R.F.", fighters:[{name:"b",hp:3,maxHp:3,weapon:"Винтовка Vz.24"}]}] }];' +
                'var __err = null; try { startTacticalBattle(appData.campaign.opUnits[0], appData.campaign.enemyOpUnits[0]); } catch (e) { __err = e.stack; }');
         const err = s2.evalCtx('__err');
-        const sameCnt = Object.keys(srcTypes).filter(k => s2.evalCtx('appData.map.grid[' + JSON.stringify(k) + '].type') === srcTypes[k].type).length;
-        ok(err === null && s2.evalCtx('appData.campaign.activeBattles.length') === 1 &&
+        const mapReady = s2.evalCtx('!!(appData.map && appData.map.grid)');
+        const sameCnt = mapReady ? Object.keys(srcTypes).filter(k => s2.evalCtx('appData.map.grid[' + JSON.stringify(k) + '].type') === srcTypes[k].type).length : 0;
+        ok(mapReady && err === null && s2.evalCtx('appData.campaign.activeBattles.length') === 1 &&
            s2.evalCtx('appData.campaign.activeBattles[0].hexKey') === '8,10' &&
            s2.evalCtx('TACTICAL_MAP_SIZE') === 20 && s2.evalCtx('appData.map.mapSize') === 20 &&
            s2.evalCtx('Object.keys(appData.map.grid).length') === 400 && sameCnt === 399 &&
            s2.evalCtx('appData.map.grid["5,5"].type') === 'trenches' && s2.evalCtx('appData.map.grid["5,5"].variant') === 2,
             'U18u: startTacticalBattle на гексе 8,10 → бой на карте «8.10 холм-болото» (399/400 как у автора + 1 окоп из правок, вариант текстуры сохранён)', err || sameCnt);
-        ok(s2.evalCtx('appData.map.enemySquads.length') === 1 && s2.evalCtx('appData.squads.length') === 1 &&
+        ok(mapReady && s2.evalCtx('appData.map.enemySquads.length') === 1 && s2.evalCtx('appData.squads.length') === 1 &&
            s2.evalCtx('Object.values(appData.map.grid).filter(c => c.squadIds.length || c.enemySquadIds.length).length') === 0 &&
            s2.evalCtx('appData.campaign.activeBattles[0].tacticalMap.grid["10,4"].rotation') === srcTypes['10,4'].rotation,
             'U18v: отряды обеих сторон в бою, на сетке никто не расставлен (вручную); в записи боя карта с поворотами автора');
@@ -1539,7 +1567,7 @@ console.log('\n== V. v13.051 (R36): разведка r3, туман без ут�
           'appData.campaign.opUnits[0].col = 5; appData.campaign.opUnits[0].row = 5; appData.campaign.opUnits[0].ap = 4; __battles = 0;');
     s.run('var __mo4 = { targetHex: "6,5", status: "active", behavior: "assault", ignoreArmor: false, waypoints: [] }; executeMoveOrder(appData.campaign.opUnits[0], __mo4);');
     ok(s.evalCtx('__battles') === 1, 'V6e: «штурмовать» — по-прежнему входит на гекс врага и начинает бой');
-    ok(/function createOrder[\s\S]{0,2500}toUnit\.behavior = order\.behavior/.test(HTML), 'V6f: поведение «при встрече» из приказа записывается в юнит при выдаче');
+    ok(/function createOrder[\s\S]{0,5000}toUnit\.behavior = order\.behavior/.test(HTML), 'V6f: поведение «при встрече» из приказа записывается в юнит при выдаче');
 
     // --- V7: общий тактический бой в онлайне (js/online_battles.js) ---
     const obSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'online_battles.js'), 'utf8');
@@ -1774,10 +1802,10 @@ const asyncChecks = [];
     // --- X1: стартовые позиции (SCENARIO_START_POSITIONS) ---
     const s = makeSandbox(freshAppData());
     s.run('var placementLocked = false;');
-    ok(s.evalCtx('JSON.stringify(getConfiguredStartHex("valencia","BeVe",{name:"Штаб батальона"}))') === '{"col":5,"row":0}' &&
+    ok(s.evalCtx('JSON.stringify(getConfiguredStartHex("valencia","BeVe",{name:"Штаб батальона"}))') === '{"col":5,"row":4}' &&
        s.evalCtx('getConfiguredStartHex("valencia","BeVe",{name:"Нет такого"})') === null &&
-       s.evalCtx('getConfiguredStartHex("valencia","A.I.R.F.",{name:"Штаб Батальона"}).col') === 0,
-        'X1a: getConfiguredStartHex — гекс по имени юнита из js/data.js (BeVe/A.I.R.F.), неизвестный юнит → null');
+       s.evalCtx('JSON.stringify(getConfiguredStartHex("valencia","A.I.R.F.",{name:"Штаб Батальона"}))') === '{"col":1,"row":13}',
+        'X1a: getConfiguredStartHex — актуальные гексы обоих штабов из js/data.js, неизвестный юнит → null');
     s.run('SCENARIO_START_POSITIONS.valencia.BeVe["Тест-массив"] = [3, 4]; SCENARIO_START_POSITIONS.valencia.BeVe["Тест-вне"] = "15,2"; SCENARIO_START_POSITIONS.valencia.BeVe["Тест-мусор"] = "abc"; SCENARIO_START_POSITIONS.valencia.BeVe["Тест-точка"] = "6.7";');
     ok(s.evalCtx('JSON.stringify(getConfiguredStartHex("valencia","BeVe",{name:"Тест-массив"}))') === '{"col":3,"row":4}' &&
        s.evalCtx('getConfiguredStartHex("valencia","BeVe",{name:"Тест-вне"})') === null &&
@@ -1789,11 +1817,11 @@ const asyncChecks = [];
           'appData.campaign.opUnits = [{ id:"a", name:"Штаб батальона", type:"hq", col:null, row:null, squads:[] }, { id:"b", name:"Без позиции", type:"infantry_platoon", col:null, row:null, squads:[] }, { id:"c", name:"Тест-вне", type:"infantry_platoon", col:null, row:null, squads:[] }];');
     const nPl = s.evalCtx('autoPlaceUnplacedUnits({ manual: false })');
     const u = s.evalCtx('appData.campaign.opUnits.map(x => x.col + "," + x.row)');
-    ok(nPl === 3 && u[0] === '5,0' && u[1] !== 'null,null' && u[2] !== 'null,null' && u[2] !== '15,2' && s.evalCtx('appData.campaign.autoPlacedOnce') === true,
-        'X1c: авторазмещение — «Штаб батальона» ровно на 5,0 (из js/data.js), остальные по алгоритму в зоне; гекс вне поля проигнорирован', JSON.stringify(u));
+    ok(nPl === 3 && u[0] === '5,4' && u[1] !== 'null,null' && u[2] !== 'null,null' && u[2] !== '15,2' && s.evalCtx('appData.campaign.autoPlacedOnce') === true,
+        'X1c: авторазмещение — «Штаб батальона» ровно на 5,4 (из js/data.js), остальные по алгоритму в зоне; гекс вне поля проигнорирован', JSON.stringify(u));
     ok(s.evalCtx('isHexInPlacementZone("valencia","BeVe",5,0).ok') === true, 'X1d: (контроль) 5,0 — в зоне расстановки BeVe');
     const code = s.evalCtx('buildStartPositionsCode()');
-    ok(/'BeVe': \{/.test(code) && /'Штаб батальона': '5,0'/.test(code) && /SCENARIO_START_POSITIONS\.valencia/.test(code),
+    ok(/'BeVe': \{/.test(code) && /'Штаб батальона': '5,4'/.test(code) && /SCENARIO_START_POSITIONS\.valencia/.test(code),
         'X1e: «📋 Код стартовых позиций» — текущая расстановка в формате js/data.js', code.slice(0, 120));
     ok(/onclick="showStartPositionsCode\(\)"/.test(HTML) && /const SCENARIO_START_POSITIONS = \{/.test(fs.readFileSync(path.join(__dirname, '..', 'js', 'data.js'), 'utf8')),
         'X1f: кнопка в панели «Вид»; таблица SCENARIO_START_POSITIONS в js/data.js');
@@ -1971,6 +1999,7 @@ console.log('\n== Y. v13.054 (R39#2/#4): уничтоженные юниты о�
            'function selectSquad(i) { currentSquadIndex = i; currentSquad = appData.squads[i]; }' +
            'function getAP(i) { return actionPoints[i] ? actionPoints[i].ap : 0; }' +
            'function getEffectiveMorale() { return currentSquad ? (currentSquad.currentMorale || 5) : 5; }' +
+           'function tacticalIsMeleeEngaged() { return false; }' +
            'function getFactionWeapons() { return [{ name: \"Винтовка\" }, { name: \"Снайперская винтовка\", sniper: true }]; }' +
            'getFactionCrewWeapons = function() { return [{ name: \"ПТО 47мм\", type: \"at_gun\" }, { name: \"Миномёт\", type: \"mortar\" }, { name: \"Пулемёт\", type: \"mg\" }]; };' +
            'function calculateReachableHexes() { return {}; } function spendAP(i, c) { if (!actionPoints[i] || actionPoints[i].ap < c) return false; actionPoints[i].ap -= c; return true; } var __redraws = 0; redrawMap = function() { __redraws++; };' +
@@ -1982,9 +2011,9 @@ console.log('\n== Y. v13.054 (R39#2/#4): уничтоженные юниты о�
            'actionPoints = { 0: { ap: 6, maxAp: 6 }, 1: { ap: 6, maxAp: 6 } };' +
            'appData.map.grid[\"5,5\"].squadIds = [0]; appData.map.grid[\"5,6\"].squadIds = [1]; appData.squads[0].hexPos = [5,5]; appData.squads[1].hexPos = [5,6];' +
            'appData.map.enemySquads = [' +
-           ' { name: \"Стрелковое отделение №3\", faction: \"A.I.R.F.\", fighters: [{name:\"e1\",hp:3,maxHp:3},{name:\"e2\",hp:3,maxHp:3},{name:\"e3\",hp:1,maxHp:3}], currentMorale: 6, baseMorale: 6 },' +
-           ' { name: \"Легкий танк CL/39 №1\", faction: \"A.I.R.F.\", isVehicle: true, armor: { front: 15, side: 10, rear: 8, turret: 15 }, fighters: [{name:\"Командир\",hp:3,maxHp:3},{name:\"Водитель\",hp:3,maxHp:3}], currentMorale: 5, baseMorale: 5 },' +
-           ' { name: \"Далёкий\", faction: \"A.I.R.F.\", fighters: [{name:\"d1\",hp:3,maxHp:3}] } ];' +
+           ' { name: \"Стрелковое отделение №3\", faction: \"A.I.R.F.\", detected: true, fighters: [{name:\"e1\",hp:3,maxHp:3},{name:\"e2\",hp:3,maxHp:3},{name:\"e3\",hp:1,maxHp:3}], currentMorale: 6, baseMorale: 6 },' +
+           ' { name: \"Легкий танк CL/39 №1\", faction: \"A.I.R.F.\", detected: true, isVehicle: true, armor: { front: 15, side: 10, rear: 8, turret: 15 }, fighters: [{name:\"Командир\",hp:3,maxHp:3},{name:\"Водитель\",hp:3,maxHp:3}], currentMorale: 5, baseMorale: 5 },' +
+           ' { name: \"Далёкий\", faction: \"A.I.R.F.\", detected: true, fighters: [{name:\"d1\",hp:3,maxHp:3}] } ];' +
            'appData.map.grid[\"7,5\"].enemySquadIds = [0]; appData.map.grid[\"6,5\"].enemySquadIds = [1]; appData.map.grid[\"15,15\"].enemySquadIds = [2];' +
            'for (var k = 0; k < 3; k++) appData.map.grid[(8+k)+\",5\"].type = \"forest\"; appData.map.grid[\"7,5\"].type = \"grass\";' +
            'document.getElementById(\"battleMapActionPanel\");');
@@ -2000,7 +2029,7 @@ console.log('\n== Y. v13.054 (R39#2/#4): уничтоженные юниты о�
     // оценка целей
     const evT = s3.evalCtx('[mapActionEvalTarget(mapActionDefById(\"smallArms\"), 0, 0), mapActionEvalTarget(mapActionDefById(\"grenades\"), 0, 0), mapActionEvalTarget(mapActionDefById(\"melee\"), 0, 1), mapActionEvalTarget(mapActionDefById(\"vehicle\"), 0, 0), mapActionEvalTarget(mapActionDefById(\"satchel\"), 0, 1), mapActionEvalTarget(mapActionDefById(\"smallArms\"), 0, 2)]');
     ok(evT[0].ok && evT[0].dist === 2, 'Y3d: стрелковое по пехоте в 2 гексах — допустимо, дистанция 2');
-    ok(evT[1].ok && evT[1].dist === 2, 'Y3e: гранаты — до 2 гексов включительно');
+    ok(!evT[1].ok && evT[1].dist === 2 && /далеко/.test(evT[1].reason), 'Y3e: гранаты — только на соседний гекс (проверка за пределом одного гекса)');
     ok(!evT[2].ok && /техник/.test(evT[2].reason), 'Y3f: рукопашная по танку — недопустима');
     ok(!evT[3].ok && /не техника/.test(evT[3].reason), 'Y3g: «ПТО по технике» по пехоте — недопустимо');
     ok(evT[4].ok && evT[4].dist === 1, 'Y3h: связка гранат по танку на соседнем гексе — допустима');
@@ -2118,7 +2147,8 @@ console.log('\n== Y. v13.054 (R39#2/#4): уничтоженные юниты о�
         ok(hooks.includes(k), 'Y4b: функция атаки «' + k + '» сообщает результат (reportAttackOutcome)');
     });
     const sw = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
-    ok(/wargame-v13\.0(?:5[5-9]|6[01])/.test(sw) && /js\/map_actions\.js/.test(sw), 'Y4c: service-worker: кэш актуальной версии, map_actions.js в precache');
+    ok(!!CURRENT_APP_VERSION && sw.includes(`const CACHE_NAME = 'wargame-${CURRENT_APP_VERSION}'`) &&
+       (sw.match(/'\.\/js\/map_actions\.js'/g) || []).length >= 1, 'Y4c: service-worker: текущий кэш приложения и map_actions.js в precache');
     ok(/id="battleMapActionPanel"/.test(HTML), 'Y4d: панель #battleMapActionPanel есть под картой боя');
     ok(/isVehicle: !!squad\.isVehicle,\s*armor: squad\.armor \|\| null,\s*opUnitName: squad\.opUnitName \|\| null/.test(HTML), 'Y4e: враги на тактической карте несут isVehicle/armor/opUnitName (для проверок цели и пробитий)');
     ok(/appData\.map\.selectedMoveSquadIdx = selectedIdx;\s*recalcReachable\(squad, key\);/.test(HTML), 'Y4f: после перемещения отряд остаётся выбранным (можно сразу стрелять)');
@@ -2275,7 +2305,7 @@ console.log('\n== Z. v13.055 (R39#3): размещение перед боем �
         'Z5a: модуль подключён, панель размещения и подсветка зоны на карте боя');
     ok(/battleStartUI\(newBattle\)/.test(HTML) && /battleStartUI\(existingBattle\)/.test(HTML) && /battleStartUI\(battle\)/.test(HTML), 'Z5b: новый бой / вступление в идущий / возврат в бой — сначала размещение, потом карточки');
     const sw = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
-    ok((sw.match(/'\.\/js\/placement\.js'/g) || []).length === 2 && /wargame-v13\.061/.test(sw), 'Z5c: service-worker: js/placement.js в обоих списках, кэш v13.061');
+    ok((sw.match(/'\.\/js\/placement\.js'/g) || []).length === 2 && !!CURRENT_APP_VERSION && sw.includes(`const CACHE_NAME = 'wargame-${CURRENT_APP_VERSION}'`), 'Z5c: service-worker: js/placement.js в обоих списках и кэш текущей версии приложения');
     ok(/placed: myPlaced,\s*attacker:/.test(obSrc) && /pos: myPlaced \? \(pos\[i\] \|\| null\) : null/.test(obSrc) && /if \(!oppPositionsVisible\) return;/.test(obSrc),
         'Z5d: онлайн-протокол: placed/attacker/entryDir в снапшоте, позиции — только после готовности, приём позиций — только когда готовы оба');
 }

@@ -22,6 +22,7 @@
 
 let __onlineBattlePushTimer = null;
 let __onlineBattleLastJson = null;
+let __onlineReturningToCampaignForTacticalPause = false;
 // ⚡ v13.052 (R37#4): отметка времени каждой записи меняется ТОЛЬКО когда меняется
 //    её содержимое — иначе два клиента бесконечно «пинг-понговали» пушами
 //    (каждый приём чужого updatedAt → свой пуш с новым updatedAt → …).
@@ -128,6 +129,7 @@ function onlineBattleSnapshot(battle, status) {
     const live = onlineBattleIsLive(battle);
     const squads = onlineBattleMySquads(battle);
     const pos = onlineSquadPositions(onlineBattleGrid(battle), 'squadIds');
+    const tacticalMap = live ? ((typeof appData !== 'undefined' && appData.map) || {}) : (battle.tacticalMap || {});
     onlineAccumulateDmgOut(battle);
     // ⚡ v13.055 (R39#3): фаза размещения — позиции своих отрядов уходят оппоненту
     //    только после «✅ Размещение завершено» (расстановка скрыта до готовности обоих)
@@ -153,6 +155,13 @@ function onlineBattleSnapshot(battle, status) {
         startedBy: battle.onlineMirror ? 'opponent' : 'me',
         oppBattleId: battle.onlineOppBattleId || null,
         updatedAt: Date.now(),
+        tacticalPhasesCompleted: Number.isFinite(Number(battle.tacticalPhasesCompleted))
+            ? Number(battle.tacticalPhasesCompleted) : Math.max(0, (Number(battle.currentTurn) || 1) - 1),
+        pausedForOrders: !!battle.pausedForOrders,
+        pausedAtOperationalTurn: Number.isFinite(Number(battle.pausedAtOperationalTurn)) ? Number(battle.pausedAtOperationalTurn) : null,
+        pausedCampaignTime: Number.isFinite(Number(battle.pausedCampaignTime)) ? Number(battle.pausedCampaignTime) : null,
+        pausedCampaignTurn: Number.isFinite(Number(battle.pausedCampaignTurn)) ? Number(battle.pausedCampaignTurn) : null,
+        pauseSourceBattleId: battle.pauseSourceBattleId || null,
         squads: squads.map((s, i) => ({
             name: s.name,
             opUnitName: s.opUnitName || null,
@@ -173,6 +182,7 @@ function onlineBattleSnapshot(battle, status) {
             retreatReason: s.retreatReason || null,
             retreatTurn: Number.isFinite(s.retreatTurn) ? s.retreatTurn : null,
             suppressed: !!s.suppressed,
+            suppressedTurn: Number.isFinite(s.suppressedTurn) ? s.suppressedTurn : null,
             currentMorale: (s.currentMorale !== undefined) ? s.currentMorale : null,
             fighters: (s.fighters || []).map(f => ({
                 name: f.name || null, weapon: f.weapon || null,
@@ -184,6 +194,11 @@ function onlineBattleSnapshot(battle, status) {
         moraleIn: onlineSupPlain(battle.onlineMoraleIn),
         dmgOut: onlineDmgPlain(battle.onlineDmgOut),
         dmgIn: onlineDmgPlain(battle.onlineDmgIn),
+        smokeClouds: (Array.isArray(tacticalMap.smokeClouds) ? tacticalMap.smokeClouds : []).map(cloud => ({
+            id: cloud.id, center: cloud.center, hexes: Array.isArray(cloud.hexes) ? cloud.hexes.slice() : [],
+            sourceSide: cloud.sourceSide || null, createdTurn: Number(cloud.createdTurn) || 1,
+            expiresAfterTurn: Number(cloud.expiresAfterTurn) || 0
+        })),
         // ⚡ v13.054 (R39#4): подавление отрядов оппонента моим огнём с карты
         //    {имя отряда: метка времени} — у оппонента отряд получит «Подавлен»
         supOut: onlineSupPlain(battle.onlineSupOut)
@@ -251,6 +266,50 @@ function onlineBattleCreated(battle) {
     onlinePushBattles(true);
 }
 
+function onlinePublishTacticalBattlePause(barrier) {
+    if (!onlineBattlesEnabled() || !barrier || !ONLINE.docRef) return false;
+    const pause = {
+        active: true,
+        operationalTurn: Number(barrier.pausedAtOperationalTurn),
+        campaignTime: Number(barrier.pausedCampaignTime),
+        campaignTurn: Number(barrier.pausedCampaignTurn),
+        sourceBattleId: barrier.sourceBattleId || null,
+        createdBy: ONLINE.role,
+        createdAt: Date.now()
+    };
+    ONLINE.docRef.update({ tacticalPause: pause }).catch(e => console.warn('onlinePublishTacticalBattlePause:', e.message));
+    return true;
+}
+
+function onlineHandleGlobalTacticalPause(pause) {
+    if (!pause || !pause.active || typeof pauseCampaignTacticalBattlesForOrders !== 'function') return false;
+    const opTurn = Number(pause.operationalTurn);
+    const matchTurn = (typeof ONLINE !== 'undefined' && ONLINE.match) ? Number(ONLINE.match.turn) : NaN;
+    if (Number.isFinite(matchTurn) && Number.isFinite(opTurn) && matchTurn > opTurn) return false;
+    const alreadyPaused = !!(appData.campaign && appData.campaign.tacticalOrdersBarrier);
+    pauseCampaignTacticalBattlesForOrders(null, {
+        pausedAtOperationalTurn: pause.operationalTurn,
+        pausedCampaignTime: pause.campaignTime,
+        pausedCampaignTurn: pause.campaignTurn,
+        pauseSourceBattleId: pause.sourceBattleId,
+        publish: false
+    });
+    const liveBattle = appData.currentBattleId
+        ? (appData.campaign.activeBattles || []).find(b => b && b.id === appData.currentBattleId) : null;
+    if (liveBattle && !__onlineReturningToCampaignForTacticalPause && typeof returnToCampaign === 'function') {
+        __onlineReturningToCampaignForTacticalPause = true;
+        try {
+            log('⏸ Параллельные тактические бои приостановлены после пяти ходов. Возвращаемся к оперативным приказам.');
+            returnToCampaign();
+        } catch (e) { console.warn('online global tactical pause:', e); }
+        finally { __onlineReturningToCampaignForTacticalPause = false; }
+    } else if (!alreadyPaused) {
+        try { if (typeof renderActiveBattlesList === 'function') renderActiveBattlesList(); } catch (e) {}
+        try { if (typeof saveData === 'function') saveData(); } catch (e) {}
+    }
+    return true;
+}
+
 // Я завершил бой — запоминаем (чтобы не получить зеркало заново) и сообщаем
 function onlineBattleFinished(battle) {
     if (typeof appData === 'undefined' || !appData.campaign || !battle) return;
@@ -316,6 +375,17 @@ function onlineApplyCloudBattles(state) {
         // ⚡ v13.052: только если изменилось МОЁ (иначе — вечный обмен пушами)
         if (mineChanged) onlineScheduleBattlePush(1000);
     }
+    const liveBattle = appData.currentBattleId
+        ? (appData.campaign.activeBattles || []).find(b => b && b.id === appData.currentBattleId) : null;
+    if (liveBattle && liveBattle.pausedForOrders && !__onlineReturningToCampaignForTacticalPause &&
+        typeof returnToCampaign === 'function') {
+        __onlineReturningToCampaignForTacticalPause = true;
+        try {
+            log('⏸ Оппонент приостановил тактические бои после пяти ходов. Возвращаемся к оперативным приказам.');
+            returnToCampaign();
+        } catch (e) { console.warn('return to campaign for tactical pause:', e); }
+        finally { __onlineReturningToCampaignForTacticalPause = false; }
+    }
 }
 
 // Повторная проверка облака (после выхода из боя: отложенные зеркала)
@@ -378,20 +448,24 @@ function onlineAcceptBattlePhase(battle, e, live) {
     const nextSide = ((e.activeSide === 'attacker') === attackerIsPlayer) ? 'player' : 'enemy';
     // Only the opponent can end its phase; duplicate and delayed snapshots cannot transfer it.
     if (localSide !== 'enemy' || nextSide !== 'player' || !['attacker', 'defender'].includes(e.activeSide)) return false;
+    // Оппонент завершил свою фазу: снимаем подавление только с его отрядов.
+    // Подавление наших подразделений должно сохраниться на предстоящую фазу.
+    if (typeof clearTacticalSuppressionForSide === 'function') clearTacticalSuppressionForSide('enemy', battle);
     battle.phaseRevision = revision;
     battle.activeSide = nextSide;
     battle.currentTurn = (battle.currentTurn || 1) + 1;
-    if (typeof advanceTacticalClock === 'function') advanceTacticalClock(2);
+    if (typeof registerCompletedTacticalPhase === 'function') registerCompletedTacticalPhase(battle);
+    if (typeof advanceTacticalClock === 'function') advanceTacticalClock(2, true);
     if (live) {
         appData.map.activeSide = nextSide;
         currentTurn = battle.currentTurn;
         appData.currentTurn = currentTurn;
         if (typeof resetAP === 'function') resetAP();
-        (appData.squads || []).forEach(s => { s.actionsThisTurn = {}; s.movedThisTurn = false; s.suppressed = false; });
+        (appData.squads || []).forEach(s => { s.actionsThisTurn = {}; s.movedThisTurn = false; });
         if (typeof syncNightModifier === 'function') syncNightModifier();
     } else {
         battle.actionPoints = (battle.playerSquads || []).map(s => ({ ap: getMaxAP(s), maxAp: getMaxAP(s) }));
-        (battle.playerSquads || []).forEach(s => { s.actionsThisTurn = {}; s.movedThisTurn = false; s.suppressed = false; });
+        (battle.playerSquads || []).forEach(s => { s.actionsThisTurn = {}; s.movedThisTurn = false; });
         if (battle.tacticalMap) battle.tacticalMap.activeSide = nextSide;
     }
     return true;
@@ -418,6 +492,10 @@ function onlineMergeOppBattle(battle, e) {
     const live = onlineBattleIsLive(battle);
     const enemies = onlineBattleEnemySquads(battle);
     const grid = onlineBattleGrid(battle);
+    const tacticalMap = live ? ((typeof appData !== 'undefined' && appData.map) || null) : (battle.tacticalMap || null);
+    if (tacticalMap && Array.isArray(e.smokeClouds) && typeof tacticalMergeSmokeClouds === 'function') {
+        if (tacticalMergeSmokeClouds(tacticalMap, e.smokeClouds, e.turn)) changed = true;
+    }
     if (!battle.onlineOppHpSeen) battle.onlineOppHpSeen = {};
     if (!battle.onlineDmgOut) battle.onlineDmgOut = {};
     if (!battle.onlineDmgIn) battle.onlineDmgIn = {};
@@ -454,7 +532,38 @@ function onlineMergeOppBattle(battle, e) {
     }
     const oppPositionsVisible = !myPl || myPl.phase === 'done' || (!!myPl.playerReady && oppPlaced);
 
-    if (onlineAcceptBattlePhase(battle, e, live)) changed = true;
+    const acceptedPlayerPhase = onlineAcceptBattlePhase(battle, e, live);
+    if (acceptedPlayerPhase) changed = true;
+    if (Number.isFinite(Number(e.tacticalPhasesCompleted))) {
+        const phases = Number(e.tacticalPhasesCompleted);
+        if (battle.tacticalPhasesCompleted !== phases) { battle.tacticalPhasesCompleted = phases; changed = true; }
+    }
+    if (typeof e.pausedForOrders === 'boolean') {
+        if (e.pausedForOrders) {
+            if (!battle.pausedForOrders || battle.pausedCampaignTime !== e.pausedCampaignTime ||
+                battle.pausedAtOperationalTurn !== e.pausedAtOperationalTurn) changed = true;
+            battle.pausedForOrders = true;
+            battle.pausedAtOperationalTurn = Number(e.pausedAtOperationalTurn);
+            battle.pausedCampaignTime = Number(e.pausedCampaignTime);
+            battle.pausedCampaignTurn = Number(e.pausedCampaignTurn);
+            battle.pauseSourceBattleId = e.pauseSourceBattleId || null;
+            if (battle.tacticalMap) battle.tacticalMap.pausedForOrders = true;
+            if (typeof pauseCampaignTacticalBattlesForOrders === 'function') {
+                pauseCampaignTacticalBattlesForOrders(battle, e);
+            }
+        } else if (battle.pausedForOrders) {
+            const matchTurn = (typeof ONLINE !== 'undefined' && ONLINE.match) ? Number(ONLINE.match.turn) : NaN;
+            if (Number.isFinite(matchTurn) && matchTurn > Number(battle.pausedAtOperationalTurn || 0)) {
+                battle.pausedForOrders = false;
+                delete battle.pausedAtOperationalTurn;
+                delete battle.pausedCampaignTime;
+                delete battle.pausedCampaignTurn;
+                delete battle.pauseSourceBattleId;
+                if (battle.tacticalMap) battle.tacticalMap.pausedForOrders = false;
+                changed = true;
+            }
+        }
+    }
 
     const theirDmgIn = e.dmgIn || {};
     (Array.isArray(e.squads) ? e.squads : []).forEach(cs => {
@@ -492,6 +601,8 @@ function onlineMergeOppBattle(battle, e) {
             const v = !!cs[k];
             if (!!s[k] !== v) { s[k] = v; changed = true; }
         });
+        if (cs.suppressed && cs.suppressedTurn !== null && cs.suppressedTurn !== undefined && Number.isFinite(Number(cs.suppressedTurn))) s.suppressedTurn = Number(cs.suppressedTurn);
+        else if (!cs.suppressed) { delete s.suppressedTurn; delete s.suppressedBySide; }
         ['status', 'retreatReason', 'retreatTurn'].forEach(k => {
             const v = cs[k] === undefined ? null : cs[k];
             if ((s[k] || null) !== v) { if (v === null) delete s[k]; else s[k] = v; changed = true; }
@@ -532,8 +643,16 @@ function onlineMergeOppBattle(battle, e) {
         battle.onlineSupSeen[name] = ts;
         const s = mySquads.find(x => x && x.name === name);
         if (!s) return;
-        if (!s.suppressed) { s.suppressed = true; changed = true; }
-        try { log(`💫 Отряд «${name}» подавлен огнём противника (действие с карты боя).`); } catch (err) {}
+        if (!s.suppressed) {
+            if (typeof markTacticalSuppressed === 'function') markTacticalSuppressed(s, 'enemy');
+            else {
+                s.suppressed = true;
+                s.suppressedTurn = Number.isFinite(Number(e.turn)) ? Number(e.turn) : ((typeof currentTurn === 'number') ? currentTurn : 1);
+                s.suppressedBySide = 'enemy';
+            }
+            changed = true;
+        }
+        try { log(`💫 Отряд «${name}» подавлен огнём противника (действие с карты боя). В своей фазе он не сможет перемещаться и будет стрелять со штрафом −2.`); } catch (err) {}
     });
     battle.onlineMoraleIn = battle.onlineMoraleIn || {};
     Object.entries(e.moraleOut || {}).forEach(([name, total]) => {
@@ -560,6 +679,7 @@ function onlineMergeOppBattle(battle, e) {
             f.hp = Math.max(0, before - delta);
             applied[i] = (applied[i] || 0) + delta;
             if (before > 0 && f.hp <= 0) {
+                if (typeof tacticalRecordIncomingCasualty === 'function') tacticalRecordIncomingCasualty(s);
                 const morale = (s.currentMorale !== undefined && s.currentMorale !== null) ? Number(s.currentMorale) : Number(s.baseMorale || 5);
                 s.currentMorale = Math.max(0, (Number.isFinite(morale) ? morale : 5) - (f.isCommander ? 2 : 1));
             }
@@ -587,11 +707,17 @@ function onlineMergeOppBattle(battle, e) {
             try { log(`🏳️ Ваш отряд «${s.name}» автоматически отступил из-за низкого боевого духа.`); } catch (err) {}
         }
     });
+    if (acceptedPlayerPhase && battle.activeSide === 'player' && typeof tacticalBeginPlayerTurn === 'function') {
+        tacticalBeginPlayerTurn(mySquads);
+    }
     if (hurt.length > 0) {
         const msg = `💥 Бой на гексе (${battle.hexKey}): противник нанёс урон — ` + hurt.join(', ');
         try { log(msg); } catch (err) {}
         const mi = document.getElementById('mapInfo');
         if (mi && !live) { mi.innerHTML = msg; mi.style.color = '#e74c3c'; }
+    }
+    if (live && tacticalMap && typeof tacticalApplySmokeConcealment === 'function' && tacticalApplySmokeConcealment(tacticalMap)) {
+        changed = true;
     }
 
     // --- служебное ---
