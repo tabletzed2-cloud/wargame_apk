@@ -60,6 +60,7 @@ test('v13.090 (п.1): в ход высадки приказ не исполня�
    'executeAirRecon','executeSignalLay','executeSignalIssue','executeReinforcement',
    'executeRegroupOrder','executeSeriesOrder','executeDisembarkOrder','executeAttackOrder']
     .forEach(fn => s.run(`function ${fn}(){ executed.push("${fn}"); }`));
+  s.run(sliceFunction(HTML, 'operationalOrderWaitsForDisembark'));
   s.run(sliceFunction(HTML, 'executeOrder'));
   s.run(`
     var squad = { id: 3, name: 'Мотострелки', ap: 8, justDisembarked: true };

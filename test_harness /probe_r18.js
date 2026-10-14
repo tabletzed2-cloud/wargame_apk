@@ -38,7 +38,7 @@ const FNS = [
     'opLineOfSightBlocked', 'unitCanBeDetected', 'artilleryCaliberMm', 'dotEmbrasureHp', 'dotEmbrasureDestroyed',
     'getRelayCompanyForOrder', 'findParentCompany', 'ensureSignalPlatoonState', 'hasActivePhoneAt', 'checkCommunication', 'hasRadio', 'hasPhoneLine', 'isInRadioRange',
     'renderAwardsReference', 'executeMortarSalvo', 'finishPlacement',
-    'updateAssemblySupportCheck', 'orderStartDelayMinutes', 'orderShouldExecuteNow', 'executeOrder', 'executeDigInOrder', 'rollD12',
+    'updateAssemblySupportCheck', 'orderStartDelayMinutes', 'orderShouldExecuteNow', 'operationalOrderWaitsForDisembark', 'executeOrder', 'executeDigInOrder', 'rollD12',
     // ⚡ v13.047 (R32): миномёты/ДОТ, залп ∝ живому составу, авто. винтовка = 2
     // ⚡ v13.057: morale helpers are direct artillery-strike dependencies.
     'isOperationalMoraleUnit', 'getOperationalMorale', 'operationalMoraleMarkup', 'changeOperationalMorale', 'triggerOperationalRetreat',

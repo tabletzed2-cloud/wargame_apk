@@ -294,12 +294,13 @@ function onlineHandleGlobalTacticalPause(pause) {
         pauseSourceBattleId: pause.sourceBattleId,
         publish: false
     });
+    if (typeof showTacticalOrdersPauseNotice === 'function') showTacticalOrdersPauseNotice();
     const liveBattle = appData.currentBattleId
         ? (appData.campaign.activeBattles || []).find(b => b && b.id === appData.currentBattleId) : null;
     if (liveBattle && !__onlineReturningToCampaignForTacticalPause && typeof returnToCampaign === 'function') {
         __onlineReturningToCampaignForTacticalPause = true;
         try {
-            log('⏸ Параллельные тактические бои приостановлены после пяти ходов. Возвращаемся к оперативным приказам.');
+            log('⏸ После пяти тактических раундов бои приостановлены. Завершите оперативный ход, чтобы продолжить бой в следующем оперативном ходу.');
             returnToCampaign();
         } catch (e) { console.warn('online global tactical pause:', e); }
         finally { __onlineReturningToCampaignForTacticalPause = false; }
@@ -550,6 +551,7 @@ function onlineMergeOppBattle(battle, e) {
             if (battle.tacticalMap) battle.tacticalMap.pausedForOrders = true;
             if (typeof pauseCampaignTacticalBattlesForOrders === 'function') {
                 pauseCampaignTacticalBattlesForOrders(battle, e);
+                if (typeof showTacticalOrdersPauseNotice === 'function') showTacticalOrdersPauseNotice();
             }
         } else if (battle.pausedForOrders) {
             const matchTurn = (typeof ONLINE !== 'undefined' && ONLINE.match) ? Number(ONLINE.match.turn) : NaN;
