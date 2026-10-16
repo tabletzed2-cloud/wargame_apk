@@ -340,7 +340,9 @@ console.log('== v13.099: пункты 1–27 ==');
   ok(/case 'ammoPoint'/.test(HTML), 'п.22: у пункта боепитания свой знак');
   ok(/case 'fireField'/.test(HTML), 'п.22: у огненного поля свой знак');
   ok(/неизвестная метка — нейтральный знак «\?»/.test(HTML), 'п.22: неизвестная метка — серый «?», а не жёлтый ромб');
-  ok(/:v13099/.test(HTML), 'п.22: легенда обновилась после смены знаков');
+  // ⚡ v13.100: подпись кэша легенды содержит текущую версию выпуска
+  const APP_FOR_CACHE = /var APP_VERSION = 'v([\d.]+)'/.exec(HTML)[1].replace(/\D/g, '');
+  ok(new RegExp(':v' + APP_FOR_CACHE).test(HTML), 'п.22: легенда обновилась после смены знаков');
 }
 
 // ─────────────────────────── п.23: подсветка текущего гекса на миникарте ───────────────────────────
@@ -608,8 +610,12 @@ console.log('== v13.099: пункты 1–27 ==');
   ok(/tacticalDotFireRefusal\(currentSquad/.test(sliceOf('fireDOTMG')) &&
      /tacticalDotFireRefusal\(currentSquad/.test(sliceOf('attackSmallArms')) &&
      /tacticalDotFireRefusal\(currentSquad/.test(sliceOf('attackOrdnance')),
-     'п.30: ДОТ не стреляет по отряду в своём гексе (пулемёт, стрелковое, орудия)');
-  ok(/ворвался в гекс ДОТа/.test(HTML), 'п.30: игрок видит причину запрета огня ДОТа');
+     'п.30: отказ ДОТа проверяется в пулемёте, стрелковом и орудиях');
+  // ⚡ v13.100 (п.9): отряд в гексе ДОТа больше НЕ выключает ДОТ — он продолжает
+  //    стрелять, пока его не ослепили (дым) или не вывели все амбразуры.
+  ok(!/ворвался в гекс ДОТа/.test(HTML), 'п.9: ДОТ не считает отряд в своём гексе «в рукопашной»');
+  ok(/Все амбразуры ДОТа выведены из строя/.test(HTML) && /амбразуры ослеплены/.test(HTML),
+     'п.9: ДОТ молчит только при дыме или выведенных амбразурах');
   ok(/const sabotageCost = \(typeof DOT_SABOTAGE_GRENADES !== 'undefined'\) \? DOT_SABOTAGE_GRENADES : 8;/.test(HTML) &&
      /grenadeCount >= sabotageCost/.test(HTML) && /sabotageDotEmbrasure\(\)/.test(HTML) &&
      /sabotageDotDoor\(\)/.test(HTML) && /нужна связка из \$\{sabotageCost\} гранат/.test(HTML),
@@ -833,7 +839,8 @@ console.log('== v13.099: пункты 1–27 ==');
 // ─────────────────────────── служебное: версия и сборка ───────────────────────────
 {
   const app = /var APP_VERSION = '([^']+)'/.exec(HTML)[1];
-  ok(app === 'v13.099', 'версия приложения обновлена (' + app + ')');
+  // ⚡ v13.100: выпуск ушёл вперёд — проверяем формат и что версия не откатилась назад
+  ok(/^v13\.\d{3}$/.test(app) && Number(app.slice(4)) >= 99, 'версия приложения обновлена (' + app + ')');
   ok(new RegExp("CACHE_NAME = 'wargame-" + app + "'").test(SW), 'service-worker: кэш совпадает с версией');
   ok(MANIFEST.includes('БМ ' + app), 'manifest: short_name совпадает с версией');
   const marked = ['js/cards.js', 'js/data.js', 'js/hexmaps.js', 'js/operational_ui.js', 'js/templates.js'];

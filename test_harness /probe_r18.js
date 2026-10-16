@@ -72,7 +72,20 @@ const FNS = [
     'isOpUnitWipedOut', 'markOpUnitDestroyed', 'syncBattleLossesToCampaign', 'renderBattalionRoster',
     'executeAttack', 'closeTargetModal', 'getCrewRole', 'handleHexAction', 'recalcReachable', 'syncCampaignBattleTabVisibility',
     // ⚡ v13.055 (R39#3): размещение перед боем — откуда вошёл юнит
-    'opRecordPrevPos', 'switchToBattle', 'placeExistingEnemyOnHex', 'getTacticalBattleRecord', 'getTacticalActiveSide', 'nextTurn', 'processTacticalRouts', 'tacticalMaybeAutoRetreat'
+    'opRecordPrevPos', 'switchToBattle', 'placeExistingEnemyOnHex', 'getTacticalBattleRecord', 'getTacticalActiveSide', 'nextTurn', 'processTacticalRouts', 'tacticalMaybeAutoRetreat',
+    // ⚡ v13.100: хелперы, без которых срез падал (ReferenceError) в тестах U18/V7
+    'tacticalApplyOperationalMobilityToBattleSquad', 'tacticalIsHeadquartersSquad',
+    'tacticalStubbornAtStartingHex', 'tacticalSquadHasStubbornCard', 'tacticalHasLiveHeadquartersFor',
+    'tacticalMoraleIsCritical', 'tacticalMoraleScale', 'tacticalRecordNearbyMoraleLoss', 'tacticalRetreatUnit', 'tacticalSquadLeaveBattle',
+    'tacticalEffectiveMoraleForSquad', 'tacticalMoraleCurrent', 'getEffectiveMorale', 'tacticalMoraleIsSuppressed',
+    'tacticalApplyHeadquartersLossMoralePenalties', 'tacticalMapEdgeHexKeys',
+    'maybeRetreatShatteredOperationalUnit',
+    'operationalUnitIsShattered',
+    'operationalInitialCombatStrength',
+    'operationalCombatAliveCount',
+    'tacticalMoraleBattleKey',
+    'getHexNeighbors',
+    'getAP'
 ];
 
 let pass = 0, fail = 0;
@@ -396,7 +409,7 @@ console.log('\n== N. v13.032: зоны расстановки — полигон
         if (s.evalCtx(`isHexInPlacementZone('valencia','BeVe',${c},${r})`).ok) cntBe++;
         if (s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',${c},${r})`).ok) cntAi++;
     }
-    ok(cntBe === 74, `N13: BeVe — 74 гекса (69 в полигоне + 5 новых; 9,6 уже внутри полигона), реально: ${cntBe}`);
+    ok(cntBe === 76, `N13: BeVe — 76 гексов (69 в полигоне + 7 явных: 2,7/3,7/4,7/11,8/10,7/10,6/9,5; 9,6 уже внутри полигона), реально: ${cntBe}`);
     // ⚡ v13.040 (R25#4): расширение зоны AIRF на гексы 0,13 / 1,13 / 2,13 / 4,13
     ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',0,13)`) .ok === true, 'N14a: AIRF — (0,13) в зоне');
     ok(s.evalCtx(`isHexInPlacementZone('valencia','A.I.R.F.',1,13)`) .ok === true, 'N14b: AIRF — (1,13) в зоне');
@@ -1546,15 +1559,20 @@ console.log('\n== V. v13.051 (R36): разведка r3, туман без ут�
     s.run('appData.campaign.currentTurn = 1; appData.campaign.fogVisible = {}; ONLINE.fogVisible = appData.campaign.fogVisible; __battles = 0; logs.length = 0;');
     s.run('var __mo = { targetHex: "8,5", status: "active", behavior: "hold", waypoints: [] }; executeMoveOrder(appData.campaign.opUnits[0], __mo);');
     let mu = s.evalCtx('appData.campaign.opUnits[0]');
-    ok(mu.col === 3 && mu.row === 5 && s.evalCtx('__mo.status') === 'completed' && s.evalCtx('__battles') === 0,
-        'V6a: hold — прошёл 1 гекс, заметил врага в 3 гексах → остановился, приказ завершён, боя нет', JSON.stringify({ col: mu.col, row: mu.row, st: s.evalCtx('__mo.status') }));
-    ok(s.logs.some(l => l.includes('закрепился')), 'V6b: в логе «закрепился и ждёт приказа»');
+    // ⚡ v13.100 (п.10): приоритет «закрепиться и ждать — огонь с 1 гекса» —
+    //    дойти до КОНЕЧНОЙ ТОЧКИ: враг в 3 гексах марш не останавливает.
+    ok(mu.col === 4 && mu.row === 5 && mu.ap === 0 && s.evalCtx('__mo.status') === 'active' && s.evalCtx('__battles') === 0,
+        'V6a: hold — враг в 3 гексах НЕ останавливает марш: прошёл все ОД к конечной точке, приказ активен, боя нет', JSON.stringify({ col: mu.col, row: mu.row, ap: mu.ap, st: s.evalCtx('__mo.status') }));
+    ok(s.logs.some(l => l.includes('Идёт к конечной точке') || l.includes('огонь откроем только по прибытии')) &&
+       !s.logs.some(l => l.includes('закрепился')),
+        'V6b: в логе «идёт к конечной точке, огонь по прибытии», без преждевременного «закрепился»');
     // враг уже рядом в начале — hold-юнит может сделать шаг, но НЕ входит на гекс врага
     s.run('appData.campaign.opUnits[0].col = 5; appData.campaign.opUnits[0].row = 5; appData.campaign.opUnits[0].ap = 4; __battles = 0;');
     s.run('var __mo2 = { targetHex: "6,5", status: "active", behavior: "hold", waypoints: [] }; executeMoveOrder(appData.campaign.opUnits[0], __mo2);');
     mu = s.evalCtx('appData.campaign.opUnits[0]');
-    ok(mu.col === 5 && mu.row === 5 && s.evalCtx('__battles') === 0 && s.evalCtx('__mo2.status') === 'completed',
-        'V6c: hold — цель = гекс видимого врага → на него НЕ входим, боя нет, приказ закрыт («закрепился»)');
+    ok(mu.col === 5 && mu.row === 5 && s.evalCtx('__battles') === 0 && s.evalCtx('__mo2.status') === 'completed' &&
+       s.logs.some(l => l.includes('закрепился')),
+        'V6c: hold — цель = гекс видимого врага → на него НЕ входим, боя нет, приказ закрыт («закрепился» перед целью)');
     // скрытый (туман) враг — не «встреча»: hold-юнит идёт дальше
     s.run('appData.campaign.enemyOpUnits[0].detected = false; appData.campaign.enemyOpUnits[0].col = 6; appData.campaign.enemyOpUnits[0].row = 8; ' +
           'appData.campaign.opUnits[0].col = 2; appData.campaign.opUnits[0].row = 5; appData.campaign.opUnits[0].ap = 4; logs.length = 0;');
@@ -1680,9 +1698,10 @@ console.log('\n== W. v13.052 (R37): разведка без LOS, Hard Mode в о
     // юнит, вошедший в зону позже (снапшот оппонента) — виден, даже за холмом
     s.run('appData.campaign.enemyOpUnits.push({ id: "e4", name: "Вошёл", col: 7, row: 5, side: "enemy", detected: false });');
     ok(s.evalCtx('onlineEnemyVisible(appData.campaign.enemyOpUnits[3])') === true, 'W1d: вошедший в активную зону разведки за холмом — виден (onlineEnemyVisible)');
-    const efm = /const enemiesFound = \(appData\.campaign\.enemyOpUnits \|\| \[\]\)\.filter\(e =>([\s\S]{0,300}?)\);/.exec(HTML);
-    ok(!!efm && efm[1].includes('highlightHexes.some') && !efm[1].includes('opLineOfSightBlocked'),
-        'W1e: в executeReconOrder фильтр врагов — по зоне (highlightHexes), без opLineOfSightBlocked');
+    const efm = /const enemiesFound = \(appData\.campaign\.enemyOpUnits \|\| \[\]\)\.filter\(e =>([\s\S]{0,700}?)\)\n/.exec(HTML);
+    // ⚡ v13.099 (п.5): LOS-исключение осталось только для разведки бронеавтомобиля
+    ok(!!efm && efm[1].includes('highlightHexes.some') && efm[1].includes('armoredCarRecon') && efm[1].includes('opLineOfSightBlocked'),
+        'W1e: в executeReconOrder фильтр врагов — по зоне (highlightHexes); LOS перекрывает обзор только бронеавтомобилю');
 
     // --- W2: онлайн = Hard Mode всегда ---
     const s2 = makeSandbox(freshAppData());
@@ -1949,7 +1968,7 @@ const asyncChecks = [];
         'X3o: в бою на гексе 2,2 — панель правок только этого гекса (не 8,10); на карте операции — все гексы');
     s4.run('appData.currentBattleId = null; renderHexEditsPanel();');
     ok(s4.evalCtx('document.getElementById("battleHexEditsPanel").style.display') === 'none', 'X3p: вне боя панель боя скрыта');
-    ok(/activateBattleTab\(\) \{[\s\S]{0,900}renderHexEditsPanel\(\)/.test(HTML), 'X3q: панель боя обновляется при входе в бой (activateBattleTab)');
+    ok(/activateBattleTab\(\) \{[\s\S]{0,1600}renderHexEditsPanel\(\)/.test(HTML), 'X3q: панель боя обновляется при входе в бой (activateBattleTab)');
 }
 
 
@@ -2151,7 +2170,9 @@ console.log('\n== Y. v13.054 (R39#2/#4): уничтоженные юниты о�
        (sw.match(/'\.\/js\/map_actions\.js'/g) || []).length >= 1, 'Y4c: service-worker: текущий кэш приложения и map_actions.js в precache');
     ok(/id="battleMapActionPanel"/.test(HTML), 'Y4d: панель #battleMapActionPanel есть под картой боя');
     ok(/isVehicle: !!squad\.isVehicle,\s*armor: squad\.armor \|\| null,\s*opUnitName: squad\.opUnitName \|\| null/.test(HTML), 'Y4e: враги на тактической карте несут isVehicle/armor/opUnitName (для проверок цели и пробитий)');
-    ok(/appData\.map\.selectedMoveSquadIdx = selectedIdx;\s*recalcReachable\(squad, key\);/.test(HTML), 'Y4f: после перемещения отряд остаётся выбранным (можно сразу стрелять)');
+    ok(/function tacticalMoveAlongPath[\s\S]{0,1200}map\.selectedMoveSquadIdx = squadIndex;/.test(HTML) &&
+       !/function tacticalMoveAlongPath[\s\S]{0,2400}map\.selectedMoveSquadIdx = null/.test(HTML),
+        'Y4f: после перемещения отряд остаётся выбранным (можно сразу стрелять)');
 }
 
 // ============================================================
@@ -2168,10 +2189,12 @@ console.log('\n== Z. v13.055 (R39#3): размещение перед боем �
     ok(JSON.stringify(dirs) === JSON.stringify(['E','W','NE','NW','SE','SW','NE','NW','SE','SW','E','W',null]),
         'Z1a: направления к 6 соседям (чётный и нечётный ряд), к дальним гексам, к себе — null', JSON.stringify(dirs));
     const zW = g.evalCtx('placementZoneKeys("W", 15)'), zE = g.evalCtx('placementZoneKeys("E", 15)'), zNE = g.evalCtx('placementZoneKeys("NE", 15)'), zSW = g.evalCtx('placementZoneKeys("SW", 20)');
-    ok(zW.length === 45 && zW.every(k => parseInt(k) < 3) && zE.length === 45 && zE.every(k => parseInt(k) >= 12), 'Z1b: вход с запада/востока — полоса 3 столбца у левого/правого края (45 клеток на 15×15)');
-    ok(zNE.length === 39 && zNE.includes('14,0') && zNE.includes('7,0') && !zNE.includes('6,0') && zNE.includes('14,7') && !zNE.includes('14,8') && zNE.includes('12,2') && !zNE.includes('11,3') && !zNE.includes('0,0'),
-        'Z1c: диагональный вход (СВ) — угол: полоса 3 ряда вдоль двух краёв у правого верхнего угла (39 клеток)', zNE.length);
-    ok(zSW.length === 51 && zSW.includes('0,19') && zSW.includes('9,19') && !zSW.includes('10,19') && zSW.includes('0,10') && !zSW.includes('0,9'), 'Z1d: ЮЗ-угол на 20×20 — 51 клетка у левого нижнего угла');
+    // ⚡ v13.099 (п.19): PLACEMENT_STRIP_DEPTH = 2 — полоса 2 столбца, а не 3
+    ok(zW.length === 30 && zW.every(k => parseInt(k) < 2) && zE.length === 30 && zE.every(k => parseInt(k) >= 13), 'Z1b: вход с запада/востока — полоса 2 столбца у левого/правого края (30 клеток на 15×15)');
+    // ⚡ v13.099 (п.19): глубина полосы 2 → «рукава» угла: 2×8 + 2×8 − 2×2 = 28
+    ok(zNE.length === 28 && zNE.includes('14,0') && zNE.includes('7,0') && !zNE.includes('6,0') && zNE.includes('14,7') && !zNE.includes('14,8') && zNE.includes('12,1') && !zNE.includes('12,2') && !zNE.includes('11,3') && !zNE.includes('0,0'),
+        'Z1c: диагональный вход (СВ) — угол: полоса 2 ряда вдоль двух краёв у правого верхнего угла (28 клеток)', zNE.length);
+    ok(zSW.length === 36 && zSW.includes('0,19') && zSW.includes('9,19') && !zSW.includes('10,19') && zSW.includes('0,10') && !zSW.includes('0,9'), 'Z1d: ЮЗ-угол на 20×20 — 36 клеток у левого нижнего угла (полоса 2)');
     // --- Z2: кто атакует и откуда вошёл ---
     g.run('var pendingBattleEntry = null; appData.campaign.opUnits = [{ name: "Свой", col: 8, row: 10, prevCol: 7, prevRow: 10 }, { name: "Штаб", col: 3, row: 10 }];' +
           'appData.campaign.enemyOpUnits = [{ name: "Враг", col: 8, row: 10, prevCol: 8, prevRow: 9 }];');
@@ -2192,7 +2215,7 @@ console.log('\n== Z. v13.055 (R39#3): размещение перед боем �
     const s2 = makeSandbox(freshAppData());
     ['ensureAP','renderSquadSelector','updateUI','refreshSquadToPlaceDropdown','activateBattleTab','saveData','initMap','renderEnemySquads','updateTimeDisplay','renderMapTemplates','closeTargetModal','resetMapZoom','updateSquadDropdown','updateEnemyDropdown','updateEnemyFactionDropdown','populateTerrainSelect']
         .forEach(fn => s2.run(`if (typeof ${fn} !== 'function') ${fn} = function(){};`));
-    s2.run('var TACTICAL_MAP_SIZE = 20; var currentTurn = 1; var inStandaloneBattle = false; var pendingBattleEntry = null; var pendingAttack = null; var actionPoints = {}; var currentSquadIndex = -1; var currentSquad = null;' +
+    s2.run('var TACTICAL_MAP_SIZE = 20; var currentTurn = 1; var morale = 0; var inStandaloneBattle = false; var pendingBattleEntry = null; var pendingAttack = null; var actionPoints = {}; var currentSquadIndex = -1; var currentSquad = null;' +
            'var __alerts = []; alert = function(m) { __alerts.push(String(m)); }; var __logs = []; log = function(m) { __logs.push(String(m)); }; var __cards = 0; openCardsTabForBattleStart = function() { __cards++; };' +
            'function selectSquad(i) { currentSquadIndex = i; currentSquad = appData.squads[i]; } function calculateReachableHexes() { return {}; } function spendAP() { return true; } var __redraws = 0; redrawMap = function() { __redraws++; };' +
            'setMapMode = function(m) { appData.map.mode = m; appData.map.selectedMoveSquadIdx = null; }; checkNightTime = function(){}; resetAP = function(){}; updateTimeDisplay = function(){};' +

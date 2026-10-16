@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.099 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.100 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1358,11 +1358,38 @@ function openHexEditorForBattle(hexKey, kind, ownerUnitName) {
     const budget = rule.pointsField ? (ov[rule.pointsField] || 0) : 0;
     const existingTrenchesCanBeEdited = kind === 'trenches' && countHexTrenchCells(ov) > 0;
     const canEditFireField = kind === 'fireField' && ov.fireField && ['draft', 'armed'].includes(ov.fireField.state);
+    // ⚡ v13.100 (п.1): приказ «Окопаться» / «Расчистка местности» открывает карту
+    //    гекса СРАЗУ после отдачи приказа. Пока приказ не выполнен, правки идут
+    //    ЧЕРНОВИКОМ, поэтому очки правок ещё не выданы — это не повод не пускать
+    //    игрока в редактор: разрешаем вход, если по гексу есть черновик или
+    //    активный приказ нужного типа.
+    const draftKind = (kind === 'prep') ? 'prep' : 'trenches';
+    const hasPendingDraft = (typeof pendingHexEditDraftActive === 'function') && pendingHexEditDraftActive(hexKey);
+    const orderKindForHex = (kind === 'prep') ? 'prep_positions' : 'dig_in';
+    const activeOrderForHex = (() => {
+        try {
+            const list = (typeof hardMode !== 'undefined' && hardMode && Array.isArray(hardMode.orders)) ? hardMode.orders : [];
+            const pending = (typeof hardMode !== 'undefined' && hardMode && Array.isArray(hardMode.pendingOrders)) ? hardMode.pendingOrders : [];
+            const all = list.concat(pending, (typeof hardMode !== 'undefined' && hardMode && Array.isArray(hardMode.messengerQueue)) ? hardMode.messengerQueue : []);
+            return all.some(o => {
+                if (!o || ['completed', 'cancelled'].includes(o.status)) return false;
+                const type = (o.type === 'company_order') ? o.orderType : o.type;
+                if (type !== orderKindForHex && !(Array.isArray(o.series) && o.series.some(st => st && st.type === orderKindForHex))) return false;
+                const hex = o.targetHex || o.startHex || (o.originalHex || null);
+                return !hex || String(hex) === String(hexKey);
+            });
+        } catch (e) { return false; }
+    })();
+    if (!hasPendingDraft && activeOrderForHex && typeof beginPendingHexEditDraft === 'function') {
+        try { beginPendingHexEditDraft(hexKey, draftKind, ownerUnitName); } catch (e) {}
+    }
+    const draftModeOpen = hasPendingDraft || activeOrderForHex ||
+        ((typeof pendingHexEditDraftActive === 'function') && pendingHexEditDraftActive(hexKey));
     if (kind === 'fireField' && !canEditFireField) {
         alert('Нет готового приказа «Разлить нефть» для этого оперативного гекса.');
         return;
     }
-    if (kind !== 'initialFortification' && !canEditFireField && budget <= 0 && !existingTrenchesCanBeEdited) {
+    if (kind !== 'initialFortification' && !canEditFireField && budget <= 0 && !existingTrenchesCanBeEdited && !draftModeOpen) {
         alert('Нет доступных правок. Отдайте приказ «' + (kind === 'trenches' ? 'Окопаться' : 'Подготовка позиций') + '» и дождитесь его выполнения (3 хода).');
         return;
     }
@@ -2562,10 +2589,53 @@ function syncSupplyPointsOnGrid(mapLike, squads, field, side) {
     mapLike[stateKey] = wanted.slice();
     if (changed && typeof log === 'function') {
         try {
-            log(`📦 Пункт боепитания (${side === 'enemy' ? 'противник' : 'наши'}) — исходный гекс(ы): ${wanted.length ? wanted.join(', ') : 'штаб взвода не размещён'}.`);
+            // ⚡ v13.100 (п.5): место пункта боепитания противника игроку не
+            //    сообщаем — иначе скрытая метка всё равно выдаётся журналом.
+            if (side === 'enemy') {
+                log('📦 Пункт боепитания противника: перемещение штаба учтено (место скрыто до обнаружения).');
+            } else {
+                log(`📦 Пункт боепитания (наши) — исходный гекс(ы): ${wanted.length ? wanted.join(', ') : 'штаб взвода не размещён'}.`);
+            }
         } catch (e) {}
     }
     return wanted;
+}
+// ⚡ v13.100 (п.5): пункт боепитания ПРОТИВНИКА не показывается игроку, пока его
+//    не обнаружат свои подразделения. Свой пункт (и ручные метки 📦) видны всегда;
+//    вражеская метка появляется, когда её штаб взвода обнаружен (detected) или
+//    гекс вскрыт боем (этот гекс — гекс текущего боя).
+function supplyPointOriginKeyForSquad(mapLike, side, index) {
+    const originKey = supplyPointOriginStateKey(side);
+    const origins = (mapLike && mapLike[originKey] && typeof mapLike[originKey] === 'object') ? mapLike[originKey] : {};
+    return origins[index] || null;
+}
+function supplyPointVisibleToPlayer(mapLike, key) {
+    if (!mapLike || !key) return true;
+    const enemyKeys = Array.isArray(mapLike.autoSupplyKeysEnemy) ? mapLike.autoSupplyKeysEnemy : [];
+    if (enemyKeys.indexOf(String(key)) < 0) return true;   // наш пункт / ручная метка
+    const enemySquads = Array.isArray(mapLike.enemySquads) ? mapLike.enemySquads : [];
+    const hqAlive = (s) => !!(s && !s.isDestroyed && !s.isRetreated && s.status !== 'retreated' &&
+        (s.fighters || []).some(f => f && Number(f.hp) > 0));
+    const revealed = enemySquads.some((squad, index) => {
+        if (!hqAlive(squad) || !squad.detected) return false;
+        if (typeof isPlatoonHQBattleSquad === 'function' && !isPlatoonHQBattleSquad(squad)) return false;
+        const origin = supplyPointOriginKeyForSquad(mapLike, 'enemy', index);
+        if (origin && String(origin) === String(key)) return true;
+        // штаб уже сместился — метка закреплена на исходном гексе
+        const pos = (squad.hexPos && squad.hexPos.length === 2) ? `${squad.hexPos[0]},${squad.hexPos[1]}` : null;
+        return !!pos && String(pos) === String(key);
+    });
+    if (revealed) return true;
+    try {
+        const battle = (typeof appData !== 'undefined' && appData) ? appData.map : null;
+        if (battle && battle.hexKey && String(battle.hexKey) === String(key) && appData.currentBattleId) return true;
+    } catch (e) {}
+    return false;
+}
+// Метки гекса тактической карты, видимые игроку (с учётом скрытых пунктов боепитания)
+function tacticalVisibleMarkers(mapLike, cellKey, markers) {
+    const list = Array.isArray(markers) ? markers : [];
+    return list.filter(m => !(m === SUPPLY_POINT_MARKER && !supplyPointVisibleToPlayer(mapLike, cellKey)));
 }
 function activeSupplyPointKeys(mapLike, side) {
     if (!mapLike || !mapLike.grid) return [];

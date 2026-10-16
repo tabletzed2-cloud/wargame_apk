@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.099 — embarked orders wait, resumable card draft, visible tactical rounds and operational pause.
+// ⚡ BUILD-МАРКЕР: v13.100 — cards restore, hex editor from orders, hidden targets, hold-to-destination, area fire salvo.
 (function () {
   'use strict';
 
@@ -1732,6 +1732,23 @@
     // The first step's time determines delivery; later steps wait individually.
     return existing;
   }
+  // ⚡ v13.100 (п.1): «окопаться» / «расчистка местности» открывают карту гекса
+  //    СРАЗУ после отдачи приказа (в т.ч. когда приказ добавлен шагом серии) —
+  //    отметки идут черновиком и попадут на карту после выполнения приказа.
+  function openHexEditorForIssuedOrder(type, options, receiver) {
+    if (type !== 'dig_in' && type !== 'prep_positions') return false;
+    const hexKey = (options && (options.targetHex || options.startHex)) || null;
+    if (!hexKey || !receiver) return false;
+    const kind = type === 'dig_in' ? 'trenches' : 'prep';
+    const unitName = receiver.name || null;
+    try { if (typeof beginPendingHexEditDraft === 'function') beginPendingHexEditDraft(hexKey, kind, unitName); } catch (e) { console.warn('beginPendingHexEditDraft:', e); }
+    try {
+      if (typeof openHexEditorForBattle === 'function') {
+        setTimeout(() => { try { openHexEditorForBattle(hexKey, kind, unitName); } catch (e) { console.warn('openHexEditorForBattle:', e); } }, 0);
+      }
+    } catch (e) { console.warn('hex editor on order issue:', e); }
+    return true;
+  }
   function issueOneOrder(targetId, type, options, mirrored) {
     const list = units();
     const receiver = list[targetId];
@@ -1744,7 +1761,11 @@
       ? { ...options, escortMirrorInfantryId: Number(mirrored) }
       : options;
     const appended = appendTurnOrder(targetId, type, createOptions);
-    if (appended) return appended;
+    if (appended) {
+      // ⚡ v13.100 (п.1): шаг серии «окопаться»/«расчистка» тоже открывает карту гекса
+      if (mirrored == null) openHexEditorForIssuedOrder(type, createOptions, receiver);
+      return appended;
+    }
     if (hqId < 0 || !list[hqId]) throw new Error('Штаб батальона не найден.');
     let order = null;
     let relay = null;
@@ -1763,20 +1784,10 @@
     }
     if (!order) throw new Error(`Не удалось создать приказ «${type}».`);
     if (mirrored != null) order.escortMirrorInfantryId = mirrored;
-    // ⚡ v13.099 (п.6): «окопаться» и «расчистка местности» открывают редактор
-    //    гекса СРАЗУ; отметки идут черновиком и появляются на карте только
-    //    после выполнения приказа.
-    if ((type === 'dig_in' || type === 'prep_positions') && mirrored == null) {
-      const hexKey = (createOptions && (createOptions.targetHex || createOptions.startHex)) || null;
-      if (hexKey) {
-        const kind = type === 'dig_in' ? 'trenches' : 'prep';
-        const unitName = receiver && receiver.name ? receiver.name : null;
-        try {
-          if (typeof beginPendingHexEditDraft === 'function') beginPendingHexEditDraft(hexKey, kind, unitName);
-          if (typeof openHexEditorForBattle === 'function') setTimeout(() => openHexEditorForBattle(hexKey, kind, unitName), 0);
-        } catch (e) { console.warn('hex editor on order issue:', e); }
-      }
-    }
+    // ⚡ v13.099 (п.6) / v13.100 (п.1): «окопаться» и «расчистка местности»
+    //    открывают редактор гекса СРАЗУ; отметки идут черновиком и появляются
+    //    на карте только после выполнения приказа.
+    if (mirrored == null) openHexEditorForIssuedOrder(type, createOptions, receiver);
     return order;
   }
   function linkedEscortIds(infantryId) {
