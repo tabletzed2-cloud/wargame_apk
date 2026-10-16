@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.098 — embarked orders wait, resumable card draft, visible tactical rounds and operational pause.
+// ⚡ BUILD-МАРКЕР: v13.099 — embarked orders wait, resumable card draft, visible tactical rounds and operational pause.
 (function () {
   'use strict';
 
@@ -682,6 +682,7 @@
         markChecklist('communication');
         // ⚡ v13.095 (п.1): раздача бонусных карт — ОТДЕЛЬНЫЙ этап ПОСЛЕ связи.
         if (!c.initialPlatoonCardsAssigned) {
+          c.initialCardStageMinimized = false;
           setStage('cards');
           setMapMessage('🎖️ Этап связи завершён. Теперь распределите бонусные карты по взводам.', '#f1c40f');
           if (typeof window.openInitialCardDistributionStage === 'function') window.openInitialCardDistributionStage();
@@ -708,7 +709,7 @@
   }
   // ⚡ v13.095 (п.1): меню раздачи карт завершено — закрываем его и идём к приказам.
   function completeCardStage() {
-    if (typeof window.closeInitialCardDistributionStage === 'function') window.closeInitialCardDistributionStage();
+    if (typeof window.closeInitialCardDistributionStage === 'function') window.closeInitialCardDistributionStage(true);
     if (getStage() === 'cards') {
       setStage('orders');
       setMapMessage('✅ Бонусные карты распределены. Теперь выберите отряд на карте и нажмите «Приказ».', '#27ae60');
@@ -1466,6 +1467,20 @@
         (typeof hasAtGunWeapons === 'function' && hasAtGunWeapons(unit)) || unit.type === 'tank_platoon' || /танк/i.test(String(unit.name || ''));
       if (!eligible) throw new Error('Приказ «Обстрелять гекс» доступен только артиллерии, САУ, танкам, миномётам и ПТО.');
       if (!/^\d+,\d+$/.test(String(draft.targetHex || ''))) throw new Error('Выберите гекс для обстрела.');
+      // ⚡ v13.099 (п.21, решение игрока): дальность проверяется СРАЗУ при отдаче
+      //    приказа — нельзя отдать заведомо невыполнимый приказ по гексу.
+      //    Пехота/ПТО — 3 гекса, 82-мм миномёт — 4, САУ и артиллерия — 10.
+      //    Проверка выполняется только когда в сборке есть обе функции дальности
+      //    (в тестовых срезах их может не быть — тогда приказ не блокируем).
+      if (typeof operationalHexFireRange === 'function' && typeof getOpHexDistance === 'function' &&
+          unit.col != null && unit.row != null) {
+        const parts = String(draft.targetHex).split(',').map(Number);
+        const maxRange = operationalHexFireRange(unit);
+        const distance = getOpHexDistance(unit.col, unit.row, parts[0], parts[1]);
+        if (Number.isFinite(distance) && distance > maxRange) {
+          throw new Error(`Цель слишком далеко: ${distance} гекс(ов), для этого отряда максимум ${maxRange}.`);
+        }
+      }
       type = 'shoot';
       options.targetHex = String(draft.targetHex);
     } else if (draft.category === 'specific') {
@@ -1560,7 +1575,11 @@
   }
   function executeOperationalTargetOrder(unit, order) {
     if (!unit || !order || unit.isDestroyed) { if (order) order.status = 'cancelled'; return; }
-    if (unit.isInBattle || unit.col == null || unit.row == null) return;
+    if (unit.isInBattle || unit.col == null || unit.row == null) {
+      // ⚡ v13.099 (п.21): раньше — молчаливый выход, игрок не понимал, почему нет огня
+      log(`⏳ [${unit.name}] Обстрел конкретной цели отложен: отряд в тактическом бою или не размещён на карте.`);
+      return;
+    }
     const id = Number(order.targetEnemyId);
     const enemies = campaign().enemyOpUnits || [];
     let enemy = null;
@@ -1583,7 +1602,10 @@
       log(`⏳ [${unit.name}] Цель «${enemy.name}» вне дальности (${distance}/${range} гексов); приказ ждёт.`);
       return;
     }
-    if (unit.firedThisTurn) return;
+    if (unit.firedThisTurn) {
+      log(`⏳ [${unit.name}] Уже стрелял в этом ходу по цели «${enemy.name}» — приказ подождёт следующего хода.`);
+      return;
+    }
     const shot = { ...order, type: 'shoot', targetHex: order.targetHex, status: 'active' };
     executeShootOrder(unit, shot);
     if (shot.status === 'completed') {
@@ -1595,7 +1617,15 @@
   }
   function executeOperationalSectorFireOrder(unit, order) {
     if (!unit || !order || unit.isDestroyed) { if (order) order.status = 'cancelled'; return; }
-    if (unit.isInBattle || unit.col == null || unit.row == null || unit.firedThisTurn) return;
+    if (unit.isInBattle || unit.col == null || unit.row == null || unit.firedThisTurn) {
+      // ⚡ v13.099 (п.21): контроль гексов ждёт — сообщаем один раз за ход
+      const waitTurn = (campaign() && campaign().currentTurn) || 1;
+      if (order.lastSectorWaitTurn !== waitTurn) {
+        order.lastSectorWaitTurn = waitTurn;
+        log(`⏳ [${unit.name}] Контроль гексов: ${unit.isInBattle ? 'отряд в тактическом бою' : unit.firedThisTurn ? 'уже стрелял в этом ходу' : 'отряд не размещён на карте'} — огонь продолжается, когда это станет возможно.`);
+      }
+      return;
+    }
     const raw = Array.isArray(order.targetHexes) ? order.targetHexes : [];
     const keys = raw.map(value => {
       if (value && typeof value === 'object') return `${Number(value.col)},${Number(value.row)}`;
@@ -1608,7 +1638,15 @@
       keys.includes(`${enemy.col},${enemy.row}`) &&
       getOpHexDistance(unit.col, unit.row, enemy.col, enemy.row) <= distanceLimit &&
       (!campaign().online || typeof onlineEnemyVisible !== 'function' || onlineEnemyVisible(enemy)));
-    if (!pool.length) return; // контроль сохраняется до появления противника
+    if (!pool.length) {
+      // ⚡ v13.099 (п.21): ничего не произошло молча — пишем причину (раз за ход)
+      const waitTurn = (campaign() && campaign().currentTurn) || 1;
+      if (order.lastSectorWaitTurn !== waitTurn) {
+        order.lastSectorWaitTurn = waitTurn;
+        log(`👁️ [${unit.name}] Контроль выбранных гексов: обнаруженных целей в зоне нет — отряд ждёт (приказ активен).`);
+      }
+      return; // контроль сохраняется до появления противника
+    }
     const target = pool.sort((a, b) => getOpHexDistance(unit.col, unit.row, a.col, a.row) - getOpHexDistance(unit.col, unit.row, b.col, b.row))[0];
     const shot = { ...order, type: 'shoot', targetHex: `${target.col},${target.row}`, status: 'active' };
     executeShootOrder(unit, shot);
@@ -1725,6 +1763,20 @@
     }
     if (!order) throw new Error(`Не удалось создать приказ «${type}».`);
     if (mirrored != null) order.escortMirrorInfantryId = mirrored;
+    // ⚡ v13.099 (п.6): «окопаться» и «расчистка местности» открывают редактор
+    //    гекса СРАЗУ; отметки идут черновиком и появляются на карте только
+    //    после выполнения приказа.
+    if ((type === 'dig_in' || type === 'prep_positions') && mirrored == null) {
+      const hexKey = (createOptions && (createOptions.targetHex || createOptions.startHex)) || null;
+      if (hexKey) {
+        const kind = type === 'dig_in' ? 'trenches' : 'prep';
+        const unitName = receiver && receiver.name ? receiver.name : null;
+        try {
+          if (typeof beginPendingHexEditDraft === 'function') beginPendingHexEditDraft(hexKey, kind, unitName);
+          if (typeof openHexEditorForBattle === 'function') setTimeout(() => openHexEditorForBattle(hexKey, kind, unitName), 0);
+        } catch (e) { console.warn('hex editor on order issue:', e); }
+      }
+    }
     return order;
   }
   function linkedEscortIds(infantryId) {
@@ -2018,12 +2070,16 @@
     renderPinnedActions();
     const overlay = document.getElementById('initialCardStageOverlay');
     if (getStage() === 'cards' && !c.initialPlatoonCardsAssigned) {
-      if ((!overlay || overlay.style.display === 'none') && typeof window.openInitialCardDistributionStage === 'function') {
+      // ⚡ v13.099 (п.2): свёрнутое игроком меню раздачи не открываем принудительно —
+      //    карта остаётся доступной, вернуться можно кнопкой «🎖️ Раздача карт».
+      if (!c.initialCardStageMinimized &&
+          (!overlay || overlay.style.display === 'none') && typeof window.openInitialCardDistributionStage === 'function') {
         window.openInitialCardDistributionStage();
       }
     } else if (overlay && overlay.style.display !== 'none' && typeof window.closeInitialCardDistributionStage === 'function') {
-      window.closeInitialCardDistributionStage();
+      window.closeInitialCardDistributionStage(true);
     }
+    if (typeof window.updateInitialCardStageRestoreBar === 'function') window.updateInitialCardStageRestoreBar();
     if (typeof window.showTacticalOrdersPauseNotice === 'function') window.showTacticalOrdersPauseNotice();
   }
   function applyCompactMapUi() {

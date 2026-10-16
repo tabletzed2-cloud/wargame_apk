@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.098 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.099 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // v13.062: AIRF reconnaissance platoon HQ icon.
 // ⚡ v13.059: current release squad templates.
 // ==================== ШАБЛОНЫ ОТРЯДОВ ====================
@@ -195,7 +195,8 @@ const SQUAD_TEMPLATES = [
           ],
           "crewInstances":[
             {"weaponName": "75-мм орудие SAU Brugge", "fighterIndices": [2, 3, 4], "active": true },
-            {"weaponName": "Пулемёт SAU Brugge", "fighterIndices": [1], "active": true }
+            {"weaponName": "Курсовой пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
+            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [2], "active": true }
           ],
           "armor": { "front": 20, "side": 20, "rear": 40, "turret": 40 }},
             {"name":"САУ Brugge №2","faction":"BeVe","baseMorale":8,"currentMorale":8,"icon":"images/BeVe/САУ Brugge №2.jpg","ammoSmall":50,"ammoOrdnance":40,"grenades":0,"fighters":[
@@ -207,7 +208,8 @@ const SQUAD_TEMPLATES = [
           ],
           "crewInstances":[
             {"weaponName": "75-мм орудие SAU Brugge", "fighterIndices": [2, 3, 4], "active": true },
-            {"weaponName": "Пулемёт SAU Brugge", "fighterIndices": [1], "active": true }
+            {"weaponName": "Курсовой пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
+            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [2], "active": true }
           ],
           "armor": { "front": 20, "side": 20, "rear": 40, "turret": 40 }},
             {"name":"САУ Brugge №3","faction":"BeVe","baseMorale":8,"currentMorale":8,"icon":"images/BeVe/САУ Brugge №3.jpg","ammoSmall":50,"ammoOrdnance":40,"grenades":0,"fighters":[
@@ -219,7 +221,8 @@ const SQUAD_TEMPLATES = [
           ],
           "crewInstances":[
             {"weaponName": "75-мм орудие SAU Brugge", "fighterIndices": [2, 3, 4], "active": true },
-            {"weaponName": "Пулемёт SAU Brugge", "fighterIndices": [1], "active": true }
+            {"weaponName": "Курсовой пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
+            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [2], "active": true }
           ],
            "armor": { "front": 20, "side": 20, "rear": 40, "turret": 40 }},
           
@@ -232,8 +235,9 @@ const SQUAD_TEMPLATES = [
           ],
           "crewInstances":[
             {"weaponName": "37-мм Bofors", "fighterIndices": [3, 4], "active": true },
-            {"weaponName": "Пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
-            {"weaponName": "Пулемёт SAU Brugge", "fighterIndices": [1], "active": true }
+            {"weaponName": "Курсовой пулемёт SAU Brugge", "fighterIndices": [0], "active": true },
+            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
+            {"weaponName": "Кормовой пулемёт SAU Brugge", "fighterIndices": [2], "active": true }
           ],
           "armor": { "front": 20, "side": 16, "rear": 16, "turret": 20 }},
 
@@ -246,8 +250,9 @@ const SQUAD_TEMPLATES = [
           ],
           "crewInstances":[
             {"weaponName": "37-мм Bofors", "fighterIndices": [3, 4], "active": true },
-            {"weaponName": "Пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
-            {"weaponName": "Пулемёт SAU Brugge", "fighterIndices": [1], "active": true }
+            {"weaponName": "Курсовой пулемёт SAU Brugge", "fighterIndices": [0], "active": true },
+            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
+            {"weaponName": "Кормовой пулемёт SAU Brugge", "fighterIndices": [2], "active": true }
           ],
           "armor": { "front": 20, "side": 16, "rear": 16, "turret": 20 }},
 
@@ -260,8 +265,9 @@ const SQUAD_TEMPLATES = [
           ],
           "crewInstances":[
             {"weaponName": "37-мм Bofors", "fighterIndices": [3, 4], "active": true },
-            {"weaponName": "Пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
-            {"weaponName": "Пулемёт SAU Brugge", "fighterIndices": [1], "active": true }
+            {"weaponName": "Курсовой пулемёт SAU Brugge", "fighterIndices": [0], "active": true },
+            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
+            {"weaponName": "Кормовой пулемёт SAU Brugge", "fighterIndices": [2], "active": true }
           ],
           "armor": { "front": 20, "side": 16, "rear": 16, "turret": 20 }},
           
@@ -269,7 +275,7 @@ const SQUAD_TEMPLATES = [
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3}
           ],
           "crewInstances":[
-            {"weaponName":"Станковый пулемет Hotchkiss Mle 1914","fighterIndices":[],"active":true}
+            {"weaponName":"Курсовой пулемет Hotchkiss Mle 1914","fighterIndices":[],"active":true}
           ],
           "armor": { "front": 25, "side": 15, "rear": 10, "turret": null },
           "embarkedSquadIndex": null},
@@ -277,7 +283,7 @@ const SQUAD_TEMPLATES = [
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3}
           ],
           "crewInstances":[
-            {"weaponName":"Станковый пулемет Hotchkiss Mle 1914","fighterIndices":[],"active":true}
+            {"weaponName":"Курсовой пулемет Hotchkiss Mle 1914","fighterIndices":[],"active":true}
           ],
           "armor": { "front": 25, "side": 15, "rear": 10, "turret": null },
           "embarkedSquadIndex": null},
@@ -285,7 +291,7 @@ const SQUAD_TEMPLATES = [
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3}
           ],
           "crewInstances":[
-            {"weaponName":"Станковый пулемет Hotchkiss Mle 1914","fighterIndices":[],"active":true}
+            {"weaponName":"Курсовой пулемет Hotchkiss Mle 1914","fighterIndices":[],"active":true}
           ],
           "armor": { "front": 25, "side": 15, "rear": 10, "turret": null },
           "embarkedSquadIndex": null},
@@ -293,7 +299,7 @@ const SQUAD_TEMPLATES = [
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3}
           ],
           "crewInstances":[
-            {"weaponName":"Станковый пулемет Hotchkiss Mle 1914","fighterIndices":[],"active":true}
+            {"weaponName":"Курсовой пулемет Hotchkiss Mle 1914","fighterIndices":[],"active":true}
           ],
           "armor": { "front": 25, "side": 15, "rear": 10, "turret": null },
           "embarkedSquadIndex": null},
@@ -301,7 +307,7 @@ const SQUAD_TEMPLATES = [
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3}
           ],
           "crewInstances":[
-            {"weaponName":"Станковый пулемет Hotchkiss Mle 1914","fighterIndices":[],"active":true}
+            {"weaponName":"Курсовой пулемет Hotchkiss Mle 1914","fighterIndices":[],"active":true}
           ],
           "armor": { "front": 25, "side": 15, "rear": 10, "turret": null },
           "embarkedSquadIndex": null},
@@ -313,7 +319,7 @@ const SQUAD_TEMPLATES = [
             {"name":"Лейтенант","weapon":"Пистолет Star M1914","hp":3,"maxHp":3}],
           "crewInstances":[
             {"weaponName": "45-мм 53К танковая", "fighterIndices": [2, 3], "active": true },
-            {"weaponName": "Танковый пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true } ],
+            {"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true } ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
           
                      {"name":"Легкий танк CL/39 №2","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/лт аирф CL39 №2.png","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
@@ -324,7 +330,7 @@ const SQUAD_TEMPLATES = [
             ],
           "crewInstances":[
             {"weaponName": "45-мм 53К танковая", "fighterIndices": [2, 3], "active": true },
-            {"weaponName": "Танковый пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
+            {"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
           ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
                      {"name":"Легкий танк CL/39 №3","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/лт аирф CL39 №3.png","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
@@ -335,7 +341,7 @@ const SQUAD_TEMPLATES = [
             ],
           "crewInstances":[
             {"weaponName": "45-мм 53К танковая", "fighterIndices": [2, 3], "active": true },
-            {"weaponName": "Танковый пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
+            {"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
           ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
                      {"name":"Легкий танк CL/39 №4","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/лт аирф CL39 №4.png","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
@@ -346,7 +352,7 @@ const SQUAD_TEMPLATES = [
             ],
           "crewInstances":[
             {"weaponName": "45-мм 53К танковая", "fighterIndices": [2, 3], "active": true },
-            {"weaponName": "Танковый пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
+            {"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
           ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
                      {"name":"Легкий танк CL/39 №5","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/лт аирф CL39 №5.png","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
@@ -357,7 +363,7 @@ const SQUAD_TEMPLATES = [
             ],
           "crewInstances":[
             {"weaponName": "45-мм 53К танковая", "fighterIndices": [2, 3], "active": true },
-            {"weaponName": "Танковый пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
+            {"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
           ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
         

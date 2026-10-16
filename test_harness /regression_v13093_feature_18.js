@@ -137,10 +137,18 @@ test('18: паузу нельзя обойти прямым переходом �
   equal(s.evalCtx('document.getElementById("mapInfo").textContent.includes("приостановлен")'), true, 'игрок получает объяснение блокировки');
 });
 
-test('18: пятый тактический ход не вызывает автоматическое завершение оперативного хода', () => {
+test('18: окно тактической паузы — 5 раундов (10 фаз), без автозавершения оперативного хода', () => {
   const nextTurn = sliceFunction(HTML, 'nextTurn');
   assert(!/endOperationalTurn\s*\(/.test(nextTurn), 'nextTurn не должен автоматически вызывать endOperationalTurn');
-  assert(/tacticalPhasesCompleted\s*>=\s*5/.test(nextTurn), 'после пяти завершённых фаз должна срабатывать тактическая пауза');
+  // ⚡ v13.099 (п.9): 1 раунд = фаза атакующего + фаза обороняющегося = 2 фазы,
+  //    окно оперативного хода — 5 раундов = 10 фаз (раньше считались сами фазы).
+  assert(/tacticalPhasesCompleted\s*>=\s*RPTX_PHASES_PER_WINDOW\(\)/.test(nextTurn),
+    'после пяти раундов (десяти фаз) должна срабатывать тактическая пауза');
+  const windowSandbox = createSandbox(freshAppData());
+  loadHtml(windowSandbox, ['RPTX_PHASES_PER_WINDOW', 'tacticalPhasesPerRound', 'tacticalRoundsPerOperationalTurn']);
+  equal(windowSandbox.evalCtx('RPTX_PHASES_PER_WINDOW()'), 10, 'окно = 5 раундов × 2 фазы = 10 фаз');
+  equal(windowSandbox.evalCtx('tacticalPhasesPerRound()'), 2, 'раунд — это фаза атакующего + фаза обороняющегося');
+  equal(windowSandbox.evalCtx('tacticalRoundsPerOperationalTurn()'), 5, 'раундов в оперативном ходу — пять');
 });
 
 console.log(`\nИтог критерия 18: PASS ${pass} · FAIL ${fail}`);

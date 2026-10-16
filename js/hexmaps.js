@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.098 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.099 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -888,6 +888,9 @@ const TACTICAL_FIRE_SECTOR_OPTIONS = [
     { id: 'nw', label: '↖ Северо-запад', cube: { x: 0, y: 1, z: -1 } },
     { id: 'ne', label: '↗ Северо-восток', cube: { x: 1, y: 0, z: -1 } }
 ];
+// ⚡ v13.099 (п.1): дальность обстрела ДОТа — не дальше 3 гексов. Сектор
+//    амбразуры на ОПЕРАТИВНОЙ карте рисуется и действует только в этом радиусе.
+const DOT_FIRE_RANGE_HEXES = 3;
 // ⚡ v13.095 (п.2): ШИРИНА сектора обстрела амбразуры ДОТа зависит от типа ДОТа
 //    и оружия: ДОТ «Van Hees»: ПТ-орудие — круговой сектор 360°, пулемёт — 90°.
 //    ДОТ «Bosh»: два пулемёта — по 60°, орудие — 90°. Секторы разных амбразур
@@ -963,6 +966,9 @@ function operationalDotSectorAllows(unit, targetCol, targetRow) {
     const dotSquads = unit.squads.filter(sq => sq && /ДОТ/i.test(String(sq.name || '')) && tacticalDotHasConfiguredSectors(sq));
     if (!dotSquads.length) return true; // сектора не настроены — ограничений нет
     const fromKey = unit.col + ',' + unit.row, targetKey = targetCol + ',' + targetRow;
+    // ⚡ v13.099 (п.1): ДОТ стреляет не дальше 3 гексов — вне радиуса сектор не действует.
+    if (typeof hexGridDistance === 'function' &&
+        hexGridDistance(Number(unit.col), Number(unit.row), Number(targetCol), Number(targetRow)) > DOT_FIRE_RANGE_HEXES) return false;
     return dotSquads.some(squad => {
         const sectors = (squad.fixedTacticalPosition && squad.fixedTacticalPosition.weaponSectors) || {};
         return Object.keys(sectors).some(key => {
@@ -1122,8 +1128,12 @@ function grantTrenchPoints(hexKey, squadsCount, unitName, enemySide) {
         // Скрываем от игрока ход выполнения и результат вражеского окапывания.
         return ov.trenchPoints || 0;
     }
+    // ⚡ v13.099 (п.6): приказ выполнен — переносим черновик правок на карту и
+    //    зачитываем эти отметки в счёт выданных правок.
+    let drafted = 0;
+    try { if (typeof applyPendingHexEdits === 'function') drafted = applyPendingHexEdits(hexKey, 'trenches'); } catch (e) { console.warn('applyPendingHexEdits:', e.message); }
     const currentBudget = Math.max(0, Math.floor(Number(ov.trenchPoints) || 0));
-    const granted = n;
+    const granted = Math.max(0, n - drafted);
     ov.trenchPoints = currentBudget + granted;
     ov.placedByMe = true;
     saveHexOverlays(hexKey);
@@ -1131,7 +1141,7 @@ function grantTrenchPoints(hexKey, squadsCount, unitName, enemySide) {
         log(`🕳️ ${unitName || 'Отряд'}: доступно гексов окопов на гексе (${hexKey}) — +${granted} (всего ${ov.trenchPoints}).`);
         try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast(`🕳️ Окопы готовы: гекс (${hexKey}) — можно разместить ${ov.trenchPoints} окоп(а).`, 'success'); } catch (e) {}
         showHexEditButton(hexKey, 'trenches');
-        queueHexEditPrompt(hexKey, 'trenches', unitName);
+        if (!drafted) queueHexEditPrompt(hexKey, 'trenches', unitName);
     } else {
         log(`🕳️ ${unitName || 'Отряд'}: лимит ${INITIAL_FORTIFICATION_TRENCH_LIMIT} клеток окопов на гексе (${hexKey}) уже исчерпан.`);
     }
@@ -1147,14 +1157,16 @@ function grantPrepPoints(hexKey, squadsCount, unitName, enemySide) {
         // Скрываем от игрока ход выполнения и результат вражеской подготовки.
         return ov.prepPoints || 0;
     }
-    const n = Math.max(1, Math.floor(Number(squadsCount) || 1));
+    // ⚡ v13.099 (п.6): приказ выполнен — переносим черновик правок на карту
+    let drafted = 0;
+    try { if (typeof applyPendingHexEdits === 'function') drafted = applyPendingHexEdits(hexKey, 'prep'); } catch (e) { console.warn('applyPendingHexEdits:', e.message); }
+    const n = Math.max(0, Math.max(1, Math.floor(Number(squadsCount) || 1)) - drafted);
     ov.prepPoints = (ov.prepPoints || 0) + n;
     ov.placedByMe = true;
     saveHexOverlays(hexKey);
     log(`🪓 ${unitName || 'Отряд'}: доступно правок «подготовка позиций» на гексе (${hexKey}) — +${n} (всего ${ov.prepPoints}).`);
     try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast(`🪓 Расчистка позиций готова: гекс (${hexKey}) — доступно правок: ${ov.prepPoints}.`, 'success'); } catch (e) {}
-    showHexEditButton(hexKey, 'prep');
-    queueHexEditPrompt(hexKey, 'prep', unitName);
+    if (!drafted) { showHexEditButton(hexKey, 'prep'); queueHexEditPrompt(hexKey, 'prep', unitName); }
     return ov.prepPoints;
 }
 
@@ -1384,6 +1396,18 @@ function openHexEditorForBattle(hexKey, kind, ownerUnitName) {
             undo: [],
             placed: 0
         };
+        // ⚡ v13.099 (п.6/23): черновик подготовки (пока приказ не выполнен) и
+        //    запись открытого гекса для подсветки на миникарте кампании
+        hexEditorState.draftMode = (typeof pendingHexEditDraftActive === 'function') && pendingHexEditDraftActive(hexKey);
+        try {
+            if (appData.campaign) appData.campaign.lastOpenedHexKey = String(hexKey);
+            if (appData.map) appData.map.hexKey = String(hexKey);
+            if (typeof renderCampaignMiniMap === 'function') renderCampaignMiniMap();
+        } catch (e) {}
+        if (hexEditorState.draftMode) {
+            log('📝 Редактор открыт в режиме ЧЕРНОВИКА: отметки попадут на карту после выполнения приказа «' +
+                (pendingHexEditDraft(hexKey).kind === 'prep' ? 'расчистка местности' : 'окапывание') + '».');
+        }
         let baseGrid = hexEditorState.baseGrid;
         const size = Math.max(md ? Math.max(md.w || 0, md.h || 0) : 0, 15);
         const grid = {};
@@ -1632,9 +1656,114 @@ function fireFieldEditClick(st, hexKeyCell) {
 }
 
 // Клик по гексу в режиме 'hexEdit'
+// ⚡ v13.099 (п.6): приказ «окопаться»/«расчистить местность» открывает редактор
+//    гекса СРАЗУ, но правки до выполнения приказа лежат ЧЕРНОВИКОМ: на карте они
+//    появятся только когда приказ будет выполнен (applyPendingHexEdits).
+function beginPendingHexEditDraft(hexKey, kind, unitName) {
+    const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
+    if (!camp || !hexKey) return null;
+    if (!camp.pendingHexEdits || typeof camp.pendingHexEdits !== 'object') camp.pendingHexEdits = {};
+    camp.pendingHexEdits[String(hexKey)] = {
+        kind: kind === 'prep' ? 'prep' : 'trenches',
+        unitName: unitName || null,
+        turn: camp.currentTurn || 1,
+        cells: {}
+    };
+    log(`📝 Черновик подготовки гекса (${hexKey}): изменения появятся на карте только после выполнения приказа.`);
+    return camp.pendingHexEdits[String(hexKey)];
+}
+function pendingHexEditDraft(hexKey) {
+    const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
+    if (!camp || !camp.pendingHexEdits) return null;
+    return camp.pendingHexEdits[String(hexKey || '')] || null;
+}
+function pendingHexEditDraftActive(hexKey) { return !!pendingHexEditDraft(hexKey); }
+function clearPendingHexEditDraft(hexKey) {
+    const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
+    if (!camp || !camp.pendingHexEdits) return;
+    delete camp.pendingHexEdits[String(hexKey || '')];
+}
+// Клик в редакторе по черновику: отметку запоминаем, карту не меняем и правки не тратим
+function recordPendingHexEditClick(st, cell) {
+    const infoBox = document.getElementById('mapInfo');
+    const readable = t => (t === 'grass' ? 'трава' : t === 'fallen_forest' ? 'поваленный лес' : 'окоп');
+    const draft = pendingHexEditDraft(st.hexKey);
+    if (!draft) return false;
+    const baseCell = st.baseGrid[cell];
+    const baseType = baseCell ? baseCell.type : 'grass';
+    const working = appData.map.grid[cell];
+    if (!working) { if (infoBox) { infoBox.innerHTML = '⚠️ Гекс ' + cell + ' вне карты этого гекса.'; infoBox.style.color = '#e67e22'; } return true; }
+    if (draft.cells[cell]) {
+        delete draft.cells[cell];
+        working.type = baseType;
+        if (baseCell && Number.isFinite(baseCell.level)) working.level = baseCell.level;
+        if (infoBox) { infoBox.innerHTML = `↩️ Черновик: гекс ${cell} — отметка снята. Отметок: ${Object.keys(draft.cells).length}.`; infoBox.style.color = '#f1c40f'; }
+        try { redrawMap(); } catch (e) {}
+        return true;
+    }
+    if (!st.rule.allowed(baseType)) {
+        if (infoBox) {
+            infoBox.innerHTML = `❌ Гекс ${cell} (${baseType}) менять нельзя.` +
+                (st.kind === 'trenches' ? ' Окоп ставится только на «траву» и «дорогу».' : ' Менять можно только «лес» и «кусты».');
+            infoBox.style.color = '#e74c3c';
+        }
+        return true;
+    }
+    const newType = (st.kind === 'trenches') ? 'trenches' : (isForestHexType(baseType) ? 'fallen_forest' : 'grass');
+    draft.cells[cell] = newType;
+    working.type = newType;
+    working.ov = 1;
+    if (infoBox) {
+        infoBox.innerHTML = `📝 Черновик: гекс ${cell}: ${readable(baseType)} → ${readable(newType)}. Отметок: ${Object.keys(draft.cells).length}. ` +
+            `На карте появятся после выполнения приказа (${draft.kind === 'prep' ? 'расчистка местности' : 'окапывание'}).`;
+        infoBox.style.color = '#f1c40f';
+    }
+    try { saveData(); } catch (e) {}
+    try { redrawMap(); } catch (e) {}
+    return true;
+}
+// Приказ выполнен — переносим черновик на карту гекса (правки уже оплачены приказом)
+function applyPendingHexEdits(hexKey, kind) {
+    const draft = pendingHexEditDraft(hexKey);
+    if (!draft) return 0;
+    const cells = Object.keys(draft.cells || {});
+    if (!cells.length) { clearPendingHexEditDraft(hexKey); return 0; }
+    const ov = getHexOverlay(String(hexKey), true);
+    if (!ov.hexEdits || typeof ov.hexEdits !== 'object') ov.hexEdits = {};
+    if (!ov.hexVariants || typeof ov.hexVariants !== 'object') ov.hexVariants = {};
+    if (!ov.hexEditSources || typeof ov.hexEditSources !== 'object') ov.hexEditSources = {};
+    const FIXED_VARIANT_FILES = { fallen_forest: 'images/лес поваленный1.png', grass: 'images/трава1.png' };
+    cells.forEach(cell => {
+        const newType = draft.cells[cell];
+        ov.hexEdits[cell] = newType;
+        ov.hexEditSources[cell] = draft.kind === 'prep' ? 'prep' : 'trenches';
+        const tData = (typeof TERRAIN_DATA !== 'undefined') ? TERRAIN_DATA[newType] : null;
+        const fixedFile = draft.kind === 'prep' ? FIXED_VARIANT_FILES[newType] : null;
+        const fixedIndex = (fixedFile && tData && Array.isArray(tData.images)) ? tData.images.indexOf(fixedFile) : -1;
+        ov.hexVariants[cell] = fixedIndex >= 0 ? fixedIndex : 0;
+        if (newType === 'trenches') {
+            if (!ov.hexEditOwners || typeof ov.hexEditOwners !== 'object') ov.hexEditOwners = {};
+            const ownerFaction = (appData.campaign && appData.campaign.playerFaction) || null;
+            if (ownerFaction) ov.hexEditOwners[cell] = ownerFaction;
+        }
+        if (appData.map && appData.map.grid && appData.map.grid[cell]) {
+            appData.map.grid[cell].type = newType;
+            appData.map.grid[cell].variant = ov.hexVariants[cell];
+            appData.map.grid[cell].ov = 1;
+        }
+    });
+    ov.placedByMe = true;
+    saveHexOverlays(String(hexKey));
+    clearPendingHexEditDraft(hexKey);
+    log(`✅ Подготовка гекса (${hexKey}) применена: изменено клеток ${cells.length} (приказ выполнен).`);
+    try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast(`✅ Гекс (${hexKey}): изменения применены на карте`, 'success'); } catch (e) {}
+    return cells.length;
+}
 function hexEditClick(hexKeyCell) {
     const st = hexEditorState;
     if (!st) return false;
+    // ⚡ v13.099 (п.6): правки приказа, который ещё не выполнен, идут в черновик
+    if (st.draftMode) return recordPendingHexEditClick(st, hexKeyCell);
     const ov = getHexOverlay(st.hexKey, true);
     const left = ov[st.rule.pointsField] || 0;
     const infoBox = document.getElementById('mapInfo');
@@ -1771,6 +1900,8 @@ function hexEditUndo() {
 function closeHexEditor() {
     const st = hexEditorState;
     hexEditorState = null;
+    // ⚡ v13.099 (п.23): миникарта кампании перестаёт подсвечивать закрытый гекс
+    try { if (typeof renderCampaignMiniMap === 'function') renderCampaignMiniMap(); } catch (e) {}
     const banner = document.getElementById('hexEditorBanner');
     if (banner) banner.style.display = 'none';
     if (st) {
@@ -2286,7 +2417,7 @@ function initialDotSectorControls(st) {
             return `<label style="color:#ddd; font-size:.82rem; border-left:4px solid ${color}; padding-left:6px;">${label} — ${String(weapon.name || crew.weaponName)} (сектор ${widthDeg >= 360 ? '360° — круговой' : widthDeg + '°'}): ` +
                 `<select onchange="setInitialDotWeaponSector(${index},this.value)">${options}</select> ` +
                 `<button type="button" onclick="setInitialDotSectorPick(${index})" style="${picking ? 'background:#e67e22;' : 'background:#2980b9;'} font-size:.78rem;">${picking ? '🎯 Кликните клетку направления…' : '🎯 Указать на карте'}</button></label>`;
-        }).join('') + '</div><div style="color:#888; font-size:.78rem;">У каждого расчёта свой сектор: Van Hees — ПТ-орудие 360° (круговой), пулемёт 90°; Bosh — пулемёты по 60°, орудие 90°. Цвет каждой амбразуры совпадает с подсветкой на карте; выбранная амбразура выделяется ярче. Подсветка показывает направление и ширину сектора, а не дальность стрельбы. Секторы могут перекрываться. Цель вне сектора для этого оружия недоступна — и в тактическом бою, и на оперативной карте. «🎯 Указать на карте» — затем кликните клетку, куда смотрит амбразура: линии сектора появятся на карте от клетки ДОТа.</div>';
+        }).join('') + '</div><div style="color:#888; font-size:.78rem;">У каждого расчёта свой сектор: Van Hees — ПТ-орудие 360° (круговой), пулемёт 90°; Bosh — пулемёты по 60°, орудие 90°. Цвет каждой амбразуры совпадает с подсветкой на карте; выбранная амбразура выделяется ярче. Подсветка показывает направление и ширину сектора в радиусе обстрела ДОТа — 3 гекса (дальше ДОТ не стреляет). Секторы могут перекрываться. Цель вне сектора для этого оружия недоступна — и в тактическом бою, и на оперативной карте. «🎯 Указать на карте» — затем кликните клетку, куда смотрит амбразура: линии сектора появятся на карте от клетки ДОТа.</div>';
 }
 function initialDotSelector(st) {
     const escape = text => String(text).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

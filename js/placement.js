@@ -3,8 +3,9 @@
 // ============================================================
 // ⚡ v13.055 (R39#3): РАЗМЕЩЕНИЕ В НАЧАЛЕ ТАКТИЧЕСКОГО БОЯ
 //   • Атакующий — тот, кто ВОШЁЛ на гекс. Его зона размещения — полоса
-//     3 ряда у края карты боя со стороны входа (вход по диагонали — угол:
-//     та же полоса 3 ряда, «согнутая» вдоль двух краёв у угла).
+//     2 ряда у края карты боя со стороны входа (вход по диагонали — угол:
+//     та же полоса 2 ряда, «согнутая» вдоль двух краёв у угла);
+//     см. v13.099 (п.19) — ширина зоны уменьшена с 3 гексов до 2.
 //   • Обороняющийся размещает отряды где угодно ВНЕ зоны атакующего.
 //   • Пока размещение не завершено — двигаться, стрелять и завершать ход
 //     нельзя (кнопка «✅ Размещение завершено» под картой боя).
@@ -16,7 +17,8 @@
 //   Старые бои (без battle.placement) идут как раньше — без ограничений.
 // ============================================================
 
-const PLACEMENT_STRIP_DEPTH = 3;
+// v13.099 (п.19): ширина зоны размещения атакующего — 2 гекса (было 3).
+const PLACEMENT_STRIP_DEPTH = 2;
 const PLACEMENT_DIRS = ['E', 'NE', 'NW', 'W', 'SW', 'SE'];
 const PLACEMENT_DIR_LABELS = {
     E:  'с востока (правый край)',
@@ -177,12 +179,18 @@ function placementPendingReason(battle) {
 }
 
 // Можно ли стороне side ('player'|'enemy') стоять на клетке key по правилам зон
-function placementSideAllowed(battle, side, key) {
+function placementSideAllowed(battle, side, key, squad) {
     const p = battle && battle.placement;
     const squads = side === 'player' ? (battle && battle.playerSquads || []) : (battle && battle.tacticalMap && battle.tacticalMap.enemySquads || []);
     if (squads.some(s => s.fixedTacticalPosition && s.fixedTacticalPosition.key === key && s.fixedTacticalPosition.hexKey === battle.hexKey)) return true;
     if (!p) return true;
     if (p.ambush) return true;
+    // ⚡ v13.099 (п.18): подкрепление обороны входит со своим подразделением
+    //    с той стороны, откуда оно пришло на гекс боя (полоса у соответствующего края).
+    if (squad && squad.placementArrivalDir && side !== p.attackerSide) {
+        const arrivalZone = placementZoneKeys(squad.placementArrivalDir, placementMapSize(battle));
+        return arrivalZone.includes(key);
+    }
     const zone = placementZoneKeys(p.entryDir, placementMapSize(battle));
     const inZone = zone.includes(key);
     return (p.attackerSide === side) ? inZone : !inZone;
@@ -205,13 +213,16 @@ function placementCheckPlace(side, key, wasPlaced, squad) {
     if (!p) return null;
     if (p.phase === 'done' && wasPlaced) return null; // после размещения — как раньше (свободная перестановка)
     if (p.phase !== 'done' && side === 'player' && p.playerReady) return '✅ Вы уже завершили размещение — переставлять отряды нельзя, ждём противника.';
-    if (placementSideAllowed(battle, side, key)) return null;
+    if (placementSideAllowed(battle, side, key, squad)) return null;
     // Обороняющемуся игроку не раскрываем направление и форму стартовой зоны атакующего.
+    if (squad && squad.placementArrivalDir && p.attackerSide !== side) {
+        return `⛔ Подкрепление размещается со стороны, откуда пришло (${PLACEMENT_DIR_LABELS[squad.placementArrivalDir] || squad.placementArrivalDir}) — подсвеченная полоса у края карты.`;
+    }
     if (p.attackerSide === 'enemy') return '⛔ Этот гекс недоступен для размещения. Выберите другой гекс.';
     const isAttacker = (p.attackerSide === side);
     const who = side === 'player' ? 'Ваш' : 'Вражеский';
     return isAttacker
-        ? `⛔ ${who} отряд атакует и размещается только в зоне входа (${PLACEMENT_DIR_LABELS[p.entryDir]}, 3 ряда у края — подсвечено на карте).`
+        ? `⛔ ${who} отряд атакует и размещается только в зоне входа (${PLACEMENT_DIR_LABELS[p.entryDir]}, 2 ряда у края — подсвечено на карте).`
         : `⛔ ${who} отряд обороняется — размещайте его ВНЕ зоны атакующего (подсвечена на карте, ${PLACEMENT_DIR_LABELS[p.entryDir]}).`;
 }
 
@@ -319,7 +330,7 @@ function placementIntroText(battle) {
     if (p.ambush) {
         s += '🥷 Засада сработала: все отряды противника обнаружены и уже расставлены случайно. Вы можете разместить свои отряды в любой точке карты.';
     } else if (iAmAttacker) {
-        s += `Вы — АТАКУЮЩИЙ: ваши юниты вошли на гекс ${PLACEMENT_DIR_LABELS[p.entryDir]}. Ваша зона размещения — 3 ряда у этого края карты боя (зелёная подсветка).`;
+        s += `Вы — АТАКУЮЩИЙ: ваши юниты вошли на гекс ${PLACEMENT_DIR_LABELS[p.entryDir]}. Ваша зона размещения — 2 ряда у этого края карты боя (зелёная подсветка).`;
     } else {
         s += 'Вы — ОБОРОНЯЮЩИЙСЯ. Разместите свои отряды и подтвердите готовность; стартовая зона противника скрыта.';
     }
