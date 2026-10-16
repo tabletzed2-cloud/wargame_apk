@@ -250,29 +250,31 @@ function roundsSandbox() {
     function getTacticalBattleRecord(){return battle;}`);
   return s;
 }
-test('тактика: раунды 1–5 видны на общей панели, счётчик не зависит от выбранного отряда', () => {
+test('тактика: раунды 1–5 видны на общей панели (раунд = фаза атакующего + фаза обороняющегося)', () => {
   const s = roundsSandbox();
   for (let round = 1; round <= 5; round++) {
-    s.run(`currentTurn=${round}; battle.currentTurn=currentTurn; battle.tacticalPhasesCompleted=${round-1}; updateTacticalRoundUI();`);
-    assert.equal(s.elements.tacticalRoundLabel.textContent, `Раунд ${round}`);
+    // ⚡ v13.099 (п.9): раунд закрывается ДВУМЯ фазами, поэтому фаз = (round-1)*2
+    s.run(`currentTurn=1; battle.currentTurn=currentTurn; battle.tacticalPhasesCompleted=${(round - 1) * 2}; updateTacticalRoundUI();`);
+    assert.equal(s.elements.tacticalRoundLabel.textContent, `Раунд ${round}/5`);
     assert.match(s.elements.tacticalRoundProgress.textContent, new RegExp(`${round}/5`));
     assert.notEqual(s.elements.tacticalRoundBar.style.display, 'none');
   }
 });
 test('тактика: пауза содержит явное требование завершить оперативный ход, уведомление не toast', () => {
   const s = roundsSandbox();
-  s.run(`currentTurn=6; battle.currentTurn=6; battle.tacticalPhasesCompleted=5;
+  // ⚡ v13.099 (п.9): окно оперативного хода — 5 раундов = 10 фаз
+  s.run(`currentTurn=11; battle.currentTurn=currentTurn; battle.tacticalPhasesCompleted=10;
     pauseCampaignTacticalBattlesForOrders(battle); showTacticalOrdersPauseNotice(); updateTacticalRoundUI();`);
   assert.equal(s.elements.tacticalOrdersPauseOverlay.style.display, 'flex');
   assert.match(s.elements.tacticalOrdersPauseBanner.textContent, /завершите оперативный ход/i);
   assert.match(s.elements.tacticalOrdersPauseBanner.textContent, /следующем оперативном ходу/i);
-  assert.match(s.elements.tacticalRoundLabel.textContent, /5.*завершён/);
+  assert.match(s.elements.tacticalRoundLabel.textContent, /5\/5.*завершён/);
   assert.match(HTML, /id="tacticalOrdersPauseOverlay"[^>]*role="dialog"/);
   assert.match(sliceFunction(HTML, 'updateTacticalTurnUI'), /button\.disabled = waiting \|\| paused/);
 });
 test('тактика: пауза сохраняется при загрузке, после закрытия окна остаётся баннер', () => {
   const s = roundsSandbox();
-  s.run(`battle.currentTurn=6; battle.tacticalPhasesCompleted=5; pauseCampaignTacticalBattlesForOrders(battle);
+  s.run(`battle.currentTurn=11; battle.tacticalPhasesCompleted=10; pauseCampaignTacticalBattlesForOrders(battle);
     appData = JSON.parse(JSON.stringify(appData)); battle = appData.campaign.activeBattles[0];
     showTacticalOrdersPauseNotice(); closeTacticalOrdersPauseNotice(); renderTacticalOrdersPauseBanner();`);
   assert.equal(s.elements.tacticalOrdersPauseOverlay.style.display, 'none');
@@ -281,20 +283,21 @@ test('тактика: пауза сохраняется при загрузке,
   s.run('showTacticalOrdersPauseNotice();');
   assert.equal(s.elements.tacticalOrdersPauseOverlay.style.display, 'none', 'повторные online snapshots не открывают окно заново');
 });
-test('тактика: следующий оперативный ход начинает блок 1/5 с глобального раунда 6, пауза повторяется после 10', () => {
+test('тактика: следующий оперативный ход начинает блок 1/5 заново, пауза повторяется после пятого раунда', () => {
   const s = roundsSandbox();
-  s.run(`battle.currentTurn=6; currentTurn=6; battle.tacticalPhasesCompleted=5;
+  s.run(`battle.currentTurn=11; currentTurn=11; battle.tacticalPhasesCompleted=10;
     pauseCampaignTacticalBattlesForOrders(battle); showTacticalOrdersPauseNotice();
     appData.campaign.currentTurn++; resumePausedCampaignBattlesAfterOrders(appData.campaign.currentTurn,true);
     updateTacticalRoundUI();`);
   assert.equal(s.elements.tacticalOrdersPauseOverlay.style.display, 'none');
   assert.equal(s.elements.tacticalOrdersPauseBanner.style.display, 'none');
-  assert.equal(s.elements.tacticalRoundLabel.textContent, 'Раунд 6');
-  assert.match(s.elements.tacticalRoundProgress.textContent, /1\/5/);
-  s.run(`for(var i=0;i<5;i++){ battle.currentTurn++; currentTurn=battle.currentTurn; registerCompletedTacticalPhase(battle); }
+  assert.equal(s.elements.tacticalRoundLabel.textContent, 'Раунд 1/5');
+  assert.match(s.elements.tacticalRoundProgress.textContent, /0\/5|1\/5/);
+  // ⚡ v13.099 (п.9): 5 раундов нового оперативного хода = 10 фаз
+  s.run(`for(var i=0;i<10;i++){ battle.currentTurn++; currentTurn=battle.currentTurn; registerCompletedTacticalPhase(battle); }
     pauseCampaignTacticalBattlesForOrders(battle); showTacticalOrdersPauseNotice(); updateTacticalRoundUI();`);
   assert.equal(s.elements.tacticalOrdersPauseOverlay.style.display, 'flex');
-  assert.match(s.elements.tacticalRoundLabel.textContent, /10.*завершён/);
+  assert.match(s.elements.tacticalRoundLabel.textContent, /5\/5.*завершён/);
 });
 test('тактика: общий online-маркер показывает то же окно и требует готовность обоих игроков', () => {
   const s = roundsSandbox();

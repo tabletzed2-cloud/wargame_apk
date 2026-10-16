@@ -347,7 +347,7 @@ function renderMapActionPanel() {
         }
         // ⚡ v13.094 (п.9): способности от бонусных карточек — в возможных действиях отряда
         if ((squad.thermiteCharges || 0) > 0) {
-            html += `<button onclick="selectSquad(${idx}); useThermiteCharge(); renderMapActionPanel();" ${utilityDisabled} title="Карточка «Термитный заряд»: против техники/амбразуры рядом">🧨 Термитный заряд (${Number(squad.thermiteCharges)})</button>`;
+            html += `<button onclick="selectSquad(${idx}); useThermiteCharge(); renderMapActionPanel();" ${utilityDisabled} title="Карточка «Термитный заряд»: бронетехника или ДОТ в своём/соседнем гексе (1 гекс). Броня любой толщины не спасает; по ДОТу — выбор двери или конкретной амбразуры; при постановке боец может погибнуть">🧨 Термитный заряд (${Number(squad.thermiteCharges)})</button>`;
         }
         if ((squad.panzerblindeCharges || 0) > 0) {
             html += `<button onclick="selectSquad(${idx}); usePanzerblinde(); renderMapActionPanel();" ${utilityDisabled} title="Карточка «Ослепляющие гранаты Panzerblinde»">💥 Ослепляющая граната (${Number(squad.panzerblindeCharges)})</button>`;
@@ -954,13 +954,23 @@ function applyVehicleHitToEnemy(enemy, loc, penMM, res, shooterName) {
         return;
     }
     const a = enemy.armor || {};
+    // ⚡ v13.099 (п.30): броня зависит от борта, которым машина повёрнута к стрелку
+    //    (лоб/борт/корма); башня — всегда значение «Башня».
+    const aspectInfo = (typeof vehicleAspectArmorVsShooter === 'function')
+        ? vehicleAspectArmorVsShooter(enemy, (typeof currentSquad !== 'undefined') ? currentSquad : null)
+        : null;
     let armorValue;
     switch (key) {
-        case 'hull': armorValue = a.front || 20; break;
+        case 'hull': armorValue = aspectInfo ? aspectInfo.value : (a.front || 20); break;
         case 'suspension': armorValue = 5; break;
         case 'turret': armorValue = (a.turret !== null && a.turret !== undefined) ? a.turret : (a.front || 20); break;
-        case 'engine': case 'ammo': armorValue = a.side || a.rear || 15; break;
-        default: armorValue = a.front || 20;
+        case 'engine': case 'ammo': armorValue = aspectInfo ? aspectInfo.value : (a.side || a.rear || 15); break;
+        default: armorValue = aspectInfo ? aspectInfo.value : (a.front || 20);
+    }
+    // Заметка о борте — только для локаций, где броня берётся по курсу
+    // (башня всегда «Башня», гусеницы всегда 5 мм).
+    if (aspectInfo && (key === 'hull' || key === 'engine' || key === 'ammo')) {
+        res.notes.push(`машина повёрнута к стрелку: ${(typeof vehicleAspectLabel === 'function' ? vehicleAspectLabel(aspectInfo.aspect) : aspectInfo.aspect)} ${aspectInfo.value} мм`);
     }
     const crewHpBefore = new Map((enemy.fighters || []).map(f => [f, Number(f && f.hp) || 0]));
     let r;
@@ -995,12 +1005,25 @@ function reportAttackOutcome(kind, data) {
     if (idx === null || idx === undefined || idx < 0) return null;
     const enemy = (appData.map.enemySquads || [])[idx];
     if (!enemy) return null;
+    // ⚡ v13.099 (п.21): дым в гексе ЦЕЛИ блокирует обстрел, но очередь, выпущенная
+    //    в завесу, наносит половину попаданий (минимум одно, если выстрелы были).
+    let smokeBlocked = false;
     if (kind !== 'melee' && typeof currentSquadIndex === 'number' && typeof tacticalSmokeBlocksAttack === 'function' && tacticalSmokeBlocksAttack(currentSquadIndex, idx)) {
-        try { log('⛔ Дымовая завеса блокирует обнаружение и обстрел цели.'); } catch (e) {}
-        return { blocked: true, target: enemy.name, damage: 0 };
+        smokeBlocked = true;
+        const blockedShots = Number(data.shots || 0) || Number(data.hits || 0);
+        const partial = blockedShots > 0 ? Math.max(1, Math.floor(blockedShots / 2)) : 0;
+        if (partial > 0) {
+            try { log(`🌫️ Дымовая завеса: цель не видна — в завесу выпущено ${blockedShots} выстр., попаданий вслепую ${partial}.`); } catch (e) {}
+            if (Array.isArray(data.vehicleHits)) data.vehicleHits = data.vehicleHits.slice(0, partial);
+            data.hits = partial;
+        } else {
+            try { log('⛔ Дымовая завеса блокирует обнаружение и обстрел цели.'); } catch (e) {}
+            return { blocked: true, target: enemy.name, damage: 0 };
+        }
     }
     const shooterName = (typeof currentSquad !== 'undefined' && currentSquad) ? currentSquad.name : '';
     const res = { kind, target: enemy.name, hits: data.hits || 0, damage: 0, killed: [], wounded: [], notes: [], vehicleResults: [] };
+    if (smokeBlocked) res.notes.push('🌫️ огонь сквозь дымовую завесу — попадания вслепую');
     const before = mapActionEnemyAlive(enemy);
     switch (kind) {
         case 'smallArms':

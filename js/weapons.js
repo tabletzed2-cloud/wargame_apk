@@ -18,7 +18,13 @@ const BEVE_CREW_WEAPONS  = [
 { "type": "at_gun", "name": "Расчёт ПТО Bohler M37", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 3, "shotsReduced2": 2, "shotsReduced1": 1, "effectiveRange": 10, "penetration": {"1":58,"2":58,"3":58,"4":54,"5":54,"6":54,"7":51,"8":51,"9":51,"10":47,"11":47,"12":47,"13":43,"14":43,"15":43,"16":41,"17":41,"18":41,"19":39,"20":39,"21":39,"22":36,"23":36,"24":36,"25":36,"26":36,"27":36,"28":36,"29":36,"30":36}, "icon": "https://i.imgur.com/kmSaR2C.png" },
 { "type": "at_gun", "name": "75-мм орудие SAU Brugge", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 2, "shotsReduced2": 1, "shotsReduced1": 1, "effectiveRange": 15, "penetration": {"1":65,"2":65,"3":65,"4":60,"5":60,"6":60,"7":57,"8":57,"9":57,"10":55,"11":55,"12":55,"13":55,"14":55,"15":55,"16":52,"17":52,"18":52,"19":50,"20":50,"21":50,"22":47,"23":47,"24":47,"25":45,"26":45,"27":45,"28":40,"29":40,"30":40}, "icon": "" },
 { "type": "at_gun", "name": "37-мм Bofors", "crewSize": 2, "shotRule": "fixed_per_crew", "shotsFull": 2, "shotsReduced2": 1, "shotsReduced1": 1, "effectiveRange": 15, "penetration": {"1":50,"2":50,"3":50,"4":45,"5":45,"6":45,"7":43,"8":43,"9":43,"10":42,"11":42,"12":42,"13":40,"14":40,"15":37,"16":35,"17":35,"18":35,"19":33,"20":33,"21":33,"22":33,"23":30,"24":30,"25":30,"26":30,"27":30,"28":30,"29":30,"30":28}, "icon": "" },
-{ "type": "mg", "name": "Пулемёт SAU Brugge", "crewSize": 1, "shotRule": "sum_d6", "fullCrewDice": 1, "minCrewDice": 1, "effectiveRange": 5, "icon": "" }
+// ⚡ v13.099 (п.30): пулемёты бронетехники BeVe получили сектора обстрела:
+//    курсовой (90° по курсу), спаренный (360°), кормовой (90° назад).
+{ "type": "mg", "name": "Курсовой пулемёт SAU Brugge", "crewSize": 1, "shotRule": "sum_d6", "fullCrewDice": 1, "minCrewDice": 1, "effectiveRange": 5, "icon": "" },
+{ "type": "mg", "name": "Спаренный пулемёт SAU Brugge", "crewSize": 1, "shotRule": "sum_d6", "fullCrewDice": 1, "minCrewDice": 1, "effectiveRange": 5, "icon": "" },
+{ "type": "mg", "name": "Кормовой пулемёт SAU Brugge", "crewSize": 1, "shotRule": "sum_d6", "fullCrewDice": 1, "minCrewDice": 1, "effectiveRange": 5, "icon": "" },
+// ⚡ v13.099: старое имя оставлено только для совместимости со сохранениями (в шаблонах не используется).
+{ "type": "mg", "name": "Пулемёт SAU Brugge", "crewSize": 1, "shotRule": "sum_d6", "fullCrewDice": 1, "minCrewDice": 1, "effectiveRange": 5, "icon": "", "legacy": true }
            ,
 { "type": "mortar", "name": "Полковое орудие 75-мм", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 5, "shotsReduced2": 3, "shotsReduced1": 2, "effectiveRange": 15, "icon": "" }
             ];
@@ -44,7 +50,11 @@ const AIRF_WEAPONS = [
 
 const AIRF_CREW_WEAPONS  = [
  { "type": "mg", "name": "Станковый пулемет Hotchkiss Mle 1914", "crewSize": 3, "shotRule": "sum_d6", "fullCrewDice": 3, "minCrewDice": 1, "effectiveRange": 6, "icon": "images/Hotchkis.png" },
- { "type": "mg", "name": "Танковый пулемет Hotchkiss Mle 1914", "crewSize": 1, "shotRule": "sum_d6", "fullCrewDice": 1, "minCrewDice": 1, "effectiveRange": 5, "icon": "" },
+ { "type": "mg", "name": "Спаренный пулемет Hotchkiss Mle 1914", "crewSize": 1, "shotRule": "sum_d6", "fullCrewDice": 1, "minCrewDice": 1, "effectiveRange": 5, "icon": "" },
+ // ⚡ v13.099 (п.30): курсовой пулемёт БТР Llanero — сектор 120° по курсу машины.
+ { "type": "mg", "name": "Курсовой пулемет Hotchkiss Mle 1914", "crewSize": 1, "shotRule": "sum_d6", "fullCrewDice": 1, "minCrewDice": 1, "effectiveRange": 5, "icon": "" },
+ // ⚡ v13.099: старое имя — только для совместимости со сохранениями (в шаблонах не используется).
+ { "type": "mg", "name": "Танковый пулемет Hotchkiss Mle 1914", "crewSize": 1, "shotRule": "sum_d6", "fullCrewDice": 1, "minCrewDice": 1, "effectiveRange": 5, "icon": "", "legacy": true },
  { "type": "at_gun", "name": "45-мм 53К танковая", "crewSize": 2, "shotRule": "fixed_per_crew", "shotsFull": 2, "shotsReduced2": 1, "shotsReduced1": 1, "effectiveRange": 15, "penetration": {"1":60,"2":60,"3":60,"4":55,"5":55,"6":50,"7":50,"8":45,"9":45,"10":42,"11":42,"12":42,"13":40,"14":40,"15":40,"16":40,"17":40,"18":35,"19":33,"20":33,"21":33,"22":33,"23":30,"24":30,"25":30,"26":30,"27":30,"28":30,"29":30,"30":28}, "icon": "" },
  { "type": "mortar", "name": "Бутылкомет Цукермана", "crewSize": 2, "shotRule": "fixed_per_crew", "shotsFull": 3, "shotsReduced2": 2, "shotsReduced1": 1, "effectiveRange": 3, "splashDamageDice": 3, "isMolotov": true, "icon": "images/AIRF/Бутылкомет расчет.jpg" },
  { "type": "mortar", "name": "Минометный расчёт 82мм", "crewSize": 3, "shotRule": "fixed_per_crew", "shotsFull": 3, "shotsReduced2": 2, "shotsReduced1": 1, "effectiveRange": 4, "icon": "" },
