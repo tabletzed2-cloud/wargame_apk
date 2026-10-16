@@ -104,8 +104,8 @@ test('R43#6: повторный вызов не перезаключает бо�
   assert.equal(s.evalCtx('__same'), true);
 });
 
-// ── R43#8: в тактическом бою нет «условных» карт
-test('R43#8: информационные и «условные» карты отбрасываются', () => {
+// Информационные карты с реализованной механикой доступны в бою; пустые/условные — нет.
+test('информационная карта с реализованным эффектом доступна, условная и пустая — нет', () => {
   const s = battleSandbox();
   const r = s.evalCtx(`JSON.stringify({
     info: isCardPlayableInTacticalBattle({ name: 'Упрямство', type: 'negative', informational: true, effect: 'Не отступает' }),
@@ -113,16 +113,16 @@ test('R43#8: информационные и «условные» карты о�
     empty: isCardPlayableInTacticalBattle({ name: 'Пустая', type: 'bonus', effect: '' }),
     real: isCardPlayableInTacticalBattle({ name: 'Ночь', type: 'bonus', effect: '-1 к меткости' })
   })`);
-  assert.deepEqual(JSON.parse(r), { info: false, conditional: false, empty: false, real: true });
+  assert.deepEqual(JSON.parse(r), { info: true, conditional: false, empty: false, real: true });
 });
-test('R43#8: фильтр боя оставляет только карты с эффектом (и дебаффы)', () => {
+test('фильтр боя оставляет реализованные информационные карты и дебаффы', () => {
   const s = battleSandbox();
   const kept = s.evalCtx(`filterCardsPlayableInBattle([
     { name: 'Велоблиц', type: 'bonus', informational: true, effect: '+3 гекса движения' },
     { name: 'Ночь', type: 'bonus', effect: '-1 к меткости' },
     { name: 'Нервный срыв', type: 'negative', informational: true, effect: '-1 дух' }
   ]).map(c => c.name).join("|")`);
-  assert.equal(kept, 'Ночь|Нервный срыв');
+  assert.equal(kept, 'Велоблиц|Ночь|Нервный срыв');
 });
 
 // ── R43#4: замена шаблона карты

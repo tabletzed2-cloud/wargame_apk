@@ -19,9 +19,9 @@ function cardsSandbox() {
   loadHtml(s, ['computeSubFactionFromSquads', 'getUnitCardFactionContext', 'getCardDefinitionByName',
     'getCardTargetSpec', 'getCardTargetCandidates', 'isCardAvailableToUnit', 'isCardSelectableOpUnit',
     'collectCardLibraryForContext', 'escapeCardHtml', 'initialCampaignCardUnitHtml',
-    'initialCardDistributionHtml', 'saveInitialCampaignCardDraft', 'openInitialCardDistributionStage', 'countBattalionBonusCardCopies',
+    'initialCardDistributionHtml', 'saveInitialCampaignCardDraft', 'openInitialCardDistributionStage', 'countBattalionBonusCardCopies', 'campaignBonusCardLimitReached',
     'getFactionScopedCardEntries', 'getRandomNegativeCardForUnit', 'addAppliedCardName',
-    'applyCardToPlatoon', 'commitInitialCampaignCardAssignments']);
+    'applyCardToPlatoon', 'commitInitialCampaignCardAssignments', 'tacticalCurrentCellForSquad']);
   s.run(`
     var selectedFaction = 'BeVe';
     appData.templates = SQUAD_TEMPLATES;
@@ -33,6 +33,7 @@ function cardsSandbox() {
       ]) }
     };
     function isBicycleTacticalSquad(squad) { return squad.mobilityType === 'bicycle'; }
+    function getCurrentCampaignBattle() { return null; }
     function platoon(faction, type, subfaction) {
       return { name: faction + ' ' + type + ' ' + subfaction, type, faction,
         squads: [{ name: 'Пехотное отделение', faction, subfaction, ammoSmall: 12, grenades: 3,
@@ -70,6 +71,44 @@ for (const [faction, subfaction] of [['BeVe', 'belgian'], ['BeVe', 'dutch'], ['A
     if (subfaction === 'dutch') assert(!rows.includes('data-card-name="Фламандская Фурия"'));
   });
 }
+
+test('«Торговый дух» BeVe занимает один батальонный слот и не доступен AIRF-сапёрам', () => {
+  const s = cardsSandbox();
+  s.run(`
+    function getCurrentCampaignBattle() { return {id:99}; }
+    var existing = platoon('BeVe','infantry_platoon','belgian');
+    existing.cardSelection={done:true,cards:[{name:'Торговый дух',type:'bonus'}]};
+    var beveEngineer = platoon('BeVe','engineer_platoon',null);
+    var airfEngineer = platoon('A.I.R.F.','engineer_platoon',null);
+    var trade = {name:'Торговый дух',type:'bonus'};
+    appData.campaign.opUnits=[existing,beveEngineer,airfEngineer];
+    var copies=countBattalionBonusCardCopies('Торговый дух');
+    var beveBlocked=campaignBonusCardLimitReached(trade,beveEngineer);
+    var beveAvailable=isCardAvailableToUnit(trade,beveEngineer,beveEngineer.squads);
+    var airfAvailable=isCardAvailableToUnit(trade,airfEngineer,airfEngineer.squads);
+  `);
+  assert.equal(s.evalCtx('copies'), 1);
+  assert.equal(s.evalCtx('beveBlocked'), true, 'второй «Торговый дух» блокируется в батальоне');
+  assert.equal(s.evalCtx('beveAvailable'), false, 'карта больше недоступна, если уже назначена');
+  assert.equal(s.evalCtx('airfAvailable'), false, 'обход ограничения карт сапёрами не снимает BeVe-привязку');
+});
+
+test('«Торговый дух» включён в лимит 4 и отменяет дебафф за третью бонусную', () => {
+  const s = cardsSandbox();
+  s.run(`
+    var unit=platoon('BeVe','infantry_platoon','belgian');
+    appData.campaign.opUnits=[unit];
+    var ok=commitInitialCampaignCardAssignments([{unitName:unit.name,cards:[
+      {name:'Торговый дух',faction:'BeVe'},
+      {name:'Двойной БК',faction:'BeVe'},
+      {name:'Общая тестовая карта',faction:'_global'},
+      {name:'Бонус без типа',faction:'_global'}
+    ]}]);
+  `);
+  assert.equal(s.evalCtx('ok'), true, 'допустимы четыре бонусные карты вместе с «Торговым духом»');
+  assert.equal(s.evalCtx('unit.cardSelection.cards.filter(card=>card.type === "bonus").length'), 4);
+  assert.equal(s.evalCtx('unit.cardSelection.cards.filter(card=>card.type === "negative").length'), 0, 'авто-дебафф не добавляется');
+});
 
 test('этап после связи действительно содержит карточки пехоты, сапёров и разведки', () => {
   const s = cardsSandbox();

@@ -19,7 +19,7 @@ const APP = /var APP_VERSION = '([^']+)'/.exec(HTML)[1];
 // ─── версии ───
 test('v13.071: версия в приложении / манифесте / SW согласована', () => {
   // ⚡ v13.073: проверка согласованности относительно APP_VERSION (без жёсткой версии)
-  assert.ok(/^v13\.07\d$/.test(APP), 'формат версии: ' + APP);
+  assert.ok(/^v13\.\d{3}$/.test(APP), 'формат версии: ' + APP);
   assert.ok(MANIFEST.includes('БМ ' + APP), 'манифест');
   assert.ok(SW.includes("'wargame-" + APP + "'"), 'кэш SW');
   assert.ok(new RegExp('<title>Боевой модуль ' + APP.replace('.', '\\.')).test(HTML), 'title');

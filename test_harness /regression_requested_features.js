@@ -357,6 +357,44 @@ test('сектора ДОТа разделены по орудиям и огра
   includes(s.evalCtx('westTarget.reason'), 'сектора', 'причина отказа указывает на сектор амбразуры');
 });
 
+test('«Скоординированный заградительный огонь» подавляет вторую цель на том же/смежном гексе без затрат', () => {
+  const s = createSandbox(freshAppData());
+  loadModule(s, 'js/map_actions.js');
+  s.run(`
+    function hexGridDistance(a,b,c,d) { return Math.abs(a-c)+Math.abs(b-d); }
+    function getBattleSquadHex(grid,index,isEnemy) {
+      var field=isEnemy?'enemySquadIds':'squadIds';
+      var key=Object.keys(grid).find(k=>(grid[k][field]||[]).includes(index));
+      if(!key)return null;var xy=key.split(',').map(Number);return {key,col:xy[0],row:xy[1]};
+    }
+    function getTacticalCoverInfoForEnemy() { return {mod:0}; }
+    function tacticalEnemyHexHasFriendlies() { return null; }
+    function tacticalIsMeleeEngaged() { return false; }
+    function smallArmsBlockedByForest() { return null; }
+    function renderMapActionPanel() {} function redrawMap() {} function saveData() {} function log() {}
+    var support={name:'Отделение поддержки',appliedCards:['Скоординированный заградительный огонь'],ammoSmall:9,fighters:[{hp:3}]};
+    var first={name:'Цель 1',detected:true,fighters:[{hp:3}]};
+    var adjacent={name:'Цель 2',detected:true,fighters:[{hp:3}]};
+    var distant={name:'Цель 3',detected:true,fighters:[{hp:3}]};
+    appData.squads=[support]; actionPoints=[{ap:5,maxAp:5}];
+    appData.map={grid:{
+      '1,1':{squadIds:[0],enemySquadIds:[]},'3,1':{squadIds:[],enemySquadIds:[0]},
+      '4,1':{squadIds:[],enemySquadIds:[1]},'7,1':{squadIds:[],enemySquadIds:[2]}
+    },enemySquads:[first,adjacent,distant],selectedMoveSquadIdx:0,
+      pendingMapAttack:{type:'coordinatedSuppressiveFollowup',extra:{firstTargetIdx:0},squadIdx:0}};
+    var canUse=mapActionCanUseCoordinatedBarrage(support);
+    var adjacentEval=mapActionEvalTarget(mapActionDefById('coordinatedSuppressiveFollowup'),0,1,{firstTargetIdx:0});
+    var distantEval=mapActionEvalTarget(mapActionDefById('coordinatedSuppressiveFollowup'),0,2,{firstTargetIdx:0});
+    mapPickTarget(1);
+  `);
+  equal(s.evalCtx('canUse'), true, 'поддержка с картой может сделать дополнительное подавление');
+  equal(s.evalCtx('adjacentEval.ok'), true, 'смежная цель разрешена');
+  equal(s.evalCtx('distantEval.ok'), false, 'цель через гекс не разрешена');
+  equal(s.evalCtx('adjacent.suppressed'), true, 'вторая цель подавлена');
+  equal(s.evalCtx('support.ammoSmall'), 9, 'дополнительные патроны не тратятся');
+  equal(s.evalCtx('actionPoints[0].ap'), 5, 'дополнительные ОД не тратятся');
+});
+
 test('дым скрывает отряд, блокирует обнаружение и стрельбу и истекает по сроку', () => {
   const s = createSandbox(freshAppData());
   s.run(sliceConst(HTML, 'TACTICAL_SMOKE_DURATION_PHASES'));
@@ -1005,8 +1043,8 @@ test('выбор карт разрешён пехоте, разведке и с�
   equal(s.evalCtx('differentCardAvailable'), false, 'лимит одной карты не блокирует другие');
 });
 
-// 21. «Двойной БК» удваивает боеприпасы конкретного выбранного отряда ровно один раз.
-test('«Двойной БК» удваивает патроны, гранаты и снаряды выбранного отряда', () => {
+// 21. «Двойной БК» удваивает боеприпасы всего выбранного взвода ровно один раз.
+test('«Двойной БК» удваивает патроны, гранаты и снаряды всех отделений взвода', () => {
   const s = createSandbox(freshAppData());
   loadHtml(s, ['addAppliedCardName', 'applyCardToPlatoon']);
   s.run(`
@@ -1015,15 +1053,515 @@ test('«Двойной БК» удваивает патроны, гранаты 
     var untouched = { name: 'Отделение 2', fighters: [{ hp: 3 }], ammoSmall: 7, grenades: 1, ammoOrdnance: 3 };
     var squads = [selected, untouched];
     var card = { name: 'Двойной БК', type: 'bonus' };
-    applyCardToPlatoon(card, '_global', unit, squads, ['Отделение 1'], { initial: true });
+    applyCardToPlatoon(card, '_global', unit, squads, ['Отделение 1'], { initial: true, battleId:'battle-1' });
     var afterInitial = [selected.ammoSmall, selected.grenades, selected.ammoOrdnance];
     var unchangedOther = [untouched.ammoSmall, untouched.grenades, untouched.ammoOrdnance];
-    applyCardToPlatoon(card, '_global', unit, squads, ['Отделение 1'], { initial: false });
+    applyCardToPlatoon(card, '_global', unit, squads, ['Отделение 1'], { initial: false, battleId:'battle-1' });
+    applyCardToPlatoon(card, '_global', unit, squads, ['Отделение 1'], { initial: false, battleId:'battle-2' });
     var afterRefresh = [selected.ammoSmall, selected.grenades, selected.ammoOrdnance];
   `);
   equal(s.evalCtx('JSON.stringify(afterInitial)'), '[20,4,8]', 'все три вида боезапаса выбранного подразделения умножены на два');
-  equal(s.evalCtx('JSON.stringify(unchangedOther)'), '[7,1,3]', 'невыбранный отряд не меняется');
-  equal(s.evalCtx('JSON.stringify(afterRefresh)'), '[20,4,8]', 'повторная загрузка боя не удваивает боезапас повторно');
+  equal(s.evalCtx('JSON.stringify(unchangedOther)'), '[14,2,6]', 'боезапас второго отделения тоже удвоен');
+  equal(s.evalCtx('JSON.stringify(afterRefresh)'), '[20,4,8]', 'повторная загрузка боя не удваивает боезапас первого отделения повторно');
+  equal(s.evalCtx('JSON.stringify([untouched.ammoSmall, untouched.grenades, untouched.ammoOrdnance])'), '[14,2,6]', 'повторное применение не удваивает второе отделение снова');
+});
+
+test('«Горные охотники» исключают ПП/пулемёты, а пончо и скрытность проверяют высоту отдельно', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['mountainHuntersRifleWeapon', 'mountainHuntersAccuracyBonus', 'tacticalSquadHasCard',
+    'tacticalCurrentCellForSquad', 'tacticalCardDetectionModifier', 'tacticalHasMountainPonchoAtHeight']);
+  s.run(`
+    function getScopedActiveCardsForSquad() { return []; }
+    function tacticalCurrentCellForSquad(squad) { return { cell: squad.testCell || null }; }
+    var rifle = { name:'Винтовка Vz.24' }, automatic = { name:'Автоматическая винтовка', isAutomatic:true },
+        sniper = { name:'Geweer OIP M.38', sniper:true }, pp = { name:'ПП Star Si-35' },
+        machineGun = { name:'Пулемёт FN', isAutomatic:true };
+    var hunter = { faction:'A.I.R.F.', appliedCards:['Горные охотники'], testCell:{type:'hill',level:1} };
+    var passive = { faction:'A.I.R.F.', appliedCards:[], testCell:{type:'hill',level:1} };
+    var passiveLow = { faction:'A.I.R.F.', appliedCards:[], testCell:{type:'hill',level:0} };
+    var ponchoLow = { faction:'BeVe', appliedCards:['Горное пончо'], testCell:{type:'hill',level:0} };
+    var ponchoHigh = { faction:'BeVe', appliedCards:['Горное пончо'], testCell:{type:'hill',level:1} };
+    var combined = { faction:'A.I.R.F.', appliedCards:['Горные охотники','Горное пончо'], testCell:{type:'hill',level:1} };
+    var accuracy = [rifle,automatic,sniper,pp,machineGun].map(w=>mountainHuntersAccuracyBonus(hunter,w));
+    var hunterDetection = tacticalCardDetectionModifier(hunter);
+    var passiveDetection = tacticalCardDetectionModifier(passive);
+    var passiveLowDetection = tacticalCardDetectionModifier(passiveLow);
+    var combinedDetection = tacticalCardDetectionModifier(combined);
+  `);
+  equal(s.evalCtx('JSON.stringify(accuracy)'), '[1,1,1,0,0]', 'меткость +1 только для обычной/автоматической/снайперской винтовки');
+  equal(s.evalCtx('hunterDetection'), -1, 'охотники заменяют, а не складывают пассивную скрытность');
+  equal(s.evalCtx('passiveDetection'), -1, 'пассивная скрытность сама по себе сохраняется на высоте 1+');
+  equal(s.evalCtx('passiveLowDetection'), 0, 'на нулевой высоте нет горного бонуса обнаружения');
+  equal(s.evalCtx('combinedDetection'), -2, 'пончо отдельно добавляет бонус на высоте 1+');
+  equal(s.evalCtx('tacticalHasMountainPonchoAtHeight(ponchoLow)'), false, 'пончо не действует на нулевой высоте');
+  equal(s.evalCtx('tacticalHasMountainPonchoAtHeight(ponchoHigh)'), true, 'пончо действует на высоте 1+');
+});
+
+test('спешивание велосипеда оперативного взвода переносится на каждое отделение в тактическом бою', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['isBicycleTacticalSquad', 'tacticalApplyOperationalMobilityToBattleSquad']);
+  s.run(`
+    var opBike = {type:'bicycle_platoon', mobility:'foot', dismounted:true};
+    var sectionA = tacticalApplyOperationalMobilityToBattleSquad({name:'Отделение №1'}, opBike);
+    var sectionB = tacticalApplyOperationalMobilityToBattleSquad({name:'Отделение №2'}, opBike);
+    var mounted = tacticalApplyOperationalMobilityToBattleSquad({name:'Отделение №3'}, {...opBike,dismounted:false});
+  `);
+  equal(s.evalCtx('sectionA.dismounted'), true, 'первое отделение входит спешенным');
+  equal(s.evalCtx('sectionB.dismounted'), true, 'второе отделение тоже входит спешенным');
+  equal(s.evalCtx('mounted.dismounted'), false, 'не спешившийся оперативно взвод входит на велосипедах');
+  assert(s.evalCtx("sectionA.mobilityType === 'bicycle' && sectionB.mobilityType === 'bicycle'"), 'всем секциям переносится велосипедная мобильность');
+});
+
+test('тактическое перемещение проходит по каждому гексу маршрута, не телепортируя отряд', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['tacticalMoveAlongPath']);
+  s.run(`
+    var __tacticalMovementToken=0,__tacticalMovement=null,pendingSteps=[];
+    function setTimeout(fn) { pendingSteps.push(fn); return pendingSteps.length; }
+    function getHexNeighbors(key) { return key==='0,0'?['1,0']:key==='1,0'?['0,0','2,0']:key==='2,0'?['1,0','3,0']:['2,0']; }
+    function getMovementCost() { return 1; }
+    function getAP(index) { return actionPoints[index].ap; }
+    function spendAP(index,cost) { if(actionPoints[index].ap<cost)return false;actionPoints[index].ap-=cost;return true; }
+    function tacticalDogSledEligible() { return false; }
+    function tacticalMaybeTriggerFireField() {} function tacticalCheckMaraudingOnEntry() { return false; }
+    function tacticalAutoEngageMelee() { return null; } function recalcReachable() {}
+    function recordDaggerApproachIfEligible() {} function saveData() {} function updateUI() {} function redrawMap() {}
+    currentTurn=1;actionPoints=[{ap:3,maxAp:3}];
+    var mover={name:'Стрелковое отделение',hexPos:[0,0],fighters:[{hp:3}]};appData.squads=[mover];
+    appData.map={grid:{'0,0':{squadIds:[0]},'1,0':{squadIds:[]},'2,0':{squadIds:[]},'3,0':{squadIds:[]}},
+      selectedMoveSquadIdx:0,reachableHexes:[],isCrouchMode:false};
+    var started=tacticalMoveAlongPath(0,['1,0','2,0','3,0'],'3,0');
+    var firstHex=mover.hexPos.join(',');var firstStepQueued=pendingSteps.length;
+    pendingSteps.shift()();var secondHex=mover.hexPos.join(',');
+    pendingSteps.shift()();var finalHex=mover.hexPos.join(',');
+  `);
+  equal(s.evalCtx('started'), true, 'движение запущено');
+  equal(s.evalCtx('firstHex'), '1,0', 'синхронный первый шаг занимает только соседний гекс');
+  equal(s.evalCtx('firstStepQueued'), 1, 'следующий шаг ожидает анимационный интервал');
+  equal(s.evalCtx('secondHex'), '2,0', 'второй шаг тоже обновляет позицию отдельно');
+  equal(s.evalCtx('finalHex'), '3,0', 'после третьего шага достигнута цель');
+  equal(s.evalCtx('actionPoints[0].ap'), 0, 'ОД потрачены за фактически пройденные три гекса');
+  equal(s.evalCtx('mover.movedThisTurn'), true, 'перемещение отмечено по завершении маршрута');
+});
+
+test('«Упрямство» персонально для выбранного отделения и блокирует сдачу при закрытом отходе', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['tacticalSquadHasStubbornCard', 'tacticalStubbornAtStartingHex', 'tacticalSurrenderUnit']);
+  s.run(`
+    function tacticalSquadHexPosition(squad) { return squad.hexPos ? {key:squad.hexPos.join(',')} : null; }
+    var stubborn = {name:'Отделение 1',effects:{stubborn:true},appliedCards:['Упрямство'],tacticalStartHexKey:'2,2',hexPos:[2,2]};
+    var uiOnly = {name:'Отделение 2',appliedCards:['Упрямство'],hexPos:[2,3]};
+    var holdsStart = tacticalStubbornAtStartingHex(stubborn);
+    var otherIsNotStubborn = tacticalSquadHasStubbornCard(uiOnly);
+    stubborn.hexPos=[3,2]; var leftStart = tacticalStubbornAtStartingHex(stubborn);
+    var surrendered = tacticalSurrenderUnit(stubborn,'player',0,'retreat_blocked');
+  `);
+  equal(s.evalCtx('holdsStart'), true, 'подразделение распознано на стартовом гексе');
+  equal(s.evalCtx('otherIsNotStubborn'), false, 'общая подпись карты не делает все отделения упрямыми');
+  equal(s.evalCtx('leftStart'), false, 'после ухода со стартового гекса блокировка морали снимается');
+  equal(s.evalCtx('surrendered'), false, 'заблокированный отход не приводит к сдаче');
+  equal(s.evalCtx('stubborn.isSurrendered'), undefined, 'отделение остаётся в бою');
+});
+
+test('«Собачья упряжка» даёт пулемётному расчёту один бесплатный тактический гекс за ход', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['tacticalSquadHasCard', 'tacticalDogSledEligible', 'getHexNeighbors', 'calculateReachableHexes', 'tacticalBuildMovePath']);
+  s.run(`
+    var TACTICAL_MAP_SIZE=4,currentTurn=1;
+    function getMovementCost() { return 1; }
+    function getScopedActiveCardsForSquad() { return []; }
+    var withSled={name:'Пулемётный расчёт',appliedCards:['Собачья упряжка'],effects:{dogSled:true}};
+    var withoutSled={name:'Пулемётный расчёт',appliedCards:[],effects:{}};
+    var route={};
+    var sledCosts=calculateReachableHexes(withSled,'0,0',2,false,route);
+    var sledPath=tacticalBuildMovePath('0,0','3,0',route.previous,route.routeStatesByHex['3,0']);
+    var normalCosts=calculateReachableHexes(withoutSled,'0,0',2,false,{});
+  `);
+  assert(s.evalCtx("tacticalDogSledEligible(withSled)"), 'карта применена к расчёту пулемёта');
+  equal(s.evalCtx("Object.prototype.hasOwnProperty.call(sledCosts,'3,0')"), true, 'при 2 ОД пройдено 3 тактических гекса');
+  equal(s.evalCtx("Object.prototype.hasOwnProperty.call(normalCosts,'3,0')"), false, 'без карты третий гекс недоступен');
+  equal(s.evalCtx('sledPath.length'), 3, 'путь содержит каждый из трёх гексов');
+  assert(s.evalCtx('!!sledPath.freeStepKey'), 'бесплатный шаг точно отмечен в маршруте');
+});
+
+test('оперативный маркер «?» виден без приказа и скрывается при черновике/исполнении', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['operationalUnitHasOutstandingOrder', 'operationalUnitHasOrderDraft', 'operationalUnitNeedsOrderMarker']);
+  s.run(`
+    var unit={name:'Стрелковый взвод',col:1,row:1};
+    appData.campaign.opUnits=[unit];appData.campaign.selectedOpUnit=null;
+    hardMode={orders:[],pendingOrders:[],messengerQueue:[],orderQueue:[]};
+    var orderWaypoints=[];var pickingTargetHex=null;
+    window.opOperationalUiState={menuOpen:false};
+    var noOrder=operationalUnitNeedsOrderMarker(unit);
+    hardMode.orders=[{toUnitId:0,status:'active'}];var executing=operationalUnitNeedsOrderMarker(unit);
+    hardMode.orders=[];appData.campaign.selectedOpUnit=unit;orderWaypoints=[{col:2,row:1}];
+    var drafting=operationalUnitNeedsOrderMarker(unit);
+    orderWaypoints=[];var draftCleared=operationalUnitNeedsOrderMarker(unit);
+  `);
+  equal(s.evalCtx('noOrder'), true, 'отряд без приказа нуждается в маркере');
+  equal(s.evalCtx('executing'), false, 'активный приказ скрывает маркер');
+  equal(s.evalCtx('drafting'), false, 'выбор цели/маршрута скрывает маркер во время подготовки');
+  equal(s.evalCtx('draftCleared'), true, 'после отмены черновика маркер возвращается');
+  assert(HTML.includes("ctx.fillText('?', bx, by + 0.5)"), 'drawOperationalUnits рисует вопросительный знак над иконкой');
+});
+
+test('«Мародёрство» требует A.I.R.F.-атакующего с картой и фактического присутствия противника', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['tacticalSquadHasCard', 'tacticalPlatoonHasCommissar', 'tacticalBattleAttackerSide',
+    'tacticalMarkTacticalHexOccupied', 'tacticalOccupancyHistoryBattleKey', 'tacticalMarkTacticalSquadDestroyedHex', 'tacticalInitializeBattleOccupancyHistory',
+    'tacticalCheckMaraudingOnEntry', 'tacticalMaraudingBlocksAction']);
+  s.run(`
+    var marauder={name:'Отделение',faction:'A.I.R.F.',opUnitName:'Взвод',appliedCards:['Мародёрство'],fighters:[{hp:3}]};
+    var defender={name:'Защитник',faction:'BeVe',opUnitName:'Защита',fighters:[{hp:3}]};
+    var defender2={name:'Другой защитник',faction:'BeVe',opUnitName:'Защита',fighters:[{hp:3}]};
+    var deadBeforeBattle={name:'Погибший до боя',faction:'BeVe',fighters:[{hp:0}],isDestroyed:true};
+    appData.squads=[marauder];
+    appData.map={attackerSide:'player',grid:{
+      '1,1':{type:'building',squadIds:[],enemySquadIds:[0],markers:[]},
+      '2,2':{type:'trenches',fortificationOwner:'BeVe',squadIds:[],enemySquadIds:[1],markers:[]},
+      '3,3':{type:'building',fortificationOwner:null,squadIds:[],enemySquadIds:[],markers:[]},
+      '4,4':{type:'trenches',fortificationOwner:'A.I.R.F.',squadIds:[],enemySquadIds:[],markers:[]},
+      '7,7':{type:'grass',squadIds:[],enemySquadIds:[2],markers:[]}
+    },enemySquads:[defender,defender2,deadBeforeBattle]};
+    var inStandaloneBattle=false;
+    currentTurn=1;
+    tacticalInitializeBattleOccupancyHistory(appData.map,appData.squads,appData.map.enemySquads);
+    var preBattleDeadHistory=!!(appData.map.grid['7,7'].tacticalOccupantsSeen && appData.map.grid['7,7'].tacticalOccupantsSeen.enemy);
+    var actualEnemyOccupant=tacticalCheckMaraudingOnEntry(marauder,'1,1','player');
+    var through=marauder.maraudingInactivityThroughTurn;
+    currentTurn=3; var skippedNextOwnPhase=tacticalMaraudingBlocksAction(marauder);
+    currentTurn=4; var activeAgain=tacticalMaraudingBlocksAction(marauder);
+    appData.currentBattleId='maraud-new-battle';
+    appData.map.tacticalOccupancyBattleId='maraud-old-battle';
+    appData.map.grid['3,3'].tacticalOccupantsSeen={enemy:true};
+    tacticalInitializeBattleOccupancyHistory(appData.map,appData.squads,appData.map.enemySquads);
+    var staleBattleHistory=!!(appData.map.grid['3,3'].tacticalOccupantsSeen && appData.map.grid['3,3'].tacticalOccupantsSeen.enemy);
+    inStandaloneBattle=true;appData._tacticalMoraleStandaloneBattleId='standalone-current';
+    var standaloneOccupancyKey=tacticalOccupancyHistoryBattleKey(appData.map);
+    inStandaloneBattle=false;
+    var ownOccupiedTrench=tacticalCheckMaraudingOnEntry(marauder,'4,4','player');
+    var ownerlessBuilding=tacticalCheckMaraudingOnEntry(marauder,'3,3','player');
+    var ownFortification=tacticalCheckMaraudingOnEntry(marauder,'2,2','player');
+    currentTurn=7;
+    tacticalMaraudingBlocksAction(marauder);
+    var beveMarauder={name:'BeVe',faction:'BeVe',opUnitName:'Взвод BeVe',appliedCards:['Мародёрство'],fighters:[{hp:3}]};
+    var wrongFaction=tacticalCheckMaraudingOnEntry(beveMarauder,'1,1','player');
+    var commissioner={name:'Комиссар',opUnitName:'Взвод',fighters:[{name:'Комиссар',hp:3,isPolitruk:true}]};
+    appData.squads.push(commissioner);
+    var canceledByCommissioner=tacticalCheckMaraudingOnEntry(marauder,'1,1','player');
+    appData.squads=[marauder];
+    currentTurn=9;
+    tacticalMaraudingBlocksAction(marauder);
+    var wreck={name:'Уничтоженный защитник',faction:'BeVe',fighters:[{hp:0}],isDestroyed:true,hexPos:[2,2]};
+    appData.map.enemySquads=[wreck];
+    appData.map.grid['1,1'].enemySquadIds=[];appData.map.grid['2,2'].enemySquadIds=[0];
+    tacticalMarkTacticalSquadDestroyedHex(wreck,'enemy');
+    var destroyedHere=tacticalCheckMaraudingOnEntry(marauder,'2,2','player');
+    var enemyMarauder={name:'Противник',faction:'A.I.R.F.',opUnitName:'Вражеский взвод',appliedCards:['Мародёрство'],fighters:[{hp:3}]};
+    appData.map.enemySquads=[enemyMarauder];
+    appData.map.attackerSide='player';
+    var defenderCannotMaraud=tacticalCheckMaraudingOnEntry(enemyMarauder,'1,1','enemy');
+    appData.map.attackerSide='enemy';
+    appData.map.grid['5,5']={type:'building',fortificationOwner:'BeVe',squadIds:[],enemySquadIds:[],tacticalOccupantsSeen:{enemy:true},markers:[]};
+    var noPresenceOnEnemyFort=tacticalCheckMaraudingOnEntry(enemyMarauder,'5,5','enemy');
+    appData.map.grid['6,6']={type:'building',squadIds:[],enemySquadIds:[],tacticalOccupantsSeen:{player:true},markers:[]};
+    var enemyAttackerTriggers=tacticalCheckMaraudingOnEntry(enemyMarauder,'6,6','enemy');
+  `);
+  equal(s.evalCtx('actualEnemyOccupant'), true, 'вход на гекс, где защитник реально находился в этом бою, запускает эффект');
+  equal(s.evalCtx('preBattleDeadHistory'), false, 'подразделение, погибшее до старта, не создаёт факта присутствия в бою');
+  equal(s.evalCtx('through'), 3, 'теряется ровно следующая фаза своего хода');
+  equal(s.evalCtx('skippedNextOwnPhase'), true, 'в следующую фазу своего хода действия блокируются');
+  equal(s.evalCtx('activeAgain'), false, 'после одного пропущенного хода действия возвращаются');
+  equal(s.evalCtx('staleBattleHistory'), false, 'история присутствия предыдущего боя не подходит для «Мародёрства»');
+  equal(s.evalCtx('standaloneOccupancyKey'), 'standalone-current', 'самостоятельный бой использует отдельный ключ истории занятых гексов');
+  equal(s.evalCtx('ownOccupiedTrench'), false, 'переход между своими укреплениями не запускает эффект');
+  equal(s.evalCtx('ownFortification'), true, 'укрепление, где фактически был враг, подходит независимо от владельца');
+  equal(s.evalCtx('ownerlessBuilding'), false, 'отсутствие владельца здания не делает гекс вражеским');
+  equal(s.evalCtx('wrongFaction'), false, 'карта не даёт эффект отряду не A.I.R.F.');
+  equal(s.evalCtx('canceledByCommissioner'), false, 'живой комиссар в том же взводе отменяет эффект');
+  equal(s.evalCtx('destroyedHere'), true, 'уничтоженный вражеский отряд сохраняет факт присутствия в гексе');
+  equal(s.evalCtx('defenderCannotMaraud'), false, 'A.I.R.F. не запускает эффект в роли обороняющейся стороны');
+  equal(s.evalCtx('noPresenceOnEnemyFort'), false, 'само по себе чужое укрепление без фактического присутствия не подходит');
+  equal(s.evalCtx('enemyAttackerTriggers'), true, 'A.I.R.F. атакующего врага тоже срабатывает по следу защитника');
+});
+
+test('тактическое подавление от духа действует строго ниже 30%, а ручное подавление независимо', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, [
+    'tacticalMoraleScale', 'tacticalMoraleCurrent', 'tacticalEffectiveMoraleForSquad',
+    'tacticalMoraleIsSuppressed', 'tacticalMoraleIsCritical', 'tacticalSquadIsSuppressed',
+    'tacticalChangeMorale', 'tacticalMoraleBattleKey', 'tacticalRecordNearbyMoraleLoss',
+    'tacticalApplyFighterMoraleLoss', 'tacticalMarkTacticalHexOccupied', 'tacticalMarkTacticalSquadDestroyedHex',
+    'tacticalSquadHexPosition', 'tacticalSquadsDistance', 'tacticalSquadHasStubbornCard',
+    'tacticalStubbornAtStartingHex', 'tacticalIsHeadquartersSquad', 'tacticalHasLiveHeadquartersFor',
+    'tacticalPlatoonSquadsFor', 'tacticalHeadquartersIsLost', 'tacticalApplyHeadquartersLossMoralePenalty',
+    'tacticalMaybeAutoRetreat', 'tacticalMaraudingBlocksAction', 'tacticalActionAllowed',
+    'getTacticalMoraleSuppressionAccuracyPenalty', 'getTacticalSuppressionAccuracyPenalty'
+  ]);
+  s.run(`
+    var morale=5, currentSquad=null, currentSquadIndex=0, currentTurn=1, actionPoints=[];
+    function getEffectiveMorale() { return morale; }
+    function getScopedActiveModifiersForSquad() { return []; }
+    function getScopedActiveCardsForSquad() { return []; }
+    function placementPendingReason() { return null; }
+    function getTacticalActiveSide() { return 'player'; }
+    function tacticalIsMeleeEngaged() { return false; }
+    function isBicycleTacticalSquad() { return false; }
+    function hexGridDistance(c1,r1,c2,r2) {
+      const q1=c1-Math.floor((r1-(r1&1))/2), q2=c2-Math.floor((r2-(r2&1))/2);
+      return Math.max(Math.abs(q1-q2),Math.abs(r1-r2),Math.abs((q1+r1)-(q2+r2)));
+    }
+    appData.map={grid:{},enemySquads:[],activeSide:'player'};
+    var unit={name:'Пехота',faction:'BeVe',fighters:[{name:'Боец',hp:3}],baseMorale:10,tacticalMoraleMax:10,currentMorale:3};
+    appData.squads=[unit];
+    var at30=tacticalMoraleIsSuppressed(unit), moveAt30=tacticalActionAllowed(unit,'move',true);
+    unit.currentMorale=2;
+    var at20=tacticalMoraleIsSuppressed(unit), moveAt20=tacticalActionAllowed(unit,'move',true);
+    var shootAt20=tacticalActionAllowed(unit,'shoot',true), lowMoralePenalty=getTacticalSuppressionAccuracyPenalty(unit);
+    var routAt20=tacticalMaybeAutoRetreat(unit,'player',0);
+    unit.suppressed=true;
+    var combinedPenalty=getTacticalSuppressionAccuracyPenalty(unit), manualBlocksMovement=tacticalActionAllowed(unit,'move',true);
+    unit.currentMorale=3;
+    var moraleRecovered=tacticalMoraleIsSuppressed(unit), manualStillBlocks=tacticalSquadIsSuppressed(unit);
+    var manualOnlyPenalty=getTacticalSuppressionAccuracyPenalty(unit);
+    unit.suppressed=false;
+    var movementAfterManualClear=tacticalActionAllowed(unit,'move',true);
+    unit.currentMorale=1;
+    var routAt10=tacticalMaybeAutoRetreat(unit,'player',0), routingAt10=unit.isRouting;
+  `);
+  equal(s.evalCtx('at30'), false, 'ровно 30% не считается подавлением');
+  equal(s.evalCtx('moveAt30'), true, 'при 30% движение разрешено');
+  equal(s.evalCtx('at20'), true, 'ниже 30% включается подавление духом');
+  equal(s.evalCtx('moveAt20'), false, 'при подавлении духом движение запрещено');
+  equal(s.evalCtx('shootAt20'), true, 'стрельба остаётся доступной');
+  equal(s.evalCtx('lowMoralePenalty'), -1, 'подавление духом даёт ровно −1 к меткости');
+  equal(s.evalCtx('routAt20'), false, '20% не запускает моральный отход');
+  equal(s.evalCtx('combinedPenalty'), -3, 'огневое подавление и низкий дух складываются раздельно');
+  equal(s.evalCtx('manualBlocksMovement'), false, 'ручное подавление отдельно блокирует движение');
+  equal(s.evalCtx('moraleRecovered'), false, 'восстановление до 30% снимает только подавление духом');
+  equal(s.evalCtx('manualStillBlocks'), true, 'подавление огнём остаётся независимо от морали');
+  equal(s.evalCtx('manualOnlyPenalty'), -2, 'после восстановления остаётся только огневой штраф −2');
+  equal(s.evalCtx('movementAfterManualClear'), true, 'снятие ручного подавления разрешает движение');
+  equal(s.evalCtx('routAt10'), true, 'ровно 10% запускает моральный отход');
+  equal(s.evalCtx('routingAt10'), true, 'обычный отряд помечен для маршрута при критически низком духе');
+});
+
+test('потеря бойца снижает дух на 1, командира на 2, а гибель/моральный отход дают союзникам один −1 в радиусе 2', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, [
+    'tacticalMoraleScale', 'tacticalMoraleCurrent', 'tacticalEffectiveMoraleForSquad', 'tacticalMoraleIsSuppressed',
+    'tacticalMoraleIsCritical', 'tacticalChangeMorale', 'tacticalMoraleBattleKey', 'tacticalMarkTacticalHexOccupied',
+    'tacticalMarkTacticalSquadDestroyedHex', 'tacticalRecordNearbyMoraleLoss', 'tacticalApplyFighterMoraleLoss',
+    'tacticalMarkStartingMoraleCasualties', 'tacticalInitializeSquadMorale',
+    'tacticalSquadHexPosition', 'tacticalSquadsDistance', 'tacticalSquadHasStubbornCard', 'tacticalStubbornAtStartingHex',
+    'tacticalIsHeadquartersSquad', 'tacticalHasLiveHeadquartersFor', 'tacticalPlatoonSquadsFor',
+    'tacticalHeadquartersIsLost', 'tacticalApplyHeadquartersLossMoralePenalty', 'tacticalMaybeAutoRetreat',
+    'tacticalRemoveUnitFromMap', 'tacticalClearMeleeEngagement', 'tacticalRetreatUnit'
+  ]);
+  s.run(`
+    var currentSquad=null, currentSquadIndex=0, currentTurn=1, morale=5;
+    function getScopedActiveModifiersForSquad() { return []; }
+    function hexGridDistance(c1,r1,c2,r2) {
+      const q1=c1-Math.floor((r1-(r1&1))/2), q2=c2-Math.floor((r2-(r2&1))/2);
+      return Math.max(Math.abs(q1-q2),Math.abs(r1-r2),Math.abs((q1+r1)-(q2+r2)));
+    }
+    function cell() { return {squadIds:[],enemySquadIds:[],markers:[]}; }
+    function soldier(name, commander) { return {name,weapon:'Винтовка',hp:3,maxHp:3,isCommander:!!commander}; }
+    function squad(name, col, row, fighters, capacity) {
+      return {name,faction:'BeVe',fighters,hexPos:[col,row],baseMorale:capacity,tacticalMoraleMax:capacity,
+        tacticalOriginalRosterSize:capacity,currentMorale:capacity,crewInstances:[]};
+    }
+    appData.map={grid:{},enemySquads:[],activeSide:'player',mapSize:8};
+    var ordinary=squad('Обычные',0,0,Array.from({length:5},(_,i)=>soldier('Стрелок '+i,false)),5);
+    var commanderUnit=squad('Командир',1,0,[soldier('Командир',true),...Array.from({length:4},(_,i)=>soldier('Стрелок '+i,false))],5);
+    tacticalInitializeSquadMorale(ordinary,'battle-morale');
+    tacticalInitializeSquadMorale(commanderUnit,'battle-morale');
+    ordinary.fighters[0].hp=0;
+    commanderUnit.fighters[0].hp=0;
+    appData.squads=[ordinary,commanderUnit];
+    var oneLoss=tacticalApplyFighterMoraleLoss(ordinary,ordinary.fighters[0],'player');
+    var twoLoss=tacticalApplyFighterMoraleLoss(commanderUnit,commanderUnit.fighters[0],'player');
+    var fixedScale=ordinary.tacticalMoraleMax;
+    var commanderMorale=commanderUnit.currentMorale;
+    var lateSquad=squad('Поздний отряд',6,6,[soldier('Старый погибший',false),soldier('Боец 2',false),soldier('Боец 3',false)],3);
+    lateSquad.fighters[0].hp=0;
+    lateSquad.fighters[1].hp=undefined;
+    appData.currentBattleId='late-battle';
+    tacticalInitializeSquadMorale(lateSquad,'late-battle');
+    var lateStartingMorale=lateSquad.currentMorale;
+    var preBattleDeathIgnored=tacticalApplyFighterMoraleLoss(lateSquad,lateSquad.fighters[0],'player');
+    lateSquad.fighters[2].hp=0;
+    var lateBattleLoss=tacticalApplyFighterMoraleLoss(lateSquad,lateSquad.fighters[2],'player');
+    var lateScale=lateSquad.tacticalMoraleMax;
+    var source=squad('Погибший',2,2,[soldier('Последний',false)],1);
+    var near1=squad('Рядом 1',3,2,[soldier('Боец',false)],5);
+    var near2=squad('Рядом 2',4,2,[soldier('Боец',false)],5);
+    var far=squad('Далеко',5,2,[soldier('Боец',false)],5);
+    var deadNear=squad('Погибший сосед',2,3,[soldier('Мёртвый',false)],5); deadNear.fighters[0].hp=0;
+    appData.squads=[source,near1,near2,far,deadNear];
+    ['2,2','3,2','4,2','5,2','2,3'].forEach(key=>appData.map.grid[key]=cell());
+    appData.map.grid['2,2'].squadIds=[0];appData.map.grid['3,2'].squadIds=[1];appData.map.grid['4,2'].squadIds=[2];
+    appData.map.grid['5,2'].squadIds=[3];appData.map.grid['2,3'].squadIds=[4];
+    source.fighters[0].hp=0;
+    var deathEvent=tacticalApplyFighterMoraleLoss(source,source.fighters[0],'player');
+    var duplicateDeath=tacticalApplyFighterMoraleLoss(source,source.fighters[0],'player');
+    var afterDeath=[near1.currentMorale,near2.currentMorale,far.currentMorale,deadNear.currentMorale];
+    var destroyedHex=appData.map.grid['2,2'].tacticalDestroyedUnitSides.player;
+  `);
+  equal(s.evalCtx('ordinary.currentMorale'), 4, 'потеря обычного бойца снимает 1 дух');
+  equal(s.evalCtx('commanderMorale'), 3, 'гибель командира снижает дух ровно на 2, не на 3');
+  equal(s.evalCtx('fixedScale'), 5, 'знаменатель остаётся равным исходному составу после потери');
+  equal(s.evalCtx('lateStartingMorale'), 2, 'поздно добавленный отряд получает стартовый дух по числу живых бойцов');
+  equal(s.evalCtx('preBattleDeathIgnored'), false, 'уже погибший до начала боя боец не списывается повторно');
+  equal(s.evalCtx('lateBattleLoss'), true, 'поздно добавленная группа учитывает потери после инициализации');
+  equal(s.evalCtx('lateScale'), 2, 'фиксированный знаменатель поздней группы сохраняется до конца боя');
+  equal(s.evalCtx('lateSquad.currentMorale'), 1, 'мораль поздней группы уменьшается только за нового погибшего');
+  equal(s.evalCtx('deathEvent'), true, 'гибель последнего бойца фиксирует событие');
+  equal(s.evalCtx('duplicateDeath'), false, 'повторная обработка смерти не создаёт второе событие');
+  equal(s.evalCtx('JSON.stringify(afterDeath)'), '[4,4,5,5]', 'только живые союзники в радиусе 2 теряют по одному духу');
+  equal(s.evalCtx('destroyedHex'), true, 'гекс последнего уничтоженного противника отмечен в истории');
+
+  const route = createSandbox(freshAppData());
+  loadHtml(route, [
+    'tacticalMoraleScale','tacticalMoraleCurrent','tacticalEffectiveMoraleForSquad','tacticalMoraleIsCritical','tacticalChangeMorale',
+    'tacticalMoraleBattleKey','tacticalRecordNearbyMoraleLoss','tacticalSquadHexPosition','tacticalSquadsDistance',
+    'tacticalSquadHasStubbornCard','tacticalStubbornAtStartingHex','tacticalIsHeadquartersSquad','tacticalHasLiveHeadquartersFor',
+    'tacticalPlatoonSquadsFor','tacticalHeadquartersIsLost','tacticalApplyHeadquartersLossMoralePenalty','tacticalMaybeAutoRetreat',
+    'tacticalRemoveUnitFromMap','tacticalClearMeleeEngagement','tacticalRetreatUnit'
+  ]);
+  route.run(`
+    var currentSquad=null,currentTurn=1,morale=5;
+    function getScopedActiveModifiersForSquad(){return[];}
+    function hexGridDistance(c1,r1,c2,r2){const q1=c1-Math.floor((r1-(r1&1))/2),q2=c2-Math.floor((r2-(r2&1))/2);return Math.max(Math.abs(q1-q2),Math.abs(r1-r2),Math.abs((q1+r1)-(q2+r2)));}
+    appData.map={grid:{'2,2':{squadIds:[0],enemySquadIds:[]},'3,2':{squadIds:[1],enemySquadIds:[]}},enemySquads:[]};
+    var routed={name:'Маршрут',faction:'BeVe',hexPos:[2,2],fighters:[{hp:1}],baseMorale:10,tacticalMoraleMax:10,currentMorale:1};
+    var ally={name:'Союзник',faction:'BeVe',hexPos:[3,2],fighters:[{hp:3}],baseMorale:5,tacticalMoraleMax:5,currentMorale:5};
+    appData.squads=[routed,ally];
+    var moraleRoute=tacticalMaybeAutoRetreat(routed,'player',0);var afterFirst=ally.currentMorale;
+    var duplicateRoute=tacticalMaybeAutoRetreat(routed,'player',0);var afterSecond=ally.currentMorale;
+  `);
+  equal(route.evalCtx('moraleRoute'), true, 'критически низкий дух начинает автоматический отход');
+  equal(route.evalCtx('duplicateRoute'), false, 'один отход регистрируется один раз');
+  equal(route.evalCtx('afterFirst'), 4, 'моральный отход снижает дух союзника в радиусе 2 на 1');
+  equal(route.evalCtx('afterSecond'), 4, 'повторный вызов не дублирует потерю');
+  route.run(`
+    var stubbornStart={name:'Упрямые на старте',faction:'BeVe',fighters:[{hp:3}],hexPos:[2,2],tacticalStartHexKey:'2,2',
+      effects:{stubborn:true},baseMorale:10,tacticalMoraleMax:10,currentMorale:0,isRouting:true,retreatReason:'morale'};
+    appData.squads=[stubbornStart];
+    appData.map.grid['2,2'].squadIds=[0];
+    var startRetreat=tacticalMaybeAutoRetreat(stubbornStart,'player',0);
+    var retainedAtStart=JSON.stringify(stubbornStart.hexPos);
+    var routingCleared=!stubbornStart.isRouting;
+    var stubbornNoHQ={name:'Упрямые без штаба',faction:'BeVe',fighters:[{hp:3}],hexPos:[3,2],tacticalStartHexKey:'2,2',
+      effects:{stubborn:true},baseMorale:10,tacticalMoraleMax:10,currentMorale:0};
+    appData.squads=[stubbornNoHQ];
+    appData.map.grid['2,2'].squadIds=[];appData.map.grid['3,2'].squadIds=[0];
+    var noHqRetreat=tacticalMaybeAutoRetreat(stubbornNoHQ,'player',0);
+    var retainedWithoutHq=JSON.stringify(stubbornNoHQ.hexPos);
+  `);
+  equal(route.evalCtx('startRetreat'), false, '«Упрямство» запрещает моральный отход со стартового гекса');
+  equal(route.evalCtx('retainedAtStart'), '[2,2]', 'упрямый отряд остаётся на исходной позиции');
+  equal(route.evalCtx('routingCleared'), true, 'устаревший флаг маршрута на стартовом гексе снимается');
+  equal(route.evalCtx('noHqRetreat'), false, 'без живого штаба упрямый отряд не начинает отход');
+  equal(route.evalCtx('retainedWithoutHq'), '[3,2]', 'без штаба подразделение удерживает текущий гекс');
+});
+
+test('поздно добавленный отряд получает собственный фиксированный знаменатель морали', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['tacticalMarkStartingMoraleCasualties', 'tacticalInitializeSquadMorale', 'tacticalEnsureSquadMoraleInitialized']);
+  s.run(`
+    var battle={id:'battle-late',cardsChosen:true,placement:{phase:'done'},tacticalMoraleInitialized:true};
+    var campaignLate={name:'Добавлен поздно',baseMorale:5,currentMorale:2,fighters:[{hp:3},{hp:3},{hp:3},{hp:3}]};
+    var campaignInit=tacticalEnsureSquadMoraleInitialized(campaignLate,battle);
+    var campaignScale=campaignLate.tacticalMoraleMax;
+    var campaignMorale=campaignLate.currentMorale;
+    var campaignId=campaignLate.tacticalMoraleInitializedBattleId;
+    var inStandaloneBattle=true;
+    appData._tacticalMoraleStandaloneBattleId='standalone-late';
+    var standaloneLate={name:'Поздний соло-отряд',baseMorale:5,currentMorale:1,fighters:[{hp:3},{hp:3},{hp:3}]};
+    var standaloneInit=tacticalEnsureSquadMoraleInitialized(standaloneLate);
+  `);
+  equal(s.evalCtx('campaignInit'), true, 'новый участник кампанийного боя инициализируется сразу');
+  equal(s.evalCtx('campaignScale'), 4, 'знаменатель нового отряда равен исходному числу бойцов');
+  equal(s.evalCtx('campaignMorale'), 4, 'начальный дух поздней группы равен её живому составу');
+  equal(s.evalCtx('campaignId'), 'battle-late', 'инициализация привязана к конкретному бою');
+  equal(s.evalCtx('standaloneInit'), true, 'поздно добавленный соло-отряд тоже инициализируется');
+  equal(s.evalCtx('standaloneLate.tacticalMoraleMax'), 3, 'соло-знаменатель фиксирован по составу на момент добавления');
+  equal(s.evalCtx('standaloneLate.currentMorale'), 3, 'соло-отряд получает стартовый дух по числу бойцов');
+});
+
+test('только три тактических fallback-отряда используют исходный дух 1', () => {
+  const count = (HTML.match(/currentMorale:\s*1,\s*baseMorale:\s*1/g) || []).length;
+  equal(count, 3, 'fallback collectBattleSquads и минимальные отряды игрока/врага инициализируют дух единицей');
+});
+
+test('после боя совместимые отделения одного взвода автоматически объединяются без потери выживших', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['tacticalMergeSquadTypeKey','tacticalMergeOperationalUnitSquads','mergeTacticalCasualtySquadsAfterBattle']);
+  s.run(`
+    function makeFighters(prefix, living) {
+      return Array.from({length:10},(_,i)=>({id:prefix+'-'+i,name:'Стрелок '+(i+1),weapon:'Винтовка',maxHp:3,hp:i<living?3:0}));
+    }
+    function squad(name,owner,type,living) {
+      return {name,opUnitName:owner,type,faction:'BeVe',fighters:makeFighters(name,living),tacticalOriginalRosterSize:10,
+        tacticalMoraleMax:10,baseMorale:10,currentMorale:living,appliedCards:[],effects:{}};
+    }
+    var a1=squad('Стрелковое отделение №1','Взвод A','infantry',4);
+    var a2=squad('Стрелковое отделение №2','Взвод A','infantry',4);
+    var support=squad('Отделение поддержки','Взвод A','support',4);
+    var b1=squad('Стрелковое отделение №1','Взвод B','infantry',4);
+    var b2=squad('Стрелковое отделение №2','Взвод B','infantry',4);
+    var unitA={name:'Взвод A',squads:[a1,a2,support]};
+    var unitB={name:'Взвод B',squads:[b1,b2]};
+    appData.campaign.opUnits=[unitA,unitB];appData.campaign.enemyOpUnits=[];
+    var aliveIdsExpected=[...a1.fighters,...a2.fighters].filter(f=>f.hp>0).map(f=>f.id).sort();
+    var merged=mergeTacticalCasualtySquadsAfterBattle({playerUnitNames:['Взвод A'],enemyUnitNames:[],
+      playerSquads:[a1,a2,support],enemySquads:[]});
+    var aliveIdsAfter=unitA.squads.flatMap(s=>s.fighters.filter(f=>f.hp>0).map(f=>f.id)).filter(id=>!id.startsWith('Отделение поддержки')).sort();
+    var liveCounts=unitA.squads.map(s=>s.fighters.filter(f=>f.hp>0).length);
+    var allSlotsWithinCapacity=unitA.squads.every(s=>s.fighters.length<=s.tacticalOriginalRosterSize);
+    var unitBStillSeparate=unitB.squads.every(s=>s.fighters.filter(f=>f.hp>0).length===4);
+  `);
+  equal(s.evalCtx('merged'), 1, 'две ослабленные совместимые группы освобождают одно отделение');
+  equal(s.evalCtx('JSON.stringify(aliveIdsAfter)'), s.evalCtx('JSON.stringify(aliveIdsExpected)'), 'все восемь живых бойцов сохранены');
+  equal(s.evalCtx('JSON.stringify(liveCounts)'), '[8,0,4]', 'выжившие объединены в один отряд и поддержка не затронута');
+  equal(s.evalCtx('allSlotsWithinCapacity'), true, 'вместимость исходного отряда не превышена');
+  equal(s.evalCtx('unitBStillSeparate'), true, 'отряды другого оперативного взвода не объединяются');
+  s.run(`
+    var retreatA=squad('Стрелковое отделение №1','Взвод R','infantry',4);
+    var retreatB=squad('Стрелковое отделение №2','Взвод R','infantry',4);
+    retreatA.isRetreated=true;retreatA.status='retreated';
+    var retreatUnit={name:'Взвод R',squads:[retreatA,retreatB]};
+    appData.campaign.opUnits=[retreatUnit];appData.campaign.enemyOpUnits=[];
+    var retreatMergeCount=mergeTacticalCasualtySquadsAfterBattle({playerUnitNames:['Взвод R'],enemyUnitNames:[],
+      playerSquads:[retreatA,retreatB],enemySquads:[]});
+    var retreatLive=retreatUnit.squads.flatMap(s=>s.fighters.filter(f=>f.hp>0));
+    var retreatSlotSizes=retreatUnit.squads.map(s=>s.fighters.length);
+    var activeRecipient=retreatUnit.squads.find(s=>s.fighters.some(f=>f.hp>0));
+  `);
+  equal(s.evalCtx('retreatMergeCount'), 1, 'морально отступившие, но выжившие бойцы участвуют в объединении');
+  equal(s.evalCtx('retreatLive.length'), 8, 'все выжившие после отступления сохранены');
+  equal(s.evalCtx('activeRecipient.isRetreated'), undefined, 'объединённый боеспособный отряд больше не помечен отступившим');
+  equal(s.evalCtx('Math.max(...retreatSlotSizes)'), 10, 'после объединения не превышена исходная вместимость');
+});
+
+test('самостоятельное огненное поле даёт выбрать любые три клетки и не раскрывает разметку', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['tacticalBeginStandaloneFireFieldSelection', 'tacticalStandaloneFireFieldEditClick']);
+  s.run(`
+    appData.map={mode:'view',grid:{'0,0':{markers:[]},'4,0':{markers:[]},'1,4':{markers:[]}},fireFields:[]};
+    var began=tacticalBeginStandaloneFireFieldSelection({name:'Отдельный взвод'});
+    tacticalStandaloneFireFieldEditClick('0,0');
+    tacticalStandaloneFireFieldEditClick('4,0');
+    tacticalStandaloneFireFieldEditClick('1,4');
+    var standaloneField=appData.map.fireFields[0];
+  `);
+  equal(s.evalCtx('began'), true, 'режим выбора поля включён');
+  equal(s.evalCtx('appData.map.mode'), 'view', 'после выбора трёх клеток режим возвращается в бой');
+  equal(s.evalCtx('standaloneField.state'), 'armed', 'поле вооружено после третьего выбора');
+  equal(s.evalCtx('standaloneField.hexes.length'), 3, 'можно выбрать любые три клетки');
+  assert(s.evalCtx("appData.map.grid['0,0'].markers.includes('fireField') && appData.map.grid['4,0'].markers.includes('fireField') && appData.map.grid['1,4'].markers.includes('fireField')"), 'владелец видит все три отметки');
 });
 
 // 22. Велосипедная стоянка хранит владельца и теряется при входе противника на гекс.
