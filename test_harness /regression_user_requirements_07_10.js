@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { createSandbox, freshAppData } = require('./sandbox');
-const { sliceFunction, sliceConst, HTML } = require('./extract');
+const { sliceFunction, sliceConst, HTML, ROOT } = require('./extract');
 
 let pass = 0, fail = 0;
 function test(name, fn) {
@@ -108,11 +108,12 @@ test('10: начальная кампания показывает отдель�
   const s = createSandbox(freshAppData());
   s.run(sliceConst(HTML, 'INITIAL_CAMPAIGN_CARD_CATEGORIES'));
   loadHtml(s, ['computeSubFactionFromSquads', 'getUnitCardFactionContext', 'getCardDefinitionByName',
-    'getCardTargetSpec', 'getCardTargetCandidates', 'isCardAvailableToUnit', 'isCardSelectableOpUnit',
-    'collectCardLibraryForContext', 'escapeCardHtml', 'initialCampaignCardUnitHtml', 'renderInitialCampaignCardDistribution']);
+    'getCardTargetSpec', 'getCardTargetCandidates', 'isCardAvailableToUnit', 'isCardSelectableOpUnit', 'isBicycleTacticalSquad',
+    'collectCardLibraryForContext', 'escapeCardHtml', 'initialCampaignCardUnitHtml', 'initialCardDistributionHtml', 'renderInitialCampaignCardDistribution']);
   installCardLibraries(s);
   s.run(`
     function computeSubFactionFromSquads() { return null; }
+    function getCurrentCampaignBattle() { return null; }
     appData.campaign.opUnits = [
       { name:'Пехотный взвод', type:'infantry_platoon', faction:'BeVe', squads:[${JSON.stringify(newSquad('Пехотное отделение №1'))}] },
       { name:'Сапёрный взвод', type:'engineer_platoon', faction:'A.I.R.F.', squads:[{...${JSON.stringify(newSquad('Саперное отделение №1'))},faction:'A.I.R.F.'}] },
@@ -125,14 +126,18 @@ test('10: начальная кампания показывает отдель�
   assert(html.includes('Пехотные взводы') && html.includes('Сапёрные взводы') && html.includes('Разведывательные взводы'), 'показаны три отдельные категории');
   assert(html.includes('Пехотный взвод') && html.includes('Сапёрный взвод') && html.includes('Разведывательный взвод'), 'категории заполнены подходящими взводами');
   assert(!html.includes('Штаб батальона'), 'карточки не выдаются штабу батальона');
+  assert(html.includes('Двойной БК'), 'общие бонусные карты доступны для выбора на старте');
+  assert(html.includes('<details class="initial-card-unit') && html.includes('<summary class="initial-card-unit-summary'), 'список каждого взвода сворачивается, открывая карту');
 });
 
 test('10: снятие бонусной карты немедленно обновляет счётчик выбора', () => {
   const s = createSandbox(freshAppData());
-  loadHtml(s, ['toggleInitialCampaignCard']);
+  loadHtml(s, ['toggleInitialCampaignCard', 'saveInitialCampaignCardDraft']);
   s.run(`
     var countLabel = { textContent: '' };
-    var fakeGroup = { querySelectorAll: () => [1, 2], querySelector: () => countLabel };
+    var fakeGroup = { querySelectorAll: () => [
+      { dataset: { cardName: 'Первая карта' } }, { dataset: { cardName: 'Вторая карта' } }
+    ], querySelector: () => countLabel };
     document.querySelector = () => fakeGroup;
     document.querySelectorAll = () => [];
     var uncheckedCard = { checked: false, dataset: { unitIndex: '0', cardName: 'Карта' } };
@@ -170,7 +175,7 @@ test('10: карта, назначенная на старте, применяе
   equal(s.evalCtx('support.squads[0].ammoSmall'), 12, 'карта не затронула соседний взвод');
   equal(s.evalCtx('infantry.cardSelection.done'), true, 'выбор отмечен завершённым и не запрашивается повторно в первом бою');
   equal(s.evalCtx('infantry.cardSelection.campaignStart'), true, 'назначение помечено как кампанийное');
-  equal(s.evalCtx('JSON.stringify(infantry.cardSelection.targets["Двойной БК"])'), '["Отделение №1"]', 'цель карты сохранена для повторного применения в последующих боях');
+  equal(s.evalCtx('infantry.cardSelection.targets["Двойной БК"]'), undefined, 'карта не требует выбора цели — действует на весь взвод');
   equal(s.evalCtx('support.cardSelection.done'), true, 'для остальных карточных взводов сохраняется явный выбор «без карт»');
   equal(s.evalCtx('appData.campaign.initialPlatoonCardsAssigned'), true, 'начальная раздача сохранена в кампании');
 });
@@ -200,11 +205,14 @@ test('10: третья стартовая бонусная карта закре
   equal(s.evalCtx('unit.cardSelection.cards.find(card => card.type === "negative").automaticDebuff'), true, 'дебафф помечен как автоматический');
 });
 
-test('10: формирование батальона открывает раздачу карт до перехода на оперативную карту', () => {
+test('10: раздача стартовых карт идёт отдельным этапом после связи', () => {
   const start = sliceFunction(HTML, 'confirmBattalion');
-  assert(/buildOperationalUnits\(\);[\s\S]{0,220}renderInitialCampaignCardDistribution\(\)/.test(start),
-    'карточное меню вызывается после сборки оперативных взводов');
-  assert(!/showOperationalMap\(\)\s*;\s*buildOperationalUnits/.test(start), 'сразу на карту без шага раздачи не переходит');
+  assert(/buildOperationalUnits\(\);[\s\S]{0,260}showCampaignReadyAfterCardDistribution\(\)/.test(start),
+    'после сборки батальона показывается экран готовности');
+  assert(!start.includes('renderInitialCampaignCardDistribution()'), 'карточная раздача не подменяет начальную расстановку/связь');
+  const ui = fs.readFileSync(path.join(ROOT, 'js/operational_ui.js'), 'utf8');
+  assert(/stage === 'cards'[\s\S]{0,500}openInitialCardDistributionStage\(\)/.test(ui),
+    'отдельный этап связи открывает сворачиваемое меню распределения карт');
 });
 
 console.log(`\nИтог пунктов 7 и 10: PASS ${pass} · FAIL ${fail}`);

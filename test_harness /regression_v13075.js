@@ -346,7 +346,7 @@ const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const APP = /var APP_VERSION = '([^']+)'/.exec(HTML)[1];
 const APP_RE = APP.replace('.', '\\.');
 test('v13.075: APP_VERSION, title, h1, бейдж и модуль — согласованы с APP_VERSION', () => {
-  assert.ok(/^v13\.07\d$/.test(APP), 'формат: ' + APP);
+  assert.ok(/^v13\.\d{3}$/.test(APP), 'формат: ' + APP);
   assert.ok(new RegExp('<title>Боевой модуль ' + APP_RE).test(HTML), 'title');
   assert.ok(new RegExp('<h1>⚔️ Боевой модуль ' + APP_RE + '</h1>').test(HTML), 'h1');
   assert.ok(new RegExp('id="appVersionBadge"[^>]*>' + APP_RE + '<').test(HTML), 'badge');

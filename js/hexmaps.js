@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.097 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.098 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -228,16 +228,22 @@ function getHexOverlay(hexKey, create) {
     const all = getHexOverlays();
     let ov = all[hexKey];
     if (!ov && create) {
-        ov = { hexEdits: {}, hexVariants: {}, hexRotations: {}, trenchPoints: 0, prepPoints: 0, shellings: 0 };
+        ov = { hexEdits: {}, hexVariants: {}, hexRotations: {}, hexEditOwners: {}, trenchPoints: 0, prepPoints: 0, shellings: 0 };
         all[hexKey] = ov;
     }
     if (ov) {
         if (!ov.hexEdits) ov.hexEdits = {};
         if (!ov.hexVariants) ov.hexVariants = {};
         if (!ov.hexRotations || typeof ov.hexRotations !== 'object') ov.hexRotations = {};
+        if (!ov.hexEditOwners || typeof ov.hexEditOwners !== 'object') ov.hexEditOwners = {};
         if (typeof ov.trenchPoints !== 'number') ov.trenchPoints = 0;
         if (typeof ov.prepPoints !== 'number') ov.prepPoints = 0;
         if (typeof ov.shellings !== 'number') ov.shellings = 0;
+        if (ov.fireField && typeof ov.fireField === 'object') {
+            if (!Array.isArray(ov.fireField.cells)) ov.fireField.cells = [];
+            ov.fireField.cells = Array.from(new Set(ov.fireField.cells.map(String))).slice(0, 3);
+            if (!['draft', 'armed', 'used'].includes(ov.fireField.state)) ov.fireField.state = ov.fireField.cells.length === 3 ? 'armed' : 'draft';
+        }
         if (!ov.initialFortifications || typeof ov.initialFortifications !== 'object') {
             ov.initialFortifications = { trenchCells: [], dotCells: [] };
         }
@@ -560,13 +566,32 @@ function applyHexOverlays(grid, hexKey) {
     const ov = getHexOverlay(hexKey, false);
     const edits = (ov && ov.hexEdits) || {};
     const rotations = (ov && ov.hexRotations) || {};
+    const editOwners = (ov && ov.hexEditOwners) || {};
     const fort = (ov && ov.initialFortifications) || { trenchCells: [], dotCells: [] };
     const trenches = new Set(Array.isArray(fort.trenchCells) ? fort.trenchCells : []);
     const dots = new Set(Array.isArray(fort.dotCells) ? fort.dotCells : []);
     const md = TACTICAL_HEX_MAPS[hexKey];
+    const applyFortificationOwner = (cell, key) => {
+        const fallbackFaction = ov && ov.placedByMe && appData && appData.campaign && appData.campaign.playerFaction;
+        const owner = editOwners[key] || fallbackFaction;
+        if (!cell || !owner) return;
+        if (!cell._hexEditOwnerApplied) {
+            cell._hexEditOwnerOriginalPresent = Object.prototype.hasOwnProperty.call(cell, 'fortificationOwner');
+            if (cell._hexEditOwnerOriginalPresent) cell._hexEditOwnerOriginal = cell.fortificationOwner;
+        }
+        cell.fortificationOwner = owner;
+        cell._hexEditOwnerApplied = true;
+    };
     Object.keys(grid).forEach(k => {
         const cell = grid[k];
         if (!cell) return;
+        if (cell._hexEditOwnerApplied) {
+            if (cell._hexEditOwnerOriginalPresent) cell.fortificationOwner = cell._hexEditOwnerOriginal;
+            else delete cell.fortificationOwner;
+            delete cell._hexEditOwnerApplied;
+            delete cell._hexEditOwnerOriginalPresent;
+            delete cell._hexEditOwnerOriginal;
+        }
         const base = md && md.grid ? md.grid[k] : null;
         if (cell._deploymentTrenchOverlay) {
             cell.type = edits[k] || (base ? base.type : 'grass');
@@ -592,6 +617,7 @@ function applyHexOverlays(grid, hexKey) {
         cell.type = edits[k];
         cell.variant = (ov.hexVariants && ov.hexVariants[k]) || 0;
         cell.ov = 1;
+        if (edits[k] === 'trenches') applyFortificationOwner(cell, k);
     });
     trenches.forEach(k => {
         const cell = grid[k];
@@ -600,6 +626,7 @@ function applyHexOverlays(grid, hexKey) {
         cell.variant = (ov.hexVariants && ov.hexVariants[k]) || 0;
         cell.ov = 1;
         cell._deploymentTrenchOverlay = 1;
+        applyFortificationOwner(cell, k);
     });
     dots.forEach(k => {
         const cell = grid[k];
@@ -608,6 +635,26 @@ function applyHexOverlays(grid, hexKey) {
         if (!cell.markers.includes('dot')) cell.markers.push('dot');
         cell._deploymentDotOverlay = 1;
     });
+    // «Огненное поле» хранится в локальном оверлее владельца, но не отправляется
+    // противнику. Пока оно не загорелось, метки появляются только на его карте.
+    const fireField = ov && ov.fireField;
+    Object.keys(grid).forEach(k => {
+        const cell = grid[k];
+        if (cell && Array.isArray(cell.markers)) cell.markers = cell.markers.filter(marker => marker !== 'fireField');
+    });
+    if (fireField && fireField.state === 'armed') {
+        (fireField.cells || []).forEach(k => {
+            const cell = grid[k];
+            if (!cell) return;
+            if (!Array.isArray(cell.markers)) cell.markers = [];
+            if (!cell.markers.includes('fireField')) cell.markers.push('fireField');
+        });
+    } else if (fireField) {
+        (fireField.cells || []).forEach(k => {
+            const cell = grid[k];
+            if (cell && Array.isArray(cell.markers)) cell.markers = cell.markers.filter(marker => marker !== 'fireField');
+        });
+    }
     Object.keys(rotations).forEach(k => {
         if (grid[k]) grid[k].rotation = normalizeHexRotation(rotations[k], grid[k].rotation || 0);
     });
@@ -685,6 +732,7 @@ function mergeHexOverlays(cloud) {
         if (!l.hexEdits) l.hexEdits = {};
         if (!l.hexVariants) l.hexVariants = {};
         if (!l.hexRotations || typeof l.hexRotations !== 'object') l.hexRotations = {};
+        if (!l.hexEditOwners || typeof l.hexEditOwners !== 'object') l.hexEditOwners = {};
         if (!l.hexEditSources || typeof l.hexEditSources !== 'object') l.hexEditSources = {};
         if (!l.initialFortifications || typeof l.initialFortifications !== 'object') l.initialFortifications = { trenchCells: [], dotCells: [] };
         if (!Array.isArray(l.initialFortifications.trenchCells)) l.initialFortifications.trenchCells = [];
@@ -695,17 +743,24 @@ function mergeHexOverlays(cloud) {
             const cv = c.hexEdits[k];
             const cvar = (c.hexVariants && c.hexVariants[k] !== undefined) ? c.hexVariants[k] : 0;
             const source = c.hexEditSources && c.hexEditSources[k];
+            const owner = c.hexEditOwners && c.hexEditOwners[k];
             if (!(k in l.hexEdits)) {
                 l.hexEdits[k] = cv; l.hexVariants[k] = cvar;
                 if (source) l.hexEditSources[k] = source;
+                if (owner) l.hexEditOwners[k] = owner;
                 hexChanged = true; return;
             }
             if (cloudWins && (l.hexEdits[k] !== cv || (l.hexVariants[k] || 0) !== cvar)) {
                 l.hexEdits[k] = cv; l.hexVariants[k] = cvar;
                 if (source) l.hexEditSources[k] = source;
+                if (owner) l.hexEditOwners[k] = owner;
                 hexChanged = true;
-            } else if (source && !l.hexEditSources[k]) {
-                l.hexEditSources[k] = source;
+            } else {
+                if (source && !l.hexEditSources[k]) l.hexEditSources[k] = source;
+                if (owner && (cloudWins || !l.hexEditOwners[k]) && l.hexEditOwners[k] !== owner) {
+                    l.hexEditOwners[k] = owner;
+                    hexChanged = true;
+                }
             }
         });
         Object.keys(c.hexRotations || {}).forEach(k => {
@@ -1135,7 +1190,7 @@ function promptPendingHexEdits() {
     if (yes) {
         // остальные гексы предложим после «Готово»
         __hexEditPromptQueue = q.slice(1).filter(x => x.hexKey !== first.hexKey);
-        try { openHexEditorForBattle(first.hexKey, first.kind); } catch (e) { console.warn('openHexEditorForBattle:', e.message); }
+        try { openHexEditorForBattle(first.hexKey, first.kind, first.unitName); } catch (e) { console.warn('openHexEditorForBattle:', e.message); }
     }
     return yes;
 }
@@ -1144,6 +1199,15 @@ function promptPendingHexEdits() {
 //    доступными правками и кнопки открытия карты (не зависит от строки сообщений)
 function renderHexEditsPanel() {
     const all = (typeof appData !== 'undefined' && appData.campaign && appData.campaign.hexOverlays) || {};
+    const campaignUnits = (typeof appData !== 'undefined' && appData.campaign && appData.campaign.opUnits) || [];
+    const fireFieldDrafts = campaignUnits.filter(unit => {
+        if (!unit || unit.fireFieldOrderState !== 'draft' || !/^\d+,\d+$/.test(String(unit.fireFieldOpHex || ''))) return false;
+        const fire = all[unit.fireFieldOpHex] && all[unit.fireFieldOpHex].fireField;
+        return !!(fire && fire.ownerUnitName === unit.name && fire.state === 'draft');
+    });
+    const fireFieldSetupRows = fireFieldDrafts.map(unit =>
+        `<button onclick="openHexEditorForBattle('${unit.fireFieldOpHex}','fireField')" style="background:#c0392b; font-size:0.85rem;">🔥 Разметить 3 клетки · ${typeof escapeCardHtml === 'function' ? escapeCardHtml(unit.name) : 'взвод'} (${unit.fireFieldOpHex})</button>`
+    ).join('<br>');
     // ⚡ v13.094 (п.8): панель видна, только пока есть НЕИСПОЛЬЗОВАННЫЕ очки
     //    своих приказов; после расстановки она скрывается до новых приказов.
     //    Чужие работы в онлайне не показываем, пока гекс не раскрыт боем.
@@ -1171,20 +1235,37 @@ function renderHexEditsPanel() {
         if (panel.style.display !== 'block') panel.style.display = 'block';
     };
     // карта операции — все гексы с правками
-    setPanel(document.getElementById('opHexEditsPanel'), rows.length === 0 ? '' :
-        '<b style="color:#2ecc71;">🛠️ Карты гексов — доступны правки местности</b> ' +
-        '<span style="color:#aaa; font-size:0.8rem;">(приказы «Окопаться» / «Подготовка позиций» выполнены; правки увидит и противник в бою на этом гексе)</span><br>' +
-        rows.map(rowHtml).join('<br>'));
+    const opPanelParts = [];
+    if (rows.length) {
+        opPanelParts.push('<b style="color:#2ecc71;">🛠️ Карты гексов — доступны правки местности</b> ' +
+            '<span style="color:#aaa; font-size:0.8rem;">(приказы «Окопаться» / «Подготовка позиций» выполнены; правки увидит и противник в бою на этом гексе)</span><br>' +
+            rows.map(rowHtml).join('<br>'));
+    }
+    if (fireFieldSetupRows) {
+        opPanelParts.push('<b style="color:#ff9f43;">🔥 Огненное поле — требуется выбрать клетки</b> ' +
+            '<span style="color:#aaa; font-size:0.8rem;">(до срабатывания разметка скрыта от противника)</span><br>' + fireFieldSetupRows);
+    }
+    setPanel(document.getElementById('opHexEditsPanel'), opPanelParts.join('<hr style="border-color:#555;">'));
     // экран боя — только гекс ЭТОГО боя
     let battleHtml = '';
     if (typeof appData !== 'undefined' && appData.currentBattleId && !hexEditorState) {
         const b = (appData.campaign.activeBattles || []).find(x => x && x.id === appData.currentBattleId);
-        if (b && b.hexKey && rows.includes(b.hexKey)) {
+        if (b && b.hexKey) {
             const battleOverlay = all[b.hexKey] || {};
             const hasUnusedEditPoints = (battleOverlay.trenchPoints || 0) > 0 || (battleOverlay.prepPoints || 0) > 0;
-            if (hasUnusedEditPoints) {
-                battleHtml = `<b style="color:#2ecc71;">🛠️ На гексе этого боя (${b.hexKey}) доступны правки карты</b> ` +
-                    '<span style="color:#aaa; font-size:0.8rem;">(после «✅ Готово» вернётесь в этот бой; правки увидит и противник)</span><br>' + rowHtml(b.hexKey, true);
+            const battleFireDrafts = fireFieldDrafts.filter(unit => String(unit.fireFieldOpHex) === String(b.hexKey));
+            if (hasUnusedEditPoints || battleFireDrafts.length) {
+                if (hasUnusedEditPoints) {
+                    battleHtml = `<b style="color:#2ecc71;">🛠️ На гексе этого боя (${b.hexKey}) доступны правки карты</b> ` +
+                        '<span style="color:#aaa; font-size:0.8rem;">(после «✅ Готово» вернётесь в этот бой; правки местности видны обеим сторонам)</span><br>' + rowHtml(b.hexKey, true);
+                }
+                if (battleFireDrafts.length) {
+                    if (battleHtml) battleHtml += '<hr style="border-color:#555;">';
+                    battleHtml += '<b style="color:#ff9f43;">🔥 Огненное поле — выберите три клетки</b><br>' +
+                        battleFireDrafts.map(unit =>
+                            `<button onclick="openHexEditorForBattle('${unit.fireFieldOpHex}','fireField')" style="background:#c0392b; font-size:0.85rem;">🔥 Разметить 3 клетки · ${typeof escapeCardHtml === 'function' ? escapeCardHtml(unit.name) : 'взвод'}</button>`
+                        ).join('<br>');
+                }
             }
         }
     }
@@ -1221,6 +1302,15 @@ function showHexEditButton(hexKey, kind) {
 // ─────────────────── РЕДАКТОР КАРТЫ ГЕКСА (окопы / подготовка) ───────────────────
 
 function hexEditRuleFor(kind) {
+    if (kind === 'fireField') {
+        return {
+            title: '🔥 Огненное поле',
+            hint: 'Разлейте нефть на трёх любых клетках тактической карты. До срабатывания метки видны только вам; движение по ним свободно.',
+            allowed: () => true,
+            targetType: null,
+            pointsField: null
+        };
+    }
     if (kind === 'initialFortification') {
         return {
             title: '🪖 Расстановка ДОТов',
@@ -1248,14 +1338,19 @@ function hexEditRuleFor(kind) {
     };
 }
 
-function openHexEditorForBattle(hexKey, kind) {
+function openHexEditorForBattle(hexKey, kind, ownerUnitName) {
     if (!hexKey) return;
     kind = kind || 'trenches';
     const ov = getHexOverlay(hexKey, true);
     const rule = hexEditRuleFor(kind);
     const budget = rule.pointsField ? (ov[rule.pointsField] || 0) : 0;
     const existingTrenchesCanBeEdited = kind === 'trenches' && countHexTrenchCells(ov) > 0;
-    if (kind !== 'initialFortification' && budget <= 0 && !existingTrenchesCanBeEdited) {
+    const canEditFireField = kind === 'fireField' && ov.fireField && ['draft', 'armed'].includes(ov.fireField.state);
+    if (kind === 'fireField' && !canEditFireField) {
+        alert('Нет готового приказа «Разлить нефть» для этого оперативного гекса.');
+        return;
+    }
+    if (kind !== 'initialFortification' && !canEditFireField && budget <= 0 && !existingTrenchesCanBeEdited) {
         alert('Нет доступных правок. Отдайте приказ «' + (kind === 'trenches' ? 'Окопаться' : 'Подготовка позиций') + '» и дождитесь его выполнения (3 хода).');
         return;
     }
@@ -1272,8 +1367,11 @@ function openHexEditorForBattle(hexKey, kind) {
     }
     const proceed = (md) => {
         // снимок состояния кампании для возврата
+        const ownerUnit = ownerUnitName && typeof getOpUnitByName === 'function' ? getOpUnitByName(ownerUnitName) : null;
         hexEditorState = {
             hexKey, kind, rule,
+            ownerUnitName: ownerUnitName || null,
+            ownerFaction: ownerUnit && ownerUnit.faction || (appData.campaign && appData.campaign.playerFaction) || null,
             tool: kind === 'initialFortification' ? 'dot' : null,
             dotId: kind === 'initialFortification' ? initialDotIdForHex(hexKey) : null,
             initialSetupIndex: kind === 'initialFortification' && appData.campaign.initialFortificationSetup
@@ -1328,7 +1426,7 @@ function openHexEditorForBattle(hexKey, kind) {
         proceed(TACTICAL_HEX_MAPS[hexKey]);
     } else {
         ensureTacticalHexMap(hexKey).then(md => {
-            if (!md && kind === 'initialFortification') {
+            if (!md && (kind === 'initialFortification' || kind === 'fireField')) {
                 const grid = {};
                 for (let row = 0; row < 20; row++) for (let col = 0; col < 20; col++) {
                     grid[col + ',' + row] = { type: 'grass', squadIds: [], enemySquadIds: [], markers: [], rotation: 0, variant: 0, level: 0 };
@@ -1408,6 +1506,20 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
     // ⚡ v13.066: миникарта кампании — какой оперативный гекс открыт сейчас
     try { if (typeof renderCampaignMiniMap === 'function') renderCampaignMiniMap(); } catch (e) {}
     banner.style.cssText = 'display:block; background:#12241a; border:2px solid #27ae60; border-radius:8px; padding:10px; margin-bottom:8px;';
+    if (st.kind === 'fireField') {
+        const ov = getHexOverlay(st.hexKey, true);
+        const fire = ov.fireField || { cells: [], state: 'draft' };
+        const count = Array.isArray(fire.cells) ? fire.cells.length : 0;
+        const active = st.undo && st.undo.length > 0;
+        banner.innerHTML = `<b style="color:#ff9f43;">🔥 Огненное поле — гекс операции (${st.hexKey})</b><br>` +
+          `<span style="color:#ccc; font-size:.85rem;">${st.rule.hint}</span><br>` +
+          `<span style="color:#f1c40f;">Выбрано клеток: <b>${count}/3</b>${fire.state === 'armed' ? ' · поле размечено и скрыто от противника' : ''}</span>` +
+          `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">` +
+            `<button onclick="hexEditUndo()" ${count ? '' : 'disabled'} style="background:#8e44ad;">↩️ Убрать последнюю выбранную</button>` +
+            `<button onclick="closeHexEditor()" style="background:#27ae60;">✅ Готово — ${st.prevBattleId ? 'вернуться в бой' : 'на карту операции'}</button>` +
+          `</div><div style="color:#888; font-size:.8rem; margin-top:4px;">Кликните любые три клетки карты; они не обязаны быть рядом. После третьей клетки поле будет подготовлено.</div>`;
+        return;
+    }
     if (st.kind === 'initialFortification') {
         const ov = getHexOverlay(st.hexKey, true);
         const fort = ov.initialFortifications;
@@ -1482,6 +1594,43 @@ function initialFortificationEditClick(st, hexKeyCell, baseCell, working) {
     return true;
 }
 
+function fireFieldEditClick(st, hexKeyCell) {
+    const ov = getHexOverlay(st.hexKey, true);
+    const fire = ov.fireField;
+    const infoBox = document.getElementById('mapInfo');
+    if (!fire || !['draft', 'armed'].includes(fire.state)) {
+        if (infoBox) { infoBox.textContent = '⛔ Это огненное поле уже использовано.'; infoBox.style.color = '#e74c3c'; }
+        return true;
+    }
+    const before = fire.cells.slice();
+    st.undo.push(before);
+    const index = fire.cells.indexOf(String(hexKeyCell));
+    if (index >= 0) {
+        fire.cells.splice(index, 1);
+    } else if (fire.cells.length >= 3) {
+        st.undo.pop();
+        if (infoBox) { infoBox.textContent = 'Вы уже выбрали три клетки. Уберите выбранную клетку перед заменой.'; infoBox.style.color = '#e67e22'; }
+        return true;
+    } else {
+        fire.cells.push(String(hexKeyCell));
+    }
+    fire.state = fire.cells.length === 3 ? 'armed' : 'draft';
+    st.placed = fire.cells.length;
+    const owner = typeof getOpUnitByName === 'function' ? getOpUnitByName(fire.ownerUnitName) : null;
+    if (owner) owner.fireFieldOrderState = fire.state;
+    saveHexOverlays(st.hexKey);
+    try { if (appData.map && appData.map.grid) applyHexOverlays(appData.map.grid, st.hexKey); } catch (e) {}
+    if (infoBox) {
+        infoBox.textContent = fire.state === 'armed'
+            ? '✅ Выбраны три клетки — огненное поле подготовлено и скрыто от противника.'
+            : `Выбрано клеток: ${fire.cells.length}/3. Кликните ещё ${3 - fire.cells.length}.`;
+        infoBox.style.color = fire.state === 'armed' ? '#27ae60' : '#f1c40f';
+    }
+    showHexEditorBanner();
+    try { redrawMap(); } catch (e) {}
+    return true;
+}
+
 // Клик по гексу в режиме 'hexEdit'
 function hexEditClick(hexKeyCell) {
     const st = hexEditorState;
@@ -1501,6 +1650,7 @@ function hexEditClick(hexKeyCell) {
         if (st.dotSectorPickCrew !== null && st.dotSectorPickCrew !== undefined) return applyInitialDotSectorPick(st, hexKeyCell);
         return initialFortificationEditClick(st, hexKeyCell, baseCell, working);
     }
+    if (st.kind === 'fireField') return fireFieldEditClick(st, hexKeyCell);
 
     // Окоп уже поставлен: повторный клик листает его текстуры, не расходуя правку.
     if (ov.hexEdits[hexKeyCell]) {
@@ -1541,6 +1691,11 @@ function hexEditClick(hexKeyCell) {
     ov.hexEdits[hexKeyCell] = newType;
     if (!ov.hexEditSources || typeof ov.hexEditSources !== 'object') ov.hexEditSources = {};
     ov.hexEditSources[hexKeyCell] = st.kind;
+    if (newType === 'trenches') {
+        if (!ov.hexEditOwners || typeof ov.hexEditOwners !== 'object') ov.hexEditOwners = {};
+        const ownerFaction = st.ownerFaction || (appData.campaign && appData.campaign.playerFaction);
+        if (ownerFaction) ov.hexEditOwners[hexKeyCell] = ownerFaction;
+    }
     const tData = (typeof TERRAIN_DATA !== 'undefined') ? TERRAIN_DATA[newType] : null;
     const nVar = (tData && tData.images && tData.images.length) ? tData.images.length : 1;
     // ⚡ v13.087: вырубка леса → «лес поваленный1», вырубка кустов → «трава1».
@@ -1572,6 +1727,23 @@ function hexEditClick(hexKeyCell) {
 function hexEditUndo() {
     const st = hexEditorState;
     if (!st || !st.undo || st.undo.length === 0) return;
+    if (st.kind === 'fireField') {
+        const ov = getHexOverlay(st.hexKey, true);
+        const fire = ov.fireField;
+        if (!fire || !['draft', 'armed'].includes(fire.state)) return;
+        fire.cells = st.undo.pop().slice(0, 3).map(String);
+        fire.state = fire.cells.length === 3 ? 'armed' : 'draft';
+        st.placed = fire.cells.length;
+        const owner = typeof getOpUnitByName === 'function' ? getOpUnitByName(fire.ownerUnitName) : null;
+        if (owner) owner.fireFieldOrderState = fire.state;
+        saveHexOverlays(st.hexKey);
+        try { if (appData.map && appData.map.grid) applyHexOverlays(appData.map.grid, st.hexKey); } catch (e) {}
+        const infoBox = document.getElementById('mapInfo');
+        if (infoBox) { infoBox.textContent = `Выбор восстановлен: ${fire.cells.length}/3 клеток.`; infoBox.style.color = '#f1c40f'; }
+        showHexEditorBanner();
+        try { redrawMap(); } catch (e) {}
+        return;
+    }
     const k = st.undo.pop();
     const ov = getHexOverlay(st.hexKey, true);
     if (k in ov.hexEdits) {
@@ -1579,6 +1751,7 @@ function hexEditUndo() {
         if (ov.hexVariants) delete ov.hexVariants[k];
         if (ov.hexRotations) delete ov.hexRotations[k];
         if (ov.hexEditSources) delete ov.hexEditSources[k];
+        if (ov.hexEditOwners) delete ov.hexEditOwners[k];
         ov[st.rule.pointsField] = (ov[st.rule.pointsField] || 0) + 1;
         st.placed = Math.max(0, st.placed - 1);
         // восстанавливаем исходный тип на рабочей сетке

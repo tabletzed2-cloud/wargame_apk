@@ -11,10 +11,11 @@ const names = [
  'advanceTacticalClock','isNightTime','syncNightModifier','isStaticOpUnit',
  'getTacticalBattleRecord','getTacticalActiveSide','setTacticalActiveSide','tacticalEnemyIsNeutralized',
  'tacticalActionAllowed','tacticalIsMeleeEngaged','tacticalClearMeleeEngagement','isBicycleTacticalSquad',
- 'tacticalMaybeAutoRetreat','processTacticalRouts','tacticalRetreatUnit','tacticalRemoveUnitFromMap',
- 'getAP','getMaxAP','hasBicycleBlitz','spendAP','resetAP','getHexNeighbors','getMovementCost','calculateReachableHexes','recalcReachable','shouldShowTacticalReachability',
+ 'tacticalMarkTacticalHexOccupied','tacticalMarkTacticalSquadDestroyedHex','tacticalInitializeBattleOccupancyHistory','tacticalInitializeSquadMorale','tacticalInitializeBattleMorale','tacticalMoraleScale','tacticalMoraleCurrent','tacticalEffectiveMoraleForSquad','tacticalMoraleIsSuppressed','tacticalMoraleIsCritical','tacticalSquadIsSuppressed','tacticalChangeMorale','tacticalMoraleBattleKey','tacticalRecordNearbyMoraleLoss','tacticalApplyFighterMoraleLoss',
+ 'tacticalMaybeAutoRetreat','tacticalHasLiveHeadquartersFor','tacticalPlatoonSquadsFor','tacticalHeadquartersIsLost','tacticalApplyHeadquartersLossMoralePenalty','tacticalApplyHeadquartersLossMoralePenalties','tacticalMapEdgeHexKeys','tacticalMaraudingBlocksAction','tacticalSquadHasStubbornCard','tacticalPlayerRetreatSquads','tacticalPlayerRetreatBlockedByStubborn','updateTacticalBattleRetreatButton','tacticalStubbornAtStartingHex','tacticalIsHeadquartersSquad','processTacticalRouts','tacticalRetreatUnit','tacticalRemoveUnitFromMap',
+ 'getAP','getMaxAP','hasBicycleBlitz','tacticalSquadHasCard','tacticalTaalkwetieApPenalty','tacticalDogSledEligible','spendAP','resetAP','getHexNeighbors','getMovementCost','calculateReachableHexes','recalcReachable','shouldShowTacticalReachability',
  'getOpHexNeighbors','getOpMoveCost','getOpPlannedMoveCost','getRouteToTarget','buildOrderRoute','operationalBicycleUnitSide','operationalBicycleParkCell','setOperationalBicyclePark','operationalBicycleParkOwners','operationalBicycleParkBelongsTo','removeOperationalBicyclePark','resolveBicycleParkCaptures','autoDismountOperational','validateRoute',
- 'getTacticalBattleAnchor','getTacticalTargetDistance','throwGrenades','meleeAttack','finishBattle',
+ 'getTacticalBattleAnchor','getTacticalTargetDistance','throwGrenades','meleeAttack','retreatFromBattle','finishBattle',
  // ⚡ v13.065: рукопашная по фактической дистанции — хелперы должны быть в песочнице
  'tacticalSquadHexPosition','tacticalSquadsDistance','tacticalSquadIsAlive','tacticalSquadsInSameHex',
  'tacticalAutoEngageMelee','tacticalEnemyHexHasFriendlies','tacticalMeleeTarget',
@@ -112,11 +113,55 @@ test('Бой привязан к гексу обороняющегося, в т�
  const s=fresh();s.run(`var p=[{col:2,row:3}],e=[{col:4,row:3}];`);assert.equal(s.evalCtx("JSON.stringify(getTacticalBattleAnchor(p,e))"),' {"col":4,"row":3}'.trim());
  s.run(`var pendingBattleEntry={attackerSide:'enemy'};`);assert.equal(s.evalCtx('getTacticalBattleAnchor(p,e).col'),2);
 });
-test('При красном духе отряд остается целью и отступает за ОД только в свою фазу до края',()=>{
- const s=fresh();s.run(`grid(8);var u=squad('inf');u.currentMorale=1;appData.squads=[u];actionPoints=[{ap:2,maxAp:6}];appData.map.grid['5,4'].squadIds=[0];tacticalMaybeAutoRetreat(u,'player',0);`);
- assert(s.evalCtx('u.isRouting && !u.isRetreated'));
- s.run("processTacticalRouts('player')");assert(!s.evalCtx('u.isRetreated'));assert.equal(s.evalCtx('getAP(0)'),0);
- s.run(`actionPoints[0].ap=20;processTacticalRouts('player')`);assert(s.evalCtx('u.isRetreated'));assert(s.evalCtx('Object.values(appData.map.grid).every(c=>!c.squadIds.includes(0))'));
+test('Моральный отход выбирает ближайший доступный штаб или край карты',()=>{
+ const edge=fresh();edge.run(`grid(8);var u=squad('inf');u.opUnitName='Пехотный взвод';u.currentMorale=0;u.hexPos=[5,4];appData.squads=[u];actionPoints=[{ap:20,maxAp:6}];appData.map.grid['5,4'].squadIds=[0];var noHqRoute=tacticalMaybeAutoRetreat(u,'player',0);processTacticalRouts('player');`);
+ assert(edge.evalCtx('noHqRoute'));assert(edge.evalCtx('u.isRetreated'));assert.equal(edge.evalCtx('u.tacticalRetreatDestination'),'edge');
+ assert(edge.evalCtx("tacticalMapEdgeHexKeys(appData.map).includes(u.tacticalRetreatDestinationHexKey)"));
+ const hq=fresh();hq.run(`grid(8);var u=squad('inf');u.opUnitName='Пехотный взвод';u.currentMorale=0;u.hexPos=[5,4];var command=squad('Штаб роты');command.opUnitName=u.opUnitName;command.hexPos=[5,5];appData.squads=[u,command];actionPoints=[{ap:20,maxAp:6},{ap:6,maxAp:6}];appData.map.grid['5,4'].squadIds=[0];appData.map.grid['5,5'].squadIds=[1];var withHqRoute=tacticalMaybeAutoRetreat(u,'player',0);processTacticalRouts('player');`);
+ assert(hq.evalCtx('withHqRoute'));assert(hq.evalCtx('u.isRetreated'));assert.equal(hq.evalCtx("u.tacticalRetreatDestination"),'headquarters');
+});
+test('«Упрямство» без живого штаба удерживает текущий гекс до уничтожения',()=>{
+ const s=fresh();s.run(`grid(8);var u=squad('Упрямый отряд');u.opUnitName='Пехотный взвод';u.currentMorale=0;u.hexPos=[5,4];u.effects={stubborn:true};u.tacticalStartHexKey='4,4';appData.squads=[u];actionPoints=[{ap:20,maxAp:6}];appData.map.grid['5,4'].squadIds=[0];var route=tacticalMaybeAutoRetreat(u,'player',0);processTacticalRouts('player');`);
+ assert(!s.evalCtx('route'));assert(!s.evalCtx('u.isRouting || u.isRetreated || u.isSurrendered'));assert.equal(s.evalCtx('u.hexPos.join(",")'),'5,4');
+});
+test('«Упрямство» отступает к живому штабу, но не сдвигается со стартового гекса',()=>{
+ const withHq=fresh();withHq.run(`grid(8);var u=squad('Упрямый отряд'),hq=squad('Штаб роты');u.opUnitName=hq.opUnitName='Пехотный взвод';u.currentMorale=0;u.hexPos=[5,4];u.tacticalStartHexKey='4,4';u.effects={stubborn:true};hq.hexPos=[5,5];appData.squads=[u,hq];actionPoints=[{ap:20,maxAp:6},{ap:6,maxAp:6}];appData.map.grid['5,4'].squadIds=[0];appData.map.grid['5,5'].squadIds=[1];var routed=tacticalMaybeAutoRetreat(u,'player',0);processTacticalRouts('player');`);
+ assert(withHq.evalCtx('routed && u.isRetreated'));assert.equal(withHq.evalCtx('u.tacticalRetreatDestination'),'headquarters');
+ const atStart=fresh();atStart.run(`grid(8);var u=squad('Упрямый отряд'),hq=squad('Штаб роты');u.opUnitName=hq.opUnitName='Пехотный взвод';u.currentMorale=0;u.hexPos=[5,4];u.tacticalStartHexKey='5,4';u.effects={stubborn:true};hq.hexPos=[5,5];appData.squads=[u,hq];actionPoints=[{ap:20,maxAp:6},{ap:6,maxAp:6}];appData.map.grid['5,4'].squadIds=[0];appData.map.grid['5,5'].squadIds=[1];var routed=tacticalMaybeAutoRetreat(u,'player',0);processTacticalRouts('player');`);
+ assert(!atStart.evalCtx('routed'));assert(!atStart.evalCtx('u.isRouting || u.isRetreated'));assert.equal(atStart.evalCtx('u.hexPos.join(",")'),'5,4');
+});
+test('Общая кнопка отхода отключена только при полностью упрямом составе и обновляет оба элемента',()=>{
+ const s=fresh();s.run(`var retreatButtons=[{disabled:false,title:'',attrs:{},setAttribute(k,v){this.attrs[k]=v}},{disabled:false,title:'',attrs:{},setAttribute(k,v){this.attrs[k]=v}}];
+  document.querySelectorAll=selector=>selector==='#btnRetreatBattle'?retreatButtons:[];
+  appData.squads=[squad('stubborn-1'),squad('stubborn-2')];appData.squads.forEach(u=>u.effects={stubborn:true});`);
+ assert(s.evalCtx('tacticalPlayerRetreatBlockedByStubborn()'));assert(s.evalCtx('updateTacticalBattleRetreatButton()'));
+ assert(s.evalCtx('retreatButtons.length===2 && retreatButtons.every(b=>b.disabled && b.attrs["aria-disabled"]==="true")'));
+ s.run(`appData.squads[1].effects.stubborn=false;updateTacticalBattleRetreatButton()`);
+ assert(!s.evalCtx('tacticalPlayerRetreatBlockedByStubborn()'));
+ assert(s.evalCtx('retreatButtons.every(b=>!b.disabled && b.attrs["aria-disabled"]==="false" && b.title.includes("обычные"))'));
+ s.run(`appData.squads[1].fighters.forEach(f=>f.hp=0);updateTacticalBattleRetreatButton()`);
+ assert(s.evalCtx('tacticalPlayerRetreatBlockedByStubborn()'));
+ assert(s.evalCtx('retreatButtons.every(b=>b.disabled)'));
+ s.run(`appData.squads.forEach(u=>u.fighters.forEach(f=>f.hp=0));updateTacticalBattleRetreatButton()`);
+ assert(!s.evalCtx('tacticalPlayerRetreatBlockedByStubborn()'));
+});
+test('При смешанном составе общий отход эвакуирует обычные отряды и оставляет упрямые в бою',()=>{
+ const s=fresh();s.run(`var ordinary=squad('ordinary'),stubborn=squad('stubborn');stubborn.effects={stubborn:true};
+  appData.squads=[ordinary,stubborn];appData.map={grid:{},enemySquads:[]};appData.currentBattleId=17;appData.campaign.activeBattles=[{id:17}];
+  var actionPoints=[];var currentTurn=1;deepCloneGameData=data=>JSON.parse(JSON.stringify(data));syncBattleLossesToCampaign=()=>{};
+  tacticalRetreatUnit=unit=>{unit.isRetreated=true;return true;};var retreatResult=retreatFromBattle();`);
+ assert(s.evalCtx('retreatResult'));
+ assert(s.evalCtx('ordinary.isRetreated && !stubborn.isRetreated'));
+ assert(s.evalCtx('appData.campaign.activeBattles.length===1'));
+ assert(s.logs.some(x=>x.includes('Частичное отступление')));
+});
+test('Потеря штаба разово снижает мораль всех живых отделений взвода на 2',()=>{
+ const s=fresh();s.run(`grid(8);var a=squad('a'),hq=squad('Штаб взвода'),b=squad('b');a.opUnitName=hq.opUnitName=b.opUnitName='Пехотный взвод';a.baseMorale=a.tacticalMoraleMax=10;b.baseMorale=b.tacticalMoraleMax=10;a.currentMorale=8;b.currentMorale=7;hq.isDestroyed=true;hq.fighters.forEach(f=>f.hp=0);appData.squads=[a,hq,b];appData.map.grid['2,2'].squadIds=[0];appData.map.grid['3,2'].squadIds=[1];appData.map.grid['4,2'].squadIds=[2];var first=tacticalApplyHeadquartersLossMoralePenalty(hq,'player');var afterFirst=[a.currentMorale,b.currentMorale];var second=tacticalApplyHeadquartersLossMoralePenalty(hq,'player');`);
+ assert(s.evalCtx('first'));assert.equal(JSON.stringify(s.evalCtx('afterFirst')),'[6,5]');assert(!s.evalCtx('second'));assert.equal(JSON.stringify(s.evalCtx('[a.currentMorale,b.currentMorale]')),'[6,5]');
+ const retreated=fresh();retreated.run(`grid(8);var u=squad('inf'),hq=squad('Штаб роты');u.opUnitName=hq.opUnitName='Пехотный взвод';u.currentMorale=6;appData.squads=[u,hq];appData.map.grid['2,2'].squadIds=[0,1];var removed=tacticalRetreatUnit(hq,'player',1,'command');`);
+ assert(retreated.evalCtx('removed'));assert.equal(retreated.evalCtx('u.currentMorale'),4);
+ const killed=fresh();killed.run(`var u=squad('inf'),hq=squad('Штаб взвода');u.opUnitName=hq.opUnitName='Пехотный взвод';u.currentMorale=6;appData.squads=[u,hq];var damage={killed:[],wounded:[],damage:0,notes:[]};applyDamagePointsToEnemy(hq,12,damage);`);
+ assert(killed.evalCtx('hq.isDestroyed'));assert.equal(killed.evalCtx('u.currentMorale'),4);
 });
 test('Спешивание перед непроходимой велосипеду местностью и обход непроходимой точки',()=>{
  const s=fresh();s.run(`appData.campaign.opMapGrid={'1,0':{types:['hill'],markers:[]}};var bike={name:'b',col:0,row:0,mobility:'bicycle',squads:[squad('Самокатный')]};`);
@@ -150,7 +195,7 @@ test('Два тактических клиента: снимки фаз и по�
  for (const [client,mine,opp,id,attacker] of [[a,'A','B',1,'player'],[b,'B','A',2,'enemy']]) {
   client.run(`grid(6);appData.currentTime=0;appData.campaign.opTurnStartTime=0;appData.campaign.online=true;
    appData.squads=[squad('${mine}')];appData.map.enemySquads=[squad('${opp}')];
-   appData.squads[0].currentMorale=2;appData.map.enemySquads[0].currentMorale=2;
+   appData.squads[0].currentMorale=1;appData.map.enemySquads[0].currentMorale=2;
    appData.map.grid['2,2'].squadIds=[0];appData.map.grid['2,2'].enemySquadIds=[0];
    var battle={id:${id},hexKey:'3,3',activeSide:'${attacker}',phaseRevision:0,currentTurn:1,
     placement:{attackerSide:'${attacker}',phase:'done',playerReady:true,enemyReady:true},
@@ -161,7 +206,7 @@ test('Два тактических клиента: снимки фаз и по�
  const outgoing=a.evalCtx('JSON.stringify(onlineBattleSnapshot(battle))');
  b.run(`var snapshot=${outgoing}; onlineMergeOppBattle(battle,snapshot);onlineMergeOppBattle(battle,snapshot);`);
  assert.equal(b.evalCtx('battle.activeSide'),'player');assert.equal(b.evalCtx('appData.currentTime'),2);
- assert.equal(b.evalCtx('appData.squads[0].currentMorale'),1);assert(b.evalCtx('appData.squads[0].isRouting && !appData.squads[0].isRetreated'));
+ assert.equal(b.evalCtx('appData.squads[0].currentMorale'),0);assert(b.evalCtx('appData.squads[0].isRouting && !appData.squads[0].isRetreated'));
  assert(b.evalCtx('tacticalIsMeleeEngaged(appData.squads[0])'));
  assert.equal(b.evalCtx('getAP(0)'),6);
  const stale=b.evalCtx('JSON.stringify(onlineBattleSnapshot(battle))');

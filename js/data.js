@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.097 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.098 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.061: current release data and terrain definitions; absent texture variants no longer referenced.
 // ==================== КОНСТАНТЫ И ДАННЫЕ ==================== 
 // Типы местности
@@ -582,6 +582,7 @@ const markerIconMap = {
   'noise':                  { icon: 'images/markers/noise.png',                 fallback: '🔊', width: 30, height: 30 },
   'artillery':              { icon: 'images/markers/artillery.png',             fallback: '💥', width: 30, height: 30 },
   'fireField':              { icon: 'images/BeVe/горящее поле.png',             fallback: '🔥', width: 30, height: 30 },
+  'fireFieldBurning':       { icon: 'images/BeVe/горящее поле.png',             fallback: '🔥', width: 30, height: 30 },
   'bicyclePark':            { icon: 'images/BeVe/велостоянка метка.png',        fallback: '🚲', width: 30, height: 30 },
   'ammoPoint':              { icon: 'images/markers/ammoPoint.png',             fallback: '📦', width: 30, height: 30 },
   'destroyedVehicle':       { icon: 'images/подбитый танк аирф.png',            fallback: '🔥', width: 30, height: 30 },

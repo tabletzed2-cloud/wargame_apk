@@ -357,6 +357,9 @@ function openPlacementPhase(battle) {
 function battleStartUI(battle) {
     battle = battle || getCurrentBattleRecord();
     if (!battle) return;
+    if (battle.placement && battle.placement.phase === 'done' && typeof tacticalCaptureStartingHexes === 'function') {
+        try { if (tacticalCaptureStartingHexes(battle)) saveData(); } catch (e) {}
+    }
     if (placementNeedsMyAction(battle)) { openPlacementPhase(battle); return; }
     if (!battle.cardsChosen && typeof openCardsTabForBattleStart === 'function') openCardsTabForBattleStart();
 }
@@ -498,7 +501,18 @@ function placementFinish() {
 function placementAnnounceDone(battle) {
     battle = battle || getCurrentBattleRecord();
     const p = battle && battle.placement;
-    if (!p || p.phase !== 'done' || p.announced) return;
+    if (!p || p.phase !== 'done') return;
+    let capturedStartHexes = false;
+    try { if (typeof tacticalCaptureStartingHexes === 'function') capturedStartHexes = tacticalCaptureStartingHexes(battle); } catch (e) {}
+    try {
+        if (typeof tacticalInitializeBattleOccupancyHistory === 'function') {
+            tacticalInitializeBattleOccupancyHistory(battle.tacticalMap || (appData && appData.map), battle.playerSquads || [],
+                (battle.tacticalMap && battle.tacticalMap.enemySquads) || battle.enemySquads || []);
+        }
+        if (typeof tacticalInitializeBattleMorale === 'function' && battle.cardsChosen !== false) tacticalInitializeBattleMorale(battle);
+    } catch (e) {}
+    if (capturedStartHexes) { try { if (typeof saveData === 'function') saveData(); } catch (e) {} }
+    if (p.announced) return;
     p.announced = true;
     const hp = String(battle.hexKey || '').split(',');
     const msg = `⚔️ Размещение завершено — бой на гексе (${hp[0]},${hp[1]}) начинается!` +

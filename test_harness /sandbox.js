@@ -106,6 +106,10 @@ function createSandbox(appData) {
         updateTacticalTurnUI: () => {},
         getTacticalActiveSide: () => 'player',
         tacticalActionAllowed: () => true,
+        // Safe defaults for isolated legacy tests; the real helpers are extracted by morale regressions.
+        tacticalMoraleIsSuppressed: () => false,
+        tacticalSquadIsSuppressed: (squad) => !!(squad && squad.suppressed),
+        tacticalHasLiveHeadquartersFor: () => false,
         updateOpPlaceSelect: () => {},
         cancelOpShooting: () => {},
         updateOrderWaypointsDisplay: () => {},
@@ -164,7 +168,7 @@ function createSandbox(appData) {
     vm.runInContext('function rollD6() { return Math.floor(Math.random() * 6) + 1; }\n' +
                     'function rollD10() { return Math.floor(Math.random() * 10) + 1; }\n' +
                     'const OPERATIONAL_MORALE_MAX = 100; const OPERATIONAL_MORALE_ROUT_THRESHOLD = 25; const OPERATIONAL_MORALE_RALLY_THRESHOLD = 50;\n' +
-                    'var APP_VERSION = "v13.097"; // дубль глобала из index.html (вне извлечения FNS)', ctx);
+                    'var APP_VERSION = "v13.098"; // дубль глобала из index.html (вне извлечения FNS)', ctx);
     // js-модули игры
     for (const f of ['js/weapons.js', 'js/data.js', 'js/hexmaps.js', 'js/cards.js', 'js/templates.js']) {
         vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });

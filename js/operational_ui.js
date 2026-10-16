@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.097 — embarked orders wait, resumable card draft, visible tactical rounds and operational pause.
+// ⚡ BUILD-МАРКЕР: v13.098 — embarked orders wait, resumable card draft, visible tactical rounds and operational pause.
 (function () {
   'use strict';
 
@@ -968,6 +968,21 @@
   }
   function canIssueSpecial(unit, action) {
     if (!unit) return false;
+    if (action === 'pour_oil') {
+      if (typeof campaignUnitHasCard !== 'function' || !campaignUnitHasCard(unit, 'Огненное поле')) return false;
+      if (unit.isDestroyed || unit.embarkedInBtr || unit.col == null || unit.fireFieldOrderState) return false;
+      const id = units().indexOf(unit);
+      const pending = typeof getAllOrdersList === 'function' && getAllOrdersList().some(order => {
+        if (!order || order.status === 'cancelled' || order.status === 'completed') return false;
+        const recipients = order.type === 'company_order'
+          ? (Array.isArray(order.subUnitIdsAll) ? order.subUnitIdsAll : order.subUnitIds || [])
+          : [order.toUnitId];
+        if (!recipients.some(value => Number(value) === id)) return false;
+        const steps = order.type === 'series' && Array.isArray(order.series) ? order.series : [order];
+        return steps.some(step => step && step.type === 'pour_oil' && step.status !== 'completed' && step.status !== 'cancelled');
+      });
+      return !pending;
+    }
     if (action === 'recon') return !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
     if (action === 'dig_in' || action === 'prep_positions') return !(typeof isVehicleMobilityUnit === 'function' && isVehicleMobilityUnit(unit)) && !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
     if (action === 'dismount') return (unit.mobility === 'bicycle' || unit.mobility === 'motorcycle') && !unit.dismounted;
@@ -1048,7 +1063,7 @@
   function beginDraft(category, mode) {
     const picked = selectedUnit();
     if (!picked.unit || picked.id < 0) return;
-    const specialActions = ['dig_in', 'prep_positions', 'embark', 'disembark', 'dismount', 'remount'];
+    const specialActions = ['dig_in', 'prep_positions', 'embark', 'disembark', 'dismount', 'remount', 'pour_oil'];
     const firstSpecial = category === 'special'
       ? (specialActions.find(action => canIssueSpecial(picked.unit, action)) || 'dig_in') : '';
     state.draft = {
@@ -1134,7 +1149,7 @@
         ['embark', '🚌 Сесть в БТР'],
         // ⚡ v13.089 (пункт 3): машине — «высадить десант», десанту — «выйти из БТР»
         ['disembark', (isBtrUnit(unit) && !unit.embarkedInBtr) ? '🚌 Высадить десант' : '🚶 Выйти из БТР'],
-        ['dismount', '🚲 Спешиться'], ['remount', '🚴 Сесть на велосипеды']
+        ['dismount', '🚲 Спешиться'], ['remount', '🚴 Сесть на велосипеды'], ['pour_oil', '🛢️ Разлить нефть']
       ];
       body += `<label class="op-cmd-field">Действие<select data-draft-field="specialAction">` +
         actions.map(([value, label]) => `<option value="${value}"${draft.specialAction === value ? ' selected' : ''}${canIssueSpecial(unit, value) ? '' : ' disabled'}>${label}</option>`).join('') + `</select></label>`;
@@ -1159,6 +1174,9 @@
         body += `<div class="op-cmd-note">Приказ получит БТР: доедет до гекса, выпустит отряд и продолжит свои приказы. ` +
           `Высаженный отряд дальше выполняет свою серию приказов.</div>`;
         if (state.mapPick === 'special') body += mapPickHint();
+      }
+      if (draft.specialAction === 'pour_oil') {
+        body += `<div class="op-cmd-note">После выполнения приказа откройте редактор местности и отметьте любые три клетки тактической карты. До срабатывания метки видны только вашему игроку; противник может свободно пройти по ним.</div>`;
       }
       body += contactField(draft.behavior) + timeField(draft.time);
     } else if (draft.category === 'artillery') {
@@ -1516,6 +1534,11 @@
       // ⚡ v13.088 (пункт 3): «Выйти из БТР» доступно и отряду с приказом «Сесть в БТР»
       if (type === 'disembark' && !canIssueSpecial(unit, 'disembark')) {
         throw new Error('Выберите десант в БТР, отряд с приказом посадки или сам БТР с десантом.');
+      }
+      if (type === 'pour_oil') {
+        if (!campaignUnitHasCard(unit, 'Огненное поле')) throw new Error('Приказ доступен только взводу с картой «Огненное поле».');
+        if (!options.startHex) throw new Error('Нужно выбрать расположенный на карте взвод.');
+        options.targetHex = options.startHex;
       }
     } else {
       throw new Error('Неизвестный тип приказа.');
