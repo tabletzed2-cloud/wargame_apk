@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.099 — операция</title>
+  <title>Боевой модуль v13.100 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -98,7 +98,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.099</h1>
+    <h1>⚔️ Боевой модуль v13.100</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -111,7 +111,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.099</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.100</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -162,7 +162,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.099 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.100 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -196,7 +196,10 @@
     <div id="embarkPanel" style="display:none; margin:8px 0; background:#2a2a2a; padding:8px; border-radius:6px;"></div>
         <div id="squadContainer">Загрузка...</div>
         <div style="margin:8px 0; background:#2a2a2a; padding:8px; border-radius:6px;">
-  <strong>Раунд: <span id="turnCounter">1</span></strong> |
+  <!-- ⚡ v13.100 (п.7): счётчик РАУНДОВ боя (раунд = фаза атакующего + фаза
+       обороняющегося), а не номер фазы: 5 раундов = 10 фаз = один оперативный ход -->
+  <strong>Раунд: <span id="turnCounter">1</span>/<span id="turnCounterMax">5</span></strong>
+  <span id="turnPhaseLabel" style="color:#999; font-size:0.85rem;"></span> |
   ОД: <strong id="apDisplay">0</strong>/<strong id="maxApDisplay">0</strong>
   <span id="tacticalTurnStatus" style="margin:0 6px; font-weight:bold;"></span>
   <button onclick="nextTurn()" style="background:#2980b9;">⏭️ Завершить ход</button>
@@ -506,7 +509,16 @@ function safeLocalStorage(method, ...args) {
 //    направлению, зона высадки 2 гекса, правила ДОТа (только амбразуры/дверь),
 //    огонь по гексу и цели, легенда «?», подсветка миникарты, доставка грузов,
 //    радиоперехват приказа, выход из боя по отряду и отмена только текущей фазы.
-var APP_VERSION = 'v13.099';
+// v13.100: отчёт тестировщика п.1–11 — карта гекса сразу при «окопаться»/«расчистить»,
+//    возврат закрытого меню раздачи карт, необнаруженные цели не раскрываются ни в
+//    отчётах, ни в уведомлениях, у ДОТа Van Hees 2 амбразуры (по числу расчётов),
+//    пункт боепитания противника скрыт до обнаружения, стрельба в бою не блокируется
+//    зависшим локом движения/ложной рукопашной (отказ объясняется настоящей причиной),
+//    подавление — одно отделение на один раунд, счётчик раундов 1/5 (2 фазы = раунд,
+//    5 раундов = оперативный ход), вражеский ДОТ виден в бою, ДОТ с целой дверью не
+//    втягивается в рукопашную и продолжает стрелять, «закрепиться и ждать» сначала
+//    идёт до конечной точки, обстрел гекса — залп по площади (метка areaFire).
+var APP_VERSION = 'v13.100';
 // v13.097: миграции/Hard Mode могут сохранять данные ещё до возврата на сохранённый экран.
 var uiRestorePending = true;
 
@@ -1479,6 +1491,13 @@ function closeInitialCardDistributionStage(skipConfirm) {
   }
   overlay.style.display = 'none';
   if (campaign) campaign.initialCardStageMinimized = false;
+  // ⚡ v13.100 (п.2): если игрок закрыл меню, пока раздача не завершена — внизу
+  //    остаётся кнопка возврата, поэтому меню не «теряется».
+  const cardsStillPending = !!(campaign && campaign.opSetupStage === 'cards' && !campaign.initialPlatoonCardsAssigned);
+  if (cardsStillPending) {
+    try { log('🎖️ Меню раздачи карт закрыто. Кнопка «🎖️ Раздача карт — вернуться в меню» внизу экрана вернёт его с прежним выбором.'); } catch (e) {}
+    try { if (typeof toast === 'function') toast('🎖️ Раздача карт: меню можно вернуть кнопкой внизу экрана', 'info'); } catch (e) {}
+  }
   if (typeof updateInitialCardStageRestoreBar === 'function') updateInitialCardStageRestoreBar();
   return true;
 }
@@ -1505,17 +1524,18 @@ function restoreInitialCardDistributionStage() {
   if (typeof updateInitialCardStageRestoreBar === 'function') updateInitialCardStageRestoreBar();
   return result;
 }
-// Плавающая кнопка «вернуться к раздаче карт»: показывается, только если меню
-// свёрнуто и раздача ещё не завершена.
+// Плавающая кнопка «вернуться к раздаче карт».
+// ⚡ v13.100 (п.2): показывается ВСЕГДА, пока идёт этап раздачи карт и раздача не
+//    завершена, а меню скрыто — даже если игрок закрыл его «насовсем», а не свернул:
+//    случайно закрытое меню раздачи стартовых карточек можно вернуть в один клик.
 function updateInitialCardStageRestoreBar() {
   if (typeof document === 'undefined' || !document.body) return;
   const campaign = appData && appData.campaign;
   const overlay = document.getElementById('initialCardStageOverlay');
   const overlayVisible = !!(overlay && overlay.style.display !== 'none');
   const cardsStage = !!(campaign && campaign.opSetupStage === 'cards' && !campaign.initialPlatoonCardsAssigned);
-  const minimized = !!(campaign && campaign.initialCardStageMinimized);
   let bar = document.getElementById('initialCardStageRestoreBar');
-  if (!cardsStage || !minimized || overlayVisible) {
+  if (!cardsStage || overlayVisible) {
     if (bar) bar.style.display = 'none';
     return;
   }
@@ -1526,7 +1546,7 @@ function updateInitialCardStageRestoreBar() {
   }
   const selected = Array.from(document.querySelectorAll('.initial-campaign-card:checked')).length;
   bar.innerHTML = '<button type="button" onclick="restoreInitialCardDistributionStage()" style="background:#8e44ad;">🎖️ Раздача карт — вернуться в меню</button>' +
-    `<span style="color:#ddd; font-size:0.78rem;">Выбрано карт: ${selected}. Меню можно свернуть и развернуть сколько угодно раз — выбор сохраняется.</span>`;
+    `<span style="color:#ddd; font-size:0.78rem;">Выбрано карт: ${selected}. Меню можно закрывать и вызывать заново сколько угодно раз — выбор сохраняется.</span>`;
   bar.style.display = 'flex';
 }
 // v13.097: сохраняем только видимый черновик; скрытый старый DOM не затирает сейв.
@@ -3528,7 +3548,11 @@ if (appData.campaign.opUnits) {
             if (typeof isHexRemovedFromOperationalMap === 'function' &&
                 isHexRemovedFromOperationalMap(appData.campaign && appData.campaign.scenario, col, row)) continue;
             const key = `${col},${row}`;
-            const hexData = appData.campaign.opMapGrid[key];
+            // ⚡ v13.100 (п.11): opMapGrid может быть null (кампания без карты
+            //    гексов) — без проверки весь redrawOperationalMapNow падал с
+            //    «Cannot read properties of null (reading '0,0')».
+            const opGrid = appData.campaign && appData.campaign.opMapGrid;
+            const hexData = opGrid ? opGrid[key] : null;
             if (!hexData) continue;
 
             const markers = hexData.markers;
@@ -5160,7 +5184,7 @@ function initOpMapLegend() {
   const pf = (camp && camp.playerFaction) ? camp.playerFaction : '';
   // v13.099 (п.22): набор знаков легенды входит в подпись — иначе легенда не
   // перерисовалась бы после добавления пункта боепитания, огня и ДОТа.
-  const sig = 'pf:' + pf + ':v13099';
+  const sig = 'pf:' + pf + ':v13100';
   if (sig === opMapLegendSig && box.children.length) return;
   opMapLegendSig = sig;
   const dpr = (typeof pickCanvasDpr === 'function') ? Math.max(1, Math.min(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1)) : 1;
@@ -7829,8 +7853,10 @@ function checkIdleUnits() {
         //    правилам миномётов, ПТО — броня в приоритете, иначе пехота
         //    по правилам лёгкой артиллерии. ОД не тратятся.
         //    (ОД больше не блокируют: огонь открывается сразу.)
+        // ⚡ v13.100 (п.10): «закрепиться и ждать — огонь с 1 гекса»: без
+        //    сохранённого значения под-приказа дистанция ответного огня — 1 гекс.
         const holdRange = (behavior === 'hold' && unit.holdFireDistance != null && Number.isFinite(Number(unit.holdFireDistance)))
-            ? Number(unit.holdFireDistance) : 3;
+            ? Number(unit.holdFireDistance) : (behavior === 'hold' ? 1 : 3);
         if (unitAutoFire(unit, holdRange)) {
             log(`🎯 [${unit.name}] Автоматический огонь!`);
         }
@@ -8182,6 +8208,12 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
     linkBtrPassengers(enemySquads, enemyUnits);
     playerSquads.forEach(s => { if (s) s.detected = false; });
     enemySquads.forEach(s => { if (s) s.detected = false; });
+    // ⚡ v13.100 (п.8): ДОТ противника — стационарное укрепление на гексе, его
+    //    позиция известна: он НЕ прячется и должен отображаться на тактической
+    //    карте (иначе его нельзя ни обстрелять артиллерией, ни штурмовать).
+    const fixedFort = (sq) => (typeof tacticalSquadIsFixedFortification === 'function') && tacticalSquadIsFixedFortification(sq);
+    enemySquads.forEach(s => { if (s && fixedFort(s)) s.detected = true; });
+    playerSquads.forEach(s => { if (s && fixedFort(s)) s.detected = true; });
 
     // ⚡ ПРОВЕРКА: если нет отрядов для боя - создаем минимальные
     if (playerSquads.length === 0) {
@@ -11235,17 +11267,29 @@ function finishBattleByNumericalSuperiority() {
   finishBattle();
   return true;
 }
+// ⚡ v13.100 (п.6/п.9): рукопашная — только когда у ОБОИХ отрядов ИЗВЕСТНА
+//    позиция и они реально стоят в одном гексе. Раньше неизвестная позиция
+//    (`!a || !b`) считалась рукопашной — любой отряд «залипал» в ней и не мог
+//    ни стрелять, ни действовать. ДОТ с целой дверью в рукопашную вообще не
+//    втягивается: он продолжает вести огонь по другим подразделениям.
+function tacticalDotMeleeImmune(squad) {
+  if (!squad) return false;
+  const isDot = nm => /дот|дзот|бункер/i.test(String(nm || ''));
+  return isDot(squad.name) && !squad.dotDoorDestroyed;
+}
 function tacticalIsMeleeEngaged(squad) {
   if (!squad || tacticalEnemyIsNeutralized(squad)) return false;
   const enemies = (appData.map && appData.map.enemySquads) || [];
   const others = enemies.includes(squad) ? (appData.squads || []) : enemies;
   return others.some(other => {
     if (!other || tacticalEnemyIsNeutralized(other) || !(squad.meleeOpponentName === other.name || other.meleeOpponentName === squad.name)) return false;
+    if (tacticalDotMeleeImmune(squad) || tacticalDotMeleeImmune(other)) return false;
     const isEnemy = enemies.includes(squad);
     const ownList = isEnemy ? enemies : appData.squads;
     const a = getBattleSquadHex(appData.map.grid, ownList.indexOf(squad), isEnemy);
     const b = getBattleSquadHex(appData.map.grid, others.indexOf(other), !isEnemy);
-    return !a || !b || a.key === b.key;
+    if (!a || !b) return false;              // нет позиции — рукопашной нет
+    return a.key === b.key;
   });
 }
 function tacticalClearMeleeEngagement(squad) {
@@ -11427,8 +11471,19 @@ function tacticalAutoEngageMelee(squad) {
   }
   const contacts = tacticalSquadsInSameHex(squad);
   if (!contacts.length) return null;
-  const enemy = contacts[0].squad;
-  const enemyIdx = contacts[0].idx;
+  // ⚡ v13.100 (п.9): отряд, вошедший в гекс ДОТа с ЦЕЛОЙ дверью, в рукопашную
+  //    с ним не вступает — ДОТ остаётся в боевом расчёте и стреляет дальше.
+  const doorIntact = (c => !!(c && c.squad) && /дот|дзот|бункер/i.test(String(c.squad.name || '')) && !c.squad.dotDoorDestroyed);
+  const engageable = contacts.find(c => !doorIntact(c) && !tacticalDotMeleeImmune(squad));
+  if (!engageable) {
+    const dotContact = contacts.find(doorIntact);
+    if (dotContact) {
+      try { log(`🏰 «${squad.name}» в гексе ДОТа «${dotContact.squad.name}»: дверь заперта — рукопашной нет. ДОТ продолжает стрелять (выводите амбразуры или подрывайте дверь).`); } catch (e) {}
+    }
+    return null;
+  }
+  const enemy = engageable.squad;
+  const enemyIdx = engageable.idx;
   squad.meleeOpponentName = enemy.name;
   enemy.meleeOpponentName = squad.name;
   if (contacts[0].isEnemy) {
@@ -11491,8 +11546,14 @@ function battleHasUnitRecord(battle, unit) {
     .concat(Array.isArray(battle.enemyUnitNames) && battle.enemyUnitNames.length ? battle.enemyUnitNames : String(battle.enemyUnitName || '').split(', '));
   return names.filter(Boolean).some(nm => String(nm).trim() === String(unit.name).trim());
 }
+// ⚡ v13.100 (п.6): текст отказа теперь ВСЕГДА настоящая причина, а не общий
+//    список («рукопашная, подавление, фаза противника или размещение»).
+var __tacticalActionRefusal = null;
+function tacticalLastActionRefusal() { return __tacticalActionRefusal; }
 function tacticalActionAllowed(squad, action, quiet) {
+  __tacticalActionRefusal = null;
   const deny = message => {
+    __tacticalActionRefusal = message;
     if (!quiet) {
       try { log('⛔ ' + message); } catch (e) {}
       const info = document.getElementById('mapInfo');
@@ -11501,6 +11562,8 @@ function tacticalActionAllowed(squad, action, quiet) {
     return false;
   };
   if (!squad) return deny('Сначала выберите отряд.');
+  // ⚡ v13.100 (п.6): зависший лок анимации не блокирует действия боя
+  if (typeof releaseStaleTacticalMovementLock === 'function') releaseStaleTacticalMovementLock();
   if (typeof __tacticalMovement !== 'undefined' && __tacticalMovement && !__tacticalMovement.internalSpend) {
     return deny('Дождитесь, пока отряд завершит движение по маршруту.');
   }
@@ -11554,12 +11617,59 @@ function tacticalActionAllowed(squad, action, quiet) {
   }
   return true;
 }
+// ⚡ v13.100 (п.6): подавление действует РОВНО НА ОДНО отделение (то, по которому
+//    вели огонь) и ровно ОДИН раунд. Раньше статус мог «залипнуть» на весь взвод:
+//    метка стороны снималась только вручную, а повторная запись обновляла отряд.
+//    Теперь у подавления есть метка раунда, и оно гаснет по её истечении.
+function tacticalSuppressionRoundStamp() {
+  try {
+    const battle = (typeof getTacticalBattleRecord === 'function') ? getTacticalBattleRecord() : null;
+    if (battle && typeof getTacticalRoundProgress === 'function') {
+      const progress = getTacticalRoundProgress(battle);
+      return { round: progress.round, phases: progress.completed };
+    }
+  } catch (e) {}
+  return { round: 1, phases: Math.max(0, (Number(currentTurn) || 1) - 1) };
+}
 function markTacticalSuppressed(squad, bySide) {
   if (!squad) return false;
+  const stamp = tacticalSuppressionRoundStamp();
   squad.suppressed = true;
   squad.suppressedTurn = (typeof currentTurn === 'number' && Number.isFinite(currentTurn)) ? currentTurn : 1;
+  squad.suppressedRound = stamp.round;
+  squad.suppressedPhases = stamp.phases;
   if (bySide === 'player' || bySide === 'enemy') squad.suppressedBySide = bySide;
   return true;
+}
+// ⚡ v13.100 (п.6): снять подавление, которое уже отыграло свой раунд.
+function expireTacticalSuppression(battle) {
+  const progress = (battle && typeof getTacticalRoundProgress === 'function')
+    ? getTacticalRoundProgress(battle) : null;
+  const currentRound = progress ? progress.round : null;
+  if (!Number.isFinite(currentRound)) return 0;
+  const lists = [
+    (appData && appData.squads) || [],
+    (battle && battle.playerSquads) || [],
+    (appData && appData.map && appData.map.enemySquads) || [],
+    (battle && battle.enemySquads) || [],
+    (battle && battle.tacticalMap && battle.tacticalMap.enemySquads) || []
+  ];
+  const seen = new Set();
+  let cleared = 0;
+  lists.forEach(list => (list || []).forEach(squad => {
+    if (!squad || seen.has(squad) || !squad.suppressed) return;
+    seen.add(squad);
+    const stampedRound = Number(squad.suppressedRound);
+    if (!Number.isFinite(stampedRound)) return;      // старое сохранение — снимет сторона
+    if (currentRound - stampedRound < 1) return;      // раунд ещё не отыгран
+    squad.suppressed = false;
+    delete squad.suppressedTurn;
+    delete squad.suppressedRound;
+    delete squad.suppressedPhases;
+    delete squad.suppressedBySide;
+    cleared++;
+  }));
+  return cleared;
 }
 function clearTacticalSuppressionForSide(side, battle) {
   const arrays = side === 'enemy'
@@ -11769,7 +11879,10 @@ function spendAP(squadIndex, cost, action = 'ap') {
 }
 
 function getMaxShots(squad) {
-  if (squad.name.includes('ДОТ')) return 5;   // ПТО(1) + 2 пулемёта по 2
+  // ⚡ v13.100 (п.4): лимит выстрелов ДОТа — по его амбразурам (Van Hees: 2).
+  if (squad.name.includes('ДОТ')) {
+    return (typeof dotEmbrasureShots === 'function') ? dotEmbrasureShots(squad) : 5;
+  }
   if (squad.name.includes('САУ')) return 3;   // орудие(1) + пулемёт(2)
   if (squad.armor) {
     const hasGun = squad.crewInstances && squad.crewInstances.some(ci => {
@@ -12022,6 +12135,8 @@ if (appData.currentBattleId) {
   if (tacticalBattle && appData.squads.length && appData.squads.every(tacticalEnemyIsNeutralized)) { retreatFromBattle(true); return; }
   appData.currentTurn = currentTurn;
   const tacticalPhasesCompleted = registerCompletedTacticalPhase(tacticalBattle);
+  // ⚡ v13.100 (п.6): подавление живёт 1 раунд — по его истечении статус гаснет
+  try { if (typeof expireTacticalSuppression === 'function') expireTacticalSuppression(tacticalBattle); } catch (e) {}
   updateTacticalRoundUI(tacticalBattle);
   // ⚡ v13.099 (п.9): окно оперативного хода — 5 РАУНДОВ = 10 фаз.
   if (tacticalBattle && tacticalPhasesCompleted >= RPTX_PHASES_PER_WINDOW()) {
@@ -12560,7 +12675,25 @@ const eff = morale + mod + extraMorale;
       // Обновляем отображение ОД и хода
       document.getElementById('apDisplay').innerText = getAP(currentSquadIndex);
       document.getElementById('maxApDisplay').innerText = actionPoints[currentSquadIndex] ? actionPoints[currentSquadIndex].maxAp : 0;
-      document.getElementById('turnCounter').innerText = currentTurn;
+      // ⚡ v13.100 (п.7): показываем НОМЕР РАУНДА (2 фазы = 1 раунд) и чья фаза идёт.
+      {
+        const counterEl = document.getElementById('turnCounter');
+        const maxEl = document.getElementById('turnCounterMax');
+        const phaseEl = document.getElementById('turnPhaseLabel');
+        const battleRec = (typeof getTacticalBattleRecord === 'function') ? getTacticalBattleRecord() : null;
+        const progress = (battleRec && typeof getTacticalRoundProgress === 'function')
+          ? getTacticalRoundProgress(battleRec) : null;
+        if (counterEl) counterEl.innerText = progress ? progress.round : currentTurn;
+        if (maxEl) maxEl.innerText = progress ? progress.roundsPerTurn : 5;
+        if (phaseEl) {
+          const activeSide = (typeof getTacticalActiveSide === 'function') ? getTacticalActiveSide(battleRec) : 'player';
+          const attackerSide = (battleRec && battleRec.placement && battleRec.placement.attackerSide) ||
+            ((appData && appData.map && appData.map.attackerSide) || 'player');
+          phaseEl.innerText = battleRec
+            ? `· фаза ${activeSide === attackerSide ? 'атакующего' : 'обороняющегося'}`
+            : '';
+        }
+      }
       updateActiveCardsBattle();
       const maxShots = getMaxShots(currentSquad);
       const shotsUsed = getShotsUsed(currentSquad);
@@ -13006,15 +13139,22 @@ function tacticalDotBlindedBySmoke(squad) {
     return !!tacticalHexIsSmoky(pos.key, map);
 }
 // Причина, по которой ДОТ не может вести огонь по цели (или null).
+// ⚡ v13.100 (п.9): отряд, вошедший в гекс ДОТа, НЕ выключает ДОТ: пока дверь
+//    цела и амбразуры не ослеплены/не выведены, ДОТ считается боевым расчётом
+//    (не «в рукопашной») и продолжает стрелять по другим подразделениям.
 function tacticalDotFireRefusal(squad, targetKey) {
     if (!tacticalIsDotSquad(squad)) return null;
     if (tacticalDotBlindedBySmoke(squad)) {
         return '🌫️ Дым в гексе ДОТа: амбразуры ослеплены — ДОТ не ведёт огонь, пока стоит дым.';
     }
-    const map = (typeof appData !== 'undefined' && appData) ? appData.map : null;
-    const pos = (typeof tacticalSquadBattlePosition === 'function') ? tacticalSquadBattlePosition(squad, map) : null;
-    if (pos && pos.key && targetKey && String(pos.key) === String(targetKey)) {
-        return '⛔ Отряд ворвался в гекс ДОТа: ДОТ не ведёт огонь по нему (нужна рукопашная через подорванную дверь).';
+    const crews = Array.isArray(squad.crewInstances) ? squad.crewInstances : [];
+    const aliveCrew = (ci) => (ci && Array.isArray(ci.fighterIndices))
+        ? ci.fighterIndices.some(i => squad.fighters && squad.fighters[i] && Number(squad.fighters[i].hp) > 0)
+        : false;
+    const activeEmbrasures = crews.filter(ci => ci && ci.active !== false && ci.status !== 'destroyed' &&
+        ci.status !== 'blinded' && aliveCrew(ci));
+    if (crews.length > 0 && activeEmbrasures.length === 0) {
+        return '⛔ Все амбразуры ДОТа выведены из строя — расчёту стрелять нечем.';
     }
     return null;
 }
@@ -13193,7 +13333,10 @@ function renderActiveCardButtons() {
       return `Лимит выстрелов в этой фазе исчерпан (${getShotsUsed(currentSquad)}/${getMaxShots(currentSquad)}).`;
     }
     if (typeof tacticalActionAllowed === 'function' && !tacticalActionAllowed(currentSquad, 'shoot', true)) {
-      return 'Сейчас стрелять нельзя: рукопашная, подавление по морали, фаза противника или незавершённое размещение.';
+      // ⚡ v13.100 (п.6): показываем НАСТОЯЩУЮ причину отказа (её вернул
+      //    tacticalActionAllowed), а не общий перечень возможных условий.
+      const realReason = (typeof tacticalLastActionRefusal === 'function') ? tacticalLastActionRefusal() : null;
+      return realReason || 'Сейчас стрелять нельзя: условия боя не позволяют открыть огонь.';
     }
     return null;
   })();
@@ -14582,16 +14725,38 @@ function tacticalBuildMovePath(fromKey, targetKey, previous, targetState) {
 // фактически пройденная часть пути.
 var __tacticalMovementToken = 0;
 var __tacticalMovement = null;
+// ⚡ v13.100 (п.6): подвисшая анимация движения больше НЕ блокирует бой навсегда.
+//    Раньше лок `__tacticalMovement` снимался только при совпадении токена, и
+//    прерванный ход (ошибка в шаге, смена карты, закрытие боя) оставлял его
+//    навсегда: стрельба и все действия отказывали ВСЕМ подразделениям с
+//    сообщением про рукопашную/подавление/фазу. Теперь у лока есть метка
+//    времени, а «зависший» лок снимается сам.
+const TACTICAL_MOVEMENT_LOCK_TTL_MS = 15000;
+function tacticalMovementLockStale() {
+  if (!__tacticalMovement) return false;
+  const startedAt = Number(__tacticalMovement.startedAt);
+  if (!Number.isFinite(startedAt) || startedAt <= 0) return false;
+  return (Date.now() - startedAt) > TACTICAL_MOVEMENT_LOCK_TTL_MS;
+}
+function releaseStaleTacticalMovementLock() {
+  if (!tacticalMovementLockStale()) return false;
+  try { console.warn('tacticalMoveAlongPath: снят зависший лок движения', __tacticalMovement && __tacticalMovement.token); } catch (e) {}
+  __tacticalMovement = null;
+  __tacticalMovementToken++;
+  if (appData && appData.map) appData.map.selectedMoveSquadIdx = null;
+  return true;
+}
 function tacticalMoveAlongPath(squadIndex, path, targetKey) {
   const map = appData && appData.map;
   const squad = (appData && appData.squads || [])[squadIndex];
+  if (typeof releaseStaleTacticalMovementLock === 'function') releaseStaleTacticalMovementLock();
   if (!map || !map.grid || !squad || !Array.isArray(path) || !path.length || __tacticalMovement) return false;
   const route = path.map(String);
   const freeStepKey = path.freeStepKey ? String(path.freeStepKey) : null;
   let usedFreeDogStep = false;
   const token = ++__tacticalMovementToken;
   let moved = 0;
-  __tacticalMovement = { token, squadIndex };
+  __tacticalMovement = { token, squadIndex, startedAt: Date.now() };
   map.selectedMoveSquadIdx = squadIndex;
 
   const finish = () => {
@@ -14614,6 +14779,16 @@ function tacticalMoveAlongPath(squadIndex, path, targetKey) {
   const step = () => {
     if (!__tacticalMovement || __tacticalMovement.token !== token) return;
     if (appData.map !== map || appData.squads[squadIndex] !== squad) { finish(); return; }
+    // ⚡ v13.100 (п.6): ошибка внутри шага не должна оставлять лок движения
+    //    навсегда — иначе стрельба и все действия отказывают всей стороне.
+    try { stepInner(); }
+    catch (e) {
+      try { console.warn('tacticalMoveAlongPath step:', e); } catch (err) {}
+      finish();
+    }
+  };
+
+  const stepInner = () => {
     const fromKey = Array.isArray(squad.hexPos) ? `${squad.hexPos[0]},${squad.hexPos[1]}` : null;
     const nextKey = route.shift();
     const fromHex = fromKey && map.grid[fromKey];
@@ -15991,6 +16166,15 @@ if (currentSquad.actionsThisTurn) {
 //    становится уязвим в рукопашной.
 function tacticalIsDotSquad(squad) {
   return !!squad && /дот|дзот|бункер/i.test(String(squad.name || ''));
+}
+// ⚡ v13.100 (п.8): ДОТ/бункер — стационарное укрепление: оно не прячется и
+//    видно на тактической карте (в т.ч. вражеское), пока не уничтожено.
+function tacticalSquadIsFixedFortification(squad) {
+  if (!squad) return false;
+  if (tacticalIsDotSquad(squad)) return true;
+  if (squad.isStatic === true || squad.staticUnit === true) return true;
+  if (squad.fixedTacticalPosition && squad.fixedTacticalPosition.hexKey && /дот|дзот|бункер/i.test(String(squad.name || ''))) return true;
+  return false;
 }
 function tacticalDisableDotEmbrasure(dotSquad, reason) {
   if (!dotSquad) return false;
@@ -20364,7 +20548,9 @@ if (squadIds.length > 0) {
         enemyIds.forEach((enemyId, idx) => {
           const enemy = appData.map.enemySquads[enemyId];
           if (!enemy || enemy.hidden) return;
-          if (!enemy.detected && !enemy.isDestroyed && !enemy.isRetreated && enemy.status !== 'retreated') return;
+          // ⚡ v13.100 (п.8): ДОТ противника виден всегда (укрепление не прячется)
+          const fixedForts = (typeof tacticalSquadIsFixedFortification === 'function') && tacticalSquadIsFixedFortification(enemy);
+          if (!fixedForts && !enemy.detected && !enemy.isDestroyed && !enemy.isRetreated && enemy.status !== 'retreated') return;
           const drawX = startX + idx * (iconSize + 6);
           const drawY = y + size * 0.2;
 
@@ -20431,6 +20617,12 @@ if (!Array.isArray(markers)) {
   if (markers.noise) newMarkers.push('noise');
   markers = newMarkers;
   hexData.markers = markers;
+}
+
+// ⚡ v13.100 (п.5): пункт боепитания противника не рисуется, пока его штаб не
+//    обнаружен своими подразделениями (свой пункт виден всегда).
+if (typeof tacticalVisibleMarkers === 'function') {
+  markers = tacticalVisibleMarkers(appData.map, hexKey, markers);
 }
 
 // ⚡ v13.066: если на клетке стоит настоящий юнит ДОТа или его иконка уже
@@ -22170,8 +22362,9 @@ function executeArtilleryStrikeOrder(order) {
             if (dmg >= 7) {
                 dotEmbrasureHp(t.unit);
                 t.unit.embrasureHp -= 1;
-                log(`   💥 ${t.unit.name}: амбразура повреждена арт. обстрелом (d12=${dmg}, осталось ${Math.max(0, t.unit.embrasureHp)}/3).`);
-                damageLines.push(`💥 ${t.unit.name}: амбразура повреждена (осталось ${Math.max(0, t.unit.embrasureHp)}/3)`);
+                const embMax = dotEmbrasureCount(t.unit);
+                log(`   💥 ${t.unit.name}: амбразура повреждена арт. обстрелом (d12=${dmg}, осталось ${Math.max(0, t.unit.embrasureHp)}/${embMax}).`);
+                damageLines.push(`💥 ${t.unit.name}: амбразура повреждена (осталось ${Math.max(0, t.unit.embrasureHp)}/${embMax})`);
                 if (t.unit.embrasureHp <= 0) {
                     log(`   💥 ${t.unit.name}: амбразура РАЗРУШЕНА — орудие не стреляет (расчёт цел).`);
                     damageLines.push(`💥 ${t.unit.name}: амбразура разрушена`);
@@ -23246,7 +23439,6 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
     // ⚡ v13.099 (п.4): устойчивость к тестовым срезам — скрытие целей
     //    работает, даже если helper не попал в песочницу (extract.js).
     const victimHiddenFn = (typeof opVictimHiddenFromPlayer === 'function') ? opVictimHiddenFromPlayer : () => false;
-    const maskedLabelFn = (typeof opMaskedTargetLabel === 'function') ? opMaskedTargetLabel : () => 'невидимая цель (данные скрыты)';
 
     const aliveFirst = enemies.filter(e => !e.isDestroyed);
     if (aliveFirst.length === 0) return;
@@ -23314,14 +23506,13 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
                 dotHits++;
                 dotEmbrasureHp(victim);
                 victim.embrasureHp -= 1;
-                if (victim.embrasureHp <= 0) {
+                if (victim.embrasureHp <= 0 && !victimHidden) {
+                    // ⚡ v13.100 (п.3): необнаруженная цель не раскрывается даже
+                    //    когда её амбразура разрушена — ни имени, ни уведомления,
+                    //    ни строки «разрушено N» в сводке.
                     dotEmbrasuresDestroyed++;
-                    if (victimHidden) {
-                        log(`💥 ${unit.name}: амбразура «${maskedLabelFn()}» РАЗРУШЕНА (цель не была обнаружена).`);
-                    } else {
                     log(`💥 ${unit.name}: амбразура «${victim.name}» РАЗРУШЕНА — орудие не стреляет (расчёт цел).`);
-                    try { showShootNotification(unit.name, victimHidden ? 'скрытая цель' : victim.name, distance, 0, 0); } catch (e) {}
-                    }
+                    try { showShootNotification(unit.name, victim.name, distance, 0, 0); } catch (e) {}
                 }
                 continue;
             }
@@ -23338,21 +23529,27 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
         }
         // ⚡ Лог засоряем только ИТОГОМ, а не каждым снарядом
     }
-    // ⚡ v13.099 (п.4): урон и потери по НЕВИДИМЫМ целям в отчёт не попадают
+    // ⚡ v13.099 (п.4) / v13.100 (п.3): урон и потери по НЕВИДИМЫМ целям в отчёт
+    //    НЕ попадают вообще — ни по именам, ни счётчиками: иначе уведомление само
+    //    выдаёт, что на гексе были необнаруженные подразделения.
     const visibleDamage = totalSalvoDamage - hiddenDamage;
     const visibleKilled = totalKilled - hiddenKilled;
     const visibleHits = hits - hiddenVictimsHit;
-    const summary = `🎯 ${unit.name}: ${hits}/${rounds} снарядов попали | Урон: ${visibleDamage}${visibleKilled > 0 ? ` | Убито: ${visibleKilled}` : ''}` +
-        (dotEmbrasuresDestroyed > 0 ? ` | ДОТ: амбразур разрушено ${dotEmbrasuresDestroyed}` : '') +
-        (hiddenVictimsHit > 0 ? ` | по необнаруженным целям попаданий ${hiddenVictimsHit} — результат скрыт (разведка их не видит)` : '');
+    const visibleNames = enemies.filter(e => !victimHiddenFn(e)).map(e => e.name);
+    const summary = `🎯 ${unit.name}: ${visibleHits}/${rounds} снарядов попали | Урон: ${visibleDamage}${visibleKilled > 0 ? ` | Убито: ${visibleKilled}` : ''}` +
+        (dotEmbrasuresDestroyed > 0 && visibleNames.length ? ` | ДОТ: амбразур разрушено ${dotEmbrasuresDestroyed}` : '') +
+        (visibleNames.length ? '' : ' | видимых разведке целей на гексе нет');
     log(summary);
     const mapInfo = document.getElementById('mapInfo');
     if (mapInfo) {
         mapInfo.innerHTML = summary;
         mapInfo.style.color = '#27ae60';
     }
-    const visibleNames = enemies.filter(e => !victimHiddenFn(e)).map(e => e.name);
-    try { showShootNotification(unit.name, visibleNames.length ? visibleNames.join(', ') : 'обстрелянный гекс (цели не обнаружены)', distance, visibleDamage, visibleKilled); } catch (e) {}
+    // ⚡ v13.100 (п.3): уведомление об обстреле — только по обнаруженным целям;
+    //    если видимых целей нет, никаких данных об уроне не показываем вовсе.
+    if (visibleNames.length) {
+        try { showShootNotification(unit.name, visibleNames.join(', '), distance, visibleDamage, visibleKilled); } catch (e) {}
+    }
 }
 
 // ⚡ v13.019: ПТО по пехоте — правила ЛЁГКОЙ артиллерии:
@@ -23564,7 +23761,26 @@ function executeShootOrder(unit, order) {
                 cell.areaFire = { turn: (appData.campaign.currentTurn || 1), owner: 'player' };
             }
         } catch (e) {}
-        const areaMsg = `💥 ${unit.name} обстрелял гекс (${targetCol},${targetRow}): обнаруженных целей там нет — обстрел площади выполнен. Результат станет известен, если на гексе обнаружат противника.`;
+        // ⚡ v13.100 (п.11): обстрел гекса без обнаруженных целей — это не «выстрел
+        //    в пустоту»: снаряды ложатся на гекс и накрывают того, кто там есть
+        //    (в т.ч. необнаруженного). Число снарядов и тип оружия сохраняем в метке.
+        {
+            const cell = (appData.campaign && appData.campaign.opMapGrid && appData.campaign.opMapGrid[`${targetCol},${targetRow}`]) || null;
+            if (cell && cell.areaFire) {
+                const isSau = (unit.type === 'sau_battery') || /САУ/i.test(String(unit.name || ''));
+                const vehicleCount = (unit.isGroup && unit.vehicleList)
+                    ? unit.vehicleList.filter(v => v && !v.destroyed).length : 1;
+                cell.areaFire.unitName = unit.name;
+                cell.areaFire.isMortar = (typeof isMortarUnit === 'function') ? isMortarUnit(unit) : false;
+                cell.areaFire.rounds = isSau
+                    ? 7 * Math.max(1, vehicleCount)
+                    : ((typeof isMortarUnit === 'function' && isMortarUnit(unit))
+                        ? ((typeof mortarRoundsForUnit === 'function') ? mortarRoundsForUnit(unit, 15) : 15)
+                        : 12);
+                cell.areaFire.damageDie = isSau ? '1d10' : '1d6';
+            }
+        }
+        const areaMsg = `💥 ${unit.name} обстрелял гекс (${targetCol},${targetRow}): разведка не видит там целей — обстрел площади выполнен, снаряды легли на гекс.`;
         log(areaMsg);
         const miArea = document.getElementById('mapInfo');
         if (miArea) { miArea.innerHTML = areaMsg; miArea.style.color = '#f1c40f'; }
@@ -23777,28 +23993,45 @@ function resolveOperationalAreaFire() {
             log(`💥 Обстрел площади (${col},${row}): противник на гекс не вышел — попаданий нет.`);
             return;
         }
-        victims.forEach(victim => {
+        // ⚡ v13.100 (п.11): обстрел площади — это ЗАЛП, а не один бросок: каждый
+        //    снаряд кладётся с вероятностью 50% и наносит урон своей костью.
+        const rounds = Math.max(1, Math.floor(Number(mark.rounds) || 1));
+        const die = mark.damageDie === '1d10' ? '1d10' : '1d6';
+        const isMortar = mark.isMortar === true;
+        const rollDamage = () => (die === '1d10')
+            ? ((typeof rollD10 === 'function') ? rollD10() : 5)
+            : ((typeof rollD6 === 'function') ? rollD6() : 3);
+        let visibleHits = 0, visibleDamage = 0, visibleKilled = 0, hiddenHits = 0;
+        for (let i = 0; i < rounds; i++) {
+            if (Math.random() > 0.5) continue;
+            // миномёт по броне не работает (v13.069 R48#5)
+            const eligible = victims.filter(v => !(isMortar && typeof isArmoredUnit === 'function' && isArmoredUnit(v)));
+            if (!eligible.length) break;
+            const victim = eligible[Math.floor(Math.random() * eligible.length)];
             const hidden = (typeof opVictimHiddenFromPlayer === 'function')
                 ? opVictimHiddenFromPlayer(victim)
                 : (victim.detected !== true);
-            const label = hidden
-                ? ((typeof opMaskedTargetLabel === 'function') ? opMaskedTargetLabel() : 'невидимая цель (данные скрыты)')
-                : (victim.name || 'враг');
-            if (Math.random() > 0.5) {
-                log(`💥 Обстрел площади (${col},${row}): ${label} — попаданий нет.`);
-                return;
-            }
-            const damage = (typeof rollD6 === 'function') ? rollD6() : 3;
+            const damage = rollDamage();
             const result = (typeof applyDamageToOpUnit === 'function')
                 ? applyDamageToOpUnit(victim, damage)
                 : { damage: damage, killed: 0 };
             if (hidden) {
-                log(`💥 Обстрел площади (${col},${row}): накрыта необнаруженная цель — попадание зафиксировано (данные скрыты, п.4).`);
-                try { if (typeof toast === 'function') toast('💥 Обстрел площади: необнаруженная цель накрыта', 'info'); } catch (e) {}
+                // ⚡ v13.100 (п.3): необнаруженные цели не раскрываются ничем —
+                //    ни именами, ни количеством попаданий и уроном.
+                hiddenHits++;
             } else {
-                log(`💥 Обстрел площади (${col},${row}): ${label} накрыт — урон ${result.damage}, уничтожено ${result.killed}.`);
+                visibleHits++;
+                visibleDamage += result.damage;
+                visibleKilled += result.killed;
             }
-        });
+        }
+        const salvoLabel = mark.unitName ? ` (${mark.unitName})` : '';
+        if (hiddenHits > 0 && visibleHits === 0) {
+            log(`💥 Обстрел площади (${col},${row})${salvoLabel}: снаряды легли на гекс — видимых разведке целей там нет.`);
+        } else {
+            log(`💥 Обстрел площади (${col},${row})${salvoLabel}: ${visibleHits} попаданий | Урон: ${visibleDamage}` +
+                (visibleKilled > 0 ? ` | Убито: ${visibleKilled}` : '') + '.');
+        }
         if (typeof saveData === 'function') saveData();
     });
 }
@@ -24327,7 +24560,11 @@ function executeMoveOrder(unit, order) {
         }
     }
     // ⚡ v13.084: контакт нового приказа обрабатывается до продвижения по маршруту.
-    if (order.contactRadius != null && order.behavior && order.behavior !== 'ignore' &&
+    // ⚡ v13.100 (п.10): «закрепиться и ждать» с конечной точкой сначала идёт к
+    //    ней: контакт с врагом на маршруте не прекращает движение.
+    const holdMarchingToDestination = order.behavior === 'hold' && !!order.targetHex &&
+        `${unit.col},${unit.row}` !== String(order.targetHex);
+    if (!holdMarchingToDestination && order.contactRadius != null && order.behavior && order.behavior !== 'ignore' &&
         order.behavior !== 'assault' && unit.ap > 0) {
         const contacted = checkEnemyEncounter(unit, order.behavior, order);
         if (contacted) {
@@ -24353,6 +24590,9 @@ function executeMoveOrder(unit, order) {
     const nearAtStart = new Set((appData.campaign.enemyOpUnits || []).filter(e => knownEnemy(e) &&
         getOpHexDistance(unit.col, unit.row, e.col, e.row) <= contactRadius));
     let stoppedByEnemy = false;
+    // ⚡ v13.100 (п.10): конечная точка занята видимым врагом — «закрепиться»
+    //    останавливается перед ней (на гекс врага без «штурма» не входим).
+    let destinationBlockedByEnemy = false;
    for (let i = 0; i < fullRoute.length; i++) {
         const next = fullRoute[i];
 
@@ -24370,10 +24610,23 @@ function executeMoveOrder(unit, order) {
                 getOpHexDistance(unit.col, unit.row, e.col, e.row) <= contactRadius);
             const enemyOnNext = (appData.campaign.enemyOpUnits || []).some(e => knownEnemy(e) &&
                 e.col === next.col && e.row === next.row);
-            if (enemiesNear.length > 0 || enemyOnNext) {
+            // ⚡ v13.100 (п.10): под-приказ «закрепиться и ждать — огонь с 1 гекса»
+            //    НЕ останавливает марш из-за видимого врага рядом: приоритет —
+            //    дойти до конечной точки, и только потом вести огонь. На гекс,
+            //    занятый врагом, по-прежнему не входим (там начинается бой).
+            const holdMarchingOn = order.behavior === 'hold' && !!order.targetHex &&
+                `${unit.col},${unit.row}` !== String(order.targetHex);
+            if (enemyOnNext || (enemiesNear.length > 0 && !holdMarchingOn)) {
                 stoppedByEnemy = true;
-                if (enemyOnNext) log(`🛑 [${unit.name}] Впереди (${next.col},${next.row}) видимый враг — без приказа «штурмовать» на его гекс не входим.`);
+                if (enemyOnNext) {
+                    destinationBlockedByEnemy = destinationBlockedByEnemy || holdMarchingOn;
+                    log(`🛑 [${unit.name}] Впереди (${next.col},${next.row}) видимый враг — без приказа «штурмовать» на его гекс не входим.`);
+                }
+                else if (!holdMarchingOn) log(`🛑 [${unit.name}] Рядом видимый враг — «закрепиться» без приказа «штурмовать» дальше не идём.`);
                 break;
+            }
+            if (enemiesNear.length > 0 && holdMarchingOn) {
+                log(`🚶 [${unit.name}] Идёт к конечной точке (${order.targetHex}): враг рядом, но огонь откроем только по прибытии (${order.holdFireDistance != null ? order.holdFireDistance : 1} гекс).`);
             }
         }
 
@@ -24469,10 +24722,20 @@ function executeMoveOrder(unit, order) {
             return;
         }
         if (stoppedByEnemy && order.behavior === 'hold') {
-            // враг виден, но checkEnemyEncounter его не взял (например, вне 3 гексов
-            // по своей метрике) — всё равно закрепляемся
-            order.status = 'completed';
-            log(`🛡️ [${unit.name}] Закрепился и ждёт приказа (замечен враг).`);
+            // ⚡ v13.100 (п.10): «закрепиться и ждать» завершается на конечной
+            //    точке приказа, а не на полпути: остановка из-за врага рядом не
+            //    отменяет маршрут. Исключение — конечная точка занята врагом.
+            const destKey = order.targetHex ? String(order.targetHex) : null;
+            const onDestination = !destKey || (`${unit.col},${unit.row}` === destKey);
+            if (onDestination) {
+                order.status = 'completed';
+                log(`🛡️ [${unit.name}] Закрепился и ждёт приказа (замечен враг).`);
+            } else if (destinationBlockedByEnemy) {
+                order.status = 'completed';
+                log(`🛡️ [${unit.name}] Конечная точка (${destKey}) занята видимым врагом — закрепился перед ней и ждёт приказа (огонь с 1 гекса).`);
+            } else {
+                log(`🚶 [${unit.name}] Ещё не на конечной точке (${destKey}) — продолжаем марш, огонь по прибытии.`);
+            }
         }
     }
     unit.movedThisTurn = true;
@@ -30504,11 +30767,42 @@ function mortarRoundsForUnit(unit, baseRounds) {
     return Math.max(1, Math.round((baseRounds * alive) / total));
 }
 
-// ⚡ v13.046 (R31#3): амбразура ДОТ (3 единицы). Урон расчёту НЕ наносится —
-//    только амбразуре; на 0 — орудие ДОТ не может стрелять.
+// ⚡ v13.100 (п.4): число амбразур ДОТа берётся из ШТАТА его расчётов, а не «3»
+//    для всех ДОТов. «ДОТ Van Hees» — 1 ПТО + 1 пулемёт = ДВЕ амбразуры;
+//    «ДОТ Bosh» — 1 ПТО + 2 пулемёта = три. Если данных о расчётах нет
+//    (старое сохранение/тестовый срез) — исторические 3.
+function dotEmbrasureWeapons(x) {
+    if (!x) return [];
+    // ⚡ v13.100 (п.4): у оперативного юнита ДОТа расчёты лежат в его отрядах
+    //    (unit.squads[].crewInstances), у тактического боевого отряда — в самом
+    //    объекте. Без этого фолбэка Van Hees показывал «3 амбразуры».
+    const own = Array.isArray(x.crewInstances) ? x.crewInstances : [];
+    const crews = own.length ? own : (Array.isArray(x.squads) ? x.squads.flatMap(sq => (sq && Array.isArray(sq.crewInstances)) ? sq.crewInstances : []) : []);
+    if (!crews.length) return [];
+    const weapons = (typeof getFactionCrewWeapons === 'function') ? (getFactionCrewWeapons(x.faction) || []) : [];
+    return crews.map(ci => weapons.find(w => w && w.name === ci.weaponName)).filter(Boolean);
+}
+function dotEmbrasureCount(x) {
+    const n = dotEmbrasureWeapons(x).length;
+    return n > 0 ? n : 3;
+}
+// Выстрелов ДОТа за фазу: пулемётная амбразура — 2, орудие/ПТО — 1.
+function dotEmbrasureShots(x) {
+    const ws = dotEmbrasureWeapons(x);
+    if (!ws.length) return 5;
+    return ws.reduce((sum, w) => sum + ((w.type === 'mg') ? 2 : 1), 0);
+}
+// ⚡ v13.046 (R31#3): амбразура ДОТ. Урон расчёту НЕ наносится — только
+//    амбразуре; на 0 — орудие ДОТ не может стрелять.
 function dotEmbrasureHp(u) {
-    if (u && u.embrasureHp === undefined) u.embrasureHp = 3;
-    return u ? (u.embrasureHp || 0) : 0;
+    if (!u) return 0;
+    // ⚡ v13.100 (п.4): страховка для тестовых срезов, где helper не извлечён
+    const max = (typeof dotEmbrasureCount === 'function') ? dotEmbrasureCount(u) : 3;
+    u.embrasuresMax = max;
+    if (u.embrasureHp === undefined || !Number.isFinite(Number(u.embrasureHp)) || Number(u.embrasureHp) > max) {
+        u.embrasureHp = max;
+    }
+    return u.embrasureHp || 0;
 }
 function dotEmbrasureDestroyed(u) {
     return !!(u && isStaticOpUnit(u) && (u.embrasureHp !== undefined && u.embrasureHp <= 0));
@@ -30860,14 +31154,27 @@ function executeOpShoot(targets, distance) {
     }
 
     // Применяем урон ко всем целям на гексе
+    // ⚡ v13.100 (п.3): урон/потери по НЕОБНАРУЖЕННЫМ целям считаем отдельно —
+    //    они не попадают ни в отчёт, ни в уведомление, ни в модальное окно.
     let totalKilled = 0;
     let totalApplied = 0;
+    let hiddenApplied = 0;
+    let hiddenKilled = 0;
+    let hiddenTargetsHit = 0;
 
     for (let target of infantryTargets) {
         let targetDamage = Math.ceil(finalDamage / infantryTargets.length);
         const result = applyDamageToOpUnit(target, targetDamage);
-        totalApplied += result.damage;
-        totalKilled += result.killed;
+        const targetHidden = (typeof opVictimHiddenFromPlayer === 'function')
+            ? opVictimHiddenFromPlayer(target) : (target.detected === false);
+        if (targetHidden) {
+            hiddenApplied += result.damage;
+            hiddenKilled += result.killed;
+            hiddenTargetsHit++;
+        } else {
+            totalApplied += result.damage;
+            totalKilled += result.killed;
+        }
     }
 
     // Тратим ОД
@@ -30879,15 +31186,23 @@ function executeOpShoot(targets, distance) {
 
     // СОЗДАЁМ ПОДРОБНОЕ СООБЩЕНИЕ ДЛЯ ЛОГА
     const shooterName = shooter.name || 'Неизвестный отряд';
-    // ⚡ v13.099 (п.4/п.21): имена НЕОБНАРУЖЕННЫХ целей не раскрываем
+    // ⚡ v13.099 (п.4/п.21) / v13.100 (п.3): необнаруженные цели НЕ упоминаются —
+    //    ни именем, ни количеством, ни уроном.
     const opVisibleTargetLabel = (t) => {
         const hidden = (typeof opVictimHiddenFromPlayer === 'function')
-            ? opVictimHiddenFromPlayer(t) : (t.detected !== true);
+            ? opVictimHiddenFromPlayer(t) : (t.detected === false);
         if (!hidden) return t.name || 'враг';
-        return (typeof opMaskedTargetLabel === 'function') ? opMaskedTargetLabel() : 'невидимая цель (данные скрыты)';
+        return null;
     };
-    const targetNames = infantryTargets.map(opVisibleTargetLabel).join(', ');
-    const logMessage = `🔫 [${shooterName}] Обстрелял: ${targetNames} | Дистанция: ${distance} гексов | Урон: ${totalApplied} | Убито: ${totalKilled}`;
+    const visibleTargetNames = infantryTargets.map(opVisibleTargetLabel).filter(Boolean);
+    // ⚡ v13.100 (п.3): hiddenApplied/hiddenKilled/hiddenTargetsHit считаются отдельно
+    //    и нигде не показываются — нужны только чтобы не смешивать их с видимыми.
+    const targetNames = visibleTargetNames.length
+        ? visibleTargetNames.join(', ')
+        : `гекс (${(infantryTargets[0] || {}).col ?? '?'},${(infantryTargets[0] || {}).row ?? '?'})`;
+    const logMessage = visibleTargetNames.length
+        ? `🔫 [${shooterName}] Обстрелял: ${targetNames} | Дистанция: ${distance} гексов | Урон: ${totalApplied} | Убито: ${totalKilled}`
+        : `🔫 [${shooterName}] Обстрелял ${targetNames} | Дистанция: ${distance} гексов — видимых разведке целей там нет.`;
 
     // ЛОГИРУЕМ В ОБА МЕСТА
     log(logMessage);
@@ -30896,25 +31211,31 @@ function executeOpShoot(targets, distance) {
     document.getElementById('mapInfo').innerHTML = logMessage;
     document.getElementById('mapInfo').style.color = '#27ae60';
 
-    // ПОКАЗЫВАЕМ ВСПЛЫВАЮЩЕЕ УВЕДОМЛЕНИЕ
-    showShootNotification(shooterName, targetNames, distance, totalApplied, totalKilled);
+    // ⚡ v13.100 (п.3): всплывающее уведомление и модальное окно результата —
+    //    только по обнаруженным целям. Если видимых целей нет, игрок не должен
+    //    видеть ни урона, ни потерь: ни уведомления, ни «результата» с нулями.
+    if (visibleTargetNames.length) {
+        showShootNotification(shooterName, targetNames, distance, totalApplied, totalKilled);
+    }
 
-    // Показываем результат в модальном окне
-    const resultModal = {
-        shots: weaponDetails.length,
-        hits: totalApplied,
-        damage: totalApplied,
-        killed: totalKilled,
-        distance: distance,
-        details: weaponDetails.slice(0, 10).join(', ') + (weaponDetails.length > 10 ? '...' : ''),
-        distanceMod: distanceMod,
-        terrainMod: terrainMod,
-        totalBaseDamage: totalDamage,
-        targets: targetNames,
-        spentAP: spentAP,
-        shooterName: shooterName
-    };
-    showShootResultModal(resultModal);
+    // Показываем результат в модальном окне (только когда есть видимые цели)
+    if (visibleTargetNames.length) {
+        const resultModal = {
+            shots: weaponDetails.length,
+            hits: totalApplied,
+            damage: totalApplied,
+            killed: totalKilled,
+            distance: distance,
+            details: weaponDetails.slice(0, 10).join(', ') + (weaponDetails.length > 10 ? '...' : ''),
+            distanceMod: distanceMod,
+            terrainMod: terrainMod,
+            totalBaseDamage: totalDamage,
+            targets: targetNames,
+            spentAP: spentAP,
+            shooterName: shooterName
+        };
+        showShootResultModal(resultModal);
+    }
 
     cancelOpShooting();
     updateOpPlaceSelect();
@@ -31826,32 +32147,42 @@ function executeOpShootAt(targets, distance) {
 
     // ⚡ ФОРМИРУЕМ УВЕДОМЛЕНИЕ
     const shooterName = shooter.name || 'Неизвестный отряд';
-    const targetNames = armorTargets.map(t => {
-        const hidden = (typeof opVictimHiddenFromPlayer === 'function')
-            ? opVictimHiddenFromPlayer(t) : (t.detected !== true);
-        if (!hidden) return t.name || 'Неизвестная цель';
-        return (typeof opMaskedTargetLabel === 'function') ? opMaskedTargetLabel() : 'невидимая цель (данные скрыты)';
-    }).join(', ');
+    // ⚡ v13.100 (п.3): необнаруженная бронетехника в отчёт не попадает — вместо
+    //    имени цели пишем только гекс, без пробитий/уничтоженных машин по ней.
+    const hiddenTargets = armorTargets.filter(t => (typeof opVictimHiddenFromPlayer === 'function')
+        ? opVictimHiddenFromPlayer(t) : (t.detected === false));
+    const visibleArmorTargets = armorTargets.filter(t => hiddenTargets.indexOf(t) < 0);
+    const targetNames = visibleArmorTargets.length
+        ? visibleArmorTargets.map(t => t.name || 'Неизвестная цель').join(', ')
+        : `гекс (${(armorTargets[0] || {}).col ?? '?'},${(armorTargets[0] || {}).row ?? '?'})`;
+    const hiddenOnly = visibleArmorTargets.length === 0 && hiddenTargets.length > 0;
+    const visibleHits = hiddenOnly ? 0 : hits;
+    const visiblePenetrations = hiddenOnly ? 0 : penetrations;
+    const visibleDestroyed = hiddenOnly ? 0 : destroyedUnits.filter(u => hiddenTargets.indexOf(u) < 0).length;
 
-    // Собираем детали для уведомления
+    // Собираем детали для уведомления (только по обнаруженным целям)
     let detailsText = '';
-    if (hitDetails.length > 0) {
-        detailsText = hitDetails.slice(0, 5).map(d =>
+    const visibleDetails = hitDetails.filter(d => !hiddenOnly && !hiddenTargets.some(t => t && t.name === d.vehicle));
+    if (visibleDetails.length > 0) {
+        detailsText = visibleDetails.slice(0, 5).map(d =>
             `${d.vehicle}: ${d.location} (броня ${d.armor}мм, пробитие ${d.penetration}мм)`
         ).join('\n');
-        if (hitDetails.length > 5) {
-            detailsText += `\n... и ещё ${hitDetails.length - 5} попаданий`;
+        if (visibleDetails.length > 5) {
+            detailsText += `\n... и ещё ${visibleDetails.length - 5} попаданий`;
         }
     }
 
-    const logMessage = `💥 [${shooterName}] ПТО обстрелял: ${targetNames} | Дистанция: ${distance} гексов | Попаданий: ${hits} | Пробитий: ${penetrations} | Уничтожено машин: ${destroyedUnits.length}`;
+    const logMessage = `💥 [${shooterName}] ПТО обстрелял: ${targetNames} | Дистанция: ${distance} гексов | Попаданий: ${visibleHits} | Пробитий: ${visiblePenetrations} | Уничтожено машин: ${visibleDestroyed}`;
 
     log(logMessage);
 
     document.getElementById('mapInfo').innerHTML = logMessage;
     document.getElementById('mapInfo').style.color = '#e74c3c';
 
-    showShootNotification(shooterName, targetNames, distance, penetrations, destroyedUnits.length, detailsText);
+    // Уведомление — только когда есть обнаруженные цели
+    if (!hiddenOnly) {
+        showShootNotification(shooterName, targetNames, distance, visiblePenetrations, visibleDestroyed, detailsText);
+    }
 
     const result = {
         shots: totalShots,
@@ -34835,6 +35166,15 @@ function checkEnemyEncounter(unit, behavior, order) {
         case 'hold': { // Закрепиться и ждать; ответный огонь — только с 1 гекса.
             const holdRange = order && order.holdFireDistance != null && Number.isFinite(Number(order.holdFireDistance))
                 ? Number(order.holdFireDistance) : 1;
+            // ⚡ v13.100 (п.10): ПРИОРИТЕТ — дойти до конечной точки. Пока отряд
+            //    не на месте, он не стреляет и не «закрепляется» на полпути: приказ
+            //    остаётся активным, и движение продолжается следующим ходом.
+            const destKey = order && order.targetHex ? String(order.targetHex) : null;
+            const onDestination = !destKey || (`${unit.col},${unit.row}` === destKey);
+            if (!onDestination) {
+                log(`🚶 [${unit.name}] Контакт с врагом: сначала доходим до конечной точки (${destKey}) — ответный огонь с ${holdRange} гекс(а) откроем по прибытии.`);
+                return false;
+            }
             if (dist <= holdRange && !unit.firedThisTurn && canUnitShoot(unit)) {
                 const at = hasAtGunWeapons(unit) && isArmoredUnit(closestEnemy);
                 opShootingState.active = true;
