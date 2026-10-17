@@ -7519,37 +7519,83 @@ function closeOrderJournal() {
     if (modal) modal.remove();
 }
 
+// ⚡ v13.106 (п.8): журнал приказов переделан. Показывает ВСЕ приказы выбранного
+//    отряда: сверху — текущие (невыполненные, включая идущие) с кнопкой «Отменить»,
+//    ниже — история всех событий по этому отряду. Без выбранного отряда — по батальону.
+function orderJournalSelectedUnitIndex() {
+    const campaign = (typeof appData !== 'undefined' && appData && appData.campaign) ? appData.campaign : null;
+    if (!campaign || !campaign.selectedOpUnit || !Array.isArray(campaign.opUnits)) return null;
+    const idx = campaign.opUnits.indexOf(campaign.selectedOpUnit);
+    return idx >= 0 ? idx : null;
+}
+function orderJournalCurrentOrders(unitIdx) {
+    const list = (typeof getAllOrdersList === 'function') ? getAllOrdersList() : [];
+    return list.filter(o => o && o.status !== 'completed' && o.status !== 'cancelled' &&
+        (unitIdx === null || Number(o.toUnitId) === Number(unitIdx)));
+}
+function orderJournalStatusLabel(status) {
+    const names = {
+        pending: '⏳ ожидает', queued: '⏸️ в очереди (ждёт посыльного)', delivering: '🚶 доставляется',
+        active: '✅ выполняется'
+    };
+    return names[status] || String(status || '');
+}
 function renderOrderJournalRows() {
     const host = document.getElementById('orderJournalRows');
     if (!host) return;
     const campaign = (typeof appData !== 'undefined' && appData && appData.campaign) ? appData.campaign : null;
-    const onlySelectedEl = document.getElementById('orderJournalOnlySelected');
-    const onlySelected = !!(onlySelectedEl && onlySelectedEl.checked);
-    let unitId = null;
-    if (onlySelected && campaign && campaign.selectedOpUnit && Array.isArray(campaign.opUnits)) {
-        const idx = campaign.opUnits.indexOf(campaign.selectedOpUnit);
-        if (idx >= 0) unitId = idx;
-    }
-    const entries = orderJournalEntriesFor(unitId);
-    if (!entries.length) {
-        host.innerHTML = '<div style="color:#95a5a6; padding:12px;">Записей пока нет: отдайте приказ — и он появится здесь.</div>';
-        return;
-    }
-    host.innerHTML = entries.map(entry => {
-        const time = entry.time ? ` · ${entry.time}` : '';
-        const note = entry.note ? `<div style="color:#95a5a6; font-size:0.78rem; margin-top:2px;">${entry.note}</div>` : '';
-        const relay = entry.viaRelay ? ' <span style="color:#8de0ff; font-size:0.76rem;">(через штаб роты)</span>' : '';
-        return `<div style="padding:6px 8px; border-bottom:1px solid #333;">
-            <div><span style="color:#f1c40f;">Ход ${entry.turn}${time}</span> · <b>${entry.unitName || 'штаб'}</b> · ${entry.label || 'приказ'}${relay}</div>
-            <div style="color:#ecf0f1; font-size:0.86rem;">${orderJournalEventLabel(entry.event)}</div>${note}</div>`;
-    }).join('');
+    const unitIdx = orderJournalSelectedUnitIndex();
+    const unit = (unitIdx !== null && campaign) ? campaign.opUnits[unitIdx] : null;
+    const head = unit
+        ? `<div style="padding:8px 10px; background:#1f2a36; color:#f1c40f;">Приказы отряда: <b>${unit.name || 'отряд'}</b></div>`
+        : '<div style="padding:8px 10px; background:#1f2a36; color:#95a5a6;">Отряд не выбран — показан журнал по всему батальону. Выберите отряд на карте, чтобы видеть его приказы.</div>';
+    const current = orderJournalCurrentOrders(unitIdx);
+    const currentHtml = current.length
+        ? current.map(o => {
+            const realType = (o.type === 'company_order') ? (o.orderType || o.type) : o.type;
+            const target = (campaign && campaign.opUnits) ? campaign.opUnits[o.toUnitId] : null;
+            const eta = (typeof getOrderEta === 'function') ? getOrderEta(o) : null;
+            const etaTxt = eta && eta.text ? `<div style="color:#95a5a6; font-size:0.78rem;">${String(eta.text).replace(/[<>]/g, '')}</div>` : '';
+            return `<div style="display:flex; justify-content:space-between; gap:8px; align-items:center; padding:6px 8px; border-bottom:1px solid #333;">
+                <div><b>${getOrderTypeLabel ? getOrderTypeLabel(realType) : realType}</b>${target ? ` → ${target.name}` : ''}
+                <div style="color:#ecf0f1; font-size:0.86rem;">${orderJournalStatusLabel(o.status)}</div>${etaTxt}</div>
+                <button type="button" data-journal-cancel="${String(o.id)}" style="background:#c0392b; color:#fff; border:none; border-radius:6px; padding:4px 10px; cursor:pointer; white-space:nowrap;">❌ Отменить</button>
+            </div>`;
+        }).join('')
+        : '<div style="color:#95a5a6; padding:10px;">Текущих приказов нет.</div>';
+    const entries = orderJournalEntriesFor(unitIdx);
+    const historyHtml = entries.length
+        ? entries.map(entry => {
+            const time = entry.time ? ` · ${entry.time}` : '';
+            const note = entry.note ? `<div style="color:#95a5a6; font-size:0.78rem; margin-top:2px;">${entry.note}</div>` : '';
+            const relay = entry.viaRelay ? ' <span style="color:#8de0ff; font-size:0.76rem;">(через штаб роты)</span>' : '';
+            const who = unitIdx === null ? `<b>${entry.unitName || 'штаб'}</b> · ` : '';
+            return `<div style="padding:6px 8px; border-bottom:1px solid #333;">
+                <div><span style="color:#f1c40f;">Ход ${entry.turn}${time}</span> · ${who}${entry.label || 'приказ'}${relay}</div>
+                <div style="color:#ecf0f1; font-size:0.86rem;">${orderJournalEventLabel(entry.event)}</div>${note}</div>`;
+        }).join('')
+        : '<div style="color:#95a5a6; padding:10px;">Записей пока нет: отдайте приказ — и он появится здесь.</div>';
+    host.innerHTML = head +
+        '<div style="padding:8px 10px 4px; color:#ecf0f1; font-weight:bold;">Текущие приказы</div>' + currentHtml +
+        '<div style="padding:8px 10px 4px; color:#ecf0f1; font-weight:bold;">История</div>' + historyHtml;
+    host.onclick = (e) => {
+        const btn = e.target.closest ? e.target.closest('[data-journal-cancel]') : null;
+        if (!btn) return;
+        const id = btn.getAttribute('data-journal-cancel');
+        const order = orderJournalCurrentOrders(unitIdx).find(o => String(o.id) === id);
+        if (!order) { renderOrderJournalRows(); return; }
+        if (typeof cancelOrder === 'function') cancelOrder(order.id);
+        try { if (typeof renderActiveOrders === 'function') renderActiveOrders(); } catch (err) {}
+        try { if (typeof redrawOperationalMap === 'function') redrawOperationalMap(); } catch (err) {}
+        renderOrderJournalRows();
+    };
 }
 
 function openOrderJournal() {
     if (typeof closeOrderJournal === 'function') closeOrderJournal();
     const campaign = (typeof appData !== 'undefined' && appData && appData.campaign) ? appData.campaign : null;
-    const total = (campaign && Array.isArray(campaign.orderJournal)) ? campaign.orderJournal.length : 0;
-    const selectedName = (campaign && campaign.selectedOpUnit) ? (campaign.selectedOpUnit.name || 'выбранный отряд') : null;
+    const unitIdx = orderJournalSelectedUnitIndex();
+    const unitName = (unitIdx !== null && campaign) ? (campaign.opUnits[unitIdx].name || 'отряд') : null;
     const modal = document.createElement('div');
     modal.id = 'orderJournalModal';
     modal.style.cssText = 'position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);' +
@@ -7558,12 +7604,11 @@ function openOrderJournal() {
         'box-shadow:0 0 50px rgba(0,0,0,.7);';
     modal.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <h2 style="color:#f1c40f; margin:0; font-size:1.05rem;">📜 Журнал приказов <span style="color:#95a5a6; font-size:0.8rem;">(всего: ${total})</span></h2>
+            <h2 style="color:#f1c40f; margin:0; font-size:1.05rem;">📜 Журнал приказов${unitName ? ` — ${unitName}` : ''}</h2>
             <button onclick="closeOrderJournal()" style="background:#555; color:#fff; border:none; border-radius:50%; width:28px; height:28px; cursor:pointer;">✕</button>
         </div>
         <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px; font-size:0.85rem;">
-            <label style="cursor:pointer;"><input type="checkbox" id="orderJournalOnlySelected" onchange="renderOrderJournalRows()"> только выбранный отряд${selectedName ? ` (${selectedName})` : ''}</label>
-            <button onclick="clearOrderJournal()" style="background:#7f8c8d; font-size:0.8rem;">🧹 Очистить журнал</button>
+            <button onclick="clearOrderJournal()" style="background:#7f8c8d; font-size:0.8rem;">🧹 Очистить историю</button>
         </div>
         <div id="orderJournalRows" style="overflow-y:auto; flex:1; background:#1a1a2e; border:1px solid #444; border-radius:8px;"></div>
     `;
@@ -9225,6 +9270,17 @@ function findTacticalDefeatRetreatHex(unit, battleCol, battleRow, opponents, pre
     const opp = (opponents || []).filter(e => e && !e.isDestroyed && !e.isSurrendered &&
         Number.isFinite(e.col) && Number.isFinite(e.row));
     const nearestOpp = (c, r) => opp.length ? Math.min(...opp.map(e => getOpHexDistance(c, r, e.col, e.row))) : 99;
+    // ⚡ v13.106 (п.1): зона отступления — это КОНКРЕТНЫЙ гекс. Игрок выбирает зону,
+    //    и отряды уходят в тот самый соседний гекс в этом направлении, который
+    //    показан в окне выбора зоны. Занят или непроходим — ниже обычный подбор.
+    if (preferredDir) {
+        const zoneHex = getOpHexNeighbors(battleCol, battleRow).find(h => opDirectionBetween(battleCol, battleRow, h.col, h.row) === preferredDir);
+        if (zoneHex && !operationalHexHasActiveBattle(zoneHex.col, zoneHex.row) &&
+            !opp.some(e => e.col === zoneHex.col && e.row === zoneHex.row) &&
+            Number.isFinite(getOpMoveCost(unit, battleCol, battleRow, zoneHex.col, zoneHex.row))) {
+            return { col: zoneHex.col, row: zoneHex.row, steps: 1, distFromBattle: 1, safety: nearestOpp(zoneHex.col, zoneHex.row), zone: preferredDir };
+        }
+    }
     const candidates = [];
     for (let c = battleCol - 3; c <= battleCol + 3; c++) {
         for (let r = battleRow - 3; r <= battleRow + 3; r++) {
@@ -9238,7 +9294,7 @@ function findTacticalDefeatRetreatHex(unit, battleCol, battleRow, opponents, pre
         }
     }
     if (!candidates.length) return null;
-    // ⚡ v13.105 (п.3): зона, выбранная игроком при отступлении — самый дальний проходимый гекс в этой стороне
+    // Зона выбрана, но её гекс занят или непроходим — самый дальний проходимый гекс в этой стороне (запасной вариант, v13.105)
     if (preferredDir) {
         const inZone = candidates.filter(h => opDirectionBetween(battleCol, battleRow, h.col, h.row) === preferredDir);
         if (inZone.length) {
@@ -29858,7 +29914,7 @@ function openRetreatZoneChoice() {
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;';
     const box = document.createElement('div');
     box.style.cssText = 'background:#1e272e;color:#fff;padding:16px;border-radius:8px;min-width:280px;max-width:420px;';
-    box.innerHTML = '<h3 style="margin-top:0">Зона отступления</h3><p style="font-size:13px">Выберите сторону карты. После боя выжившие отряды отойдут в эту сторону от гекса боя (до 3 гексов), если туда можно пройти.</p>';
+    box.innerHTML = '<h3 style="margin-top:0">Зона отступления</h3><p style="font-size:13px">Выберите сторону карты. После боя выжившие отряды отойдут в конкретный гекс, указанный на кнопке зоны (соседний гекс в этом направлении). Если он занят противником или непроходим — отойдут в ближайший проходимый гекс этой стороны (до 3 гексов).</p>';
     const neighbors = getOpHexNeighbors(col, row);
     const enemies = (appData.campaign.enemyOpUnits || []).filter(e => e && !e.isDestroyed && !e.isSurrendered);
     PLACEMENT_DIRS.forEach(dir => {
@@ -29866,7 +29922,7 @@ function openRetreatZoneChoice() {
         if (!hex) return;
         const blocked = enemies.some(e => e.col === hex.col && e.row === hex.row) || operationalHexHasActiveBattle(hex.col, hex.row);
         const btn = document.createElement('button');
-        btn.textContent = (RETREAT_ZONE_LABELS[dir] || dir) + (blocked ? ' — занято противником' : '');
+        btn.textContent = (RETREAT_ZONE_LABELS[dir] || dir) + ` → гекс ${hex.col},${hex.row}` + (blocked ? ' — занято противником' : '');
         btn.disabled = blocked;
         btn.style.cssText = 'display:block;width:100%;margin:6px 0;padding:8px;';
         btn.onclick = () => { overlay.remove(); retreatFromBattle(false, dir); };
