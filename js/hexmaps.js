@@ -569,7 +569,11 @@ function applyHexOverlays(grid, hexKey) {
     const editOwners = (ov && ov.hexEditOwners) || {};
     const fort = (ov && ov.initialFortifications) || { trenchCells: [], dotCells: [] };
     const trenches = new Set(Array.isArray(fort.trenchCells) ? fort.trenchCells : []);
-    const dots = new Set(Array.isArray(fort.dotCells) ? fort.dotCells : []);
+    // ⚡ v13.105 (п.2): черновик приказа хранит тип, текстуру и поворот клеток
+    const pendingDraft = (typeof pendingHexEditDraft === 'function') ? pendingHexEditDraft(hexKey) : null;
+    const draftCells = (pendingDraft && pendingDraft.cells) || {};
+    const draftVariants = (pendingDraft && pendingDraft.variants) || {};
+    const draftRotations = (pendingDraft && pendingDraft.rotations) || {};
     const md = TACTICAL_HEX_MAPS[hexKey];
     const applyFortificationOwner = (cell, key) => {
         const fallbackFaction = ov && ov.placedByMe && appData && appData.campaign && appData.campaign.playerFaction;
@@ -604,7 +608,7 @@ function applyHexOverlays(grid, hexKey) {
             delete cell._deploymentDotOverlay;
         }
         // Старые hexEdits удалённые редактором возвращаются к эталонной клетке.
-        if (cell.ov && !edits[k] && !trenches.has(k)) {
+        if (cell.ov && !edits[k] && !trenches.has(k) && draftCells[k] === undefined) {
             cell.type = base ? base.type : 'grass';
             cell.variant = base ? (base.variant || 0) : 0;
             if (rotations[k] === undefined) cell.rotation = normalizeHexRotation(base && base.rotation, 0);
@@ -628,12 +632,16 @@ function applyHexOverlays(grid, hexKey) {
         cell._deploymentTrenchOverlay = 1;
         applyFortificationOwner(cell, k);
     });
-    dots.forEach(k => {
+    // ⚡ v13.105 (п.5): метки «dot» (🏰) больше не ставятся: ДОТ отображается своим
+    //    юнитом, а накопленные dotCells давали лишние метки на чужих гексах.
+    // ⚡ v13.105 (п.2): клетки черновика сохраняют заданные при планировании значения
+    Object.keys(draftCells).forEach(k => {
         const cell = grid[k];
         if (!cell) return;
-        if (!Array.isArray(cell.markers)) cell.markers = [];
-        if (!cell.markers.includes('dot')) cell.markers.push('dot');
-        cell._deploymentDotOverlay = 1;
+        cell.type = draftCells[k];
+        cell.variant = Number.isFinite(draftVariants[k]) ? draftVariants[k] : (cell.variant || 0);
+        if (draftRotations[k] !== undefined) cell.rotation = normalizeHexRotation(draftRotations[k], 0);
+        cell.ov = 1;
     });
     // «Огненное поле» хранится в локальном оверлее владельца, но не отправляется
     // противнику. Пока оно не загорелось, метки появляются только на его карте.
@@ -1442,7 +1450,8 @@ function openHexEditorForBattle(hexKey, kind, ownerUnitName) {
             for (let col = 0; col < size; col++) {
                 const k = col + ',' + row;
                 const src = baseGrid[k];
-                grid[k] = src ? { ...src, squadIds: [], enemySquadIds: [], markers: [], rotation: 0, variant: 0, level: src.level || 0 }
+                // ⚡ v13.105 (п.2): текстура и поворот, заданные при создании карты, не сбрасываются
+                grid[k] = src ? { ...src, squadIds: [], enemySquadIds: [], markers: [], rotation: src.rotation || 0, variant: src.variant || 0, level: src.level || 0 }
                               : { type: 'grass', squadIds: [], enemySquadIds: [], markers: [], rotation: 0, variant: 0, level: 0 };
             }
         }
@@ -1697,14 +1706,26 @@ function beginPendingHexEditDraft(hexKey, kind, unitName) {
     const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
     if (!camp || !hexKey) return null;
     if (!camp.pendingHexEdits || typeof camp.pendingHexEdits !== 'object') camp.pendingHexEdits = {};
+    const draftKind = kind === 'prep' ? 'prep' : 'trenches';
     camp.pendingHexEdits[String(hexKey)] = {
-        kind: kind === 'prep' ? 'prep' : 'trenches',
+        kind: draftKind,
         unitName: unitName || null,
         turn: camp.currentTurn || 1,
-        cells: {}
+        cells: {},
+        variants: {},
+        rotations: {},
+        // ⚡ v13.105 (п.2): окопов в черновике не больше, чем может выкопать юнит по приказу
+        limit: draftKind === 'trenches' ? trenchLimitForDraftUnit(unitName) : null
     };
     log(`📝 Черновик подготовки гекса (${hexKey}): изменения появятся на карте только после выполнения приказа.`);
     return camp.pendingHexEdits[String(hexKey)];
+}
+// Сколько окопов может выкопать юнит по приказу: по одному на каждый живой отряд.
+function trenchLimitForDraftUnit(unitName) {
+    const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
+    const units = (camp && camp.opUnits) || [];
+    const unit = unitName ? units.find(u => u && u.name === unitName && !u.isDestroyed) : null;
+    return unit ? Math.max(1, countSquadsForHexEdit(unit)) : 1;
 }
 function pendingHexEditDraft(hexKey) {
     const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
@@ -1723,35 +1744,73 @@ function recordPendingHexEditClick(st, cell) {
     const readable = t => (t === 'grass' ? 'трава' : t === 'fallen_forest' ? 'поваленный лес' : 'окоп');
     const draft = pendingHexEditDraft(st.hexKey);
     if (!draft) return false;
+    if (!draft.variants || typeof draft.variants !== 'object') draft.variants = {};
+    if (!draft.rotations || typeof draft.rotations !== 'object') draft.rotations = {};
+    const showInfo = (html, color) => { if (infoBox) { infoBox.innerHTML = html; infoBox.style.color = color; } };
     const baseCell = st.baseGrid[cell];
     const baseType = baseCell ? baseCell.type : 'grass';
     const working = appData.map.grid[cell];
-    if (!working) { if (infoBox) { infoBox.innerHTML = '⚠️ Гекс ' + cell + ' вне карты этого гекса.'; infoBox.style.color = '#e67e22'; } return true; }
+    if (!working) { showInfo('⚠️ Гекс ' + cell + ' вне карты этого гекса.', '#e67e22'); return true; }
+    const trenchData = (typeof TERRAIN_DATA !== 'undefined') ? TERRAIN_DATA.trenches : null;
+    const nTrenchTextures = (trenchData && Array.isArray(trenchData.images) && trenchData.images.length) ? trenchData.images.length : 1;
+    const trenchCount = () => Object.keys(draft.cells).filter(k => draft.cells[k] === 'trenches').length;
+    // ⚡ v13.105 (п.2): окоп уже в черновике — клик листает его текстуры без расхода правок;
+    //    после последней текстуры следующий клик снимает окоп.
     if (draft.cells[cell]) {
+        if (st.kind === 'trenches' && draft.cells[cell] === 'trenches') {
+            const cur = Number.isFinite(draft.variants[cell]) ? draft.variants[cell] : (Number(working.variant) || 0);
+            if (cur + 1 < nTrenchTextures) {
+                draft.variants[cell] = cur + 1;
+                working.variant = cur + 1;
+                working.type = 'trenches';
+                working.ov = 1;
+                showInfo(`📝 Черновик: окоп на гексе ${cell} — текстура ${cur + 2}/${nTrenchTextures}. Правки не потрачены.`, '#f1c40f');
+                try { saveData(); } catch (e) {}
+                try { redrawMap(); } catch (e) {}
+                return true;
+            }
+        }
         delete draft.cells[cell];
+        delete draft.variants[cell];
+        delete draft.rotations[cell];
         working.type = baseType;
+        working.variant = baseCell && Number.isFinite(baseCell.variant) ? baseCell.variant : 0;
         if (baseCell && Number.isFinite(baseCell.level)) working.level = baseCell.level;
-        if (infoBox) { infoBox.innerHTML = `↩️ Черновик: гекс ${cell} — отметка снята. Отметок: ${Object.keys(draft.cells).length}.`; infoBox.style.color = '#f1c40f'; }
+        showInfo(`↩️ Черновик: гекс ${cell} — отметка снята. Отметок: ${Object.keys(draft.cells).length}.`, '#f1c40f');
+        try { saveData(); } catch (e) {}
         try { redrawMap(); } catch (e) {}
         return true;
     }
     if (!st.rule.allowed(baseType)) {
-        if (infoBox) {
-            infoBox.innerHTML = `❌ Гекс ${cell} (${baseType}) менять нельзя.` +
-                (st.kind === 'trenches' ? ' Окоп ставится только на «траву» и «дорогу».' : ' Менять можно только «лес» и «кусты».');
-            infoBox.style.color = '#e74c3c';
-        }
+        showInfo(`❌ Гекс ${cell} (${baseType}) менять нельзя.` +
+            (st.kind === 'trenches' ? ' Окоп ставится только на «траву» и «дорогу».' : ' Менять можно только «лес» и «кусты».'), '#e74c3c');
         return true;
     }
-    const newType = (st.kind === 'trenches') ? 'trenches' : (isForestHexType(baseType) ? 'fallen_forest' : 'grass');
-    draft.cells[cell] = newType;
-    working.type = newType;
-    working.ov = 1;
-    if (infoBox) {
-        infoBox.innerHTML = `📝 Черновик: гекс ${cell}: ${readable(baseType)} → ${readable(newType)}. Отметок: ${Object.keys(draft.cells).length}. ` +
-            `На карте появятся после выполнения приказа (${draft.kind === 'prep' ? 'расчистка местности' : 'окапывание'}).`;
-        infoBox.style.color = '#f1c40f';
+    if (st.kind === 'trenches') {
+        const limit = draft.limit || trenchLimitForDraftUnit(draft.unitName);
+        if (trenchCount() >= limit) {
+            showInfo(`⛔ Лимит окопов по приказу: ${limit} (по одному на каждый отряд, который окапывается). Снимите лишний окоп, чтобы поставить новый.`, '#e74c3c');
+            return true;
+        }
     }
+    const newType = (st.kind === 'trenches') ? 'trenches' : (isForestHexType(baseType) ? 'fallen_forest' : 'grass');
+    // Окоп начинается с первой текстуры окопа; вырубка леса/кустов — фиксированная текстура.
+    const FIXED_VARIANT_FILES = { fallen_forest: 'images/лес поваленный1.png', grass: 'images/трава1.png' };
+    const tData = (typeof TERRAIN_DATA !== 'undefined') ? TERRAIN_DATA[newType] : null;
+    const fixedFile = st.kind === 'trenches' ? null : FIXED_VARIANT_FILES[newType];
+    const fixedIndex = (fixedFile && tData && Array.isArray(tData.images)) ? tData.images.indexOf(fixedFile) : -1;
+    const variant = fixedIndex >= 0 ? fixedIndex : 0;
+    draft.cells[cell] = newType;
+    draft.variants[cell] = variant;
+    // ⚡ v13.105 (п.2): поворот клетки, заданный при создании карты, запоминается в черновике
+    draft.rotations[cell] = normalizeHexRotation(working.rotation, 0);
+    working.type = newType;
+    working.variant = variant;
+    working.ov = 1;
+    const count = Object.keys(draft.cells).length;
+    showInfo(`📝 Черновик: гекс ${cell}: ${readable(baseType)} → ${readable(newType)}. Отметок: ${count}` +
+        (st.kind === 'trenches' ? ` (окопов ${trenchCount()} из ${draft.limit || trenchLimitForDraftUnit(draft.unitName)})` : '') + '. ' +
+        `На карте появятся после выполнения приказа (${draft.kind === 'prep' ? 'расчистка местности' : 'окапывание'}).`, '#f1c40f');
     try { saveData(); } catch (e) {}
     try { redrawMap(); } catch (e) {}
     return true;
@@ -1774,7 +1833,12 @@ function applyPendingHexEdits(hexKey, kind) {
         const tData = (typeof TERRAIN_DATA !== 'undefined') ? TERRAIN_DATA[newType] : null;
         const fixedFile = draft.kind === 'prep' ? FIXED_VARIANT_FILES[newType] : null;
         const fixedIndex = (fixedFile && tData && Array.isArray(tData.images)) ? tData.images.indexOf(fixedFile) : -1;
-        ov.hexVariants[cell] = fixedIndex >= 0 ? fixedIndex : 0;
+        // ⚡ v13.105 (п.2): текстура окопа — та, что выбрана при планировании
+        ov.hexVariants[cell] = (Number.isFinite(draft.variants && draft.variants[cell])) ? draft.variants[cell] : (fixedIndex >= 0 ? fixedIndex : 0);
+        if (draft.rotations && draft.rotations[cell] !== undefined) {
+            if (!ov.hexRotations || typeof ov.hexRotations !== 'object') ov.hexRotations = {};
+            ov.hexRotations[cell] = normalizeHexRotation(draft.rotations[cell], 0);
+        }
         if (newType === 'trenches') {
             if (!ov.hexEditOwners || typeof ov.hexEditOwners !== 'object') ov.hexEditOwners = {};
             const ownerFaction = (appData.campaign && appData.campaign.playerFaction) || null;
@@ -1783,6 +1847,7 @@ function applyPendingHexEdits(hexKey, kind) {
         if (appData.map && appData.map.grid && appData.map.grid[cell]) {
             appData.map.grid[cell].type = newType;
             appData.map.grid[cell].variant = ov.hexVariants[cell];
+            if (ov.hexRotations && ov.hexRotations[cell] !== undefined) appData.map.grid[cell].rotation = ov.hexRotations[cell];
             appData.map.grid[cell].ov = 1;
         }
     });

@@ -492,8 +492,9 @@ console.log('== v13.099: пункты 1–27 ==');
      'п.29: текст успешного обстрела не принимается за отказ (эмодзи-суррогаты)');
   ok(/orderJournalBtn/.test(HTML) && /openOrderJournal\(\)/.test(HTML),
      'п.29: на карте есть кнопка «📜 Журнал приказов»');
-  ok(/orderJournalOnlySelected/.test(HTML) && /orderJournalEntriesFor\(unitId\)/.test(sliceOf('renderOrderJournalRows')),
-     'п.29: в журнале есть фильтр «только выбранный отряд»');
+  // v13.106 (п.8): журнал показывает приказы выбранного отряда и кнопки отмены текущих
+  ok(/orderJournalSelectedUnitIndex/.test(HTML) && /orderJournalEntriesFor\(unitIdx\)/.test(sliceOf('renderOrderJournalRows')) && /data-journal-cancel/.test(HTML),
+     'п.29: журнал — приказы выбранного отряда с отменой текущих');
   const createOrderSlice = sliceOf('createOrder');
   ok(/recordOrderJournal\(order, 'queued'/.test(createOrderSlice) && /recordOrderJournal\(order, 'issued'/.test(createOrderSlice),
      'п.29: отдача приказа и отправка его посыльным пишутся в журнал');

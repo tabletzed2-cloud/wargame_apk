@@ -225,7 +225,8 @@ console.log('== v13.100: пункты 1–11 ==');
 
 // ─────────────────────────── п.11: обстрел гекса — залп по площади; прочие механики ───────────────────────────
 {
-  ok(/cell\.areaFire\.rounds/.test(HTML) && /cell\.areaFire\.damageDie/.test(HTML) && /cell\.areaFire\.isMortar/.test(HTML),
+  // v13.106: поля метки задаёт buildOpAreaFireMark (число залпов по ходам — turnsLeft)
+  ok(/buildOpAreaFireMark/.test(HTML) && /rounds: rounds/.test(HTML) && /damageDie: isSau/.test(HTML) && /isMortar: isMortar/.test(HTML),
     'п.11: приказ «обстрелять гекс» сохраняет число снарядов, тип оружия и кость урона');
   const area = HTML.slice(HTML.indexOf('function resolveOperationalAreaFire'), HTML.indexOf('function isMediumArtillery'));
   ok(/for \(let i = 0; i < rounds; i\+\+\)/.test(area) && /Math\.random\(\) > 0\.5/.test(area),

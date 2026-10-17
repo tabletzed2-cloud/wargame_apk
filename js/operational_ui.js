@@ -1071,6 +1071,7 @@
       category, mode: mode || '', behavior: category === 'ambush' ? 'ignore' : 'hold',
       time: '', waypoints: [], targetHex: '', targetHexes: [],
       targetEnemyId: '', targetDistance: category === 'fire_at_will' ? operationalWeaponRange(picked.unit) : 3, escortInfantryId: '', btrUnitId: '',
+      shellMinutes: 10,
       specialAction: firstSpecial
     };
     state.menuPage = 'details';
@@ -1120,7 +1121,10 @@
       if (state.mapPick === 'route') body += mapPickHint();
     } else if (draft.category === 'hex_fire') {
       body += `<div class="op-cmd-note">Целевой гекс: <b>${esc(draft.targetHex || 'не выбран')}</b>. Все вражеские подразделения в выбранном гексе попадут под один обстрел.</div>` +
-        pointPicker('Выбрать гекс обстрела', 'target') + contactField(draft.behavior) + timeField(draft.time);
+        pointPicker('Выбрать гекс обстрела', 'target') +
+        `<label class="op-cmd-field">Длительность обстрела<select data-draft-field="shellMinutes">${[10, 20, 30, 60].map(m => `<option value="${m}"${Number(draft.shellMinutes) === m ? ' selected' : ''}>${m} мин${m === 10 ? ' (один залп)' : ` (${m / 10} залп${m / 10 < 5 ? 'а' : 'ов'})`}</option>`).join('')}</select></label>` +
+        `<div class="op-cmd-note">Один залп — каждые 10 минут (одна фаза). Окопы на гексе снижают урон залпов.</div>` +
+        contactField(draft.behavior) + timeField(draft.time);
       if (state.mapPick === 'target') body += mapPickHint();
     } else if (draft.category === 'specific') {
       body += `<label class="op-cmd-field">Конкретная цель<select data-draft-field="targetEnemyId"><option value="">Выберите обнаруженного врага</option>${enemyOptions(draft.targetEnemyId)}</select></label>` +
@@ -1347,6 +1351,7 @@
     else if (field === 'escortInfantryId') draft.escortInfantryId = value;
     else if (field === 'btrUnitId') draft.btrUnitId = value;
     else if (field === 'targetEnemyId') draft.targetEnemyId = value;
+    else if (field === 'shellMinutes') draft.shellMinutes = (typeof normalizeShellMinutes === 'function') ? normalizeShellMinutes(value) : 10;
   }
   function startMapPick(kind) {
     if (!state.draft) return;
@@ -1483,6 +1488,8 @@
       }
       type = 'shoot';
       options.targetHex = String(draft.targetHex);
+      // ⚡ v13.106 (п.10): длительность обстрела — 10/20/30/60 минут (залп каждые 10 минут)
+      options.shellMinutes = (typeof normalizeShellMinutes === 'function') ? normalizeShellMinutes(draft.shellMinutes) : 10;
     } else if (draft.category === 'specific') {
       if (draft.targetEnemyId === '' || draft.targetEnemyId == null) throw new Error('Выберите обнаруженную цель.');
       const targetId = Number(draft.targetEnemyId);

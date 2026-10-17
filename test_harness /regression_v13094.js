@@ -139,7 +139,7 @@ test('10: онлайн-бой — меню размещения врага ск�
 
 // 2. Reload during tactical battle returns to the battle, errors do not reset screen.
 test('2: перезагрузка в бою возвращает в бой; ошибки перехватываются', () => {
-  includes(HTML, "appData.lastUiScreen === 'battle'", 'нет восстановления боя после перезагрузки');
+  includes(HTML, "resumeScreen === 'battle'", 'нет восстановления боя после перезагрузки');
   includes(HTML, "window.addEventListener('unhandledrejection'", 'нет перехвата promise-ошибок');
 });
 
