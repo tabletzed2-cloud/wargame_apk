@@ -20151,7 +20151,52 @@ function preloadTerrainImages() {
 }
 preloadTerrainImages(); // вызываем сразу
 
-      function goToMenu() {
+      // ⚡ v13.106 (п.7): кнопка «🏠 Меню» всегда доступна на игровых экранах
+//    (бой, кампания, карта, правила/история). Раньше в тактическом бою
+//    выхода в меню не было (кнопка btnBattleToMenu нигде не показывалась).
+function exitToMainMenu() {
+    try {
+        const battleEl = document.getElementById('battleApp');
+        if (appData && appData.currentBattleId && battleEl && battleEl.style.display !== 'none' &&
+            typeof saveCurrentBattleState === 'function') {
+            saveCurrentBattleState();
+        }
+    } catch (e) { console.warn('exitToMainMenu save battle:', e.message); }
+    ['battleApp', 'campaignApp', 'rulesPage', 'historyPage'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+    const cc = document.getElementById('campaignContent');
+    if (cc) cc.style.display = 'block';
+    const menu = document.getElementById('mainMenu');
+    if (menu) menu.style.display = 'block';
+    try { if (appData) appData.lastUiScreen = 'mainMenu'; } catch (e) {}
+    try { refreshCampaignResumeButton(); } catch (e) {}
+    try { saveData(); } catch (e) {}
+    updateGlobalMenuButton();
+}
+function updateGlobalMenuButton() {
+    const btn = document.getElementById('globalMainMenuBtn');
+    if (!btn) return;
+    const shown = ['battleApp', 'campaignApp', 'rulesPage', 'historyPage'].some(id => {
+        const el = document.getElementById(id);
+        return !!el && window.getComputedStyle(el).display !== 'none';
+    });
+    btn.style.display = shown ? 'block' : 'none';
+}
+function installGlobalMenuButton() {
+    if (document.getElementById('globalMainMenuBtn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'globalMainMenuBtn';
+    btn.type = 'button';
+    btn.textContent = '🏠 Меню';
+    btn.title = 'Выйти в главное меню (прогресс и бой сохраняются)';
+    btn.style.cssText = 'display:none; position:fixed; left:8px; bottom:8px; z-index:10000; background:#34495e; color:#ecf0f1; border:1px solid #7f8c8d; border-radius:6px; padding:6px 10px; font-size:13px; box-shadow:0 2px 6px rgba(0,0,0,.4); opacity:0.92;';
+    btn.addEventListener('click', () => exitToMainMenu());
+    document.body.appendChild(btn);
+    setInterval(updateGlobalMenuButton, 400);
+}
+function goToMenu() {
   // ⚡ v13.042 (R27#10): уход «В меню» из СЕРЕДИНЫ боя — сохраняем состояние
   //    боя (иначе вернуться в тактический бой было невозможно)
   try {
@@ -35301,17 +35346,24 @@ document.addEventListener('DOMContentLoaded', function() {
     renderFactionInfo();
     resetAP();
     try { installAutosaveHooks(); } catch (e) {}
+    try { installGlobalMenuButton(); } catch (e) { console.warn('installGlobalMenuButton:', e.message); }
     try { refreshCampaignResumeButton(); } catch (e) {}
     // ⚡ v13.081: после сворачивания/перезапуска WebView сразу вернуть карту кампании
     try {
-        if (appData && appData.lastUiScreen === 'campaignMap' && campaignCanResume()) {
-            returnToCampaignFromMenu();
-        } else if (appData && appData.lastUiScreen === 'battle' && appData.currentBattleId &&
-                   (appData.campaign.activeBattles || []).some(b => b && b.id === appData.currentBattleId)) {
+        // ⚡ v13.106 (п.6): перезагрузка страницы не должна выбрасывать игрока в
+        //    главное меню. Раньше возвращали только карту кампании и открытый бой;
+        //    экраны подготовки кампании, редактор гекса и бой без записи в
+        //    activeBattles падали в меню. Теперь любой игровой экран (бой, карта,
+        //    подготовка кампании) возвращает в кампанию, если она активна.
+        const resumeScreen = appData && appData.lastUiScreen;
+        if (resumeScreen === 'battle' && appData && appData.currentBattleId &&
+            (appData.campaign.activeBattles || []).some(b => b && b.id === appData.currentBattleId)) {
             // ⚡ v13.094 (п.2): перезагрузка страницы (сервис-воркер, WebView) во время
             //    тактического боя раньше бросала игрока в главное меню. Возвращаем
             //    прямо в открытый бой, а не в меню.
             try { switchToBattle(appData.currentBattleId); } catch (e) { console.warn('resume battle:', e); returnToCampaignFromMenu(); }
+        } else if (resumeScreen === 'battle' || resumeScreen === 'campaignMap' || resumeScreen === 'campaign') {
+            if (campaignCanResume()) returnToCampaignFromMenu();
         }
     } catch (e) { console.warn('resume campaign:', e); }
     uiRestorePending = false;
