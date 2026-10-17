@@ -9126,7 +9126,7 @@ function cancelAllOrdersAfterTacticalRetreat(unit, isEnemySide) {
     hardMode.orders = (hardMode.orders || []).filter(o => o && o.status !== 'cancelled');
     hardMode.pendingOrders = (hardMode.pendingOrders || []).filter(o => o && o.status !== 'cancelled');
 }
-function findTacticalDefeatRetreatHex(unit, battleCol, battleRow, opponents) {
+function findTacticalDefeatRetreatHex(unit, battleCol, battleRow, opponents, preferredDir) {
     if (!unit || !Number.isFinite(unit.col) || !Number.isFinite(unit.row)) return null;
     const opp = (opponents || []).filter(e => e && !e.isDestroyed && !e.isSurrendered &&
         Number.isFinite(e.col) && Number.isFinite(e.row));
@@ -9144,6 +9144,14 @@ function findTacticalDefeatRetreatHex(unit, battleCol, battleRow, opponents) {
         }
     }
     if (!candidates.length) return null;
+    // ⚡ v13.105 (п.3): зона, выбранная игроком при отступлении — самый дальний проходимый гекс в этой стороне
+    if (preferredDir) {
+        const inZone = candidates.filter(h => opDirectionBetween(battleCol, battleRow, h.col, h.row) === preferredDir);
+        if (inZone.length) {
+            inZone.sort((a, b) => (b.distFromBattle - a.distFromBattle) || (b.safety - a.safety));
+            return inZone[0];
+        }
+    }
     candidates.sort((a, b) => (b.safety - a.safety) || (b.distFromBattle - a.distFromBattle) || (b.steps - a.steps));
     return candidates[0];
 }
@@ -9166,7 +9174,8 @@ function applyTacticalRetreatConsequences(battle) {
             unit._tacticalRetreatHandled = battle.id;
             cancelAllOrdersAfterTacticalRetreat(unit, isEnemySide);
             unit.firedThisTurn = false;
-            const hex = findTacticalDefeatRetreatHex(unit, battleCol, battleRow, opponents);
+            // ⚡ v13.105 (п.3): добровольное отступление игрока — в выбранную зону
+            const hex = findTacticalDefeatRetreatHex(unit, battleCol, battleRow, opponents, isEnemySide ? null : (battle.retreatExitDir || null));
             if (hex) {
                 opRecordPrevPos(unit);
                 unit.col = hex.col; unit.row = hex.row;
@@ -29581,7 +29590,7 @@ function openRetreatZoneChoice() {
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;';
     const box = document.createElement('div');
     box.style.cssText = 'background:#1e272e;color:#fff;padding:16px;border-radius:8px;min-width:280px;max-width:420px;';
-    box.innerHTML = '<h3 style="margin-top:0">Зона отступления</h3><p style="font-size:13px">Выберите сторону карты. После боя выжившие отряды окажутся на гексе этой стороны (если туда можно пройти).</p>';
+    box.innerHTML = '<h3 style="margin-top:0">Зона отступления</h3><p style="font-size:13px">Выберите сторону карты. После боя выжившие отряды отойдут в эту сторону от гекса боя (до 3 гексов), если туда можно пройти.</p>';
     const neighbors = getOpHexNeighbors(col, row);
     const enemies = (appData.campaign.enemyOpUnits || []).filter(e => e && !e.isDestroyed && !e.isSurrendered);
     PLACEMENT_DIRS.forEach(dir => {
