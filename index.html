@@ -5853,11 +5853,25 @@ function findUnitStaffSquad(unit) {
     }
     return unit.squads.find(s => s && /Штаб/i.test(s.name || '')) || null;
 }
+// ⚡ v13.105 (п.4): связисты всегда входят в состав штаба юнита. У ДОТа штаба нет —
+//    пара вливается в расчёт ДОТа (отряд с фиксированной позицией). Если и этого нет,
+//    берём первый живой отряд юнита. Отдельным отрядом связисты в тактике не выводятся.
+function findSignalHostSquad(unit) {
+    const staff = findUnitStaffSquad(unit);
+    if (staff) return staff;
+    if (!unit || !Array.isArray(unit.squads)) return null;
+    const living = unit.squads.filter(s => s && !s.isSignalSquad && Array.isArray(s.fighters));
+    if (isStaticOpUnit(unit)) {
+        return living.find(s => s.fixedTacticalPosition) ||
+            living.find(s => Array.isArray(s.crewInstances) && s.crewInstances.length) || living[0] || null;
+    }
+    return living[0] || null;
+}
 function signalStaffRank(kind) { return kind === 'radio' ? 'Радист' : 'Телефонист'; }
 // ⚡ v13.067: двое связистов вливаются в штаб юнита-получателя — в личном составе
 //    штаба появляются «Радист 1/2» или «Телефонист 1/2», и штат штаба растёт на 2.
 function mergeSignalTeamIntoStaffSquad(unit, team, entry) {
-    const squad = findUnitStaffSquad(unit);
+    const squad = findSignalHostSquad(unit);
     if (!squad || !team) return null;
     if (!Array.isArray(squad.fighters)) squad.fighters = [];
     const kind = (entry && entry.type) || team.signalDeviceType || 'radio';
@@ -6598,7 +6612,7 @@ function migrateSignalStaffSquads() {
     let moved = 0;
     units.forEach(unit => {
         if (!unit || !Array.isArray(unit.squads) || isArmoredCommunicationUnit(unit)) return;
-        const staff = findUnitStaffSquad(unit);
+        const staff = findSignalHostSquad(unit);
         if (!staff) return;
         unit.squads.filter(sq => sq && sq.isSignalSquad && !sq.signalPool && sq !== staff).forEach(team => {
             const units2 = appData.campaign.opUnits || [];
