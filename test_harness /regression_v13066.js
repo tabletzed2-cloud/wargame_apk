@@ -231,7 +231,7 @@ test('R44#2: иконка вместо метки «🏰», когда ДОТ с
   assert.equal(s.evalCtx('__own'), true, 'свой ДОТ');
   assert.equal(s.evalCtx('__foe'), false, 'пехота противника — не ДОТ');
   assert.equal(s.evalCtx('__plain'), false, 'пустая клетка');
-  assert.match(HTML, /if \(type === 'dot' && dotShownAsUnit\) return;/);
+  assert.match(HTML, /if \(type === 'dot'\) return;/); // v13.105 п.5: метка на тактике не рисуется
   assert.match(HTML, /dotFixedSquadsForHex/);
 });
 

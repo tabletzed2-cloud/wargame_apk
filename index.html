@@ -153,7 +153,7 @@
       <div id="tacticalRoundActions" role="toolbar" aria-label="Действия боя">
         <button id="btnReturnToCampaign" style="display:none; background:#f39c12;" onclick="returnToCampaign()">↩️ В кампанию</button>
         <button id="btnFinishBattle" onclick="finishBattle()" style="display:none; background:#27ae60;">✅ Завершить бой</button>
-        <button id="btnRetreatBattle" onclick="retreatFromBattle()" style="display:none; background:#c0392b;">🏳️ Отступить</button>
+        <button id="btnRetreatBattle" onclick="openRetreatZoneChoice()" style="display:none; background:#c0392b;">🏳️ Отступить</button>
         <button id="btnFinishBattleBySuperiority" onclick="finishBattleByNumericalSuperiority()" style="display:none; background:#8e44ad;">🏳️‍⚧️ Принять капитуляцию</button>
       </div>
     </div>
@@ -5380,11 +5380,9 @@ function syncFactionCatalogs() {
                     sf.catalogSyncedNames = sf.cardLibrary.map(c => c && c.name).filter(Boolean);
                 }
                 df.cardLibrary.forEach(dc => {
-                    if (!dc || !dc.name || dc.name === 'Велостоянка') return;
-                    if (sf.catalogSyncedNames.includes(dc.name)) return;
+                    if (!dc || !dc.name || dc.name === 'Велостоянка' || sf.catalogSyncedNames.includes(dc.name)) return;
                     sf.catalogSyncedNames.push(dc.name);
-                    if (sf.cardLibrary.some(card => card && card.name === dc.name)) return;
-                    sf.cardLibrary.push(JSON.parse(JSON.stringify(dc)));
+                    if (!sf.cardLibrary.some(card => card && card.name === dc.name)) sf.cardLibrary.push(JSON.parse(JSON.stringify(dc)));
                 });
             }
             if (!sf.icon && df.icon) sf.icon = df.icon;
@@ -10107,30 +10105,27 @@ function tacticalBattleProgressLabel(battle) {
   const p = getTacticalRoundProgress(battle);
   return `${Math.min(p.roundsDone, p.roundsPerTurn)}/${p.roundsPerTurn}`;
 }
-// ⚡ v13.105 (п.7): номер раунда в шапке (#turnCounter) обновляется всегда.
-//    Раньше обновление стояло в updateUI после раннего выхода «Нет активного
-//    отряда» — в ход противника и в фазах без выбранного отряда счётчик не менялся.
-function syncTacticalRoundCounter(battle) {
-  const counterEl = document.getElementById('turnCounter');
-  const maxEl = document.getElementById('turnCounterMax');
-  const phaseEl = document.getElementById('turnPhaseLabel');
-  const battleRec = battle || ((typeof getTacticalBattleRecord === 'function') ? getTacticalBattleRecord() : null);
-  const progress = (battleRec && typeof getTacticalRoundProgress === 'function')
-    ? getTacticalRoundProgress(battleRec) : null;
-  if (counterEl) counterEl.innerText = progress ? progress.round : currentTurn;
-  if (maxEl) maxEl.innerText = progress ? progress.roundsPerTurn : 5;
-  if (phaseEl) {
-    const activeSide = (battleRec && typeof getTacticalActiveSide === 'function') ? getTacticalActiveSide(battleRec) : 'player';
-    const attackerSide = (battleRec && battleRec.placement && battleRec.placement.attackerSide) ||
-      ((appData && appData.map && appData.map.attackerSide) || 'player');
-    phaseEl.innerText = battleRec
-      ? `· фаза ${activeSide === attackerSide ? 'атакующего' : 'обороняющегося'}`
-      : '';
-  }
-}
 function updateTacticalRoundUI(battle) {
   battle = battle || getTacticalBattleRecord();
-  syncTacticalRoundCounter(battle);
+  // ⚡ v13.105 (п.7): номер раунда в шапке (#turnCounter) обновляется всегда.
+  //    Раньше это делалось в updateUI после раннего выхода «Нет активного отряда» —
+  //    в ход противника и в фазах без выбранного отряда счётчик не менялся.
+  {
+    const counterEl = document.getElementById('turnCounter');
+    const maxEl = document.getElementById('turnCounterMax');
+    const phaseEl = document.getElementById('turnPhaseLabel');
+    const headProgress = (battle && typeof getTacticalRoundProgress === 'function') ? getTacticalRoundProgress(battle) : null;
+    if (counterEl) counterEl.innerText = headProgress ? headProgress.round : currentTurn;
+    if (maxEl) maxEl.innerText = headProgress ? headProgress.roundsPerTurn : 5;
+    if (phaseEl) {
+      const activeSideHead = battle ? getTacticalActiveSide(battle) : 'player';
+      const attackerSideHead = (battle && battle.placement && battle.placement.attackerSide) ||
+        ((appData && appData.map && appData.map.attackerSide) || 'player');
+      phaseEl.innerText = battle
+        ? `· фаза ${activeSideHead === attackerSideHead ? 'атакующего' : 'обороняющегося'}`
+        : '';
+    }
+  }
   const bar = document.getElementById('tacticalRoundBar');
   if (!bar) return;
   if ((appData.mapEditor && appData.mapEditor.active) ||
@@ -12731,7 +12726,6 @@ const eff = morale + mod + extraMorale;
       // Обновляем отображение ОД и хода
       document.getElementById('apDisplay').innerText = getAP(currentSquadIndex);
       document.getElementById('maxApDisplay').innerText = actionPoints[currentSquadIndex] ? actionPoints[currentSquadIndex].maxAp : 0;
-      syncTacticalRoundCounter();
       updateActiveCardsBattle();
       const maxShots = getMaxShots(currentSquad);
       const shotsUsed = getShotsUsed(currentSquad);
@@ -29561,12 +29555,54 @@ function healBattleFlags() {
     return healed;
 }
 
-function retreatFromBattle(automatic) {
+// ⚡ v13.105 (п.3): игрок выбирает зону отхода — сторону карты (одну из шести).
+//    После боя выжившие отряды окажутся на соседнем гексе этой стороны.
+const RETREAT_ZONE_LABELS = {
+    E: 'на восток (правый край)', W: 'на запад (левый край)',
+    NE: 'на северо-восток (правый верхний угол)', NW: 'на северо-запад (левый верхний угол)',
+    SE: 'на юго-восток (правый нижний угол)', SW: 'на юго-запад (левый нижний угол)'
+};
+function openRetreatZoneChoice() {
+    if (getTacticalActiveSide() !== 'player') { log('Отступление возможно только в свою фазу.'); return; }
+    const battle = appData.campaign.activeBattles.find(b => b.id === appData.currentBattleId);
+    if (!battle || !battle.hexKey) return;
+    const [col, row] = battle.hexKey.split(',').map(Number);
+    const old = document.getElementById('retreatZoneModal');
+    if (old) old.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'retreatZoneModal';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#1e272e;color:#fff;padding:16px;border-radius:8px;min-width:280px;max-width:420px;';
+    box.innerHTML = '<h3 style="margin-top:0">Зона отступления</h3><p style="font-size:13px">Выберите сторону карты. После боя выжившие отряды окажутся на гексе этой стороны (если туда можно пройти).</p>';
+    const neighbors = getOpHexNeighbors(col, row);
+    const enemies = (appData.campaign.enemyOpUnits || []).filter(e => e && !e.isDestroyed && !e.isSurrendered);
+    PLACEMENT_DIRS.forEach(dir => {
+        const hex = neighbors.find(n => opDirectionBetween(col, row, n.col, n.row) === dir);
+        if (!hex) return;
+        const blocked = enemies.some(e => e.col === hex.col && e.row === hex.row) || operationalHexHasActiveBattle(hex.col, hex.row);
+        const btn = document.createElement('button');
+        btn.textContent = (RETREAT_ZONE_LABELS[dir] || dir) + (blocked ? ' — занято противником' : '');
+        btn.disabled = blocked;
+        btn.style.cssText = 'display:block;width:100%;margin:6px 0;padding:8px;';
+        btn.onclick = () => { overlay.remove(); retreatFromBattle(false, dir); };
+        box.appendChild(btn);
+    });
+    const cancel = document.createElement('button');
+    cancel.textContent = 'Отмена';
+    cancel.style.cssText = 'display:block;width:100%;margin:10px 0 0;padding:8px;';
+    cancel.onclick = () => overlay.remove();
+    box.appendChild(cancel);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+}
+function retreatFromBattle(automatic, exitDir) {
     if (!automatic && getTacticalActiveSide() !== 'player') { log('Отступление возможно только в свою фазу.'); return; }
     const battleId = appData.currentBattleId;
     if (!battleId) return;
     const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
     if (!battle) return;
+    if (exitDir) battle.retreatExitDir = exitDir;
 
     if (typeof updateTacticalBattleRetreatButton === 'function') updateTacticalBattleRetreatButton();
 
@@ -29629,7 +29665,7 @@ function retreatFromBattle(automatic) {
             if (unit.operationalRouted) { unit.isInBattle = false; unit.inBattleId = null; return; }
             if (unit.col === battleCol && unit.row === battleRow) {
                 // Находим ближайший свой отряд (не на гексе боя)
-                const retreatHex = findRetreatHex(unit, battleCol, battleRow);
+                const retreatHex = findRetreatHex(unit, battleCol, battleRow, battle.retreatExitDir || null);
                 if (retreatHex) {
                     opRecordPrevPos(unit); // ⚡ v13.055: откуда вошёл
                     unit.col = retreatHex.col;
@@ -29679,7 +29715,7 @@ function retreatFromBattle(automatic) {
 }
 
 // Функция поиска гекса для отступления
-function findRetreatHex(unit, battleCol, battleRow) {
+function findRetreatHex(unit, battleCol, battleRow, preferredDir) {
     if (!unit || !Number.isFinite(battleCol) || !Number.isFinite(battleRow)) return null;
     const enemies = (appData.campaign.enemyOpUnits || []).filter(e => e && !e.isDestroyed && !e.isSurrendered &&
         Number.isFinite(e.col) && Number.isFinite(e.row));
@@ -29692,6 +29728,11 @@ function findRetreatHex(unit, battleCol, battleRow) {
         return true;
     });
     if (!candidates.length) return null;
+    // ⚡ v13.105 (п.3): выбранная игроком зона отхода — если её гекс проходим
+    if (preferredDir) {
+        const chosen = candidates.find(hex => opDirectionBetween(battleCol, battleRow, hex.col, hex.row) === preferredDir);
+        if (chosen) return chosen;
+    }
 
     // Предпочесть безопасный гекс в сторону ближайших своих сил; если своих рядом
     // нет — максимально удалиться от ближайшего противника.
@@ -36853,7 +36894,7 @@ function onlineOnSnapshotSync() {
     <button id="btnBattleToMenu" onclick="if(confirm('Menu? Battle is saved.')) goToMenu();" style="display:none; position:fixed; top:44px; right:10px; z-index:999; background:#555;">Menu</button>
     <button id="btnReturnToCampaign" onclick="returnToCampaign()" style="display:none; position:fixed; top:10px; right:10px; z-index:999; background:#f39c12;">↩️ В кампанию</button>
     <button id="btnFinishBattle" onclick="finishBattle()" style="display:none; position:fixed; top:50px; right:10px; z-index:999; background:#27ae60;">✅ Завершить бой</button>
-    <button id="btnRetreatBattle" onclick="retreatFromBattle()" style="display:none; position:fixed; top:90px; right:10px; z-index:999; background:#c0392b;">🏳️ Отступить</button>
+    <button id="btnRetreatBattle" onclick="openRetreatZoneChoice()" style="display:none; position:fixed; top:90px; right:10px; z-index:999; background:#c0392b;">🏳️ Отступить</button>
   </div>
 
   <!-- Раздел «Правила» -->

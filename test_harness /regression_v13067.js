@@ -25,7 +25,7 @@ function test(name, fn) {
 const FNS = [
   'ensureSignalPlatoonState', 'isArmoredCommunicationUnit', 'signalAssignmentsFor', 'signalTransferLabel',
   'signalDeviceLabel', 'signalAssignmentId', 'createSignalTeam', 'getSignalTeam', 'signalTeamAlive',
-  'findUnitStaffSquad', 'signalStaffRank', 'mergeSignalTeamIntoStaffSquad', 'attachSignalTeamToUnit',
+  'findUnitStaffSquad', 'findSignalHostSquad', 'isStaticOpUnit', 'signalStaffRank', 'mergeSignalTeamIntoStaffSquad', 'attachSignalTeamToUnit',
   'signalMergedFighters', 'signalReserveTeams', 'signalReserveStore', 'addSignalTeamToUnit',
   'removeSignalTeamFromUnit', 'getSignalHQ', 'getSignalTeamFromHQ', 'finishSignalTransfer',
   'requestSignalRecall', 'refreshSignalLosses', 'migrateSignalAssignments', 'hqStandardPositions',
@@ -252,13 +252,12 @@ test('R45#1: телефон — двое связистов в штате взв
   assert.equal(s.evalCtx("appData.campaign.opUnits[2].squads[1].fighters.length"), 2, 'боевое отделение не тронуто');
 });
 
-test('R45#1: без штаба в юните связисты остаются отдельным отрядом (как раньше)', () => {
+test('R45#1 / v13.105 п.4: без штаба связисты не выводятся отдельным отрядом — входят в первый отряд юнита', () => {
   const s = sandbox();
   s.run(RECIPIENTS);
   deliver(s, 'radio', 3, 'r3');
-  assert.equal(s.evalCtx("appData.campaign.opUnits[3].squads.length"), 2, 'добавлен отдельный отряд');
-  assert.match(String(s.evalCtx("appData.campaign.opUnits[3].squads[1].name")), /Связисты \(радио\)/);
-  assert.equal(s.evalCtx("appData.campaign.opUnits[3].squads[0].fighters.length"), 2, 'расчёт миномёта не тронут');
+  assert.equal(s.evalCtx("appData.campaign.opUnits[3].squads.length"), 1, 'отдельного отряда связистов нет');
+  assert.equal(s.evalCtx("appData.campaign.opUnits[3].squads[0].fighters.filter(f => f.isSignalman).length"), 2, 'связисты в составе первого отряда');
 });
 
 test('R45#1: отзыв связистов убирает пару из штата и не раздувает штаб батальона', () => {
@@ -344,9 +343,13 @@ test('R45#1: пара из резерва выдаётся заново, рез�
 test('R45#1: миграция старых отрядов связистов переносит их в штат', () => {
   const s = sandbox();
   s.run(RECIPIENTS);
-  deliver(s, 'radio', 3, 'r3');   // батарея — отдельный отряд
+  // v13.105 п.4: старый сейв — пара лежит отдельным отрядом (раньше так делали без штаба)
   s.run(`
-    // теперь у юнита появился штаб (раньше его не было)
+    const __old = createSignalTeam('radio', 'r3', 'BeVe');
+    __old.isSignalSquad = true; __old.signalPool = false; __old.signalTeamId = 'r3'; __old.name = 'Связисты (радио) r3';
+    __old.fighters.forEach(f => { f.isSignalman = true; f.signalTeamId = 'r3'; });
+    appData.campaign.opUnits[3].squads.push(__old);
+    // теперь у юнита появился штаб
     appData.campaign.opUnits[3].squads.push(squad('Штаб батареи', ['Командир батареи']));
     const entry = { id: 'r3', unitId: 3, status: 'active', type: 'radio', signalTeamId: 'r3' };
     hardMode.signalPlatoon.radios.assigned = [entry];
