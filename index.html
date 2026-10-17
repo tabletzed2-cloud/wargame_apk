@@ -22748,6 +22748,8 @@ function processOrders() {
     //    противник окажется на этом гексе, он под него попадает. Цели, которых
     //    разведка не видит, в отчёте не раскрываются (п.4).
     try { resolveOperationalAreaFire(); } catch (e) { console.warn('resolveOperationalAreaFire:', e.message); }
+    // ⚡ v13.106 (п.2): вражеская артиллерия бьёт по обнаруженным отрядам игрока
+    try { planEnemyArtilleryFire(); } catch (e) { console.warn('planEnemyArtilleryFire:', e.message); }
 
     // 3. Обработка приказов "атака" - проверяем, не нужно ли начать бой
     if (hardMode.orders) {
@@ -24571,9 +24573,10 @@ function recordOpShellVictim(unit, result) {
     const key = (unit.id !== undefined && unit.id !== null) ? String(unit.id) : String(unit.name || '?');
     let row = opShellCapture.victims.get(key);
     if (!row) {
-        const hidden = (typeof opVictimHiddenFromPlayer === 'function')
-            ? !!opVictimHiddenFromPlayer(unit) : (unit.detected !== true);
-        const isEnemy = !!(appData.campaign && appData.campaign.enemyOpUnits && appData.campaign.enemyOpUnits.includes(unit));
+        const ownSide = !!opShellCapture.meta.ownSide; // залп противника по своим отрядам
+        const hidden = ownSide ? false : ((typeof opVictimHiddenFromPlayer === 'function')
+            ? !!opVictimHiddenFromPlayer(unit) : (unit.detected !== true));
+        const isEnemy = !ownSide && !!(appData.campaign && appData.campaign.enemyOpUnits && appData.campaign.enemyOpUnits.includes(unit));
         row = { name: String(unit.name || 'отряд'), hidden: hidden, hits: 0, damage: 0, killed: 0, enemy: isEnemy };
         opShellCapture.victims.set(key, row);
     }
@@ -24616,6 +24619,10 @@ function endOpShellCapture(capture, extra) {
     } catch (e) { console.warn('endOpShellCapture:', e.message); }
 }
 
+// ⚡ v13.106: залпы по площади для обеих сторон. Метка owner:'player' — залп
+//    игрока по врагам на гексе; owner:'enemy' — залп вражеской артиллерии по
+//    обнаруженным отрядам игрока (п.2 решение игрока: «да»). Вражеский залп
+//    продолжается, пока цель обнаружена, но не дольше трёх залпов подряд.
 function resolveOperationalAreaFire() {
     const campaign = (typeof appData !== 'undefined' && appData && appData.campaign) ? appData.campaign : null;
     const grid = campaign && campaign.opMapGrid;
@@ -24624,15 +24631,22 @@ function resolveOperationalAreaFire() {
     Object.keys(grid).forEach(key => {
         const cell = grid[key];
         const mark = cell && cell.areaFire;
-        if (!mark || mark.owner !== 'player') return;
+        if (!mark || (mark.owner !== 'player' && mark.owner !== 'enemy')) return;
         // Обстрел текущего хода «созреет» к следующему — иначе цель просто
         // не успела бы войти в накрытый гекс.
         if ((mark.turn || 0) >= turn) return;
         const parts = String(key).split(',');
         const col = Number(parts[0]), row = Number(parts[1]);
         if (!Number.isFinite(col) || !Number.isFinite(row)) return;
+        const enemyShot = mark.owner === 'enemy';
         // ⚡ v13.106 (п.10): залпов несколько — метка живёт, пока не выйдут все.
         const turnsLeft = Math.max(1, Math.floor(Number(mark.turnsLeft) || 1));
+        const victims = enemyShot
+            ? (campaign.opUnits || []).filter(u => u && !u.isDestroyed && !u.embarkedInBtr &&
+                u.col === col && u.row === row && u.detected === true)
+            : (campaign.enemyOpUnits || []).filter(e => e && !e.isDestroyed && e.col === col && e.row === row);
+        // Вражеский залп: цель вышла из-под наблюдения — огонь прекращается.
+        if (enemyShot && !victims.length) { delete cell.areaFire; return; }
         if (turnsLeft > 1) {
             mark.turn = turn;
             mark.turnsLeft = turnsLeft - 1;
@@ -24640,8 +24654,6 @@ function resolveOperationalAreaFire() {
             delete cell.areaFire;
         }
         const trench = opHexHasTrenches(cell);
-        const victims = (campaign.enemyOpUnits || []).filter(e =>
-            e && !e.isDestroyed && e.col === col && e.row === row);
         if (!victims.length) {
             log(`💥 Обстрел площади (${col},${row}): противник на гекс не вышел — попаданий нет.`);
             if (!campaign.shellNotices) campaign.shellNotices = [];
@@ -24658,8 +24670,7 @@ function resolveOperationalAreaFire() {
         //    снаряд кладётся с вероятностью 50% и наносит урон своей костью.
         const baseRounds = Math.max(1, Math.floor(Number(mark.rounds) || 1));
         // Плотная цель проще накрывается площадным огнём: +15% залпа за
-        // каждый дополнительный отряд на гексе, максимум +60%. Урон снаряда
-        // не меняется; дополнительные попадания распределяются между целями.
+        // каждый дополнительный отряд на гексе, максимум +60%.
         const densityBonus = Math.min(0.60, Math.max(0, victims.length - 1) * 0.15);
         const rounds = Math.max(baseRounds, Math.round(baseRounds * (1 + densityBonus)));
         const die = mark.damageDie === '1d10' ? '1d10' : '1d6';
@@ -24668,26 +24679,28 @@ function resolveOperationalAreaFire() {
             ? ((typeof rollD10 === 'function') ? rollD10() : 5)
             : ((typeof rollD6 === 'function') ? rollD6() : 3);
         let visibleHits = 0, visibleDamage = 0, visibleKilled = 0, hiddenHits = 0;
-        const capture = beginOpShellCapture({ shooter: mark.unitName || 'отряд', kind: 'area', col: col, row: row, trench: trench });
+        const shooterLabel = enemyShot
+            ? `Вражеская артиллерия «${mark.unitName || 'батарея'}»`
+            : (mark.unitName || 'отряд');
+        const capture = beginOpShellCapture({ shooter: shooterLabel, kind: 'area', col: col, row: row, trench: trench, ownSide: enemyShot });
         for (let i = 0; i < rounds; i++) {
             if (Math.random() > 0.5) continue;
             // миномёт по броне не работает (v13.069 R48#5)
             const eligible = victims.filter(v => !(isMortar && typeof isArmoredUnit === 'function' && isArmoredUnit(v)));
             if (!eligible.length) break;
             const victim = eligible[Math.floor(Math.random() * eligible.length)];
-            const hidden = (typeof opVictimHiddenFromPlayer === 'function')
+            // Свои отряды видны всегда; у противника необнаруженные цели не раскрываются (v13.100 п.3)
+            const hidden = enemyShot ? false : ((typeof opVictimHiddenFromPlayer === 'function')
                 ? opVictimHiddenFromPlayer(victim)
-                : (victim.detected !== true);
+                : (victim.detected !== true));
             const rawDamage = rollDamage();
             // ⚡ v13.106 (п.9): окоп на гексе гасит часть урона залпа
             const damage = trench ? opTrenchReducedDamage(rawDamage) : rawDamage;
             const result = (typeof applyDamageToOpUnit === 'function')
                 ? applyDamageToOpUnit(victim, damage)
                 : { damage: damage, killed: 0 };
-            recordOpShellVictim(victim, result); // ⚡ v13.106 (п.11): отчёт об обстреле
+            recordOpShellVictim(victim, result);
             if (hidden) {
-                // ⚡ v13.100 (п.3): необнаруженные цели не раскрываются ничем —
-                //    ни именами, ни количеством попаданий и уроном.
                 hiddenHits++;
             } else {
                 visibleHits++;
@@ -24696,16 +24709,53 @@ function resolveOperationalAreaFire() {
             }
         }
         endOpShellCapture(capture, { trench: trench });
-        const salvoLabel = mark.unitName ? ` (${mark.unitName})` : '';
+        const salvoLabel = ` (${shooterLabel})`;
         const trenchTxt = trench ? ' | окоп: урон снижен' : '';
+        const prefix = enemyShot ? `💥 По вашим отрядам на гексе (${col},${row}) ударила вражеская артиллерия` : `💥 Обстрел площади (${col},${row})`;
         if (hiddenHits > 0 && visibleHits === 0) {
-            log(`💥 Обстрел площади (${col},${row})${salvoLabel}: снаряды легли на гекс — видимых разведке целей там нет.`);
+            log(`${prefix}${enemyShot ? '' : salvoLabel}: снаряды легли на гекс — видимых разведке целей там нет.`);
         } else {
-            log(`💥 Обстрел площади (${col},${row})${salvoLabel}: ${visibleHits} попаданий | Урон: ${visibleDamage}` +
+            log(`${prefix}${enemyShot ? ':' : salvoLabel + ':'} ${visibleHits} попаданий | Урон: ${visibleDamage}` +
                 (visibleKilled > 0 ? ` | Убито: ${visibleKilled}` : '') + trenchTxt + '.');
         }
         if (typeof saveData === 'function') saveData();
     });
+}
+
+// ⚡ v13.106 (п.2): вражеская артиллерия (САУ, миномёты, полковая артиллерия)
+//    каждый оперативный ход бьёт по гексу, где стоит обнаруженный отряд игрока
+//    в пределах её дальности. Залп один за ход; первый залп — сразу, затем
+//    продолжение, пока цель обнаружена (не более трёх залпов подряд).
+//    В онлайне вражеские отряды ведёт оппонент, поэтому здесь ничего не делаем.
+function planEnemyArtilleryFire() {
+    const campaign = (typeof appData !== 'undefined' && appData && appData.campaign) ? appData.campaign : null;
+    if (!campaign || campaign.online || !campaign.opMapGrid) return;
+    const turn = campaign.currentTurn || 1;
+    const grid = campaign.opMapGrid;
+    const ours = (campaign.opUnits || []).filter(u => u && !u.isDestroyed && !u.embarkedInBtr &&
+        u.col != null && u.row != null && u.detected === true);
+    if (!ours.length) return;
+    let planned = 0;
+    (campaign.enemyOpUnits || []).forEach(art => {
+        if (!art || art.isDestroyed || art.isSurrendered || art.isInBattle || art.col == null || art.row == null) return;
+        if (typeof isMediumArtillery !== 'function' || !isMediumArtillery(art)) return;
+        const range = (typeof operationalHexFireRange === 'function') ? operationalHexFireRange(art) : 10;
+        const dist = u => getOpHexDistance(art.col, art.row, u.col, u.row);
+        const targets = ours.filter(u => dist(u) <= range).sort((a, b) => dist(a) - dist(b));
+        if (!targets.length) return;
+        const t = targets[0];
+        const key = `${t.col},${t.row}`;
+        const cell = grid[key] || (grid[key] = { types: ['grass'], markers: [] });
+        if (cell.areaFire) return; // гекс уже под обстрелом
+        // turn - 1: залп разрешается сразу (ниже), а не на следующем ходу
+        const mark = buildOpAreaFireMark(art, turn - 1, 3);
+        mark.owner = 'enemy';
+        cell.areaFire = mark;
+        planned++;
+    });
+    if (planned) {
+        try { resolveOperationalAreaFire(); } catch (e) { console.warn('enemy artillery:', e.message); }
+    }
 }
 
 // ⚡ СРЕДНЯЯ АРТИЛЛЕРИЯ: САУ, средний миномет 82-мм, полковая артиллерия
@@ -35653,6 +35703,12 @@ document.addEventListener('DOMContentLoaded', function() {
             try { switchToBattle(appData.currentBattleId); } catch (e) { console.warn('resume battle:', e); returnToCampaignFromMenu(); }
         } else if (resumeScreen === 'battle' || resumeScreen === 'campaignMap' || resumeScreen === 'campaign') {
             if (campaignCanResume()) returnToCampaignFromMenu();
+        } else if (resumeScreen === 'mainMenu') {
+            // ⚡ v13.106: перезагрузка из главного меню открывает последнюю активную кампанию
+            //    (обычный запуск приложения остаётся в меню).
+            const nav = (performance.getEntriesByType && performance.getEntriesByType('navigation')[0]) || null;
+            const isReload = (nav && nav.type === 'reload') || (performance.navigation && performance.navigation.type === 1);
+            if (isReload && campaignCanResume()) returnToCampaignFromMenu();
         }
     } catch (e) { console.warn('resume campaign:', e); }
     uiRestorePending = false;

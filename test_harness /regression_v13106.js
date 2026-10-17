@@ -12,7 +12,7 @@ function grabFn(name) {
 }
 function grabConst(name) { const m = new RegExp('^const ' + name + ' = [^\\n]*;', 'm').exec(src); return m[0] + '\n'; }
 const names = ['opHexHasTrenches','opTrenchReducedDamage','normalizeShellMinutes','shellTurnsForMinutes','buildOpAreaFireMark',
-  'beginOpShellCapture','recordOpShellVictim','endOpShellCapture','resolveOperationalAreaFire','applyDamageToOpUnit','scheduleExtraOpShellSalvos'];
+  'beginOpShellCapture','recordOpShellVictim','endOpShellCapture','resolveOperationalAreaFire','scheduleExtraOpShellSalvos','planEnemyArtilleryFire','isMediumArtillery'];
 let code = ['OP_SHELL_TURN_MINUTES','OP_SHELL_DURATION_OPTIONS','OP_TRENCH_DAMAGE_DIVISOR'].map(grabConst).join('');
 code += 'let opShellCapture = null;\n' + names.map(grabFn).join('\n');
 const logs = [];
@@ -25,7 +25,7 @@ const ctx = {
 };
 ctx.appData = ctx; // placeholder replaced below
 const sandbox = { console, Math, log: ctx.log, saveData() {}, formatTime: () => '10:00', rollD6: () => 6, rollD10: () => 10,
-  isMortarUnit: () => false, isArmoredUnit: () => false, opVictimHiddenFromPlayer: (u) => !!u.hidden,
+  operationalHexFireRange: () => 10, getOpHexDistance: (c1, r1, c2, r2) => Math.max(Math.abs(c1 - c2), Math.abs(r1 - r2)), applyDamageToOpUnit: (u, d) => ({ damage: d, killed: d >= 6 ? 1 : 0 }), isMortarUnit: () => false, isArmoredUnit: () => false, opVictimHiddenFromPlayer: (u) => !!u.hidden,
   mortarRoundsForUnit: () => 15, applyDamageToOpUnitCore: (u, d) => ({ damage: d, killed: d >= 6 ? 1 : 0 }) };
 sandbox.appData = { campaign: { currentTurn: 3, opMapGrid: {}, enemyOpUnits: [] } };
 vm.createContext(sandbox);
@@ -72,4 +72,36 @@ C.shellNotices = []; C.opMapGrid['4,4'] = { types: ['grass'], markers: [], areaF
 vm.runInContext('resolveOperationalAreaFire()', sandbox);
 assert.equal(C.shellNotices[0].victims.length, 0);
 assert.match(C.shellNotices[0].note, /видимых/);
-console.log('v13.106 shelling duration/trench/notices: PASS');
+
+// v13.106 (п.2): вражеская артиллерия бьёт по обнаруженным отрядам игрока
+{
+  const C2 = sandbox.appData.campaign;
+  C2.online = false;
+  C2.currentTurn = 20;
+  C2.shellNotices = [];
+  C2.opMapGrid = { '5,5': { types: ['grass'], markers: [] } };
+  C2.opUnits = [{ name: 'Рота 1', col: 5, row: 5, detected: true, squads: [] }];
+  C2.enemyOpUnits = [{ name: 'САУ 105', type: 'sau_battery', col: 3, row: 5, isDestroyed: false }];
+  vm.runInContext('planEnemyArtilleryFire()', sandbox);
+  assert.equal(C2.shellNotices.length, 1, 'вражеский залп по обнаруженному отряду создаёт уведомление');
+  assert.match(C2.shellNotices[0].shooter, /Вражеская артиллерия/);
+  assert.equal(C2.shellNotices[0].victims[0].name, 'Рота 1');
+  assert.equal(C2.shellNotices[0].victims[0].enemy, false, 'свои отряды не помечаются как противник');
+  assert.ok(C2.opMapGrid['5,5'].areaFire && C2.opMapGrid['5,5'].areaFire.owner === 'enemy', 'залп продолжается следующими ходами');
+  C2.currentTurn = 21;
+  C2.opUnits[0].detected = false;
+  vm.runInContext('resolveOperationalAreaFire()', sandbox);
+  assert.equal(C2.opMapGrid['5,5'].areaFire, undefined, 'без обнаружения вражеский огонь прекращается');
+  assert.equal(C2.shellNotices.length, 1, 'после потери цели нового уведомления нет');
+  C2.shellNotices = [];
+  vm.runInContext('planEnemyArtilleryFire()', sandbox);
+  assert.equal(C2.shellNotices.length, 0, 'необнаруженный отряд не обстреливается');
+  C2.opUnits[0].detected = true;
+  C2.opUnits[0].col = 30;
+  vm.runInContext('planEnemyArtilleryFire()', sandbox);
+  assert.equal(C2.shellNotices.length, 0, 'цель вне дальности не обстреливается');
+  C2.online = true; C2.opUnits[0].col = 5; C2.opUnits[0].detected = true;
+  vm.runInContext('planEnemyArtilleryFire()', sandbox);
+  assert.equal(C2.shellNotices.length, 0, 'онлайн: вражеский огонь не моделируется локально');
+}
+console.log('v13.106 shelling duration/trench/notices/enemy artillery: PASS');
