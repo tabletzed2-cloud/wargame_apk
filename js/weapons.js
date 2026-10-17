@@ -31,7 +31,7 @@ const BEVE_CREW_WEAPONS  = [
 
 const BEVE_AWARDS = [
   { "id": "wound", "name": "Нашивка за ранение", "icon": "images/шеврон беве за ранение.png", "iconWidth": "40px", "iconHeight": "40px", "bonus": "Один раз за бой восстановить 1 HP", "criteria": "Боец с 1 HP в конце боя, отряд не бежал" },
-  { "id": "colonial", "name": "Медаль за колониальную службу", "icon": "images/Знак колониальной службы.png", "iconWidth": "40px", "iconHeight": "60px", "bonus": "+1 к духу в жарком климате", "criteria": "Выдаётся игроком перед боем" },
+  { "id": "colonial", "name": "Медаль за колониальную службу", "icon": "images/Знак колониальной службы.png", "iconWidth": "40px", "iconHeight": "60px", "bonus": "+1 к обнаружению противника для стороны, пока жив кавалер медали", "criteria": "Выдаётся карточкой «Ветераны колониальной службы»" },
   { "id": "valor", "name": "Орден Доблести Бенилюкса", "icon": "images/знаг заслуг бенелюкс.png", "iconWidth": "40px", "iconHeight": "50px", "bonus": "+1 доп. попадание при стрельбе", "criteria": "Отряд уничтожил/обратил в бегство 5 отрядов" },
   { "id": "melee", "name": "Медаль за Ближний бой", "icon": "images/знак за ближний бой Беве.png", "iconWidth": "35px", "iconHeight": "75px", "bonus": "+1 в рукопашной", "criteria": "Отряд отразил 3 рукопашные/гранатные атаки" },
   { "id": "leopold", "name": "Медаль Леопольда", "icon": "images/медаль леопольда.png", "iconWidth": "35px", "iconHeight": "75px", "bonus": "+1 к укрытию в обороне для отряда", "criteria": "Все выжившие имеют 1 HP, отряд не отступил, бой выигран" }
