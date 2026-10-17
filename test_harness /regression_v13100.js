@@ -247,7 +247,7 @@ console.log('== v13.100: пункты 1–11 ==');
   const stale = marked.filter(rel => !read(rel).split('\n')[0].includes('⚡ BUILD-МАРКЕР: ' + app));
   ok(stale.length === 0, 'build-маркеры модулей синхронизированы', stale.join(', '));
   ok(SW.split('\n')[0].includes('⚡ BUILD-МАРКЕР: ' + app), 'service-worker: маркер сборки в шапке');
-  ok(/Боевой модуль v13\.100/.test(HTML) && /appVersionBadge/.test(HTML), 'интерфейс показывает v13.100');
+  ok(/Боевой модуль v13\.104/.test(HTML) && /appVersionBadge/.test(HTML), 'интерфейс показывает v13.104');
 }
 
 console.log(`\nИтог v13.100: PASS ${pass} · FAIL ${fail}`);

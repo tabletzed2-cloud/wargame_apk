@@ -480,7 +480,7 @@ test('дым скрывает отряд, блокирует обнаружен�
 // 5. 82-мм миномёт тратит боеприпасы типа ordnance.
 test('стрельба 82-мм миномёта расходует снаряды, а не патроны', () => {
   const s = createSandbox(freshAppData());
-  loadHtml(s, ['is82mmMortarSquad', 'attackOrdnance']);
+  loadHtml(s, ['is82mmMortarSquad', 'tacticalVehicleAimBonus', 'tacticalVehicleMovementAccuracyPenalty', 'attackOrdnance']);
   s.run(`
     function getFactionCrewWeapons() { return [{ name: 'Миномёт 82 мм', type: 'mortar', shotRule: 'fixed_per_crew', crewSize: 5, shotsFull: 3, shotsReduced2: 2, shotsReduced1: 1, splashDamageDice: 1 }]; }
     function getScopedActiveModifiersForSquad() { return []; }

@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.100 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.104 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1553,6 +1553,13 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
         else document.getElementById('battleApp').insertBefore(banner, document.getElementById('battleApp').firstChild);
     }
     const st = hexEditorState;
+    const battleRoot = document.getElementById('battleApp');
+    if (battleRoot && battleRoot.classList) {
+        const editorMode = !!st && ['trenches', 'prep'].includes(st.kind);
+        if (typeof battleRoot.classList.toggle === 'function') battleRoot.classList.toggle('hex-editor-mode', editorMode);
+        else if (editorMode && typeof battleRoot.classList.add === 'function') battleRoot.classList.add('hex-editor-mode');
+        else if (!editorMode && typeof battleRoot.classList.remove === 'function') battleRoot.classList.remove('hex-editor-mode');
+    }
     if (!st) { banner.style.display = 'none'; return; }
     // ⚡ v13.066: миникарта кампании — какой оперативный гекс открыт сейчас
     try { if (typeof renderCampaignMiniMap === 'function') renderCampaignMiniMap(); } catch (e) {}
@@ -1931,6 +1938,8 @@ function closeHexEditor() {
     try { if (typeof renderCampaignMiniMap === 'function') renderCampaignMiniMap(); } catch (e) {}
     const banner = document.getElementById('hexEditorBanner');
     if (banner) banner.style.display = 'none';
+    const battleRoot = document.getElementById('battleApp');
+    if (battleRoot && battleRoot.classList && typeof battleRoot.classList.remove === 'function') battleRoot.classList.remove('hex-editor-mode');
     if (st) {
         if (typeof TACTICAL_MAP_SIZE !== 'undefined') { try { TACTICAL_MAP_SIZE = st.prevSize; } catch (e) {} }
         appData.currentBattleId = null;
@@ -2131,6 +2140,12 @@ function fillModalTargets(attackType) {
         const d = hexGridDistance(shooterPos.col, shooterPos.row, pos.col, pos.row);
         const cov = getTacticalCoverInfoForEnemy(appData.map.grid, idx);
         if (!e.detected) return;
+        if (attackType === 'smallArms' && currentSquad.armor && appData.map.selectedVehicleFireWeaponKey &&
+            typeof tacticalVehicleWeaponCanTarget === 'function') {
+            const selectedCrew = (currentSquad.crewInstances || []).find(ci => ci && ci.uniqueKey === appData.map.selectedVehicleFireWeaponKey);
+            const weapon = selectedCrew && (getFactionCrewWeapons(currentSquad.faction) || []).find(w => w && w.name === selectedCrew.weaponName);
+            if (weapon && !tacticalVehicleWeaponCanTarget(currentSquad, weapon.name, weapon.type, pos.key)) return;
+        }
         if (attackType !== 'melee' && typeof tacticalSmokeBlocksAttack === 'function' && tacticalSmokeBlocksAttack(shooterIdx, idx)) return;
         if (attackType === 'ordnance' && /ДОТ/i.test(String(currentSquad.name || '')) &&
             typeof tacticalDotHasConfiguredSectors === 'function' && tacticalDotHasConfiguredSectors(currentSquad)) {

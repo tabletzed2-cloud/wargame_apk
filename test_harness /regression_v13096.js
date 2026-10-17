@@ -72,7 +72,7 @@ for (const [faction, subfaction] of [['BeVe', 'belgian'], ['BeVe', 'dutch'], ['A
   });
 }
 
-test('«Торговый дух» BeVe занимает один батальонный слот и не доступен AIRF-сапёрам', () => {
+test('«Торговый дух» BeVe доступен трижды на батальон и не доступен AIRF-сапёрам', () => {
   const s = cardsSandbox();
   s.run(`
     function getCurrentCampaignBattle() { return {id:99}; }
@@ -83,13 +83,18 @@ test('«Торговый дух» BeVe занимает один батальо�
     var trade = {name:'Торговый дух',type:'bonus'};
     appData.campaign.opUnits=[existing,beveEngineer,airfEngineer];
     var copies=countBattalionBonusCardCopies('Торговый дух');
-    var beveBlocked=campaignBonusCardLimitReached(trade,beveEngineer);
+    var twoCopiesAvailable=campaignBonusCardLimitReached(trade,beveEngineer);
     var beveAvailable=isCardAvailableToUnit(trade,beveEngineer,beveEngineer.squads);
+    existing.cardSelection.cards.push({name:'Торговый дух',type:'bonus'},{name:'Торговый дух',type:'bonus'});
+    var threeCopies=countBattalionBonusCardCopies('Торговый дух');
+    var fourthBlocked=campaignBonusCardLimitReached(trade,beveEngineer);
     var airfAvailable=isCardAvailableToUnit(trade,airfEngineer,airfEngineer.squads);
   `);
   assert.equal(s.evalCtx('copies'), 1);
-  assert.equal(s.evalCtx('beveBlocked'), true, 'второй «Торговый дух» блокируется в батальоне');
-  assert.equal(s.evalCtx('beveAvailable'), false, 'карта больше недоступна, если уже назначена');
+  assert.equal(s.evalCtx('twoCopiesAvailable'), false, 'вторую карту можно назначить при лимите 3 на батальон');
+  assert.equal(s.evalCtx('beveAvailable'), true, 'до третьей карты BeVe-доступность сохраняется');
+  assert.equal(s.evalCtx('threeCopies'), 3);
+  assert.equal(s.evalCtx('fourthBlocked'), true, 'четвёртая карта блокируется после исчерпания лимита');
   assert.equal(s.evalCtx('airfAvailable'), false, 'обход ограничения карт сапёрами не снимает BeVe-привязку');
 });
 

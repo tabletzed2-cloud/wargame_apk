@@ -41,11 +41,11 @@ test('1c: отдельное меню раздачи (оверлей) и пер�
   includes(css, 'grid-template-columns: 1fr;', 'на телефоне карты не в одну колонку');
 });
 
-test('1d: лимиты карт сохранены (3 на взвод / 3я = дебафф / 3 копии на батальон)', () => {
+test('1d: лимиты карт с Комиссаром/Торговым духом и один дебафф', () => {
   const commit = sliceFunction(HTML, 'commitInitialCampaignCardAssignments');
-  includes(commit, 'choices.length > 3', 'нет лимита 3 карт на взвод');
-  includes(commit, 'bonusCount === 3', 'третья карта не даёт дебафф');
-  includes(commit, 'cardCopies + savedCopies > 3', 'нет лимита 3 копий на батальон');
+  includes(commit, 'choices.length > platoonLimit', 'нет условного лимита бонусных карт: 3 обычно, 4 с «Комиссаром» или «Торговым духом»');
+  includes(commit, 'bonusCount >= 3 && !hasTradeSpirit', 'для 3+ бонусов сохраняется ровно один дебафф, кроме «Торгового духа»');
+  includes(commit, 'cardCopies + savedCopies > cardCopyLimit', 'нет лимита копий бонусных карт на батальон');
 });
 
 // ── П.2: ширина секторов ДОТов ───────────────────────────────────────────────

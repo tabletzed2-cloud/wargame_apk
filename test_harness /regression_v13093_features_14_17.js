@@ -24,7 +24,7 @@ function loadModule(s, filename) {
 // 14. Mounted bicycle and motorcycle units can climb one level, spending all remaining AP.
 test('14: cyclists and motorcyclists spend all remaining AP to climb one level', () => {
   const s = createSandbox(freshAppData());
-  loadHtml(s, ['getMovementAPForStep', 'getMovementCost', 'getHexNeighbors', 'calculateReachableHexes']);
+  loadHtml(s, ['getMovementAPForStep', 'getMovementCost', 'tacticalDogSledEligible', 'tacticalSquadHasCard', 'getHexNeighbors', 'calculateReachableHexes']);
   s.run(`
     var TACTICAL_MAP_SIZE = 5;
     var actionPoints = [
@@ -113,7 +113,7 @@ test('15: пулемёт ДОТа не выбирает бронетехнику
 // 16. Suppression blocks movement for the target's next phase, but leaves fire available at −2 accuracy.
 test('16: подавленный отряд не двигается, стреляет со штрафом, а статус снимается после своей фазы', () => {
   const s = createSandbox(freshAppData());
-  loadHtml(s, ['isBicycleTacticalSquad', 'tacticalActionAllowed', 'markTacticalSuppressed', 'clearTacticalSuppressionForSide', 'getTacticalSuppressionAccuracyPenalty', 'resetAP']);
+  loadHtml(s, ['isBicycleTacticalSquad', 'tacticalMaraudingBlocksAction', 'tacticalActionAllowed', 'tacticalSuppressionRoundStamp', 'markTacticalSuppressed', 'clearTacticalSuppressionForSide', 'getTacticalSuppressionAccuracyPenalty', 'getTacticalMoraleSuppressionAccuracyPenalty', 'resetAP']);
   s.run(`
     var currentTurn = 4, actionPoints = [];
     function getMaxAP() { return 6; }

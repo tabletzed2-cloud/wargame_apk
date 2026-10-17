@@ -12,7 +12,7 @@ const CONSTS = ['SUPPLY_SHOT_SPEND'];
 const FNS = [
     // ⚡ v13.069 (R48#6): стрельба по карте тратит боезапас
     'operationalAmmoField', 'operationalAmmoSquads', 'unitOperationalAmmoTotal',
-    'consumeOperationalAmmo', 'requireOperationalAmmo',
+    'consumeOperationalAmmo', 'requireOperationalAmmo', 'tacticalVehicleAimBonus', 'tacticalVehicleMovementAccuracyPenalty',
     'maybeAutoPlaceAtStart', 'rotateSelectedHex', 'executeOpShoot', 'attackOrdnance',
     'getTacticalTargetDistance', 'getTacticalCrewWeaponRange', 'is82mmMortarSquad',
     'operationalMediumArtilleryRange', 'isMediumArtillery', 'isMortarUnit', 'artilleryCaliberMm',

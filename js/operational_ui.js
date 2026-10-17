@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.100 — cards restore, hex editor from orders, hidden targets, hold-to-destination, area fire salvo.
+// ⚡ BUILD-МАРКЕР: v13.104 — tactical grenade-area fire, commissioner card limit, unified rules.
 (function () {
   'use strict';
 

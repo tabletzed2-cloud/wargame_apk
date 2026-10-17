@@ -908,7 +908,8 @@ function mapActionTacticalSide(squad) {
 }
 
 // Урон «по единице» случайным живым бойцам отряда противника
-function applyDamagePointsToEnemy(enemy, points, res) {
+function applyDamagePointsToEnemy(enemy, points, res, options) {
+    options = options || {};
     let applied = 0;
     const side = mapActionTacticalSide(enemy);
     for (let i = 0; i < points; i++) {
@@ -925,10 +926,10 @@ function applyDamagePointsToEnemy(enemy, points, res) {
                 const m = (enemy.currentMorale !== undefined && enemy.currentMorale !== null) ? enemy.currentMorale : (enemy.baseMorale || 5);
                 enemy.currentMorale = Math.max(0, m - (f.isCommander ? 2 : 1));
             }
-            try { log(`   ☠️ «${enemy.name}»: ${f.name || 'боец'} погиб`); } catch (e) {}
+            if (!options.silent) { try { log(`   ☠️ «${enemy.name}»: ${f.name || 'боец'} погиб`); } catch (e) {} }
         } else {
-            if (res.wounded.indexOf(f.name || 'боец') < 0) res.wounded.push(f.name || 'боец');
-            try { log(`   🔻 «${enemy.name}»: ${f.name || 'боец'} ранен (${f.hp}/${f.maxHp || f.hp})`); } catch (e) {}
+            if (!options.silent && res.wounded.indexOf(f.name || 'боец') < 0) res.wounded.push(f.name || 'боец');
+            if (!options.silent) { try { log(`   🔻 «${enemy.name}»: ${f.name || 'боец'} ранен (${f.hp}/${f.maxHp || f.hp})`); } catch (e) {} }
         }
     }
     res.damage += applied;
@@ -942,6 +943,32 @@ function applyDamagePointsToEnemy(enemy, points, res) {
         try { log(`💀 Отряд противника «${enemy.name}» уничтожен!`); } catch (e) {}
     }
     return applied;
+}
+
+function mapActionApplyAreaDamage(targetIndex, damage, res, options) {
+    options = options || {};
+    if (typeof tacticalAreaOccupantsAtTarget !== 'function') return false;
+    const allOccupants = tacticalAreaOccupantsAtTarget(currentSquad, targetIndex);
+    const occupants = options.mortar ? allOccupants.filter(u => !mapActionEnemyIsVehicle(u)) : allOccupants;
+    const living = occupants.filter(u => mapActionEnemyAlive(u) > 0);
+    for (let point = 0; point < Math.max(0, Math.floor(Number(damage) || 0)) && living.length; point++) {
+        const victimIndex = Math.floor(Math.random() * living.length);
+        const victim = living[victimIndex];
+        const concealed = victim.hidden === true;
+        const one = { damage: 0, killed: [], wounded: [], notes: [] };
+        applyDamagePointsToEnemy(victim, 1, one, { silent: concealed });
+        if (!concealed) {
+            res.damage += one.damage;
+            res.killed.push(...one.killed);
+            res.wounded.push(...one.wounded);
+            res.notes.push(...one.notes);
+        }
+        if (mapActionEnemyAlive(victim) <= 0) living.splice(victimIndex, 1);
+    }
+    res.areaFire = true;
+    res.target = `гекс ${typeof tacticalSelectedTargetHexKey === 'function' ? tacticalSelectedTargetHexKey(currentSquad) || '' : ''}`;
+    res.notes.push('🎯 площадной огонь: попадания распределялись по гексу');
+    return true;
 }
 
 // Пробитие техники: локация d6 (1..6) и пробитие в мм → модули/экипаж (processVehicleHit)
@@ -1037,10 +1064,18 @@ function reportAttackOutcome(kind, data) {
             applyDamagePointsToEnemy(enemy, (data.hits ? (data.damage || 0) : 0), res);
             break;
         case 'grenades':
+            if (!(data.areaFire === true && mapActionApplyAreaDamage(idx, data.damage, res))) {
+                applyDamagePointsToEnemy(enemy, data.damage || 0, res);
+            }
+            break;
         case 'ordnance':
+            if (!(data.areaFire === true && mapActionApplyAreaDamage(idx, data.damage, res, { mortar: data.areaMortar === true }))) {
+                applyDamagePointsToEnemy(enemy, data.damage || 0, res);
+            }
+            break;
         case 'ampulomet':
             applyDamagePointsToEnemy(enemy, data.damage || 0, res);
-            if (kind === 'ampulomet' && data.fires) { enemy.burning = true; res.notes.push('🔥 техника горит'); }
+            if (data.fires) { enemy.burning = true; res.notes.push('🔥 техника горит'); }
             break;
         case 'melee': {
             applyDamagePointsToEnemy(enemy, data.damage || 0, res);
