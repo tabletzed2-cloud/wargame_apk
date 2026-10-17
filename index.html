@@ -24044,8 +24044,11 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
             const rawDmg = dmgPerHit === '1d6' ? rollD6() : (dmgPerHit === '1d10' ? rollD10() : (rollD6() + rollD6())); // 1d6 / 1d10 / 2d6
             // ⚡ v13.106 (п.9): окоп на гексе цели гасит часть урона залпа
             const victimCell = (appData.campaign && appData.campaign.opMapGrid) ? appData.campaign.opMapGrid[`${victim.col},${victim.row}`] : null;
-            const dmg = opHexHasTrenches(victimCell) ? opTrenchReducedDamage(rawDmg) : rawDmg;
+            const victimTrench = !!victimCell && ((Array.isArray(victimCell.types) && victimCell.types.includes('trenches')) ||
+                (Array.isArray(victimCell.markers) && victimCell.markers.includes('trenches')));
+            const dmg = victimTrench ? Math.max(1, Math.floor(rawDmg / 1.5)) : rawDmg;
             const result = applyDamageToOpUnit(victim, dmg);
+            if (typeof recordOpShellVictim === 'function') recordOpShellVictim(victim, result); // ⚡ v13.106 (п.11): отчёт об обстреле
             totalSalvoDamage += result.damage;
             totalKilled += result.killed;
             // ⚡ v13.099 (п.4): по необнаруженным целям игрок видит только факт стрельбы
@@ -24380,11 +24383,17 @@ function executeShootOrder(unit, order) {
         const salvoMi = document.getElementById('mapInfo');
         const salvoText = (salvoMi && typeof salvoMi.innerHTML === 'string')
             ? salvoMi.innerHTML.replace(/<[^>]*>/g, '').trim() : '';
-        const shellCap = beginOpShellCapture({ shooter: unit.name, kind: 'direct', col: targetCol, row: targetRow });
+        const shellCap = (typeof beginOpShellCapture === 'function')
+            ? beginOpShellCapture({ shooter: unit.name, kind: 'direct', col: targetCol, row: targetRow }) : null;
         try {
             executeMortarSalvo(unit, enemies, distance, ROUNDS, isSau ? '1d10' : '1d6');
         } finally {
-            endOpShellCapture(shellCap, { trench: opHexHasTrenches((appData.campaign.opMapGrid || {})[`${targetCol},${targetRow}`]) });
+            if (shellCap && typeof endOpShellCapture === 'function') {
+                const capCell = (appData.campaign.opMapGrid || {})[`${targetCol},${targetRow}`];
+                const capTrench = !!capCell && ((Array.isArray(capCell.types) && capCell.types.includes('trenches')) ||
+                    (Array.isArray(capCell.markers) && capCell.markers.includes('trenches')));
+                endOpShellCapture(shellCap, { trench: capTrench });
+            }
         }
         const salvoMiAfter = document.getElementById('mapInfo');
         const salvoTextAfter = (salvoMiAfter && typeof salvoMiAfter.innerHTML === 'string')
@@ -24394,7 +24403,7 @@ function executeShootOrder(unit, order) {
             : (t) => /[\u{274C}\u{26A0}\u{1F6AB}]/u.test(String(t || ''));
         const salvoRefused = salvoLooksRefusal(salvoTextAfter) && salvoTextAfter !== salvoText;
         // ⚡ v13.106 (п.10): продолжение обстрела на следующие ходы
-        if (!salvoRefused) scheduleExtraOpShellSalvos(unit, order, targetCol, targetRow);
+        if (!salvoRefused && typeof scheduleExtraOpShellSalvos === 'function') scheduleExtraOpShellSalvos(unit, order, targetCol, targetRow);
 
         // ⚡ ВОССТАНАВЛИВАЕМ ОД
         unit.ap = savedAP;
@@ -24675,6 +24684,7 @@ function resolveOperationalAreaFire() {
             const result = (typeof applyDamageToOpUnit === 'function')
                 ? applyDamageToOpUnit(victim, damage)
                 : { damage: damage, killed: 0 };
+            recordOpShellVictim(victim, result); // ⚡ v13.106 (п.11): отчёт об обстреле
             if (hidden) {
                 // ⚡ v13.100 (п.3): необнаруженные цели не раскрываются ничем —
                 //    ни именами, ни количеством попаданий и уроном.
@@ -32144,13 +32154,7 @@ function calculateOpShootDamage(shooter, target, distance) {
 }
       // Применить урон к операционному юниту
 // Применить урон к операционному юниту (возвращает { damage: number, killed: number })
-// ⚡ v13.106 (п.11): отчёт об обстреле собирает попадания через этот перехват.
 function applyDamageToOpUnit(unit, damage) {
-    const res = applyDamageToOpUnitCore(unit, damage);
-    try { recordOpShellVictim(unit, res); } catch (e) {}
-    return res;
-}
-function applyDamageToOpUnitCore(unit, damage) {
     if (!unit || damage <= 0) return { damage: 0, killed: 0 };
 
     // ⚡ v13.043 (R28#1): урон распределяется по бойцам ЛЮБОЙ стрельбой.
