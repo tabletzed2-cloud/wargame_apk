@@ -18530,7 +18530,9 @@ function applyCardToPlatoon(card, faction, unit, squads, targetNames, options) {
             s.effects = s.effects || {}; s.effects.dynamic = { active: true, damageBonus: 1, selfDamage: true };
         });
     } else if (card.name === 'Бутылки с зажигательной смесью') {
-        targeted.forEach(s => { s.grenades = (s.fighters || []).filter(f => f.hp > 0).length; s.effects = s.effects || {}; s.effects.molotov = true; });
+        // ⚡ v13.105 (п.1): бутылки получают ВСЕ живые небронированные отряды взвода
+        //    (тот же круг, что у самой карты), а не только выбранные цели.
+        living.filter(s => !s.armor && s.faction === 'A.I.R.F.').forEach(s => { s.grenades = (s.fighters || []).filter(f => f.hp > 0).length; s.effects = s.effects || {}; s.effects.molotov = true; if (!Array.isArray(s.appliedCards)) s.appliedCards = []; if (!s.appliedCards.includes(card.name)) s.appliedCards.push(card.name); });
     } else if (card.name === 'Термитный заряд') {
         // ⚡ v13.094 (п.11): термитные заряды — ВСЕМ сапёрным отделениям взвода
         const thermiteTargets = hasExplicitTargets ? targeted.filter(s => isAirfSapperSquad(s)) : living.filter(s => isAirfSapperSquad(s));
@@ -19350,20 +19352,18 @@ case 'Оружие солидарности': {
       }
 
       case 'Бутылки с зажигательной смесью': {
-        const list3 = appData.squads.filter(s => s.faction === 'A.I.R.F.' && !s.armor);
+        // ⚡ v13.105 (п.1): бутылки — ВСЕМ живым небронированным отрядам AIRF взвода, без выбора одного
+        const list3 = appData.squads.filter(s => s.faction === 'A.I.R.F.' && !s.armor && (s.fighters || []).some(f => f.hp > 0));
         if (list3.length === 0) { alert('Нет пехотных отрядов AIRF.'); return; }
-        const choice3 = prompt('Выберите отряд для замены гранат на бутылки:\n' + list3.map((s,i) => `${i}: ${s.name}`).join('\n'));
-        if (choice3 === null) return;
-        const idx3 = parseInt(choice3);
-        if (isNaN(idx3) || idx3 < 0 || idx3 >= list3.length) return;
-        const squad3 = list3[idx3];
-        const fighters3 = squad3.fighters.filter(f => f.hp > 0).length;
-        squad3.grenades = fighters3;
-        if (!squad3.effects) squad3.effects = {};
-        squad3.effects.molotov = true;
-        if (!squad3.appliedCards) squad3.appliedCards = [];
-        squad3.appliedCards.push(card.name);
-        log(`Отряд "${squad3.name}" получил бутылки с зажигательной смесью (${fighters3} шт.).`);
+        list3.forEach(squad3 => {
+          const fighters3 = squad3.fighters.filter(f => f.hp > 0).length;
+          squad3.grenades = fighters3;
+          if (!squad3.effects) squad3.effects = {};
+          squad3.effects.molotov = true;
+          if (!squad3.appliedCards) squad3.appliedCards = [];
+          if (!squad3.appliedCards.includes(card.name)) squad3.appliedCards.push(card.name);
+          log(`Отряд "${squad3.name}" получил бутылки с зажигательной смесью (${fighters3} шт.).`);
+        });
         break;
       }
 
