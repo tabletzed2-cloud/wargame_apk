@@ -10082,8 +10082,30 @@ function tacticalBattleProgressLabel(battle) {
   const p = getTacticalRoundProgress(battle);
   return `${Math.min(p.roundsDone, p.roundsPerTurn)}/${p.roundsPerTurn}`;
 }
+// ⚡ v13.105 (п.7): номер раунда в шапке (#turnCounter) обновляется всегда.
+//    Раньше обновление стояло в updateUI после раннего выхода «Нет активного
+//    отряда» — в ход противника и в фазах без выбранного отряда счётчик не менялся.
+function syncTacticalRoundCounter(battle) {
+  const counterEl = document.getElementById('turnCounter');
+  const maxEl = document.getElementById('turnCounterMax');
+  const phaseEl = document.getElementById('turnPhaseLabel');
+  const battleRec = battle || ((typeof getTacticalBattleRecord === 'function') ? getTacticalBattleRecord() : null);
+  const progress = (battleRec && typeof getTacticalRoundProgress === 'function')
+    ? getTacticalRoundProgress(battleRec) : null;
+  if (counterEl) counterEl.innerText = progress ? progress.round : currentTurn;
+  if (maxEl) maxEl.innerText = progress ? progress.roundsPerTurn : 5;
+  if (phaseEl) {
+    const activeSide = (battleRec && typeof getTacticalActiveSide === 'function') ? getTacticalActiveSide(battleRec) : 'player';
+    const attackerSide = (battleRec && battleRec.placement && battleRec.placement.attackerSide) ||
+      ((appData && appData.map && appData.map.attackerSide) || 'player');
+    phaseEl.innerText = battleRec
+      ? `· фаза ${activeSide === attackerSide ? 'атакующего' : 'обороняющегося'}`
+      : '';
+  }
+}
 function updateTacticalRoundUI(battle) {
   battle = battle || getTacticalBattleRecord();
+  syncTacticalRoundCounter(battle);
   const bar = document.getElementById('tacticalRoundBar');
   if (!bar) return;
   if ((appData.mapEditor && appData.mapEditor.active) ||
@@ -12684,25 +12706,7 @@ const eff = morale + mod + extraMorale;
       // Обновляем отображение ОД и хода
       document.getElementById('apDisplay').innerText = getAP(currentSquadIndex);
       document.getElementById('maxApDisplay').innerText = actionPoints[currentSquadIndex] ? actionPoints[currentSquadIndex].maxAp : 0;
-      // ⚡ v13.100 (п.7): показываем НОМЕР РАУНДА (2 фазы = 1 раунд) и чья фаза идёт.
-      {
-        const counterEl = document.getElementById('turnCounter');
-        const maxEl = document.getElementById('turnCounterMax');
-        const phaseEl = document.getElementById('turnPhaseLabel');
-        const battleRec = (typeof getTacticalBattleRecord === 'function') ? getTacticalBattleRecord() : null;
-        const progress = (battleRec && typeof getTacticalRoundProgress === 'function')
-          ? getTacticalRoundProgress(battleRec) : null;
-        if (counterEl) counterEl.innerText = progress ? progress.round : currentTurn;
-        if (maxEl) maxEl.innerText = progress ? progress.roundsPerTurn : 5;
-        if (phaseEl) {
-          const activeSide = (typeof getTacticalActiveSide === 'function') ? getTacticalActiveSide(battleRec) : 'player';
-          const attackerSide = (battleRec && battleRec.placement && battleRec.placement.attackerSide) ||
-            ((appData && appData.map && appData.map.attackerSide) || 'player');
-          phaseEl.innerText = battleRec
-            ? `· фаза ${activeSide === attackerSide ? 'атакующего' : 'обороняющегося'}`
-            : '';
-        }
-      }
+      syncTacticalRoundCounter();
       updateActiveCardsBattle();
       const maxShots = getMaxShots(currentSquad);
       const shotsUsed = getShotsUsed(currentSquad);
