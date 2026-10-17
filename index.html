@@ -3258,10 +3258,102 @@ function drawCampaignObjectiveMarkers(ctx, size) {
     });
 }
 
+// ⚡ v13.106 (п.11): уведомления об обстрелах — справа внизу на операционной
+//    карте. Показываются в начале каждого хода и закрываются только вручную
+//    (кнопка ×). Нажатие на уведомление подсвечивает связанный гекс.
+function shellNoticeEsc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function shellNoticeCardHtml(n, solo) {
+    const hexTxt = (n.col != null && n.row != null) ? `(${n.col},${n.row})` : '';
+    const head = n.kind === 'direct'
+        ? `${shellNoticeEsc(n.shooter)} — огонь по гексу ${hexTxt}`
+        : `${shellNoticeEsc(n.shooter)} обстрелял гекс ${hexTxt}`;
+    const when = `Ход ${shellNoticeEsc(n.turn)}${n.time ? ' · ' + shellNoticeEsc(n.time) : ''}`;
+    const victims = (n.victims || []).map(v => {
+        const killed = v.killed > 0 ? `, убито ${v.killed}` : '';
+        const soloNote = (solo && v.enemy) ? ' <span style="color:#95a5a6;">(в одиночной игре отряд противника не теряет бойцов — учтён только урон)</span>' : '';
+        return `<div>• <b>${shellNoticeEsc(v.name)}</b>: попаданий ${v.hits}, урон ${v.damage}${killed}${soloNote}</div>`;
+    }).join('');
+    const trench = n.trench ? '<div style="color:#7fb3d5;">Окопы на гексе: урон снижен (÷1,5, минимум 1).</div>' : '';
+    const note = n.note ? `<div style="color:#bdc3c7;">${shellNoticeEsc(n.note)}</div>` : '';
+    return `<div class="shell-notice" data-notice-id="${shellNoticeEsc(n.id)}" style="background:#2c1d1d; border:1px solid #c0392b; border-left:4px solid #e67e22; border-radius:8px; padding:8px 10px; color:#ecf0f1; box-shadow:0 2px 8px rgba(0,0,0,.5); cursor:pointer; font-size:0.85rem;">` +
+        `<div style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start;"><b style="color:#f39c12;">💥 ${when}</b>` +
+        `<button type="button" data-shell-close="${shellNoticeEsc(n.id)}" title="Закрыть" style="background:none; border:none; color:#bdc3c7; font-size:1.1rem; line-height:1; cursor:pointer; padding:0 2px;">×</button></div>` +
+        `<div style="margin-top:4px;">${head}</div>${victims}${trench}${note}` +
+        (n.col != null ? '<div style="color:#95a5a6; font-size:0.75rem; margin-top:4px;">нажмите, чтобы подсветить гекс</div>' : '') +
+        `</div>`;
+}
+function renderShellNotices() {
+    const campaign = (typeof appData !== 'undefined' && appData) ? appData.campaign : null;
+    let stack = document.getElementById('shellNoticeStack');
+    if (!campaign) { if (stack) stack.style.display = 'none'; return; }
+    if (!stack) {
+        stack = document.createElement('div');
+        stack.id = 'shellNoticeStack';
+        stack.style.cssText = 'position:fixed; right:10px; bottom:10px; width:min(340px, 92vw); max-height:55vh; overflow-y:auto; z-index:9990; display:none; flex-direction:column; gap:8px;';
+        stack.addEventListener('click', (e) => {
+            const closeBtn = e.target.closest ? e.target.closest('[data-shell-close]') : null;
+            const camp = appData && appData.campaign;
+            if (!camp) return;
+            if (closeBtn) {
+                const id = closeBtn.getAttribute('data-shell-close');
+                const note = (camp.shellNotices || []).find(x => x && x.id === id);
+                if (note) note.closed = true;
+                if (camp.opShellHighlight && camp.opShellHighlight.id === id) camp.opShellHighlight = null;
+                try { saveData(); } catch (err) {}
+                renderShellNotices();
+                redrawOperationalMap();
+                return;
+            }
+            const card = e.target.closest ? e.target.closest('.shell-notice') : null;
+            if (!card || !camp) return;
+            const id = card.getAttribute('data-notice-id');
+            const note = (camp.shellNotices || []).find(x => x && x.id === id);
+            if (!note || note.col == null || note.row == null) return;
+            camp.opShellHighlight = { id: id, col: note.col, row: note.row };
+            redrawOperationalMap();
+        });
+        document.body.appendChild(stack);
+    }
+    const mapScreen = document.getElementById('campaignMapScreen');
+    const onMap = !!mapScreen && window.getComputedStyle(mapScreen).display !== 'none';
+    const open = (campaign.shellNotices || []).filter(n => n && !n.closed);
+    if (!onMap || !open.length) { stack.style.display = 'none'; stack.dataset.sig = ''; return; }
+    const sig = JSON.stringify([open.map(n => n.id), campaign.opShellHighlight ? campaign.opShellHighlight.id : null]);
+    if (stack.dataset.sig !== sig) {
+        const solo = !campaign.online;
+        stack.innerHTML = open.slice().reverse().map(n => shellNoticeCardHtml(n, solo)).join('');
+        stack.dataset.sig = sig;
+    }
+    stack.style.display = 'flex';
+}
+// Подсветка гекса, связанного с уведомлением (рисуется поверх карты).
+function drawShellHighlightOnMap(ctx, size) {
+    const hl = appData && appData.campaign && appData.campaign.opShellHighlight;
+    if (!ctx || !hl || !Number.isFinite(hl.col) || !Number.isFinite(hl.row)) return;
+    const x = hl.col * Math.sqrt(3) * size + (hl.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+    const y = hl.row * 1.5 * size + size;
+    ctx.save();
+    ctx.beginPath();
+    for (let k = 0; k < 6; k++) {
+        const a = Math.PI / 180 * (60 * k - 30);
+        const px = x + size * Math.cos(a), py = y + size * Math.sin(a);
+        if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(241,196,15,0.22)';
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#f1c40f';
+    ctx.stroke();
+    ctx.restore();
+}
 function redrawOperationalMapNow() {
     try { if (typeof resolveBicycleParkCaptures === 'function') resolveBicycleParkCaptures(); } catch (e) { console.warn('bicycle park capture:', e); }
     try { if (typeof syncSupplyRearConnection === 'function') syncSupplyRearConnection(); } catch (e) { console.warn('rear connection:', e); }
     try { if (typeof renderCampaignObjectivesPanel === 'function') renderCampaignObjectivesPanel(); } catch (e) { console.warn('campaign objectives:', e); }
+    try { renderShellNotices(); } catch (e) { console.warn('shell notices:', e.message); }
     if (appData.campaign.opMapMode !== 'selectTarget') {
         clearEnemyHighlight();
     }
@@ -3785,6 +3877,7 @@ if (pickingTargetHex) {
 
     // Текущая позиция каждой колонны снабжения видна прямо на карте кампании.
     drawSupplyDeliveriesOnMap(ctx, appData.campaign.supply && appData.campaign.supply.deliveries, size);
+    try { drawShellHighlightOnMap(ctx, size); } catch (e) { console.warn('shell highlight:', e.message); }
 
     // ⚡ v13.058: пары связистов рисуются поверх иконок юнитов в текущем гексе.
     if (hardMode.enabled && hardMode.signalPlatoon && hardMode.signalPlatoon.transfers) {
@@ -6911,6 +7004,7 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         waypoints: options.waypoints || [],
         targetHex: options.targetHex || null,
         targetDistance: options.targetDistance || null,
+        shellMinutes: options.shellMinutes || null, // ⚡ v13.106 (п.10): длительность обстрела гекса
         behavior: options.behavior || 'hold',
         startHex: options.startHex || null,
         status: 'pending',
@@ -23891,7 +23985,10 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
                 }
                 continue;
             }
-            const dmg = dmgPerHit === '1d6' ? rollD6() : (dmgPerHit === '1d10' ? rollD10() : (rollD6() + rollD6())); // 1d6 / 1d10 / 2d6
+            const rawDmg = dmgPerHit === '1d6' ? rollD6() : (dmgPerHit === '1d10' ? rollD10() : (rollD6() + rollD6())); // 1d6 / 1d10 / 2d6
+            // ⚡ v13.106 (п.9): окоп на гексе цели гасит часть урона залпа
+            const victimCell = (appData.campaign && appData.campaign.opMapGrid) ? appData.campaign.opMapGrid[`${victim.col},${victim.row}`] : null;
+            const dmg = opHexHasTrenches(victimCell) ? opTrenchReducedDamage(rawDmg) : rawDmg;
             const result = applyDamageToOpUnit(victim, dmg);
             totalSalvoDamage += result.damage;
             totalKilled += result.killed;
@@ -24132,33 +24229,17 @@ function executeShootOrder(unit, order) {
         unit.firedThisTurn = true;
         if (typeof opCheckUnitDetection === 'function') opCheckUnitDetection(unit, { fireType: opIsIndirectFireUnit(unit) ? 'indirect' : 'direct' });
         try { if (typeof consumeOperationalAmmo === 'function') consumeOperationalAmmo(unit, hasAtGunWeapons(unit) ? 'ordnance' : 'small'); } catch (e) {}
+        // ⚡ v13.106 (п.10): длительность обстрела — число залпов по ходам
+        const shellMinutes = normalizeShellMinutes(order.shellMinutes);
+        const shellTurns = shellTurnsForMinutes(shellMinutes);
         try {
             if (appData.campaign && appData.campaign.opMapGrid) {
                 const key = `${targetCol},${targetRow}`;
                 const cell = appData.campaign.opMapGrid[key] || (appData.campaign.opMapGrid[key] = { types: ['grass'], markers: [] });
-                cell.areaFire = { turn: (appData.campaign.currentTurn || 1), owner: 'player' };
+                cell.areaFire = buildOpAreaFireMark(unit, (appData.campaign.currentTurn || 1), shellTurns);
             }
         } catch (e) {}
-        // ⚡ v13.100 (п.11): обстрел гекса без обнаруженных целей — это не «выстрел
-        //    в пустоту»: снаряды ложатся на гекс и накрывают того, кто там есть
-        //    (в т.ч. необнаруженного). Число снарядов и тип оружия сохраняем в метке.
-        {
-            const cell = (appData.campaign && appData.campaign.opMapGrid && appData.campaign.opMapGrid[`${targetCol},${targetRow}`]) || null;
-            if (cell && cell.areaFire) {
-                const isSau = (unit.type === 'sau_battery') || /САУ/i.test(String(unit.name || ''));
-                const vehicleCount = (unit.isGroup && unit.vehicleList)
-                    ? unit.vehicleList.filter(v => v && !v.destroyed).length : 1;
-                cell.areaFire.unitName = unit.name;
-                cell.areaFire.isMortar = (typeof isMortarUnit === 'function') ? isMortarUnit(unit) : false;
-                cell.areaFire.rounds = isSau
-                    ? 7 * Math.max(1, vehicleCount)
-                    : ((typeof isMortarUnit === 'function' && isMortarUnit(unit))
-                        ? ((typeof mortarRoundsForUnit === 'function') ? mortarRoundsForUnit(unit, 15) : 15)
-                        : 12);
-                cell.areaFire.damageDie = isSau ? '1d10' : '1d6';
-            }
-        }
-        const areaMsg = `💥 ${unit.name} обстрелял гекс (${targetCol},${targetRow}): разведка не видит там целей — обстрел площади выполнен, снаряды легли на гекс.`;
+        const areaMsg = `💥 ${unit.name} обстрелял гекс (${targetCol},${targetRow}), ${shellMinutes} мин (залпов: ${shellTurns}): разведка не видит там целей — обстрел площади выполнен, снаряды легли на гекс.`;
         log(areaMsg);
         const miArea = document.getElementById('mapInfo');
         if (miArea) { miArea.innerHTML = areaMsg; miArea.style.color = '#f1c40f'; }
@@ -24243,7 +24324,12 @@ function executeShootOrder(unit, order) {
         const salvoMi = document.getElementById('mapInfo');
         const salvoText = (salvoMi && typeof salvoMi.innerHTML === 'string')
             ? salvoMi.innerHTML.replace(/<[^>]*>/g, '').trim() : '';
-        executeMortarSalvo(unit, enemies, distance, ROUNDS, isSau ? '1d10' : '1d6');
+        const shellCap = beginOpShellCapture({ shooter: unit.name, kind: 'direct', col: targetCol, row: targetRow });
+        try {
+            executeMortarSalvo(unit, enemies, distance, ROUNDS, isSau ? '1d10' : '1d6');
+        } finally {
+            endOpShellCapture(shellCap, { trench: opHexHasTrenches((appData.campaign.opMapGrid || {})[`${targetCol},${targetRow}`]) });
+        }
         const salvoMiAfter = document.getElementById('mapInfo');
         const salvoTextAfter = (salvoMiAfter && typeof salvoMiAfter.innerHTML === 'string')
             ? salvoMiAfter.innerHTML.replace(/<[^>]*>/g, '').trim() : '';
@@ -24251,6 +24337,8 @@ function executeShootOrder(unit, order) {
             ? opTextLooksLikeRefusal
             : (t) => /[\u{274C}\u{26A0}\u{1F6AB}]/u.test(String(t || ''));
         const salvoRefused = salvoLooksRefusal(salvoTextAfter) && salvoTextAfter !== salvoText;
+        // ⚡ v13.106 (п.10): продолжение обстрела на следующие ходы
+        if (!salvoRefused) scheduleExtraOpShellSalvos(unit, order, targetCol, targetRow);
 
         // ⚡ ВОССТАНАВЛИВАЕМ ОД
         unit.ap = savedAP;
@@ -24349,6 +24437,120 @@ function opShootRefusalIsSupplyWait(reason) {
 // ⚡ v13.099 (п.21): обстрел площади по гексу без обнаруженных целей.
 //    Метка areaFire ставится приказом «обстрелить гекс»; на следующем ходу,
 //    если противник оказался на этом гексе, по нему наносится удар.
+// ⚡ v13.106 (п.9–11, решения игрока):
+//    • длительность (п.10): приказ задаёт shellMinutes (10/20/30/60 мин);
+//      одна оперативная фаза = 10 мин, значит залпов = ceil(минуты/10);
+//    • окопы (п.9): в окопе на гексе урон каждого попадания делится на 1,5
+//      с округлением вниз, но не меньше 1;
+//    • уведомления (п.11): каждый залп записывается в campaign.shellNotices
+//      и показывается в начале хода справа внизу до ручного закрытия.
+const OP_SHELL_TURN_MINUTES = 10;
+const OP_SHELL_DURATION_OPTIONS = [10, 20, 30, 60];
+const OP_TRENCH_DAMAGE_DIVISOR = 1.5;
+
+function normalizeShellMinutes(value) {
+    const n = Number(value);
+    return OP_SHELL_DURATION_OPTIONS.includes(n) ? n : OP_SHELL_TURN_MINUTES;
+}
+function shellTurnsForMinutes(minutes) {
+    return Math.max(1, Math.ceil(normalizeShellMinutes(minutes) / OP_SHELL_TURN_MINUTES));
+}
+function opHexHasTrenches(cell) {
+    if (!cell) return false;
+    const types = Array.isArray(cell.types) ? cell.types : [];
+    const markers = Array.isArray(cell.markers) ? cell.markers : [];
+    return types.includes('trenches') || markers.includes('trenches');
+}
+function opTrenchReducedDamage(damage) {
+    return Math.max(1, Math.floor(Number(damage) / OP_TRENCH_DAMAGE_DIVISOR));
+}
+// Метка обстрела площади для отряда-стрелка: сколько залпов осталось.
+function buildOpAreaFireMark(unit, turn, turnsLeft) {
+    const isSau = (unit.type === 'sau_battery') || /САУ/i.test(String(unit.name || ''));
+    const isMortar = (typeof isMortarUnit === 'function') ? isMortarUnit(unit) : false;
+    const vehicleCount = (unit.isGroup && unit.vehicleList)
+        ? unit.vehicleList.filter(v => v && !v.destroyed).length : 1;
+    let rounds = 12;
+    if (isSau) rounds = 7 * Math.max(1, vehicleCount);
+    else if (isMortar) rounds = (typeof mortarRoundsForUnit === 'function') ? mortarRoundsForUnit(unit, 15) : 15;
+    return {
+        turn: turn,
+        owner: 'player',
+        turnsLeft: Math.max(1, Math.floor(Number(turnsLeft) || 1)),
+        unitName: unit.name,
+        isMortar: isMortar,
+        rounds: rounds,
+        damageDie: isSau ? '1d10' : '1d6'
+    };
+}
+// Продолжение обстрела после немедленного залпа (отряд уже стреляет по врагам на гексе).
+function scheduleExtraOpShellSalvos(unit, order, col, row) {
+    try {
+        const turns = shellTurnsForMinutes(order && order.shellMinutes);
+        if (turns <= 1 || !appData.campaign || !appData.campaign.opMapGrid) return;
+        const key = `${col},${row}`;
+        const cell = appData.campaign.opMapGrid[key] || (appData.campaign.opMapGrid[key] = { types: ['grass'], markers: [] });
+        cell.areaFire = buildOpAreaFireMark(unit, appData.campaign.currentTurn || 1, turns - 1);
+    } catch (e) { console.warn('scheduleExtraOpShellSalvos:', e.message); }
+}
+
+// Перехват попаданий для отчёта: applyDamageToOpUnit вызывает recordOpShellVictim,
+// пока открыт захват (beginOpShellCapture / endOpShellCapture).
+let opShellCapture = null;
+function beginOpShellCapture(meta) {
+    opShellCapture = { meta: meta || {}, victims: new Map() };
+    return opShellCapture;
+}
+function recordOpShellVictim(unit, result) {
+    if (!opShellCapture || !unit || !result) return;
+    const key = (unit.id !== undefined && unit.id !== null) ? String(unit.id) : String(unit.name || '?');
+    let row = opShellCapture.victims.get(key);
+    if (!row) {
+        const hidden = (typeof opVictimHiddenFromPlayer === 'function')
+            ? !!opVictimHiddenFromPlayer(unit) : (unit.detected !== true);
+        const isEnemy = !!(appData.campaign && appData.campaign.enemyOpUnits && appData.campaign.enemyOpUnits.includes(unit));
+        row = { name: String(unit.name || 'отряд'), hidden: hidden, hits: 0, damage: 0, killed: 0, enemy: isEnemy };
+        opShellCapture.victims.set(key, row);
+    }
+    if (Number(result.damage) > 0) row.hits += 1;
+    row.damage += Number(result.damage) || 0;
+    row.killed += Number(result.killed) || 0;
+}
+function endOpShellCapture(capture, extra) {
+    if (!capture || opShellCapture !== capture) { opShellCapture = null; return; }
+    opShellCapture = null;
+    try {
+        const campaign = appData && appData.campaign;
+        if (!campaign) return;
+        const rows = Array.from(capture.victims.values());
+        if (!rows.length) return; // залп отклонён или целей не было — отчёта нет
+        const visible = rows.filter(r => !r.hidden && r.hits > 0);
+        const meta = Object.assign({}, capture.meta, extra || {});
+        const hexKey = meta.hexKey || (meta.col != null ? `${meta.col},${meta.row}` : null);
+        const hasHidden = rows.some(r => r.hidden && r.hits > 0);
+        const note = (!visible.length)
+            ? (hasHidden ? 'снаряды легли на гекс — видимых разведке целей там нет' : 'попаданий нет')
+            : null;
+        if (!campaign.shellNotices) campaign.shellNotices = [];
+        campaign.shellNotices.push({
+            id: 'sn' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+            turn: campaign.currentTurn || 1,
+            time: (typeof formatTime === 'function' && campaign.currentTime !== undefined) ? formatTime(campaign.currentTime) : null,
+            shooter: String(meta.shooter || 'отряд'),
+            kind: meta.kind || 'area',
+            hexKey: hexKey,
+            col: meta.col != null ? Number(meta.col) : null,
+            row: meta.row != null ? Number(meta.row) : null,
+            trench: !!meta.trench,
+            minutes: meta.minutes || null,
+            victims: visible.map(r => ({ name: r.name, hits: r.hits, damage: r.damage, killed: r.killed, enemy: !!r.enemy })),
+            note: note,
+            closed: false
+        });
+        if (campaign.shellNotices.length > 60) campaign.shellNotices.splice(0, campaign.shellNotices.length - 60);
+    } catch (e) { console.warn('endOpShellCapture:', e.message); }
+}
+
 function resolveOperationalAreaFire() {
     const campaign = (typeof appData !== 'undefined' && appData && appData.campaign) ? appData.campaign : null;
     const grid = campaign && campaign.opMapGrid;
@@ -24364,11 +24566,27 @@ function resolveOperationalAreaFire() {
         const parts = String(key).split(',');
         const col = Number(parts[0]), row = Number(parts[1]);
         if (!Number.isFinite(col) || !Number.isFinite(row)) return;
+        // ⚡ v13.106 (п.10): залпов несколько — метка живёт, пока не выйдут все.
+        const turnsLeft = Math.max(1, Math.floor(Number(mark.turnsLeft) || 1));
+        if (turnsLeft > 1) {
+            mark.turn = turn;
+            mark.turnsLeft = turnsLeft - 1;
+        } else {
+            delete cell.areaFire;
+        }
+        const trench = opHexHasTrenches(cell);
         const victims = (campaign.enemyOpUnits || []).filter(e =>
             e && !e.isDestroyed && e.col === col && e.row === row);
-        delete cell.areaFire;
         if (!victims.length) {
             log(`💥 Обстрел площади (${col},${row}): противник на гекс не вышел — попаданий нет.`);
+            if (!campaign.shellNotices) campaign.shellNotices = [];
+            campaign.shellNotices.push({
+                id: 'sn' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+                turn: turn, time: null, shooter: String(mark.unitName || 'отряд'), kind: 'area',
+                hexKey: key, col: col, row: row, trench: trench, minutes: null, victims: [],
+                note: 'противник на гекс не вышел — попаданий нет', closed: false
+            });
+            if (typeof saveData === 'function') saveData();
             return;
         }
         // ⚡ v13.100 (п.11): обстрел площади — это ЗАЛП, а не один бросок: каждый
@@ -24385,6 +24603,7 @@ function resolveOperationalAreaFire() {
             ? ((typeof rollD10 === 'function') ? rollD10() : 5)
             : ((typeof rollD6 === 'function') ? rollD6() : 3);
         let visibleHits = 0, visibleDamage = 0, visibleKilled = 0, hiddenHits = 0;
+        const capture = beginOpShellCapture({ shooter: mark.unitName || 'отряд', kind: 'area', col: col, row: row, trench: trench });
         for (let i = 0; i < rounds; i++) {
             if (Math.random() > 0.5) continue;
             // миномёт по броне не работает (v13.069 R48#5)
@@ -24394,7 +24613,9 @@ function resolveOperationalAreaFire() {
             const hidden = (typeof opVictimHiddenFromPlayer === 'function')
                 ? opVictimHiddenFromPlayer(victim)
                 : (victim.detected !== true);
-            const damage = rollDamage();
+            const rawDamage = rollDamage();
+            // ⚡ v13.106 (п.9): окоп на гексе гасит часть урона залпа
+            const damage = trench ? opTrenchReducedDamage(rawDamage) : rawDamage;
             const result = (typeof applyDamageToOpUnit === 'function')
                 ? applyDamageToOpUnit(victim, damage)
                 : { damage: damage, killed: 0 };
@@ -24408,12 +24629,14 @@ function resolveOperationalAreaFire() {
                 visibleKilled += result.killed;
             }
         }
+        endOpShellCapture(capture, { trench: trench });
         const salvoLabel = mark.unitName ? ` (${mark.unitName})` : '';
+        const trenchTxt = trench ? ' | окоп: урон снижен' : '';
         if (hiddenHits > 0 && visibleHits === 0) {
             log(`💥 Обстрел площади (${col},${row})${salvoLabel}: снаряды легли на гекс — видимых разведке целей там нет.`);
         } else {
             log(`💥 Обстрел площади (${col},${row})${salvoLabel}: ${visibleHits} попаданий | Урон: ${visibleDamage}` +
-                (visibleKilled > 0 ? ` | Убито: ${visibleKilled}` : '') + '.');
+                (visibleKilled > 0 ? ` | Убито: ${visibleKilled}` : '') + trenchTxt + '.');
         }
         if (typeof saveData === 'function') saveData();
     });
@@ -31865,7 +32088,13 @@ function calculateOpShootDamage(shooter, target, distance) {
 }
       // Применить урон к операционному юниту
 // Применить урон к операционному юниту (возвращает { damage: number, killed: number })
+// ⚡ v13.106 (п.11): отчёт об обстреле собирает попадания через этот перехват.
 function applyDamageToOpUnit(unit, damage) {
+    const res = applyDamageToOpUnitCore(unit, damage);
+    try { recordOpShellVictim(unit, res); } catch (e) {}
+    return res;
+}
+function applyDamageToOpUnitCore(unit, damage) {
     if (!unit || damage <= 0) return { damage: 0, killed: 0 };
 
     // ⚡ v13.043 (R28#1): урон распределяется по бойцам ЛЮБОЙ стрельбой.
