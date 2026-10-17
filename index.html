@@ -5358,6 +5358,8 @@ function syncFactionCatalogs() {
                     syncCardFields.forEach(k => {
                         if (sc[k] === undefined && dc[k] !== undefined) sc[k] = dc[k];
                     });
+                    // ⚡ v13.105 (п.6): иконка карты из каталога, если в сейве её нет
+                    if (!sc.icon && dc.icon) sc.icon = dc.icon;
                     if (['Индивидуальный перевязочный пакет', 'Интербригада', 'Оружие солидарности'].includes(sc.name)) { sc.desc = dc.desc; sc.effect = dc.effect; sc.informational = !!dc.informational; }
                     if (canonicalCardTypes[sc.name]) sc.type = canonicalCardTypes[sc.name];
                 });
@@ -5369,9 +5371,18 @@ function syncFactionCatalogs() {
             // ⚡ v13.099 (п.3): переносим ВСЕ отсутствующие карты общего каталога
             //    (раньше так добавлялся только «Двойной БК» — из-за этого в старых
             //    сохранениях не появлялась, например, карта «Дымовые гранаты»).
-            if (f === '_global' && Array.isArray(sf.cardLibrary) && Array.isArray(df.cardLibrary)) {
+            // ⚡ v13.105 (п.6): карты BeVe/A.I.R.F. тоже доходят до старых сейвов (раньше
+            //    досыпались только общие). Каждое имя каталога обрабатывается один раз:
+            //    список обработанных имён хранится в сейве, поэтому карта, которую игрок
+            //    удалил в редакторе, не возвращается при каждой загрузке.
+            if (Array.isArray(sf.cardLibrary) && Array.isArray(df.cardLibrary)) {
+                if (!Array.isArray(sf.catalogSyncedNames)) {
+                    sf.catalogSyncedNames = sf.cardLibrary.map(c => c && c.name).filter(Boolean);
+                }
                 df.cardLibrary.forEach(dc => {
-                    if (!dc || !dc.name) return;
+                    if (!dc || !dc.name || dc.name === 'Велостоянка') return;
+                    if (sf.catalogSyncedNames.includes(dc.name)) return;
+                    sf.catalogSyncedNames.push(dc.name);
                     if (sf.cardLibrary.some(card => card && card.name === dc.name)) return;
                     sf.cardLibrary.push(JSON.parse(JSON.stringify(dc)));
                 });
