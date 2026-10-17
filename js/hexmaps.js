@@ -569,7 +569,6 @@ function applyHexOverlays(grid, hexKey) {
     const editOwners = (ov && ov.hexEditOwners) || {};
     const fort = (ov && ov.initialFortifications) || { trenchCells: [], dotCells: [] };
     const trenches = new Set(Array.isArray(fort.trenchCells) ? fort.trenchCells : []);
-    const dots = new Set(Array.isArray(fort.dotCells) ? fort.dotCells : []);
     const md = TACTICAL_HEX_MAPS[hexKey];
     const applyFortificationOwner = (cell, key) => {
         const fallbackFaction = ov && ov.placedByMe && appData && appData.campaign && appData.campaign.playerFaction;
@@ -628,13 +627,8 @@ function applyHexOverlays(grid, hexKey) {
         cell._deploymentTrenchOverlay = 1;
         applyFortificationOwner(cell, k);
     });
-    dots.forEach(k => {
-        const cell = grid[k];
-        if (!cell) return;
-        if (!Array.isArray(cell.markers)) cell.markers = [];
-        if (!cell.markers.includes('dot')) cell.markers.push('dot');
-        cell._deploymentDotOverlay = 1;
-    });
+    // ⚡ v13.105 (п.5): метки «dot» (🏰) больше не ставятся: ДОТ отображается своим
+    //    юнитом, а накопленные dotCells давали лишние метки на чужих гексах.
     // «Огненное поле» хранится в локальном оверлее владельца, но не отправляется
     // противнику. Пока оно не загорелось, метки появляются только на его карте.
     const fireField = ov && ov.fireField;
