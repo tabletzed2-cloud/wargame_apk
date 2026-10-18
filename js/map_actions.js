@@ -241,6 +241,11 @@ function mapActionDefById(id) {
 }
 
 // ───────────────────────── ПАНЕЛЬ ПОД КАРТОЙ ─────────────────────────
+function mapUndoButtonMarkup() {
+    const available = typeof tacticalUndoStack !== 'undefined' && tacticalUndoStack.length > 0;
+    return `<button type="button" onclick="${available ? 'undoLastTacticalAction()' : 'return false'}" ${available ? '' : 'disabled'} style="background:${available ? '#8e44ad' : '#555'};" title="${available ? 'Вернуть состояние боя до последнего действия (ОД, боеприпасы, урон, потери)' : 'В этой фазе ещё нет действия, которое можно отменить'}">↩️ Отменить последнее действие</button>`;
+}
+
 function renderMapActionPanel() {
     const panel = (typeof document !== 'undefined') ? document.getElementById('battleMapActionPanel') : null;
     if (!panel) return;
@@ -251,7 +256,7 @@ function renderMapActionPanel() {
         const anyPlaced = appData.squads.some((s, i) => !s.hidden && getBattleSquadHex(appData.map.grid, i, false));
         if (!anyPlaced) { panel.style.display = 'none'; return; }
         panel.style.display = 'block';
-        panel.innerHTML = '<span style="color:#aaa;">👆 Кликните по своему отряду на карте — появятся кнопки действий (стрельба, подавление, гранаты, рукопашная) и подсветка движения.</span>';
+        panel.innerHTML = '<span style="color:#aaa;">👆 Кликните по своему отряду на карте — появятся кнопки действий (стрельба, подавление, гранаты, рукопашная) и подсветка движения.</span>' + mapUndoButtonMarkup();
         return;
     }
     const squad = appData.squads[idx];
@@ -358,10 +363,8 @@ function renderMapActionPanel() {
         if (!squad.armor && (squad.fighters || []).some(f => f && f.hp > 0 && f.weapon === 'РОКС-3')) {
             html += `<button onclick="selectSquad(${idx}); useFlamethrower(); renderMapActionPanel();" ${utilityDisabled} title="Карточка «Ранцевый огнемёт РОКС-3»">🔥 Огнемёт РОКС-3</button>`;
         }
-        // ⚡ v13.094 (п.12): отмена последнего действия этого боя
-        if (typeof tacticalUndoStack !== 'undefined' && tacticalUndoStack.length > 0) {
-            html += `<button onclick="undoLastTacticalAction()" style="background:#8e44ad;" title="Вернуть состояние боя до последнего действия (ОД, боеприпасы, урон, потери)">↩️ Отменить последнее действие</button>`;
-        }
+        // Отмена всегда видна в панели боя; неактивна, пока в этой фазе нет снимка.
+        html += mapUndoButtonMarkup();
         const ammoRunners = mapActionEligibleAmmoRunners(squad);
         const ammoRunDisabled = (routed || !pos || phaseLocked || meleeEngaged || !utilityAllowed) ? 'disabled' : '';
         if (ammoRunners.length > 0) {
@@ -397,6 +400,48 @@ function renderMapActionPanel() {
     }
     panel.style.display = 'block';
     panel.innerHTML = html;
+    // Дополняем кнопки карты всеми динамическими действиями, которые уже
+    // доступны для выбранного отряда во вкладках стрельбы/движения/особых
+    // действий, включая способности карт и управление техникой.
+    try {
+        if (typeof renderActiveCardButtons === 'function' && typeof currentSquadIndex !== 'undefined' &&
+            currentSquadIndex === idx && typeof currentSquad !== 'undefined' && currentSquad === squad) {
+            renderActiveCardButtons();
+            const sourceIds = ['shootingPanel', 'movementPanel', 'specialPanel', 'fieldVehiclePanel'];
+            const visibleLabels = new Set(Array.from(panel.querySelectorAll('button')).map(b => b.textContent.replace(/\s+/g, ' ').trim()));
+            const addedLabels = new Set();
+            const extras = [];
+            sourceIds.forEach(id => {
+                const source = document.getElementById(id);
+                if (!source) return;
+                Array.from(source.querySelectorAll('button[onclick]')).forEach(original => {
+                    const label = original.textContent.replace(/\s+/g, ' ').trim();
+                    if (!label || visibleLabels.has(label) || addedLabels.has(label)) return;
+                    const clone = original.cloneNode(true);
+                    clone.removeAttribute('id');
+                    clone.style.maxWidth = '100%';
+                    clone.style.whiteSpace = 'normal';
+                    clone.style.margin = '2px';
+                    extras.push(clone);
+                    addedLabels.add(label);
+                });
+            });
+            if (extras.length) {
+                const group = document.createElement('details');
+                group.open = true;
+                group.style.cssText = 'margin-top:8px;padding:6px;border:1px solid #566573;border-radius:7px;';
+                const title = document.createElement('summary');
+                title.textContent = 'Дополнительные действия и способности карт';
+                title.style.cssText = 'cursor:pointer;color:#f1c40f;font-weight:bold;margin-bottom:5px;';
+                group.appendChild(title);
+                const body = document.createElement('div');
+                body.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;';
+                extras.forEach(button => body.appendChild(button));
+                group.appendChild(body);
+                panel.appendChild(group);
+            }
+        }
+    } catch (e) { console.warn('field action buttons:', e); }
 }
 
 var mapQuickMenuOutsideHandler = null;

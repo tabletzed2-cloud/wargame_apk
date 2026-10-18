@@ -1,0 +1,12 @@
+const fs = require('fs');
+const src = fs.readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
+const allowedStart = src.indexOf('function tacticalActionAllowed(');
+const allowedEnd = src.indexOf('\nfunction ', allowedStart + 10);
+const allowed = src.slice(allowedStart, allowedEnd);
+if (!allowed.includes("action === 'melee' && tacticalMoraleIsSuppressed(squad)")) throw new Error('low morale must block player melee');
+if (!allowed.includes('Стрелять можно со штрафом к меткости')) throw new Error('shooting rules should remain explicit');
+const meleeStart = src.indexOf('function meleeAttack(fromResolver)');
+const meleeEnd = src.indexOf('\nfunction ', meleeStart + 10);
+const melee = src.slice(meleeStart, meleeEnd);
+if (!melee.includes('tacticalMoraleIsSuppressed(currentSquad)')) throw new Error('automatic melee resolution must also honor morale suppression');
+console.log('v13.112 low morale blocks melee but preserves shooting rule: PASS');

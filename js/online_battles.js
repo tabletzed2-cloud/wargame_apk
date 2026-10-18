@@ -474,8 +474,14 @@ function onlineAcceptBattlePhase(battle, e, live) {
     battle.phaseRevision = revision;
     battle.activeSide = nextSide;
     battle.currentTurn = (battle.currentTurn || 1) + 1;
-    if (typeof registerCompletedTacticalPhase === 'function') registerCompletedTacticalPhase(battle);
-    if (typeof advanceTacticalClock === 'function') advanceTacticalClock(2, true);
+    const completedPhases = (typeof registerCompletedTacticalPhase === 'function')
+        ? registerCompletedTacticalPhase(battle) : Math.max(0, Number(battle.tacticalPhasesCompleted) || 0);
+    const phasesPerRound = (typeof tacticalPhasesPerRound === 'function') ? tacticalPhasesPerRound() : 2;
+    // Match offline cadence: advance the tactical clock only after a complete
+    // round (both sides' phases), regardless of which side opened the battle.
+    if (completedPhases > 0 && completedPhases % phasesPerRound === 0 && typeof advanceTacticalClock === 'function') {
+        advanceTacticalClock(2, true);
+    }
     if (live) {
         appData.map.activeSide = nextSide;
         currentTurn = battle.currentTurn;
@@ -487,6 +493,15 @@ function onlineAcceptBattlePhase(battle, e, live) {
         battle.actionPoints = (battle.playerSquads || []).map(s => ({ ap: getMaxAP(s), maxAp: getMaxAP(s) }));
         (battle.playerSquads || []).forEach(s => { s.actionsThisTurn = {}; s.movedThisTurn = false; });
         if (battle.tacticalMap) battle.tacticalMap.activeSide = nextSide;
+    }
+    const phasesPerWindow = (typeof RPTX_PHASES_PER_WINDOW === 'function') ? RPTX_PHASES_PER_WINDOW() : 10;
+    if (completedPhases >= phasesPerWindow && !battle.pausedForOrders &&
+        typeof pauseCampaignTacticalBattlesForOrders === 'function') {
+        pauseCampaignTacticalBattlesForOrders(battle);
+        const barrier = appData.campaign && appData.campaign.tacticalOrdersBarrier;
+        if (typeof onlinePublishTacticalBattlePause === 'function') onlinePublishTacticalBattlePause(barrier);
+        if (typeof showTacticalOrdersPauseNotice === 'function') showTacticalOrdersPauseNotice();
+        if (typeof saveData === 'function') saveData();
     }
     return true;
 }
