@@ -2698,6 +2698,27 @@ function syncSupplyPointsOnGrid(mapLike, squads, field, side) {
     let changed = false;
     const wanted = [];
     let hqOrdinal = 0;
+    const platoonGroups = new Map();
+    squads.forEach((s, i) => {
+        if (!s || s.hidden || s.status === 'retreated' || s.isRetreated) return;
+        const groupName = String(s.opUnitName || '').trim();
+        if (!groupName) return;
+        if (!platoonGroups.has(groupName)) platoonGroups.set(groupName, []);
+        platoonGroups.get(groupName).push({ squad: s, index: i });
+    });
+    const fallbackOriginsKey = side === 'enemy' ? 'supplyFallbackOriginsEnemy' : 'supplyFallbackOriginsPlayer';
+    const fallbackOrigins = mapLike[fallbackOriginsKey] && typeof mapLike[fallbackOriginsKey] === 'object' ? mapLike[fallbackOriginsKey] : {};
+    platoonGroups.forEach((members, groupName) => {
+        if (members.some(entry => isPlatoonHQBattleSquad(entry.squad))) return;
+        const fallbackId = groupName;
+        if (!fallbackOrigins[fallbackId]) {
+            const firstPlaced = members.find(entry => pos[entry.index]);
+            if (firstPlaced) { fallbackOrigins[fallbackId] = pos[firstPlaced.index]; changed = true; }
+        }
+        const fallbackKey = fallbackOrigins[fallbackId];
+        if (fallbackKey && mapLike.grid[fallbackKey] && wanted.indexOf(fallbackKey) < 0) wanted.push(fallbackKey);
+    });
+    mapLike[fallbackOriginsKey] = fallbackOrigins;
     squads.forEach((s, i) => {
         if (!isPlatoonHQBattleSquad(s)) return;
         const currentKey = pos[i];
@@ -2708,9 +2729,16 @@ function syncSupplyPointsOnGrid(mapLike, squads, field, side) {
             changed = true;
         }
         hqOrdinal++;
-        if (s.hidden || s.isDestroyed || s.isRetreated || s.status === 'retreated') return;
-        if (!(s.fighters || []).some(f => f && f.hp > 0)) return;
+        if (s.hidden || s.isRetreated || s.status === 'retreated') return;
         const anchor = origins[i] || currentKey;
+        const noLivingCrew = !(s.fighters || []).some(f => f && Number(f.hp) > 0);
+        const destroyed = !!(s.isDestroyed || s.status === 'destroyed' || noLivingCrew);
+        // Пункт снабжения закреплён за местом штаба на начало боя и остаётся
+        // действующим даже после уничтожения расчёта/штаба.
+        if (destroyed) {
+            if (origins[i] && mapLike.grid[origins[i]] && wanted.indexOf(origins[i]) < 0) wanted.push(origins[i]);
+            return;
+        }
         if (anchor && mapLike.grid[anchor] && wanted.indexOf(anchor) < 0) wanted.push(anchor);
     });
     const otherSideKey = supplyPointStateKey(side === 'enemy' ? 'player' : 'enemy');

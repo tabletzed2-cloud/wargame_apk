@@ -1,0 +1,10 @@
+const fs = require('fs');
+const src = fs.readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
+const start = src.indexOf('function executeMoveOrder(unit, order)');
+const end = src.indexOf('\nfunction ', start + 10);
+const fn = src.slice(start, end);
+if (!fn.includes('const contactEnemies = (appData.campaign.enemyOpUnits || []).filter(e => knownEnemy(e)')) throw new Error('known adjacent enemy contact scan missing');
+if (!fn.includes('getOpHexDistance(unit.col, unit.row, e.col, e.row) <= 1')) throw new Error('contact should trigger at adjacent hex');
+if (!fn.includes('startTacticalBattle([unit], contactEnemies, { battleHexKey: `${unit.col},${unit.row}` });')) throw new Error('contact must start battle at current movement hex');
+if (!fn.includes('order.status = \'completed\';')) throw new Error('movement order should stop/complete on contact');
+console.log('v13.120 movement stops and starts battle at adjacent contact: PASS');
