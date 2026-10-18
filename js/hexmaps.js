@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.104 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.106 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1609,13 +1609,24 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
     }
     const ov = getHexOverlay(st.hexKey, true);
     const left = ov[st.rule.pointsField] || 0;
+    // ⚠️ v13.106 (п.12): в режиме черновика — его статус и кнопка отмены
+    const draft = pendingHexEditDraft(st.hexKey);
+    const draftCells = draft && draft.cells ? Object.keys(draft.cells) : [];
+    const draftRow = (pendingHexEditDraftActive(st.hexKey) && draftCells.length)
+        ? `<span style="color:#f39c12; font-size:0.9rem;">📝 Черновик приказа: отмечено клеток <b>${draftCells.length}</b> (на карте появятся после выполнения приказа)</span><br>`
+        : '';
+    const draftCancelBtn = (pendingHexEditDraftActive(st.hexKey) && draftCells.length)
+        ? `<button onclick="cancelPendingHexEditDraftUI()" style="background:#c0392b;">❌ Снять все отметки черновика</button>`
+        : '';
     banner.innerHTML = `
       <b style="color:#2ecc71;">${st.rule.title} — гекс (${st.hexKey})</b><br>
       <span style="color:#ccc; font-size:0.85rem;">${st.rule.hint}</span><br>
+      ${draftRow}
       <span style="color:#f1c40f; font-size:0.9rem;">Осталось правок: <b>${left}</b> (поставлено в этой сессии: ${st.placed})</span>
       <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
         <button onclick="hexEditUndo()" style="background:#8e44ad;">↩️ Отменить последнюю</button>
         <button onclick="rotateSelectedHex()" style="background:#8e44ad;">↻ Повернуть выбранную клетку (60°)</button>
+        ${draftCancelBtn}
         <button onclick="closeHexEditor()" style="background:#27ae60;">✅ Готово — ${st.prevBattleId ? 'вернуться в бой' : 'на карту операции'}</button>
       </div>
       <div style="color:#888; font-size:0.8rem; margin-top:4px;">Это карта поля боя гекса (${st.hexKey}) оперативной карты. Правки сохраняются сразу и видны противнику в бою на этом гексе.</div>`;
@@ -1737,6 +1748,34 @@ function clearPendingHexEditDraft(hexKey) {
     const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
     if (!camp || !camp.pendingHexEdits) return;
     delete camp.pendingHexEdits[String(hexKey || '')];
+}
+// ⚠️ v13.106 (п.12): снять ВСЕ отметки черновика (кнопка в редакторе).
+//    Сам приказ при этом не отменяется — отменить его можно в журнале
+//    приказов; после выполнения приказа без отметок правок не будет.
+function cancelPendingHexEditDraftUI() {
+    const st = hexEditorState;
+    if (!st) return false;
+    const draft = pendingHexEditDraft(st.hexKey);
+    if (!draft || !draft.cells || !Object.keys(draft.cells).length) return false;
+    Object.keys(draft.cells).forEach(cell => {
+        const working = appData.map.grid[cell];
+        const baseCell = st.baseGrid[cell];
+        if (working) {
+            working.type = baseCell ? baseCell.type : 'grass';
+            working.variant = (baseCell && Number.isFinite(baseCell.variant)) ? baseCell.variant : 0;
+            working.rotation = normalizeHexRotation(baseCell ? baseCell.rotation : undefined, 0);
+            if (baseCell && Number.isFinite(baseCell.level)) working.level = baseCell.level;
+            delete working.ov;
+        }
+    });
+    const n = Object.keys(draft.cells).length;
+    clearPendingHexEditDraft(st.hexKey);
+    const infoBox = document.getElementById('mapInfo');
+    if (infoBox) { infoBox.textContent = `↩️ Черновик снят: снято отметок ${n}. Сам приказ можно отменить в журнале приказов.`; infoBox.style.color = '#f1c40f'; }
+    try { saveData(); } catch (e) {}
+    showHexEditorBanner();
+    try { redrawMap(); } catch (e) {}
+    return true;
 }
 // Клик в редакторе по черновику: отметку запоминаем, карту не меняем и правки не тратим
 function recordPendingHexEditClick(st, cell) {
@@ -1954,7 +1993,33 @@ function hexEditClick(hexKeyCell) {
 
 function hexEditUndo() {
     const st = hexEditorState;
-    if (!st || !st.undo || st.undo.length === 0) return;
+    if (!st) return;
+    // ⚠️ v13.106 (п.12): в режиме черновика (приказ «окопаться»/
+    //    «расчистить местность») правки лежат в черновике, а не в
+    //    оверлее — раньше кнопка молча ничего не делала (st.undo пуста).
+    const draft = pendingHexEditDraft(st.hexKey);
+    if (draft && draft.cells && Object.keys(draft.cells).length) {
+        const lastKey = Object.keys(draft.cells).pop();
+        delete draft.cells[lastKey];
+        if (draft.variants) delete draft.variants[lastKey];
+        if (draft.rotations) delete draft.rotations[lastKey];
+        const working = appData.map.grid[lastKey];
+        const baseCell = st.baseGrid[lastKey];
+        if (working) {
+            working.type = baseCell ? baseCell.type : 'grass';
+            working.variant = (baseCell && Number.isFinite(baseCell.variant)) ? baseCell.variant : 0;
+            working.rotation = normalizeHexRotation(baseCell ? baseCell.rotation : undefined, 0);
+            if (baseCell && Number.isFinite(baseCell.level)) working.level = baseCell.level;
+            delete working.ov;
+        }
+        const infoBox = document.getElementById('mapInfo');
+        if (infoBox) { infoBox.textContent = `↩️ Черновик: последняя отметка (${lastKey}) снята. Отметок: ${Object.keys(draft.cells).length}.`; infoBox.style.color = '#f1c40f'; }
+        try { saveData(); } catch (e) {}
+        showHexEditorBanner();
+        try { redrawMap(); } catch (e) {}
+        return;
+    }
+    if (!st.undo || st.undo.length === 0) return;
     if (st.kind === 'fireField') {
         const ov = getHexOverlay(st.hexKey, true);
         const fire = ov.fireField;
