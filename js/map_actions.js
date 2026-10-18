@@ -1,3 +1,4 @@
+// ⚡ BUILD-МАРКЕР: v13.107
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -154,6 +155,28 @@ function mapActionEnemyTargetable(enemy) {
 function mapActionEnemyIsVehicle(enemy) {
     return !!(enemy && (enemy.isVehicle || enemy.armor));
 }
+function mapActionEnemyIsDot(enemy) {
+    if (!enemy) return false;
+    if (typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(enemy)) return true;
+    return /ДОТ/i.test(String(enemy.name || ''));
+}
+function mapActionIsHexAreaAttackType(type) {
+    return type === 'grenades' || type === 'ordnance' || type === 'suppressiveFire' || type === 'coordinatedSuppressiveFollowup';
+}
+function mapActionFormatActionLabel(def, squad) {
+    if (!def) return '';
+    if (def.id === 'grenades' && squad && typeof getSquadGrenadeReplacementInfo === 'function') {
+        const info = getSquadGrenadeReplacementInfo(squad);
+        if (info) {
+            const esc = v => String(v || '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+            const iconHtml = info.icon
+                ? `<img class="grenade-card-btn-icon" src="${esc(info.icon)}" alt="${esc(info.cardName)}" style="width:18px;height:18px;object-fit:cover;border-radius:3px;border:1px solid #f1c40f;vertical-align:middle;margin-right:5px;">`
+                : '';
+            return `${iconHtml}💣 Гранаты · ${esc(info.shortName || info.cardName)} (до 1 гекса)`;
+        }
+    }
+    return def.label;
+}
 
 // Текущий выбранный на карте отряд (индекс в appData.squads) или -1
 function mapActionSelectedIdx() {
@@ -168,7 +191,7 @@ function mapActionSelectedIdx() {
 function mapActionEvalTarget(def, shooterIdx, enemyIdx, extra) {
     const grid = appData.map.grid;
     const enemy = (appData.map.enemySquads || [])[enemyIdx];
-    const out = { idx: enemyIdx, enemy, ok: false, reason: '', dist: null, cover: null };
+    const out = { idx: enemyIdx, enemy, ok: false, reason: '', dist: null, cover: null, hexKey: null };
     if (!enemy) { out.reason = 'нет отряда'; return out; }
     if (enemy.hidden === true || !enemy.detected) { out.reason = 'не обнаружен'; return out; }
     if (mapActionEnemyAlive(enemy) === 0) { out.reason = 'уничтожен'; return out; }
@@ -176,6 +199,7 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx, extra) {
     const tPos = getBattleSquadHex(grid, enemyIdx, true);
     if (!sPos) { out.reason = 'ваш отряд не на карте'; return out; }
     if (!tPos) { out.reason = 'не на карте'; return out; }
+    out.hexKey = tPos.key;
     if (def.id !== 'melee' && typeof tacticalSmokeBlocksSight === 'function' && tacticalSmokeBlocksSight(sPos.key, tPos.key, appData.map)) {
         out.reason = 'линия обстрела перекрыта дымом'; return out;
     }
@@ -192,6 +216,9 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx, extra) {
     const isVeh = mapActionEnemyIsVehicle(enemy);
     if (def.targets === 'vehicle' && !isVeh) { out.reason = 'цель — не техника'; return out; }
     if (def.targets === 'infantry' && isVeh) { out.reason = 'по технике так нельзя'; return out; }
+    if ((def.id === 'suppressiveFire' || def.id === 'coordinatedSuppressiveFollowup') && mapActionEnemyIsDot(enemy)) {
+        out.reason = 'подавление ДОТа недоступно'; return out;
+    }
     let maxDist = def.maxDist;
     const shooter = (appData.squads || [])[shooterIdx];
     if (shooter && /ДОТ/i.test(String(shooter.name || '')) && typeof tacticalDotCanFireAtTarget === 'function') {
@@ -290,8 +317,10 @@ function renderMapActionPanel() {
             `<div style="margin-top:6px;"><button onclick="mapCancelAction()" style="background:#555;">✖ Отмена</button></div></div>`;
     } else if (pa) {
         const def = mapActionDefById(pa.type);
+        const actionHeaderLabel = def ? mapActionFormatActionLabel(def, squad) : pa.type;
+        const hexAreaAttack = mapActionIsHexAreaAttackType(pa.type);
         html += `<div style="background:#3a2a12; border:1px solid #f39c12; border-radius:6px; padding:6px; margin-bottom:6px;">` +
-            `<b style="color:#f39c12;">🎯 ${def ? def.label : pa.type}</b>: выберите отряд противника — кликните по нему на карте или в списке:` +
+            `<b style="color:#f39c12;">🎯 ${actionHeaderLabel}</b>: выберите ${hexAreaAttack ? 'гекс или отряд противника' : 'отряд противника'} — кликните по нему на карте или в списке:` +
             `<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">`;
         const enemies = appData.map.enemySquads || [];
         const hexFilter = appData.map.pendingTargetHex;
@@ -304,18 +333,56 @@ function renderMapActionPanel() {
             })
             .sort((a, b) => a.dist - b.dist);
         if (evals.length === 0) html += '<span style="color:#e74c3c;">Отрядов противника на карте нет.</span>';
-        evals.forEach(ev => {
-            const e = ev.enemy;
-            const al = mapActionEnemyAlive(e);
-            const cov = (ev.cover && ev.cover.mod) ? `, укрытие ${ev.cover.label} +${ev.cover.mod}` : '';
-            const title = `${e.name} — ${ev.dist} гекс(ов)${cov}, бойцов ${al}/${(e.fighters || []).length}` +
-                ((typeof tacticalSquadIsSuppressed === 'function' ? tacticalSquadIsSuppressed(e) : e.suppressed) ? ', подавлен' : '');
-            if (ev.ok) {
-                html += `<button onclick="mapPickTarget(${ev.idx})" style="background:#c0392b;">${title}</button>`;
-            } else {
-                html += `<button disabled title="${ev.reason}" style="background:#555; opacity:0.7;">${title} — ${ev.reason}</button>`;
-            }
-        });
+        if (hexAreaAttack) {
+            const byHex = new Map();
+            evals.forEach(ev => {
+                const key = ev.hexKey || `idx:${ev.idx}`;
+                if (!byHex.has(key)) byHex.set(key, []);
+                byHex.get(key).push(ev);
+            });
+            byHex.forEach((group, key) => {
+                if (group.length > 1) {
+                    const okGroup = group.filter(x => x.ok);
+                    const first = okGroup[0] || group[0];
+                    const targetGroup = okGroup.length ? okGroup : group;
+                    const names = targetGroup.map(x => x.enemy.name).join(' + ');
+                    const totalAl = targetGroup.reduce((s, x) => s + mapActionEnemyAlive(x.enemy), 0);
+                    const totalCap = targetGroup.reduce((s, x) => s + (x.enemy.fighters || []).length, 0);
+                    const cov = (first.cover && first.cover.mod) ? `, укрытие ${first.cover.label} +${first.cover.mod}` : '';
+                    const title = `📍 Гекс ${key} (${names}) — ${first.dist} гекс(ов)${cov}, бойцов ${totalAl}/${totalCap}`;
+                    if (okGroup.length > 0) {
+                        html += `<button onclick="mapPickTarget(${first.idx})" style="background:#c0392b;">${title}</button>`;
+                    } else {
+                        html += `<button disabled title="${first.reason}" style="background:#555; opacity:0.7;">${title} — ${first.reason}</button>`;
+                    }
+                    return;
+                }
+                const ev = group[0];
+                const e = ev.enemy;
+                const al = mapActionEnemyAlive(e);
+                const cov = (ev.cover && ev.cover.mod) ? `, укрытие ${ev.cover.label} +${ev.cover.mod}` : '';
+                const title = `${e.name} — ${ev.dist} гекс(ов)${cov}, бойцов ${al}/${(e.fighters || []).length}` +
+                    ((typeof tacticalSquadIsSuppressed === 'function' ? tacticalSquadIsSuppressed(e) : e.suppressed) ? ', подавлен' : '');
+                if (ev.ok) {
+                    html += `<button onclick="mapPickTarget(${ev.idx})" style="background:#c0392b;">${title}</button>`;
+                } else {
+                    html += `<button disabled title="${ev.reason}" style="background:#555; opacity:0.7;">${title} — ${ev.reason}</button>`;
+                }
+            });
+        } else {
+            evals.forEach(ev => {
+                const e = ev.enemy;
+                const al = mapActionEnemyAlive(e);
+                const cov = (ev.cover && ev.cover.mod) ? `, укрытие ${ev.cover.label} +${ev.cover.mod}` : '';
+                const title = `${e.name} — ${ev.dist} гекс(ов)${cov}, бойцов ${al}/${(e.fighters || []).length}` +
+                    ((typeof tacticalSquadIsSuppressed === 'function' ? tacticalSquadIsSuppressed(e) : e.suppressed) ? ', подавлен' : '');
+                if (ev.ok) {
+                    html += `<button onclick="mapPickTarget(${ev.idx})" style="background:#c0392b;">${title}</button>`;
+                } else {
+                    html += `<button disabled title="${ev.reason}" style="background:#555; opacity:0.7;">${title} — ${ev.reason}</button>`;
+                }
+            });
+        }
         html += `</div><div style="margin-top:6px;"><button onclick="mapCancelAction()" style="background:#555;">✖ Отмена</button></div></div>`;
     } else {
         html += `<div style="display:flex; flex-wrap:wrap; gap:4px;">`;
@@ -335,7 +402,7 @@ function renderMapActionPanel() {
             const isMeleeAction = def.id === 'melee';
             const actionAllowed = typeof tacticalActionAllowed !== 'function' || tacticalActionAllowed(squad, isMeleeAction ? 'melee' : 'attack', true);
             const dis = (ap <= 0 || routed || !pos || phaseLocked || (meleeEngaged && !isMeleeAction) || !actionAllowed) ? 'disabled' : '';
-            html += `<button onclick="mapAction('${def.id}')" ${dis}>${def.label}</button>`;
+            html += `<button onclick="mapAction('${def.id}')" ${dis}>${mapActionFormatActionLabel(def, squad)}</button>`;
         });
         const utilityAllowed = typeof tacticalActionAllowed !== 'function' || tacticalActionAllowed(squad, 'utility', true);
         const utilityDisabled = (ap < 2 || routed || !pos || phaseLocked || meleeEngaged || !utilityAllowed) ? 'disabled' : '';
@@ -483,7 +550,7 @@ function mapShowQuickActionMenu(idx, hexKey, clientX, clientY) {
         const isMelee = def.id === 'melee';
         const disabled = disableBase || ap <= 0 || (meleeEngaged && !isMelee) ||
             !((isMelee ? meleeAllowed : attackAllowed));
-        html += button(`attack:${def.id}`, def.label, disabled);
+        html += button(`attack:${def.id}`, mapActionFormatActionLabel(def, squad), disabled);
         actionCount++;
     });
     if (typeof isBicycleTacticalSquad === 'function' && isBicycleTacticalSquad(squad) && !squad.dismounted) {
@@ -810,6 +877,13 @@ function mapHexClickDuringAttack(key) {
         return true;
     }
     if (ids.length === 1) { mapPickTarget(ids[0]); return true; }
+    if (mapActionIsHexAreaAttackType(pa.type)) {
+        const idx = mapActionSelectedIdx();
+        const def = mapActionDefById(pa.type);
+        const validId = ids.find(i => def && idx >= 0 && mapActionEvalTarget(def, idx, i, pa.extra).ok);
+        mapPickTarget(validId !== undefined ? validId : ids[0]);
+        return true;
+    }
     appData.map.pendingTargetHex = key;
     mapActionInfo(`На гексе ${key} несколько отрядов — нажмите кнопку нужного под картой.`);
     renderMapActionPanel();
@@ -841,17 +915,24 @@ function mapPickTarget(enemyIdx) {
             return;
         }
         const enemy = ev.enemy;
-        if (typeof markTacticalSuppressed === 'function') markTacticalSuppressed(enemy, 'player');
-        else {
-            enemy.suppressed = true;
-            enemy.suppressedTurn = (typeof currentTurn !== 'undefined') ? currentTurn : 1;
-            enemy.suppressedBySide = 'player';
-        }
-        mapActionMarkSuppressOut(enemy.name);
-        const text = `💫 Скоординированный заградительный огонь: вторая цель «${enemy.name}» подавлена без дополнительных затрат ОД и боеприпасов.`;
+        const supOccupants = mapActionAreaOccupantsAtTarget(enemyIdx).filter(u => !mapActionEnemyIsVehicle(u) && !mapActionEnemyIsDot(u) && mapActionEnemyAlive(u) > 0);
+        const supTargets = supOccupants.length ? supOccupants : [enemy];
+        supTargets.forEach(targetEnemy => {
+            if (typeof markTacticalSuppressed === 'function') markTacticalSuppressed(targetEnemy, 'player');
+            else {
+                targetEnemy.suppressed = true;
+                targetEnemy.suppressedTurn = (typeof currentTurn !== 'undefined') ? currentTurn : 1;
+                targetEnemy.suppressedBySide = 'player';
+            }
+            mapActionMarkSuppressOut(targetEnemy.name);
+        });
+        const targetLabel = supTargets.length > 1
+            ? `гекс ${ev.hexKey || ''} (${supTargets.map(u => u.name).join(', ')})`.trim()
+            : `«${enemy.name}»`;
+        const text = `💫 Скоординированный заградительный огонь: вторая цель ${targetLabel} подавлена без дополнительных затрат ОД и боеприпасов.`;
         appData.map.pendingMapAttack = null;
         appData.map.attackTargetEnemyIdx = null;
-        appData.map.lastAttackOutcome = { kind: 'coordinatedSuppressiveFire', target: enemy.name, hits: 0, damage: 0, notes: ['вторая цель подавлена'], text };
+        appData.map.lastAttackOutcome = { kind: 'coordinatedSuppressiveFire', target: supTargets.length > 1 ? targetLabel : enemy.name, hits: 0, damage: 0, notes: ['вторая цель подавлена'], text };
         try { log(`🎯 ${text}`); } catch (e) {}
         mapActionInfo(text, '#2ecc71');
         try { saveData(); } catch (e) {}
@@ -906,7 +987,7 @@ function mapPickTarget(enemyIdx) {
     if (pos && typeof recalcReachable === 'function') { try { recalcReachable(appData.squads[idx], pos.key); } catch (e) {} }
     if (coordinatedFollowup) {
         const secondTargets = (appData.map.enemySquads || []).map((enemy, targetIdx) => {
-            if (targetIdx === Number(enemyIdx)) return null;
+            if (targetIdx === Number(enemyIdx) || mapActionEnemyIsDot(enemy)) return null;
             const targetPos = getBattleSquadHex(appData.map.grid, targetIdx, true);
             const firstPos = getBattleSquadHex(appData.map.grid, enemyIdx, true);
             if (!targetPos || !firstPos || mapActionHexDistance(targetPos, firstPos) > 1) return null;
@@ -990,14 +1071,32 @@ function applyDamagePointsToEnemy(enemy, points, res, options) {
     return applied;
 }
 
+function mapActionAreaOccupantsAtTarget(targetIndex) {
+    if (typeof tacticalAreaOccupantsAtTarget === 'function') {
+        const list = tacticalAreaOccupantsAtTarget(typeof currentSquad !== 'undefined' ? currentSquad : null, targetIndex);
+        if (Array.isArray(list) && list.length) return list;
+    }
+    if (!appData || !appData.map || !appData.map.grid || !Number.isInteger(targetIndex) || targetIndex < 0) return [];
+    const enemies = appData.map.enemySquads || [];
+    const targetPos = (typeof getBattleSquadHex === 'function') ? getBattleSquadHex(appData.map.grid, targetIndex, true) : null;
+    if (!targetPos) return enemies[targetIndex] ? [enemies[targetIndex]] : [];
+    return enemies.filter((sq, i) => {
+        if (!sq || sq.isDestroyed || sq.isRetreated || sq.isSurrendered) return false;
+        const pos = getBattleSquadHex(appData.map.grid, i, true);
+        return pos && pos.key === targetPos.key;
+    });
+}
+
 function mapActionApplyAreaDamage(targetIndex, damage, res, options) {
     options = options || {};
-    if (typeof tacticalAreaOccupantsAtTarget !== 'function') return false;
-    const allOccupants = tacticalAreaOccupantsAtTarget(currentSquad, targetIndex);
+    const allOccupants = mapActionAreaOccupantsAtTarget(targetIndex);
     const occupants = options.mortar ? allOccupants.filter(u => !mapActionEnemyIsVehicle(u)) : allOccupants;
     const living = occupants.filter(u => mapActionEnemyAlive(u) > 0);
-    for (let point = 0; point < Math.max(0, Math.floor(Number(damage) || 0)) && living.length; point++) {
-        const victimIndex = Math.floor(Math.random() * living.length);
+    if (!living.length) return false;
+    const totalPoints = Math.max(0, Math.floor(Number(damage) || 0));
+    let rrIndex = 0;
+    for (let point = 0; point < totalPoints && living.length; point++) {
+        const victimIndex = rrIndex % living.length;
         const victim = living[victimIndex];
         const concealed = victim.hidden === true;
         const one = { damage: 0, killed: [], wounded: [], notes: [] };
@@ -1008,10 +1107,19 @@ function mapActionApplyAreaDamage(targetIndex, damage, res, options) {
             res.wounded.push(...one.wounded);
             res.notes.push(...one.notes);
         }
-        if (mapActionEnemyAlive(victim) <= 0) living.splice(victimIndex, 1);
+        if (mapActionEnemyAlive(victim) <= 0) {
+            living.splice(victimIndex, 1);
+            if (living.length) rrIndex = victimIndex % living.length;
+        } else {
+            rrIndex = (victimIndex + 1) % living.length;
+        }
     }
     res.areaFire = true;
-    res.target = `гекс ${typeof tacticalSelectedTargetHexKey === 'function' ? tacticalSelectedTargetHexKey(currentSquad) || '' : ''}`;
+    const targetPos = (appData && appData.map && appData.map.grid && typeof getBattleSquadHex === 'function')
+        ? getBattleSquadHex(appData.map.grid, targetIndex, true) : null;
+    const hexKey = (typeof tacticalSelectedTargetHexKey === 'function' ? tacticalSelectedTargetHexKey(typeof currentSquad !== 'undefined' ? currentSquad : null) : null) || (targetPos && targetPos.key) || '';
+    res.target = `гекс ${hexKey} (${occupants.map(u => u.name).join(', ')})`.trim();
+    res.affectedSquads = occupants;
     res.notes.push('🎯 площадной огонь: попадания распределялись по гексу');
     return true;
 }
@@ -1108,16 +1216,21 @@ function reportAttackOutcome(kind, data) {
         case 'sniper':
             applyDamagePointsToEnemy(enemy, (data.hits ? (data.damage || 0) : 0), res);
             break;
-        case 'grenades':
-            if (!(data.areaFire === true && mapActionApplyAreaDamage(idx, data.damage, res))) {
+        case 'grenades': {
+            const hexOccupants = mapActionAreaOccupantsAtTarget(idx).filter(u => mapActionEnemyAlive(u) > 0);
+            if (!((data.areaFire === true || hexOccupants.length > 1) && mapActionApplyAreaDamage(idx, data.damage, res))) {
                 applyDamagePointsToEnemy(enemy, data.damage || 0, res);
             }
             break;
-        case 'ordnance':
-            if (!(data.areaFire === true && mapActionApplyAreaDamage(idx, data.damage, res, { mortar: data.areaMortar === true }))) {
+        }
+        case 'ordnance': {
+            const isMortar = data.areaMortar === true || !!(typeof currentSquad !== 'undefined' && currentSquad && /миномет|миномёт/i.test(String(currentSquad.name || '')));
+            const hexOccupants = mapActionAreaOccupantsAtTarget(idx).filter(u => (!isMortar || !mapActionEnemyIsVehicle(u)) && mapActionEnemyAlive(u) > 0);
+            if (!((data.areaFire === true || hexOccupants.length > 1) && mapActionApplyAreaDamage(idx, data.damage, res, { mortar: isMortar }))) {
                 applyDamagePointsToEnemy(enemy, data.damage || 0, res);
             }
             break;
+        }
         case 'ampulomet':
             applyDamagePointsToEnemy(enemy, data.damage || 0, res);
             if (data.fires) { enemy.burning = true; res.notes.push('🔥 техника горит'); }
@@ -1140,15 +1253,33 @@ function reportAttackOutcome(kind, data) {
             break;
         }
         case 'suppressiveFire':
+            if (mapActionEnemyIsDot(enemy)) {
+                res.notes.push('⛔ подавление ДОТа недоступно');
+                break;
+            }
             if ((data.hits || 0) > 0 || (data.shots || 0) > 0) {
-                if (typeof markTacticalSuppressed === 'function') markTacticalSuppressed(enemy, 'player');
-                else {
-                    enemy.suppressed = true;
-                    enemy.suppressedTurn = (typeof currentTurn !== 'undefined') ? currentTurn : 1;
-                    enemy.suppressedBySide = 'player';
+                const supOccupants = mapActionAreaOccupantsAtTarget(idx).filter(u => !mapActionEnemyIsVehicle(u) && !mapActionEnemyIsDot(u) && mapActionEnemyAlive(u) > 0);
+                const supTargets = supOccupants.length ? supOccupants : (!mapActionEnemyIsVehicle(enemy) && !mapActionEnemyIsDot(enemy) ? [enemy] : []);
+                supTargets.forEach(targetEnemy => {
+                    if (typeof markTacticalSuppressed === 'function') markTacticalSuppressed(targetEnemy, 'player');
+                    else {
+                        targetEnemy.suppressed = true;
+                        targetEnemy.suppressedTurn = (typeof currentTurn !== 'undefined') ? currentTurn : 1;
+                        targetEnemy.suppressedBySide = 'player';
+                    }
+                    mapActionMarkSuppressOut(targetEnemy.name);
+                });
+                if (supTargets.length > 1) {
+                    const targetPos = (appData && appData.map && appData.map.grid && typeof getBattleSquadHex === 'function')
+                        ? getBattleSquadHex(appData.map.grid, idx, true) : null;
+                    const hexKey = (typeof tacticalSelectedTargetHexKey === 'function' ? tacticalSelectedTargetHexKey(typeof currentSquad !== 'undefined' ? currentSquad : null) : null) || (targetPos && targetPos.key) || '';
+                    res.areaFire = true;
+                    res.target = `гекс ${hexKey} (${supTargets.map(u => u.name).join(', ')})`.trim();
+                    res.affectedSquads = supTargets;
+                    res.notes.push('💫 цель подавлена: все отряды в гексе подавлены; перемещение запрещено в следующей фазе');
+                } else if (supTargets.length === 1) {
+                    res.notes.push('💫 цель подавлена; перемещение запрещено в следующей фазе');
                 }
-                res.notes.push('💫 цель подавлена; перемещение запрещено в следующей фазе');
-                mapActionMarkSuppressOut(enemy.name);
             }
             break;
         case 'vehicle':
@@ -1164,31 +1295,43 @@ function reportAttackOutcome(kind, data) {
         default:
             break;
     }
-    if (enemy.isDestroyed) {
-        if (typeof tacticalClearMeleeEngagement === 'function') tacticalClearMeleeEngagement(enemy);
-    } else if (typeof tacticalMaybeAutoRetreat === 'function') {
-        const retreated = tacticalMaybeAutoRetreat(enemy, 'enemy', idx);
-        if (retreated) res.notes.push('🏳️ противник автоматически отступил из-за низкого боевого духа');
-    }
+    const affectedList = (Array.isArray(res.affectedSquads) && res.affectedSquads.length) ? res.affectedSquads : [enemy];
+    affectedList.forEach(targetSquad => {
+        if (!targetSquad) return;
+        const targetIdxInMap = (appData.map.enemySquads || []).indexOf(targetSquad);
+        if (targetSquad.isDestroyed) {
+            if (typeof tacticalClearMeleeEngagement === 'function') tacticalClearMeleeEngagement(targetSquad);
+        } else if (typeof tacticalMaybeAutoRetreat === 'function') {
+            const retreated = tacticalMaybeAutoRetreat(targetSquad, 'enemy', targetIdxInMap >= 0 ? targetIdxInMap : idx);
+            if (retreated) res.notes.push('🏳️ противник автоматически отступил из-за низкого боевого духа');
+        }
+    });
     const after = mapActionEnemyAlive(enemy);
     if (typeof currentSquad !== 'undefined' && currentSquad) {
         if (typeof recordTacticalAwardCombatEvent === 'function' && (kind === 'melee' || kind === 'grenades')) {
             recordTacticalAwardCombatEvent(currentSquad, kind, enemy);
         }
-        enemy.lastAwardAttackerSquadName = currentSquad.name;
-        enemy.lastAwardAttackerSquadIdx = (typeof currentSquadIndex === 'number') ? currentSquadIndex : null;
+        affectedList.forEach(targetSquad => {
+            if (!targetSquad) return;
+            targetSquad.lastAwardAttackerSquadName = currentSquad.name;
+            targetSquad.lastAwardAttackerSquadIdx = (typeof currentSquadIndex === 'number') ? currentSquadIndex : null;
+        });
         if (before > 0 && after === 0 && typeof recordTacticalAwardEnemyDefeat === 'function') {
             recordTacticalAwardEnemyDefeat(currentSquad, enemy, idx);
         }
     }
     const label = (mapActionDefById(kind) || { label: kind }).label;
-    let text = `${label} → «${enemy.name}»: попаданий ${res.hits}`;
+    let text = `${label} → ${res.areaFire ? res.target : `«${enemy.name}»`}: попаданий ${res.hits}`;
     if (res.damage) text += `, урон ${res.damage}`;
     if (res.killed.length) text += `, погибло ${res.killed.length}`;
     if (res.wounded.length) text += `, ранено ${res.wounded.length}`;
     if (res.vehicleResults.length) text += `; ${res.vehicleResults.join('; ')}`;
     if (res.notes.length) text += `; ${res.notes.join(', ')}`;
-    text += `. Осталось бойцов: ${after}/${(enemy.fighters || []).length}` + (after !== before ? ` (было ${before})` : '');
+    if (res.areaFire && affectedList.length > 1) {
+        text += `. Осталось бойцов: ${affectedList.map(u => `«${u.name}» ${mapActionEnemyAlive(u)}/${(u.fighters || []).length}`).join(', ')}`;
+    } else {
+        text += `. Осталось бойцов: ${after}/${(enemy.fighters || []).length}` + (after !== before ? ` (было ${before})` : '');
+    }
     res.text = text;
     appData.map.lastAttackOutcome = res;
     try { log(`🎯 Итог: ${text}`); } catch (e) {}

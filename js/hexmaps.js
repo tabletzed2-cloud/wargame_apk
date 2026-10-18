@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.106 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.107 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -2262,9 +2262,11 @@ function fillModalTargets(attackType) {
     const shooterPos = getBattleSquadHex(appData.map.grid, shooterIdx, false);
     const enemies = appData.map.enemySquads || [];
     if (!shooterPos || enemies.length === 0) { row.style.display = 'none'; return; }
-    let html = '<option value="-1">— не выбрана (ввести вручную) —</option>';
+    const isHexAreaAttack = attackType === 'grenades' || attackType === 'ordnance' || attackType === 'suppressiveFire';
+    const items = [];
     enemies.forEach((e, idx) => {
         if (!e || e.hidden || e.isDestroyed || !(e.fighters || []).some(f => f && f.hp > 0)) return;
+        if (attackType === 'suppressiveFire' && (/ДОТ/i.test(String(e.name || '')) || (typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(e)) || e.armor || e.isVehicle)) return;
         const pos = getBattleSquadHex(appData.map.grid, idx, true);
         if (!pos) return;
         const d = hexGridDistance(shooterPos.col, shooterPos.row, pos.col, pos.row);
@@ -2288,9 +2290,34 @@ function fillModalTargets(attackType) {
                 }).map(item => item.crewIndex);
             if (crewIndices.length && !tacticalDotCanFireAtTarget(shooterIdx, idx, crewIndices)) return;
         }
-        html += `<option value="${idx}" data-dist="${d}" data-cover="${cov ? cov.mod : 0}">${e.name} @ ${pos.key} — ${d} гекс(ов)` +
-                `${cov && cov.mod ? ', укрытие ' + cov.label + ' +' + cov.mod : ''}</option>`;
+        items.push({ e, idx, pos, d, cov });
     });
+    let html = '<option value="-1">— не выбрана (ввести вручную) —</option>';
+    if (isHexAreaAttack) {
+        const byHex = new Map();
+        items.forEach(item => {
+            const key = item.pos.key;
+            if (!byHex.has(key)) byHex.set(key, []);
+            byHex.get(key).push(item);
+        });
+        byHex.forEach((group, hexKey) => {
+            const first = group[0];
+            const cov = first.cov;
+            if (group.length > 1) {
+                const names = group.map(g => g.e.name).join(' + ');
+                html += `<option value="${first.idx}" data-dist="${first.d}" data-cover="${cov ? cov.mod : 0}" data-hex-key="${hexKey}" data-hex-group="${names}">Гекс ${hexKey} (${names}) — ${first.d} гекс(ов)` +
+                        `${cov && cov.mod ? ', укрытие ' + cov.label + ' +' + cov.mod : ''}</option>`;
+            } else {
+                html += `<option value="${first.idx}" data-dist="${first.d}" data-cover="${cov ? cov.mod : 0}">${first.e.name} @ ${first.pos.key} — ${first.d} гекс(ов)` +
+                        `${cov && cov.mod ? ', укрытие ' + cov.label + ' +' + cov.mod : ''}</option>`;
+            }
+        });
+    } else {
+        items.forEach(({ e, idx, pos, d, cov }) => {
+            html += `<option value="${idx}" data-dist="${d}" data-cover="${cov ? cov.mod : 0}">${e.name} @ ${pos.key} — ${d} гекс(ов)` +
+                    `${cov && cov.mod ? ', укрытие ' + cov.label + ' +' + cov.mod : ''}</option>`;
+        });
+    }
     sel.innerHTML = html;
     sel.value = '-1';
     row.style.display = (enemies.some((e, idx) => e && !e.hidden && !e.isDestroyed &&
@@ -2313,13 +2340,23 @@ function onModalTargetChange() {
         info.innerHTML = '🎯 Цель не выбрана — введите дистанцию и укрытие вручную.';
         return;
     }
+    const targetEnemy = (appData.map.enemySquads || [])[idx] || {};
+    if (pendingAttack === 'suppressiveFire' && (/ДОТ/i.test(String(targetEnemy.name || '')) || (typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(targetEnemy)))) {
+        info.style.color = '#e74c3c';
+        info.innerHTML = '⛔ Подавление ДОТа недоступно.';
+        return;
+    }
     const opt = sel.options[sel.selectedIndex] || {};
     const d = parseInt(opt.getAttribute ? opt.getAttribute('data-dist') : 0, 10) || 0;
     const mod = parseInt(opt.getAttribute ? opt.getAttribute('data-cover') : 0, 10) || 0;
+    const hexGroup = opt.getAttribute ? opt.getAttribute('data-hex-group') : '';
+    const hexKey = opt.getAttribute ? opt.getAttribute('data-hex-key') : '';
     if (d > 0) document.getElementById('modalDistance').value = d;
     document.getElementById('modalCover').value = Math.min(10, 6 + mod);
     const cov = getTacticalCoverInfoForEnemy(appData.map.grid, idx);
-    let msg = `🎯 Цель: ${(appData.map.enemySquads[idx] || {}).name} — ${d} гекс(ов)`;
+    let msg = hexGroup
+        ? `🎯 Цель: гекс ${hexKey} (${hexGroup}) — ${d} гекс(ов)`
+        : `🎯 Цель: ${targetEnemy.name} — ${d} гекс(ов)`;
     if (cov && cov.mod) msg += `, укрытие «${cov.label}» (+${cov.mod} к сложности)`;
     // правило леса — только для стрелкового оружия
     const smallArms = ['smallArms', 'sniper', 'suppressiveFire', 'molotovCrew', 'atGrenade'];
