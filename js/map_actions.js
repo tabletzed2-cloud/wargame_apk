@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.107
+// ⚡ BUILD-МАРКЕР: v13.108
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -185,6 +185,34 @@ function mapActionSelectedIdx() {
     if (idx === null || idx === undefined || idx < 0) return -1;
     if (!appData.squads || !appData.squads[idx]) return -1;
     return idx;
+}
+
+// ⚡ v13.108: кнопки, которые НЕ нужно дублировать в блоке «Дополнительные
+//    действия и способности карт» под тактической картой.
+//    • ручное обнаружение убрано совсем (проверяется автоматически в конце хода);
+//    • «Навестись» и развороты по направлениям уже есть в панели
+//      «🛡️ Управление бронетехникой на поле боя»;
+//    • кнопки местности дублируют движение кликом по карте;
+//    • пехотные действия (гранаты, связка, рукопашная, ПТО, орудия без ствола)
+//      бронетехнике не показываем.
+const MAP_EXTRA_BLOCKED_LABELS = [
+    'проверить обнаружение', 'обнаружить вручную', 'навестись', 'показать сектор',
+    'выбрать цель и стрелять', 'обычный ход', 'скрытный темп'
+];
+const MAP_EXTRA_BLOCKED_TERRAIN = ['открытая', 'лес', 'дорога', 'тяжёлая', 'тяжелая', 'бег (откр.)', 'переползание'];
+const MAP_EXTRA_DIRECTION_LABELS = ['→ В', '↘ ЮВ', '↙ ЮЗ', '← З', '↖ СЗ', '↗ СВ'];
+const MAP_EXTRA_INFANTRY_ONLY = ['бросок гранат', 'связка гранат', 'рукопашная', 'снайперский выстрел',
+    'орудия / миномёты', 'атака пто', 'подавить', 'дымовая завеса'];
+function mapExtraButtonBlocked(squad, label) {
+    const text = String(label || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!text) return true;
+    if (MAP_EXTRA_BLOCKED_LABELS.some(pattern => text.indexOf(pattern) >= 0)) return true;
+    // подписи кнопок местности идут с эмодзи («🌲 Лес») — сравниваем по вхождению
+    if (MAP_EXTRA_BLOCKED_TERRAIN.some(pattern => text === pattern || text.endsWith(' ' + pattern))) return true;
+    if (MAP_EXTRA_DIRECTION_LABELS.indexOf(String(label || '').trim()) >= 0) return true;
+    const armored = !!(squad && (squad.armor || squad.isVehicle));
+    if (armored && MAP_EXTRA_INFANTRY_ONLY.some(pattern => text.indexOf(pattern) >= 0)) return true;
+    return false;
 }
 
 // Цель по индексу: дистанция/укрытие/причина недопустимости для действия
@@ -484,6 +512,8 @@ function renderMapActionPanel() {
                 Array.from(source.querySelectorAll('button[onclick]')).forEach(original => {
                     const label = original.textContent.replace(/\s+/g, ' ').trim();
                     if (!label || visibleLabels.has(label) || addedLabels.has(label)) return;
+                    // ⚡ v13.108: лишние и дублирующиеся кнопки под картой не показываем
+                    if (typeof mapExtraButtonBlocked === 'function' && mapExtraButtonBlocked(squad, label)) return;
                     const clone = original.cloneNode(true);
                     clone.removeAttribute('id');
                     clone.style.maxWidth = '100%';

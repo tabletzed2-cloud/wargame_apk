@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.107 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.108 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1052,7 +1052,27 @@ function getTacticalCoverInfoForEnemy(grid, enemyIdx) {
     const pos = getBattleSquadHex(grid, enemyIdx, true);
     if (!pos) return null;
     const cell = grid[pos.key];
-    const mod = getTacticalCoverMod(cell ? cell.type : 'grass');
+    let mod = getTacticalCoverMod(cell ? cell.type : 'grass');
+    // v13.108: лес в глубине 2+ гекса — дополнительное укрытие (+1), если отряд ещё не скрыт (не hidden)
+    // Глубину считаем от ближайшего стрелка игрока; если стрелка нет — берём максимальную оценку
+    try {
+        if (isForestHexType(cell ? cell.type : null) && grid) {
+            let bestDepth = 0;
+            const enemySquads = (typeof appData !== 'undefined' && appData && appData.map && appData.map.enemySquads) || [];
+            const enemy = enemySquads[enemyIdx];
+            const isHidden = !!(enemy && enemy.hidden);
+            if (!isHidden) {
+                const playerSquads = (typeof appData !== 'undefined' && appData && Array.isArray(appData.squads)) ? appData.squads : [];
+                for (let si = 0; si < playerSquads.length; si++) {
+                    const sp = getBattleSquadHex(grid, si, false);
+                    if (!sp) continue;
+                    const d = tacticalForestDepth(grid, sp.col, sp.row, pos.col, pos.row);
+                    if (d > bestDepth) bestDepth = d;
+                }
+                if (bestDepth >= 2) mod += 1; // 2 гекса вглубь леса — +1 к укрытию
+            }
+        }
+    } catch (e) {}
     const names = { rocks: 'камни', craters: 'воронки', forest: 'лес', shelled_forest: 'обстрелянный лес',
                     bushes: 'кусты', trenches: 'окопы' };
     return { pos, mod, type: cell ? cell.type : 'grass', label: names[cell ? cell.type : 'grass'] || (cell ? cell.type : '') };

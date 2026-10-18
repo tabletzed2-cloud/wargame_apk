@@ -438,7 +438,14 @@ console.log('== v13.099: пункты 1–27 ==');
   const shoot = sliceOf('executeShootOrder');
   ok(/противотанковых средств у отряда нет/.test(shoot),
      'п.21: пехоте без ПТО не дают «выполнить» обстрел брони');
-  ok(/артиллерия калибром более 70мм/.test(shoot), 'п.21: пехоте не дают «выполнить» обстрел ДОТа');
+  // ⚡ v13.108: правило ужесточено — ДОТ неуязвим для обстрела вообще
+  //    (выводится только в тактическом бою: амбразуры/дверь термитом или связкой).
+  ok(/на гексе ДОТ/.test(shoot) && /неуязвимо/.test(shoot),
+     'п.21: пехоте не дают «выполнить» обстрел ДОТа (укрепление неуязвимо для обстрела)');
+  ok(/isStaticOpUnit\(unit\)/.test(sliceFunction(HTML, 'applyDamageToOpUnit')),
+     'п.21 (v13.108): applyDamageToOpUnit не наносит урон ДОТу ни от какого огня');
+  ok(/isStaticOpUnit/.test(sliceFunction(HTML, 'executeMortarSalvo')),
+     'п.21 (v13.108): миномётный/артиллерийский залп исключает ДОТы из целей');
   ok(/opShootRefusalIsSupplyWait/.test(shoot) && /supplyWaitLogged/.test(shoot),
      'п.21: приказ, ждущий снабжения, не отменяется и не «выполняется»');
   ok(s.evalCtx(`opShootRefusalIsSupplyWait('🚫 X: нет снарядов — стрельба невозможна')`) === true,

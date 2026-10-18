@@ -13,6 +13,9 @@ assert.equal(s.evalCtx('tacticalVehicleMovementAccuracyPenalty({ movedThisTurn: 
 assert.match(getFunction(HTML, 'vehicleAcquireTarget'), /spendAP\(currentSquadIndex, VEHICLE_AIM_AP_COST\)/);
 assert.match(getFunction(HTML, 'attackSmallArms'), /tacticalVehicleMovementAccuracyPenalty\(currentSquad\)/);
 assert.match(getFunction(HTML, 'attackOrdnance'), /tacticalVehicleMovementAccuracyPenalty\(currentSquad\)/);
-assert.match(HTML, /Навестись на выбранную цель \(\+1 меткость, 1 ОД\)/);
+// ⚡ v13.108: кнопка «Навестись» должна быть ОДНА — в панели управления
+//    бронетехникой; в панели движения её дубль убран по отчёту тестировщика.
+assert.match(getFunction(HTML, 'renderFieldVehiclePanel'), /Навестись на цель: \+1 меткость за 1 ОД/);
 assert.match(HTML, /Наведение на выбранную цель стоит 1 ОД/);
+assert.doesNotMatch(getFunction(HTML, 'renderActiveCardButtons'), /Навестись на выбранную цель/);
 console.log('v13.103 armor aim and movement accuracy: PASS');
