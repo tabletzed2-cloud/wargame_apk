@@ -1,3 +1,4 @@
+// ⚡ BUILD-МАРКЕР: v13.107
 // v13.062: fixed DOT coordinates and no placement bypass for eliminated squads.
 // ⚡ v13.061: current release tactical deployment rules.
 // ============================================================
@@ -356,6 +357,7 @@ function openPlacementPhase(battle) {
     });
     try { if (typeof setMapMode === 'function') setMapMode('place'); } catch (e) {}
     renderPlacementPanel();
+    try { if (typeof updateTacticalRoundUI === 'function') updateTacticalRoundUI(); } catch (e) {}
     const msg = placementIntroText(battle);
     try { log(msg.replace(/\n+/g, ' ')); } catch (e) {}
     placementInfo(msg.split('\n')[2] || msg, '#f1c40f');
@@ -442,9 +444,15 @@ function placementSetAttacker(side) {
     if (!p) return;
     p.attackerSide = side === 'enemy' ? 'enemy' : 'player';
     p.source = 'manual';
+    if (Number(battle.phaseRevision || 0) === 0 && Number(battle.tacticalPhasesCompleted || 0) === 0) {
+        battle.activeSide = p.attackerSide;
+        if (battle.tacticalMap) battle.tacticalMap.activeSide = p.attackerSide;
+        if (typeof appData !== 'undefined' && appData && appData.map) appData.map.activeSide = p.attackerSide;
+    }
     try { log(`📍 Атакующая сторона изменена: ${p.attackerSide === 'player' ? 'мы' : 'противник'}.`); } catch (e) {}
     try { saveData(); } catch (e) {}
     renderPlacementPanel();
+    try { if (typeof updateTacticalRoundUI === 'function') updateTacticalRoundUI(); } catch (e) {}
     try { if (typeof redrawMap === 'function') redrawMap(); } catch (e) {}
 }
 
@@ -505,6 +513,7 @@ function placementFinish() {
     }
     if (!battle.cardsChosen && typeof openCardsTabForBattleStart === 'function') openCardsTabForBattleStart();
     else if (p.phase === 'done' && typeof activateBattleTab === 'function') { try { activateBattleTab(); } catch (e) {} }
+    try { if (typeof updateTacticalTurnUI === 'function') updateTacticalTurnUI(); else if (typeof updateTacticalRoundUI === 'function') updateTacticalRoundUI(battle); } catch (e) {}
     return true;
 }
 
@@ -533,6 +542,7 @@ function placementAnnounceDone(battle) {
     if (typeof appData !== 'undefined' && appData.currentBattleId === battle.id) {
         try { alert(msg); } catch (e) {}
         renderPlacementPanel();
+        try { if (typeof updateTacticalTurnUI === 'function') updateTacticalTurnUI(); else if (typeof updateTacticalRoundUI === 'function') updateTacticalRoundUI(battle); } catch (e) {}
         try { if (typeof redrawMap === 'function') redrawMap(); } catch (e) {}
     }
 }

@@ -1,3 +1,4 @@
+// ⚡ BUILD-МАРКЕР: v13.107
 // v13.062: monotonic turn handoff; synchronize routing and melee without stale phase rollback.
 // ⚡ v13.061: sync retreat state and attacker/defender phase in online battle snapshots.
 // ============================================================
@@ -462,7 +463,7 @@ let __onlineMergeMineChanged = false;
 function onlineAcceptBattlePhase(battle, e, live) {
     const revision = Number(e.phaseRevision);
     const localRevision = Number(battle.phaseRevision || 0);
-    if (!Number.isInteger(revision) || revision !== localRevision + 1) return false;
+    if (!Number.isInteger(revision) || revision <= localRevision) return false;
     const attackerIsPlayer = !battle.placement || battle.placement.attackerSide !== 'enemy';
     const localSide = battle.activeSide || (attackerIsPlayer ? 'player' : 'enemy');
     const nextSide = ((e.activeSide === 'attacker') === attackerIsPlayer) ? 'player' : 'enemy';
@@ -475,8 +476,13 @@ function onlineAcceptBattlePhase(battle, e, live) {
     battle.activeSide = nextSide;
     battle.currentTurn = (battle.currentTurn || 1) + 1;
     const completedPhases = (typeof registerCompletedTacticalPhase === 'function')
-        ? registerCompletedTacticalPhase(battle) : Math.max(0, Number(battle.tacticalPhasesCompleted) || 0);
-    const phasesPerRound = (typeof tacticalPhasesPerRound === 'function') ? tacticalPhasesPerRound() : 2;
+        ? registerCompletedTacticalPhase(battle)
+        : (battle.tacticalPhasesCompleted = Math.max(0, Number(battle.tacticalPhasesCompleted) || 0) + 1);
+    if (battle.tacticalMap) battle.tacticalMap.tacticalPhasesCompleted = completedPhases;
+    if (live && typeof appData !== 'undefined' && appData && appData.map) appData.map.tacticalPhasesCompleted = completedPhases;
+    const phasesPerRound = (typeof tacticalPhasesPerRound === 'function')
+        ? tacticalPhasesPerRound()
+        : ((typeof registerCompletedTacticalPhase === 'function') ? 2 : 1);
     // Match offline cadence: advance the tactical clock only after a complete
     // round (both sides' phases), regardless of which side opened the battle.
     if (completedPhases > 0 && completedPhases % phasesPerRound === 0 && typeof advanceTacticalClock === 'function') {
@@ -486,9 +492,10 @@ function onlineAcceptBattlePhase(battle, e, live) {
         appData.map.activeSide = nextSide;
         currentTurn = battle.currentTurn;
         appData.currentTurn = currentTurn;
-        if (typeof resetAP === 'function') resetAP();
+        if (typeof resetAP === 'function') { try { resetAP(); } catch (err) {} }
         (appData.squads || []).forEach(s => { s.actionsThisTurn = {}; s.movedThisTurn = false; });
         if (typeof syncNightModifier === 'function') syncNightModifier();
+        if (typeof updateTacticalRoundUI === 'function') { try { updateTacticalRoundUI(battle); } catch (err) {} }
     } else {
         battle.actionPoints = (battle.playerSquads || []).map(s => ({ ap: getMaxAP(s), maxAp: getMaxAP(s) }));
         (battle.playerSquads || []).forEach(s => { s.actionsThisTurn = {}; s.movedThisTurn = false; });
@@ -560,6 +567,12 @@ function onlineMergeOppBattle(battle, e) {
             if (dir) battle.placement.entryDir = dir;
             changed = true;
         }
+        if (Number(battle.phaseRevision || 0) === 0 && battle.activeSide !== side) {
+            battle.activeSide = side;
+            if (battle.tacticalMap) battle.tacticalMap.activeSide = side;
+            if (live && appData.map) appData.map.activeSide = side;
+            changed = true;
+        }
     }
     const oppPlaced = (e.placed === undefined || e.placed === null) ? true : !!e.placed;
     const myPl = battle.placement || null;
@@ -579,9 +592,20 @@ function onlineMergeOppBattle(battle, e) {
 
     const acceptedPlayerPhase = onlineAcceptBattlePhase(battle, e, live);
     if (acceptedPlayerPhase) changed = true;
-    if (Number.isFinite(Number(e.tacticalPhasesCompleted))) {
-        const phases = Number(e.tacticalPhasesCompleted);
-        if (battle.tacticalPhasesCompleted !== phases) { battle.tacticalPhasesCompleted = phases; changed = true; }
+    const oppRev = Number(e.phaseRevision);
+    const curRev = Number(battle.phaseRevision || 0);
+    if (Number.isFinite(Number(e.tacticalPhasesCompleted)) &&
+        (!Number.isFinite(oppRev) || oppRev >= curRev) &&
+        !(e.pausedForOrders && !battle.pausedForOrders && curRev >= 10 && Number(battle.tacticalPhasesCompleted) === 0)) {
+        const phases = Math.max(0, Math.floor(Number(e.tacticalPhasesCompleted)));
+        const curPhases = Math.max(0, Math.floor(Number(battle.tacticalPhasesCompleted || 0)));
+        const nextPhases = (Number.isFinite(oppRev) && oppRev > curRev) ? phases : Math.max(curPhases, phases);
+        if (battle.tacticalPhasesCompleted !== nextPhases) {
+            battle.tacticalPhasesCompleted = nextPhases;
+            if (battle.tacticalMap) battle.tacticalMap.tacticalPhasesCompleted = nextPhases;
+            if (live && appData.map) appData.map.tacticalPhasesCompleted = nextPhases;
+            changed = true;
+        }
     }
     if (typeof e.pausedForOrders === 'boolean') {
         if (e.pausedForOrders) {
@@ -732,7 +756,7 @@ function onlineMergeOppBattle(battle, e) {
         if (typeof ts !== 'number' || battle.onlineSupSeen[name] === ts) return;
         battle.onlineSupSeen[name] = ts;
         const s = mySquads.find(x => x && x.name === name);
-        if (!s) return;
+        if (!s || /ДОТ/i.test(String(s.name || '')) || (typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(s))) return;
         if (!s.suppressed) {
             if (typeof markTacticalSuppressed === 'function') markTacticalSuppressed(s, 'enemy');
             else {
