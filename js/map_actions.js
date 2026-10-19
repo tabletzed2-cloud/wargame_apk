@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.107
+// ⚡ BUILD-МАРКЕР: v13.109
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -62,6 +62,8 @@ function mapActionsOnSelect(idx) {
     if (appData && appData.map) {
         appData.map.pendingMapAttack = null;
         appData.map.pendingMapBinoculars = null;
+        appData.map.pendingAmpulometSmoke = null;
+        appData.map.pendingArtilleryCall = null;
     }
     renderMapActionPanel();
 }
@@ -185,6 +187,34 @@ function mapActionSelectedIdx() {
     if (idx === null || idx === undefined || idx < 0) return -1;
     if (!appData.squads || !appData.squads[idx]) return -1;
     return idx;
+}
+
+// ⚡ v13.108: кнопки, которые НЕ нужно дублировать в блоке «Дополнительные
+//    действия и способности карт» под тактической картой.
+//    • ручное обнаружение убрано совсем (проверяется автоматически в конце хода);
+//    • «Навестись» и развороты по направлениям уже есть в панели
+//      «🛡️ Управление бронетехникой на поле боя»;
+//    • кнопки местности дублируют движение кликом по карте;
+//    • пехотные действия (гранаты, связка, рукопашная, ПТО, орудия без ствола)
+//      бронетехнике не показываем.
+const MAP_EXTRA_BLOCKED_LABELS = [
+    'проверить обнаружение', 'обнаружить вручную', 'навестись', 'показать сектор',
+    'выбрать цель и стрелять', 'обычный ход', 'скрытный темп'
+];
+const MAP_EXTRA_BLOCKED_TERRAIN = ['открытая', 'лес', 'дорога', 'тяжёлая', 'тяжелая', 'бег (откр.)', 'переползание'];
+const MAP_EXTRA_DIRECTION_LABELS = ['→ В', '↘ ЮВ', '↙ ЮЗ', '← З', '↖ СЗ', '↗ СВ'];
+const MAP_EXTRA_INFANTRY_ONLY = ['бросок гранат', 'связка гранат', 'рукопашная', 'снайперский выстрел',
+    'орудия / миномёты', 'атака пто', 'подавить', 'дымовая завеса'];
+function mapExtraButtonBlocked(squad, label) {
+    const text = String(label || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!text) return true;
+    if (MAP_EXTRA_BLOCKED_LABELS.some(pattern => text.indexOf(pattern) >= 0)) return true;
+    // подписи кнопок местности идут с эмодзи («🌲 Лес») — сравниваем по вхождению
+    if (MAP_EXTRA_BLOCKED_TERRAIN.some(pattern => text === pattern || text.endsWith(' ' + pattern))) return true;
+    if (MAP_EXTRA_DIRECTION_LABELS.indexOf(String(label || '').trim()) >= 0) return true;
+    const armored = !!(squad && (squad.armor || squad.isVehicle));
+    if (armored && MAP_EXTRA_INFANTRY_ONLY.some(pattern => text.indexOf(pattern) >= 0)) return true;
+    return false;
 }
 
 // Цель по индексу: дистанция/укрытие/причина недопустимости для действия
@@ -484,6 +514,8 @@ function renderMapActionPanel() {
                 Array.from(source.querySelectorAll('button[onclick]')).forEach(original => {
                     const label = original.textContent.replace(/\s+/g, ' ').trim();
                     if (!label || visibleLabels.has(label) || addedLabels.has(label)) return;
+                    // ⚡ v13.108: лишние и дублирующиеся кнопки под картой не показываем
+                    if (typeof mapExtraButtonBlocked === 'function' && mapExtraButtonBlocked(squad, label)) return;
                     const clone = original.cloneNode(true);
                     clone.removeAttribute('id');
                     clone.style.maxWidth = '100%';
@@ -666,11 +698,59 @@ function mapCancelAction() {
     if (appData && appData.map) {
         appData.map.pendingMapAttack = null;
         appData.map.pendingMapBinoculars = null;
+        appData.map.pendingAmpulometSmoke = null;
+        appData.map.pendingArtilleryCall = null;
         appData.map.pendingTargetHex = null;
     }
     mapActionInfo('Действие отменено.', '#aaa');
     renderMapActionPanel();
     if (typeof redrawMap === 'function') redrawMap();
+}
+
+// ⚡ v13.109 (п.1): дымовой снаряд ампуломёта — клик по гексу в пределах дальности.
+function mapBeginAmpulometSmoke() {
+    const idx = mapActionSelectedIdx();
+    if (idx < 0) { mapActionInfo('⚠️ Сначала выберите свой отряд на карте.', '#e74c3c'); return; }
+    if (typeof currentSquadIndex !== 'undefined' && currentSquadIndex !== idx && typeof selectSquad === 'function') selectSquad(idx);
+    if (typeof beginAmpulometSmoke === 'function') beginAmpulometSmoke();
+}
+function mapHexClickDuringAmpulometSmoke(key) {
+    const pending = appData && appData.map && appData.map.pendingAmpulometSmoke;
+    if (!pending) return false;
+    if (typeof fireAmpulometSmokeShell === 'function') {
+        if (typeof currentSquadIndex === 'undefined' || currentSquadIndex !== Number(pending.squadIdx)) {
+            if (typeof selectSquad === 'function') selectSquad(Number(pending.squadIdx));
+        }
+        fireAmpulometSmokeShell(key);
+    } else {
+        appData.map.pendingAmpulometSmoke = null;
+    }
+    renderMapActionPanel();
+    if (typeof redrawMap === 'function') redrawMap();
+    return true;
+}
+
+// ⚡ v13.109 (п.2): вызов артиллерийской поддержки — клик по гексу тактической карты.
+function mapBeginArtilleryCall() {
+    const idx = mapActionSelectedIdx();
+    if (idx < 0) { mapActionInfo('⚠️ Сначала выберите свой отряд на карте.', '#e74c3c'); return; }
+    if (typeof currentSquadIndex !== 'undefined' && currentSquadIndex !== idx && typeof selectSquad === 'function') selectSquad(idx);
+    if (typeof beginTacticalArtilleryCall === 'function') beginTacticalArtilleryCall();
+}
+function mapHexClickDuringArtilleryCall(key) {
+    const pending = appData && appData.map && appData.map.pendingArtilleryCall;
+    if (!pending) return false;
+    if (typeof requestTacticalArtilleryStrike === 'function') {
+        if (typeof currentSquadIndex === 'undefined' || currentSquadIndex !== Number(pending.squadIdx)) {
+            if (typeof selectSquad === 'function') selectSquad(Number(pending.squadIdx));
+        }
+        requestTacticalArtilleryStrike(key);
+    } else {
+        appData.map.pendingArtilleryCall = null;
+    }
+    renderMapActionPanel();
+    if (typeof redrawMap === 'function') redrawMap();
+    return true;
 }
 
 function mapDeselectSquad() {

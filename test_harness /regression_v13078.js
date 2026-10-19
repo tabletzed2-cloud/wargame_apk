@@ -19,12 +19,13 @@ const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const tag = (re) => { const m = re.exec(HTML); return m ? m[0] : null; };
 
 // ─── 1. Глобальные бонусы в data.js ───
-test('v13.078: FRACTION_GLOBAL_BONUSES — Талреп-якорь у A.I.R.F., Горная скрытность у A.I.R.F., Болотоход у BeVe', () => {
+test('v13.078: FRACTION_GLOBAL_BONUSES — Талреп-якорь у A.I.R.F., Болотоход у BeVe (v13.108: «Горная скрытность» удалена)', () => {
     const data = read('js/data.js');
     const block = data.slice(data.indexOf('const FRACTION_GLOBAL_BONUSES'), data.indexOf('const SCENARIO_PLACEMENT_ZONES'));
     assert.ok(/"A\.I\.R\.F\.": \[/.test(block), 'A.I.R.F. блок');
     assert.ok(/name: "Талреп-якорь"/.test(block), 'A.I.R.F. — Талреп-якорь');
-    assert.ok(/name: "Горная скрытность"/.test(block), 'A.I.R.F. — Горная скрытность');
+    // ⚡ v13.108: бонус «Горная скрытность» снят по отчёту тестировщика
+    assert.ok(!/name: "Горная скрытность"/.test(block), 'v13.108: «Горная скрытность» удалена из бонусов A.I.R.F.');
     assert.ok(/"BeVe": \[/.test(block), 'BeVe блок');
     assert.ok(/name: "Болотоход"/.test(block), 'BeVe — Болотоход');
 });
@@ -77,11 +78,12 @@ test('v13.078: getOpMoveCost — tacticalHexHasSublevel2 запрещает за
     assert.ok(block[0].includes('Infinity'), 'возврат Infinity при запрете');
 });
 
-// ─── 5. Горная скрытность в getOpDetectionModifier ───
-test('v13.078: getOpDetectionModifier — −1 к обнаружению для A.I.R.F. на hill', () => {
+// ─── 5. (v13.108) «Горная скрытность» удалена: фракция больше не даёт −1 на hill ───
+test('v13.108: getOpDetectionModifier — у A.I.R.F. больше нет горного бонуса', () => {
     const fn = sliceFunction(HTML, 'getOpDetectionModifier');
-    assert.ok(fn.includes("A.I.R.F.'"), 'проверка фракции A.I.R.F.');
-    assert.ok(/hill[\s\S]{0,200}?bestMod\s*-=\s*1/.test(fn) || /bestMod\s*-=\s*1[\s\S]{0,200}?hill/.test(fn), 'бонус −1 на hill');
+    assert.ok(!/indexOf\('hill'\)/.test(fn), 'блок «горной скрытности» по холмам убран');
+    assert.ok(!/A\.I\.R\.F\.'\s*\|\|\s*hasHunters/.test(fn), 'фракционный бонус A.I.R.F. на холмах убран');
+    assert.ok(/Горная скрытность удалена/.test(fn), 'в коде осталась пометка об удалении бонуса');
 });
 
 // ─── 6. Талреп автоматически ставится на бронетехнику A.I.R.F. ───
@@ -142,7 +144,7 @@ function mkOpUnit(name, faction, mobility, type) {
     };
 }
 
-test('v13.078 (sandbox): getOpDetectionModifier — A.I.R.F. на hill получает −1', () => {
+test('v13.108 (sandbox): getOpDetectionModifier — A.I.R.F. на hill больше НЕ получает −1', () => {
     const s = createSandbox(freshAppData());
     s.sandbox.appData.campaign.opMapGrid['5,5'] = ['hill'];
     s.sandbox.appData.campaign.playerFaction = 'A.I.R.F.';
@@ -150,8 +152,8 @@ test('v13.078 (sandbox): getOpDetectionModifier — A.I.R.F. на hill полу�
     s.run(sliceFunction(HTML, 'getOpDetectionModifier'));
     const airf = mkOpUnit('airf-1', 'A.I.R.F.', 'foot', 'infantry_platoon');
     const mod = s.evalCtx('getOpDetectionModifier(' + JSON.stringify(airf) + ')');
-    // базовый 0 (hill) + (−1) airf = −1
-    assert.equal(mod, -1, 'A.I.R.F. на hill: мод=' + mod);
+    // базовый 0 (hill), фракционного бонуса больше нет
+    assert.equal(mod, 0, 'A.I.R.F. на hill: мод=' + mod);
 });
 
 test('v13.078 (sandbox): getOpDetectionModifier — BeVe на hill не получает горный бонус', () => {
