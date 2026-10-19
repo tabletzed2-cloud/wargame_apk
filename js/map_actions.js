@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.108
+// ⚡ BUILD-МАРКЕР: v13.109
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -62,6 +62,8 @@ function mapActionsOnSelect(idx) {
     if (appData && appData.map) {
         appData.map.pendingMapAttack = null;
         appData.map.pendingMapBinoculars = null;
+        appData.map.pendingAmpulometSmoke = null;
+        appData.map.pendingArtilleryCall = null;
     }
     renderMapActionPanel();
 }
@@ -696,11 +698,59 @@ function mapCancelAction() {
     if (appData && appData.map) {
         appData.map.pendingMapAttack = null;
         appData.map.pendingMapBinoculars = null;
+        appData.map.pendingAmpulometSmoke = null;
+        appData.map.pendingArtilleryCall = null;
         appData.map.pendingTargetHex = null;
     }
     mapActionInfo('Действие отменено.', '#aaa');
     renderMapActionPanel();
     if (typeof redrawMap === 'function') redrawMap();
+}
+
+// ⚡ v13.109 (п.1): дымовой снаряд ампуломёта — клик по гексу в пределах дальности.
+function mapBeginAmpulometSmoke() {
+    const idx = mapActionSelectedIdx();
+    if (idx < 0) { mapActionInfo('⚠️ Сначала выберите свой отряд на карте.', '#e74c3c'); return; }
+    if (typeof currentSquadIndex !== 'undefined' && currentSquadIndex !== idx && typeof selectSquad === 'function') selectSquad(idx);
+    if (typeof beginAmpulometSmoke === 'function') beginAmpulometSmoke();
+}
+function mapHexClickDuringAmpulometSmoke(key) {
+    const pending = appData && appData.map && appData.map.pendingAmpulometSmoke;
+    if (!pending) return false;
+    if (typeof fireAmpulometSmokeShell === 'function') {
+        if (typeof currentSquadIndex === 'undefined' || currentSquadIndex !== Number(pending.squadIdx)) {
+            if (typeof selectSquad === 'function') selectSquad(Number(pending.squadIdx));
+        }
+        fireAmpulometSmokeShell(key);
+    } else {
+        appData.map.pendingAmpulometSmoke = null;
+    }
+    renderMapActionPanel();
+    if (typeof redrawMap === 'function') redrawMap();
+    return true;
+}
+
+// ⚡ v13.109 (п.2): вызов артиллерийской поддержки — клик по гексу тактической карты.
+function mapBeginArtilleryCall() {
+    const idx = mapActionSelectedIdx();
+    if (idx < 0) { mapActionInfo('⚠️ Сначала выберите свой отряд на карте.', '#e74c3c'); return; }
+    if (typeof currentSquadIndex !== 'undefined' && currentSquadIndex !== idx && typeof selectSquad === 'function') selectSquad(idx);
+    if (typeof beginTacticalArtilleryCall === 'function') beginTacticalArtilleryCall();
+}
+function mapHexClickDuringArtilleryCall(key) {
+    const pending = appData && appData.map && appData.map.pendingArtilleryCall;
+    if (!pending) return false;
+    if (typeof requestTacticalArtilleryStrike === 'function') {
+        if (typeof currentSquadIndex === 'undefined' || currentSquadIndex !== Number(pending.squadIdx)) {
+            if (typeof selectSquad === 'function') selectSquad(Number(pending.squadIdx));
+        }
+        requestTacticalArtilleryStrike(key);
+    } else {
+        appData.map.pendingArtilleryCall = null;
+    }
+    renderMapActionPanel();
+    if (typeof redrawMap === 'function') redrawMap();
+    return true;
 }
 
 function mapDeselectSquad() {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.108 — операция</title>
+  <title>Боевой модуль v13.109 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -112,7 +112,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.108</h1>
+    <h1>⚔️ Боевой модуль v13.109</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -125,7 +125,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.108</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.109</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -549,7 +549,21 @@ function safeLocalStorage(method, ...args) {
 //    уведомлениях об обстрелах; контакт в одном гексе раскрывает обе стороны; плюс
 //    к обнаружению на дистанции ≤2 гекса; ракета снимает ночь на один ход; отряды
 //    в одном гексе раскладываются по кругу и выбираются кликом по иконке.
-var APP_VERSION = 'v13.108';
+// v13.109: дымовые снаряды ампуломёта (отдельная способность со своим запасом в
+//    3 заряда — основной боекомплект не тратится; завеса по правилам дымовых
+//    гранат, гекс выбирается на карте в пределах дальности ампуломёта);
+//    артиллерийская поддержка в тактическом бою: отделение с живым радистом и
+//    рабочей рацией вызывает огонь САУ или 82-мм миномётной батареи с
+//    оперативной карты (1 ОД, гекс — кликом, залп приходит в начале следующего
+//    своего хода, рассеивание по d12, бьёт по всем в гексе, ДОТы не пробивает,
+//    без радиста и вне радиуса связи вызов недоступен); новое правило телефона:
+//    линия тянется за юнитом до 7 гексов кабеля от штаба (дальше приказ на
+//    движение не выдаётся), при смещении штаба связисты прокладывают линии заново.
+var APP_VERSION = 'v13.109';
+// ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
+//    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
+//    иначе при загрузке старого сохранения срабатывает TDZ.
+const AMPULOMET_SMOKE_CHARGES = 3;
 // v13.097: миграции/Hard Mode могут сохранять данные ещё до возврата на сохранённый экран.
 var uiRestorePending = true;
 
@@ -5313,7 +5327,7 @@ function initOpMapLegend() {
   const pf = (camp && camp.playerFaction) ? camp.playerFaction : '';
   // v13.099 (п.22): набор знаков легенды входит в подпись — иначе легенда не
   // перерисовалась бы после добавления пункта боепитания, огня и ДОТа.
-  const sig = 'pf:' + pf + ':v13108';
+  const sig = 'pf:' + pf + ':v13109';
   if (sig === opMapLegendSig && box.children.length) return;
   opMapLegendSig = sig;
   const dpr = (typeof pickCanvasDpr === 'function') ? Math.max(1, Math.min(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1)) : 1;
@@ -5635,6 +5649,8 @@ appData.squads.forEach(s => {
   // adrenalineUsed намеренно не инициализируем – появится только после активации карты
   if (s.mortarStrike === undefined) s.mortarStrike = null;
   if (s.canCallMortar === undefined) s.canCallMortar = false;
+  // ⚡ v13.109 (п.1): дымовые снаряды ампуломёта — свой запас, не из боекомплекта
+  if (s.ampulometSmoke === undefined) s.ampulometSmoke = AMPULOMET_SMOKE_CHARGES;
     });
 appData.templates.forEach(t => {
   if (t.faction === 'A.I.R.F.' && /Штаб развед/i.test(t.name || '')) t.icon = 'images/AIRF/штаб развед взвода АИРФ №1.png';
@@ -5651,6 +5667,8 @@ appData.templates.forEach(t => {
   if (t.suppressed === undefined) t.suppressed = false;
   if (t.ippUses === undefined) t.ippUses = 0;
   if (t.mortarStrike === undefined) t.mortarStrike = null;
+  // ⚡ v13.109 (п.1): дымовые снаряды ампуломёта
+  if (t.ampulometSmoke === undefined) t.ampulometSmoke = AMPULOMET_SMOKE_CHARGES;
     });
 (function migrateSniperAndMortarMorale() {
   const isSniperOrMortar = s => s && !s.armor && !/ДОТ/i.test(s.name || '') &&
@@ -6250,12 +6268,17 @@ function signalBlockerLabel(col, row) {
     if (!list.length) return '';
     return ` (${col},${row}): ${list.map(e => `«${e.name}»`).join(', ')}`;
 }
+// ⚡ v13.109 (п.4): МАКСИМАЛЬНАЯ ДЛИНА ТЕЛЕФОННОГО КАБЕЛЯ — 7 гексов пути.
+//    Столько связисты могут протянуть линию от штаба батальона до юнита.
+//    Дальше 7 гексов кабель не дотягивается: приказ на такое перемещение
+//    юниту с телефоном не выдаётся, а существующая линия рвётся.
+const PHONE_LINE_MAX_STEPS = 7;
 function validatePhoneSignalRoute(route, hq, recipient) {
     const points = normalizePhoneRoutePoints(route);
     if (!hq || !recipient || ![hq.col, hq.row, recipient.col, recipient.row].every(Number.isFinite)) {
         return { ok: false, reason: 'Штаб или получатель не размещён на карте.' };
     }
-    if (points.length < 2 || points.length > 8) return { ok: false, reason: 'Маршрут должен содержать не более 7 гексов пути.' };
+    if (points.length < 2 || points.length > PHONE_LINE_MAX_STEPS + 1) return { ok: false, reason: `Маршрут должен содержать не более ${PHONE_LINE_MAX_STEPS} гексов пути.` };
     if (points[0].col !== hq.col || points[0].row !== hq.row) return { ok: false, reason: 'Маршрут должен начинаться в штабе батальона.' };
     const last = points[points.length - 1];
     if (last.col !== recipient.col || last.row !== recipient.row) return { ok: false, reason: 'Маршрут должен заканчиваться на гексе получателя.' };
@@ -6285,9 +6308,52 @@ function validatePhoneSignalRoute(route, hq, recipient) {
     }
     return { ok: true, route: points };
 }
-// ⚡ п.7: телефонные линии не переносятся вместе с движущимся юнитом.
-//    Пока он выполняет маршрут, связь остаётся оборванной; только после
-//    достижения конечной точки кабель заново прокладывается до штаба батальона.
+// ⚡ v13.109 (п.4): КАБЕЛЬ ДО ПРОИЗВОЛЬНОЙ ТОЧКИ.
+//    Связисты тянут (или перекладывают) линию от штаба батальона до гекса
+//    получателя: маршрут ищется автоматически и укладывается в 7 гексов пути.
+//    Возвращает { ok, route } либо { ok:false, reason }.
+function buildPhoneSignalRouteTo(hq, recipient) {
+    if (!hq || !recipient || ![hq.col, hq.row, recipient.col, recipient.row].every(Number.isFinite)) {
+        return { ok: false, reason: 'Штаб или получатель не размещён на карте.' };
+    }
+    const start = { col: hq.col, row: hq.row };
+    if (start.col === recipient.col && start.row === recipient.row) {
+        return { ok: true, route: [start] }; // телефоны рядом — кабельный участок не нужен
+    }
+    const steps = (typeof findSignalPath === 'function')
+        ? findSignalPath(start.col, start.row, recipient, signalInfantryMover()) : [];
+    const route = [start, ...steps];
+    if (!steps.length) return { ok: false, reason: `От штаба до «${recipient.name || 'юнита'}» нет проходимого маршрута для связистов.` };
+    if (route.length > PHONE_LINE_MAX_STEPS + 1) {
+        return { ok: false, reason: `До «${recipient.name || 'юнита'}» ${route.length - 1} гексов кабеля — больше ${PHONE_LINE_MAX_STEPS}: катушка не хватает.` };
+    }
+    const validation = validatePhoneSignalRoute(route, hq, recipient);
+    if (!validation.ok) return { ok: false, reason: validation.reason };
+    return { ok: true, route: validation.route };
+}
+// ⚡ v13.109 (п.4): проверка приказа — хватит ли кабеля, если юнит с телефоном
+//    уйдёт в гекс (col,row). Возвращает { ok, route, reason }.
+function phoneCableCheckForDestination(unit, col, row) {
+    if (!unit || !hardMode || !hardMode.enabled) return { ok: true };
+    if (!Array.isArray(hardMode.phoneLines)) return { ok: true };
+    const units = (appData.campaign && appData.campaign.opUnits) || [];
+    const unitId = units.indexOf(unit);
+    if (unitId < 0) return { ok: true };
+    const hq = (typeof getSignalHQ === 'function') ? getSignalHQ() : null;
+    if (!hq) return { ok: true };
+    const hqId = units.indexOf(hq);
+    if (hqId < 0) return { ok: true };
+    const hasLine = hardMode.phoneLines.some(line => line && !line.laying &&
+        ((line.fromUnitId === hqId && line.toUnitId === unitId) ||
+         (line.fromUnitId === unitId && line.toUnitId === hqId)));
+    if (!hasLine) return { ok: true }; // телефона у юнита нет — правило не applies
+    if (!hasActivePhoneAt(unitId) || !hasActivePhoneAt(hqId)) return { ok: true };
+    return buildPhoneSignalRouteTo(hq, { name: unit.name, col: col, row: row });
+}
+// ⚡ п.7 (v13.109 п.4): телефонная линия НЕ рвётся от самого факта движения —
+//    связисты перекладывают/продлевают кабель по маршруту до 7 гексов.
+//    Пока юнит (или штаб) в движении, связь недоступна; после прибытия
+//    (или сразу, если кабель дотягивается) линия восстанавливается.
 function reconnectPhoneLinesAfterUnitMove(movedUnit) {
     if (!movedUnit || !hardMode || !hardMode.enabled || !Array.isArray(hardMode.phoneLines)) return 0;
     const units = (appData.campaign && appData.campaign.opUnits) || [];
@@ -6295,36 +6361,37 @@ function reconnectPhoneLinesAfterUnitMove(movedUnit) {
     const hq = getSignalHQ();
     const hqId = hq ? units.indexOf(hq) : -1;
     if (movedId < 0 || !hq || hqId < 0 || ![hq.col, hq.row, movedUnit.col, movedUnit.row].every(Number.isFinite)) return 0;
-    const affected = hardMode.phoneLines.filter(line => line && !line.laying && line.fromUnitId === hqId &&
-        (movedId === hqId || line.toUnitId === movedId));
+    // ⚡ v13.109 (п.4): для сместившегося штаба берём ВСЕ его линии (в т.ч. те,
+    //    что помечены laying во время движения) — связисты прокладывают их заново.
+    //    Для обычного юнита — его линию, если кабель не прокладывается вручную
+    //    связной парой (laying) либо линия ждёт перекладки (relayPending).
+    const affected = hardMode.phoneLines.filter(line => {
+        if (!line || line.fromUnitId !== hqId) return false;
+        if (movedId === hqId) return true;
+        if (line.toUnitId !== movedId) return false;
+        return !line.laying || line.relayPending === true;
+    });
     let rebuilt = 0;
+    const hqMoved = movedId === hqId;
     affected.forEach(line => {
         const recipient = units[line.toUnitId];
         if (!recipient || recipient.isDestroyed || ![recipient.col, recipient.row].every(Number.isFinite)) return;
         if (!hasActivePhoneAt(hqId) || !hasActivePhoneAt(line.toUnitId)) {
             line.intact = false;
+            line.laying = false;
+            delete line.relayPending;
             return;
         }
-        const start = { col: hq.col, row: hq.row };
-        let route;
-        if (start.col === recipient.col && start.row === recipient.row) {
-            route = [start]; // один гекс — телефоны рядом, кабельный участок не нужен
-        } else {
-            const steps = findSignalPath(start.col, start.row, recipient, signalInfantryMover());
-            route = [start, ...steps];
-            if (!steps.length || route.length > 8) {
-                line.intact = false;
-                log(`⚠️ Телефонная связь с «${recipient.name}» пока не восстановлена: маршрут от штаба длиннее 7 гексов или непроходим.`);
-                return;
-            }
-            const validation = validatePhoneSignalRoute(route, hq, recipient);
-            if (!validation.ok) {
-                line.intact = false;
-                log(`⚠️ Телефонная связь с «${recipient.name}» пока не восстановлена: ${validation.reason}`);
-                return;
-            }
-            route = validation.route;
+        // ⚡ v13.109 (п.4): связисты прокладывают кабель заново по новому маршруту
+        const built = buildPhoneSignalRouteTo(hq, recipient);
+        if (!built.ok) {
+            line.intact = false;
+            line.laying = false;
+            delete line.relayPending;
+            log(`⚠️ Телефонная связь ${hq.name} ↔ ${recipient.name} не восстановлена: ${built.reason}`);
+            return;
         }
+        const route = built.route;
         line.path = route.map(point => ({ col: point.col, row: point.row }));
         line.fromHex = `${hq.col},${hq.row}`;
         line.toHex = `${recipient.col},${recipient.row}`;
@@ -6336,7 +6403,8 @@ function reconnectPhoneLinesAfterUnitMove(movedUnit) {
             if (entry && (entry.unitId === hqId || entry.unitId === line.toUnitId)) entry.phoneLineId = line.id;
         });
         rebuilt++;
-        log(`📞 Телефонная линия ${hq.name} ↔ ${recipient.name} переложена после завершения перемещения по новому маршруту.`);
+        const cableLen = Math.max(0, route.length - 1);
+        log(`📞 Телефонная линия ${hq.name} ↔ ${recipient.name} переложена заново: кабель ${cableLen} гекс.${hqMoved ? ' (штаб сместился — связисты проложили линию поновой)' : ''}.`);
     });
     if (rebuilt && typeof saveData === 'function') saveData();
     return rebuilt;
@@ -9983,6 +10051,7 @@ function syncBattleLossesToCampaign(battleId) {
                 'appliedCards', 'effects', 'panzerblindeCharges', 'atRifleGrenades', 'flemishFury',
                 'flemishFuryUsed', 'crewInstances', 'thermiteCharges', 'smokeGrenades', 'flares',
                 'canCallMortar', 'adrenalineUsed', 'ammoRegenCounter', 'attackCounter',
+                'ampulometSmoke', // ⚡ v13.109 (п.1): остаток дымовых снарядов ампуломёта
                 'solidarityWeaponIssued', 'dismounted', 'fixedTacticalPosition', 'cardDynamicBaseGrenades', 'embrasuresDisabled', 'cardAddedBy', 'hasInterbrigadeCard', 'canMove', 'isDestroyed',
                 'isSurrendered', 'surrenderReason', 'surrenderTurn', 'status'
             ];
@@ -11498,6 +11567,9 @@ function tacticalRemoveUnitFromMap(squad, side, index) {
   }
   if (map.pendingMapAttack) map.pendingMapAttack = null;
   if (map.pendingMapBinoculars) map.pendingMapBinoculars = null;
+  // ⚡ v13.109: незавершённый выбор гекса (дым ампуломёта / вызов артиллерии)
+  if (map.pendingAmpulometSmoke) map.pendingAmpulometSmoke = null;
+  if (map.pendingArtilleryCall) map.pendingArtilleryCall = null;
 }
 function tacticalRetreatUnit(squad, side, index, reason) {
   if (!squad || squad.isDestroyed || squad.isSurrendered || squad.isRetreated || squad.status === 'retreated' || squad.status === 'surrendered') return false;
@@ -12497,6 +12569,8 @@ function nextTurn() {
     if (appData.map) {
       appData.map.pendingMapAttack = null;
       appData.map.pendingMapBinoculars = null;
+      appData.map.pendingAmpulometSmoke = null;
+      appData.map.pendingArtilleryCall = null;
     }
   } catch (e) {}
     // сброс флагов лечения
@@ -12675,6 +12749,10 @@ if (appData.currentBattleId) {
   updateUI();
   updateTacticalRoundUI(tacticalBattle);
   log(`=== ХОД ${currentTurn}: ${getTacticalActiveSide(tacticalBattle) === 'player' ? 'своя' : 'противника'} фаза ===`);
+  // ⚡ v13.109 (п.2): вызванная по рации артподдержка приходит в начале СВОЕГО хода
+  if (getTacticalActiveSide(tacticalBattle) === 'player') {
+    try { if (typeof resolveTacticalArtilleryCalls === 'function') resolveTacticalArtilleryCalls(); } catch (e) { console.warn('resolveTacticalArtilleryCalls:', e && e.message); }
+  }
   if (tacticalBattle && appData.squads.length && appData.squads.every(tacticalEnemyIsNeutralized)) { retreatFromBattle(true); return; }
   // ⚡ v13.099 (п.9): окно оперативного хода — 5 РАУНДОВ = 10 фаз.
   if (tacticalBattle && tacticalPhasesCompleted >= RPTX_PHASES_PER_WINDOW()) {
@@ -14181,6 +14259,20 @@ function renderActiveCardButtons() {
   if (currentSquad.smokeGrenades >= 3 && !currentSquad.armor) {
     specialHtml += `<button onclick="deploySmokeScreen()">💨 Дымовая завеса (3 грн.)</button> `;
   }
+  // ⚡ v13.109 (п.1): дымовые снаряды ампуломёта — отдельный запас, гекс выбирается на карте
+  if (typeof ampulometActiveCrews === 'function' && ampulometActiveCrews(currentSquad).length > 0) {
+    const ampSmoke = (typeof ampulometSmokeChargesLeft === 'function') ? ampulometSmokeChargesLeft(currentSquad) : 0;
+    const ampRange = (typeof ampulometSmokeRange === 'function') ? ampulometSmokeRange(currentSquad) : 8;
+    if (ampSmoke > 0) {
+      const ampPending = !!(appData.map && appData.map.pendingAmpulometSmoke);
+      specialHtml += `<button onclick="beginAmpulometSmoke()" style="background:${ampPending ? '#16a085' : '#5d7b8a'};" title="Дымовая завеса по правилам дымовых гранат (d12 на ветер, 2 фазы), но в любой гекс в пределах ${ampRange} гексов. Заряд не тратит снаряды ампуломёта.">🌫️ Дымовой снаряд ампуломёта (${ampSmoke}/${AMPULOMET_SMOKE_CHARGES}) — ${ampRange} гекс.</button> `;
+      if (ampPending) {
+        specialHtml += `<button onclick="cancelAmpulometSmoke()" style="background:#555;">✖ Отменить выбор гекса</button> `;
+      }
+    } else {
+      specialHtml += `<span style="display:inline-block; color:#e67e22; font-size:0.85rem; margin-right:6px;">🌫️ Дымовые снаряды ампуломёта израсходованы</span> `;
+    }
+  }
   // ⚡ v13.099 (п.30): штурм ДОТа — связка из 8 гранат (амбразура/дверь) и дым в амбразуры
   if (currentSquad && !currentSquad.armor && typeof tacticalDotInSameHexWithSquad === 'function' &&
       typeof tacticalIsDotSquad === 'function' && !tacticalIsDotSquad(currentSquad)) {
@@ -14221,6 +14313,30 @@ function renderActiveCardButtons() {
   if (currentSquad.canCallMortar && !currentSquad.mortarStrike && !appData.squads.some(s => s.mortarStrike)) {
     specialHtml += `<button onclick="activateMortarStrike()">💣 Запросить миномётный обстрел</button> `;
   }
+  // ⚡ v13.109 (п.2): вызов артиллерийской поддержки (САУ / 82-мм миномёты) по рации
+  if (typeof tacticalArtilleryStatus === 'function' && currentSquad &&
+      typeof tacticalSquadHasAliveRadioOperator === 'function' && tacticalSquadHasAliveRadioOperator(currentSquad)) {
+    const artyStatus = tacticalArtilleryStatus(currentSquad);
+    const artyPending = !!(appData.map && appData.map.pendingArtilleryCall);
+    if (artyStatus.ok) {
+      const bat = artyStatus.battery;
+      const batLabel = `${bat.unit.name} · ${bat.dist} гекс. · ${bat.isSau ? 'САУ' : '82-мм миномёты'}`;
+      specialHtml += `<button onclick="beginTacticalArtilleryCall()" style="background:${artyPending ? '#16a085' : '#8e44ad'};" title="Вызвать огонь батареи с оперативной карты. 1 ОД: гекс выбирается на карте, залп приходит в начале следующего хода. Нужен живой радист и рабочая рация.">📻 Вызвать артналёт (1 ОД) — ${batLabel}</button> `;
+      if (artyPending) {
+        specialHtml += `<button onclick="cancelTacticalArtilleryCall()" style="background:#555;">✖ Отменить выбор гекса</button> `;
+      }
+    } else {
+      specialHtml += `<span style="display:inline-block; color:#e67e22; font-size:0.85rem; margin-right:6px;">📻 Артподдержка недоступна: ${artyStatus.reason}</span> `;
+    }
+  }
+  // ⚡ v13.109 (п.2): статус уже вызванных налётов
+  if (typeof tacticalArtilleryPendingCalls === 'function') {
+    const pendingArty = tacticalArtilleryPendingCalls();
+    pendingArty.forEach(call => {
+      const left = Math.max(0, Number(call.arriveTurn) - (Number.isFinite(Number(currentTurn)) ? Number(currentTurn) : 1));
+      specialHtml += `<div style="margin-top:4px; color:#f1c40f; font-size:0.85rem;">⏳ Артналёт «${call.batteryName}» по гексу ${call.targetHex}: ${left > 0 ? `придёт через ${left} ${left === 1 ? 'ход' : 'хода'}` : 'придёт в этом ходу'} (${call.shells} снарядов)</div>`;
+    });
+  }
   // Осветительная ракета противника (если активирована "Ночь")
   if (appData.enemyFlareAvailable && appData.enemyFlareTurn === currentTurn) {
     specialHtml += `<button onclick="enemyFlare()">🚀 Осветительная ракета противника!</button> `;
@@ -14253,6 +14369,364 @@ function activateMortarStrike() {
   log(`Миномётный обстрел гекса ${hex} начнётся через 2 хода.`);
   saveData();
   updateUI();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.109 (п.2): АРТИЛЛЕРИЙСКАЯ ПОДДЕРЖКА В ТАКТИЧЕСКОМ БОЮ
+//
+//    Отделение, у которого в бою есть ЖИВОЙ РАДИСТ, а его оперативный юнит
+//    держит рабочую рацию и находится в радиусе связи со штабом батальона
+//    (10 гексов), может вызвать огонь батареи с оперативной карты:
+//    миномётной батареи 82-мм (дальность 4 гекса) или САУ (10 гексов).
+//
+//    Порядок: кнопка «📻 Вызвать артналёт» (1 ОД) → клик по гексу тактической
+//    карты → залп приходит в НАЧАЛЕ СЛЕДУЮЩЕГО хода игрока. Радиосвязь нужна
+//    всегда: без рации (нет связистов/рация потеряна/дальше 10 гексов от штаба)
+//    вызов недоступен.
+//
+//    Рассеивание — как у дымовой завесы: бросок d12, 12 — штиль (в тот гекс),
+//    иначе залп смещается на 1 гекс по направлению ветра. Бьёт по ВСЕМ в гексе,
+//    включая своих. ДОТы артиллерия не повреждает (правило v13.108).
+// ═══════════════════════════════════════════════════════════════════════════
+const TACTICAL_ARTY_AP_COST = 2;        // 2 полу-ОД = 1 ОД за вызов
+const TACTICAL_ARTY_ARRIVE_DELAY = 1;   // залп — в начале следующего хода игрока
+const TACTICAL_ARTY_HIT_THRESHOLD = 6;  // d10 ≥ 6 — попадание снаряда
+const TACTICAL_ARTY_MORTAR_SHELLS = 6;  // залп 82-мм миномётной батареи
+const TACTICAL_ARTY_SAU_SHELLS = 4;     // залп САУ
+
+function tacticalArtilleryRecord() {
+  if (typeof getTacticalBattleRecord === 'function') {
+    try { const b = getTacticalBattleRecord(); if (b) return b; } catch (e) {}
+  }
+  if (!appData || !appData.campaign || !Array.isArray(appData.campaign.activeBattles)) return null;
+  const id = appData.currentBattleId;
+  if (!id) return null;
+  return appData.campaign.activeBattles.find(b => b && b.id === id) || null;
+}
+function tacticalArtilleryBattleHex(battle) {
+  const raw = battle && battle.hexKey;
+  if (!raw) return null;
+  const parts = String(raw).split(',').map(Number);
+  if (parts.length !== 2 || !parts.every(Number.isFinite)) return null;
+  return { col: parts[0], row: parts[1] };
+}
+// Оперативный юнит, которому принадлежит тактическое отделение.
+function tacticalSquadOpUnit(squad) {
+  if (!squad || !appData || !appData.campaign) return null;
+  const units = appData.campaign.opUnits || [];
+  if (squad.opUnitName) {
+    const byName = units.find(u => u && u.name === squad.opUnitName);
+    if (byName) return byName;
+  }
+  return units.find(u => u && Array.isArray(u.squads) && u.squads.some(s => s && s.name === squad.name)) || null;
+}
+// В отделении есть живой связист-радист (именно в этом бою).
+function tacticalSquadHasAliveRadioOperator(squad) {
+  if (!squad) return false;
+  if (String(squad.signalDeviceType || '') === 'radio' &&
+      (squad.fighters || []).some(f => f && f.hp > 0)) return true;
+  return (squad.fighters || []).some(f => f && f.hp > 0 && /радист|radio/i.test(String(f.name || '')));
+}
+// Проверка наводчика: связисты в бою + рабочая рация + связь со штабом батальона.
+function tacticalArtillerySpotterStatus(squad) {
+  if (!squad) return { ok: false, reason: 'Отряд не выбран.' };
+  if (squad.isDestroyed || squad.isRetreated || squad.status === 'retreated') {
+    return { ok: false, reason: 'Отряд выбыл из боя — связь невозможна.' };
+  }
+  if (!appData || !appData.campaign || !appData.campaign.active) {
+    return { ok: false, reason: 'Артподдержка работает только в кампании.' };
+  }
+  if (!tacticalSquadHasAliveRadioOperator(squad)) {
+    return { ok: false, reason: 'В отделении нет живого радиста — вызвать артиллерию некому.' };
+  }
+  const unit = tacticalSquadOpUnit(squad);
+  if (!unit) return { ok: false, reason: 'Не найден оперативный юнит этого отделения.' };
+  try { if (typeof ensureSignalPlatoonState === 'function') ensureSignalPlatoonState(); } catch (e) {}
+  if (typeof hasRadio !== 'function' || !hasRadio(unit)) {
+    return { ok: false, reason: `У «${unit.name}» нет работающей рации (связисты выбыли или рация потеряна).` };
+  }
+  const hq = (typeof getSignalHQ === 'function') ? getSignalHQ() : null;
+  if (!hq) return { ok: false, reason: 'Штаб батальона не найден.' };
+  if (typeof isInRadioRange === 'function' && !isInRadioRange(hq, unit)) {
+    return { ok: false, reason: `«${unit.name}» вне радиуса связи со штабом батальона (10 гексов).` };
+  }
+  return { ok: true, unit, hq };
+}
+// Батареи игрока, которые могут накрыть гекс боя.
+function tacticalArtilleryBatteries(battleHex) {
+  if (!battleHex || !appData || !appData.campaign) return [];
+  const units = appData.campaign.opUnits || [];
+  const list = [];
+  units.forEach((unit, unitId) => {
+    if (!unit || unit.isDestroyed || unit.isInBattle) return;
+    if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
+    if (typeof isMediumArtillery === 'function' ? !isMediumArtillery(unit) : false) return;
+    // без снарядов батарея молчит
+    if (typeof unitOperationalAmmoTotal === 'function' && typeof operationalAmmoSquads === 'function' &&
+        operationalAmmoSquads(unit).length > 0 && unitOperationalAmmoTotal(unit, 'ordnance') <= 0) return;
+    const range = (typeof operationalMediumArtilleryRange === 'function') ? operationalMediumArtilleryRange(unit) : 10;
+    const dist = (typeof getOpHexDistance === 'function')
+      ? getOpHexDistance(unit.col, unit.row, battleHex.col, battleHex.row) : Infinity;
+    if (!Number.isFinite(dist) || dist > range) return;
+    const isSau = unit.type === 'sau_battery' || /сау/i.test(String(unit.name || ''));
+    list.push({
+      unit, unitId, dist, range, isSau,
+      shells: isSau ? TACTICAL_ARTY_SAU_SHELLS : TACTICAL_ARTY_MORTAR_SHELLS
+    });
+  });
+  return list.sort((a, b) => a.dist - b.dist);
+}
+// Итоговый статус: можно ли вызвать налёт и кем.
+function tacticalArtilleryStatus(squad) {
+  const sq = squad || ((typeof currentSquad !== 'undefined') ? currentSquad : null);
+  const spotter = tacticalArtillerySpotterStatus(sq);
+  if (!spotter.ok) return { ok: false, reason: spotter.reason };
+  const battle = tacticalArtilleryRecord();
+  if (!battle) return { ok: false, reason: 'Нет активного тактического боя.' };
+  const hex = tacticalArtilleryBattleHex(battle);
+  if (!hex) return { ok: false, reason: 'Не определён гекс боя на оперативной карте.' };
+  const batteries = tacticalArtilleryBatteries(hex);
+  if (!batteries.length) {
+    return { ok: false, reason: 'Нет батареи: САУ или 82-мм миномёты вне досягаемости либо без снарядов.' };
+  }
+  return { ok: true, battery: batteries[0], batteries, battle, hex };
+}
+function tacticalArtilleryPendingCalls(battle) {
+  const record = battle || tacticalArtilleryRecord();
+  if (!record || !Array.isArray(record.pendingArtillery)) return [];
+  return record.pendingArtillery.filter(call => call && !call.resolved);
+}
+function beginTacticalArtilleryCall() {
+  const squad = (typeof currentSquad !== 'undefined') ? currentSquad : null;
+  const status = tacticalArtilleryStatus(squad);
+  if (!status.ok) {
+    log(`📻 Артподдержка недоступна: ${status.reason}`);
+    try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast(`📻 ${status.reason}`, 'warn'); } catch (e) {}
+    return false;
+  }
+  const idx = (typeof currentSquadIndex !== 'undefined') ? currentSquadIndex : -1;
+  if (idx < 0) { log('⛔ Сначала выберите отделение с радистом.'); return false; }
+  const map = appData && appData.map;
+  if (!map || !map.grid) { log('⛔ Тактическая карта не загружена.'); return false; }
+  if (typeof getBattleSquadHex === 'function' && !getBattleSquadHex(map.grid, idx, false)) {
+    log('⛔ Сначала разместите отделение на тактической карте.');
+    return false;
+  }
+  if (typeof getAP === 'function' && getAP(idx) < TACTICAL_ARTY_AP_COST) {
+    log('⛔ Недостаточно ОД для вызова артиллерии (нужно 1 ОД).');
+    try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast('📻 Для вызова артиллерии нужно 1 ОД', 'warn'); } catch (e) {}
+    return false;
+  }
+  map.pendingMapAttack = null;
+  map.pendingMapBinoculars = null;
+  map.pendingAmpulometSmoke = null;
+  map.pendingArtilleryCall = { squadIdx: idx, batteryUnitId: status.battery.unitId };
+  const batteryLabel = `${status.battery.unit.name} (${status.battery.dist} гекс., ${status.battery.isSau ? 'САУ' : '82-мм миномёты'})`;
+  try {
+    if (typeof mapActionInfo === 'function') mapActionInfo(`📻 ${batteryLabel}: выберите гекс на карте. Залп придёт в начале следующего хода.`);
+  } catch (e) {}
+  const info = document.getElementById('mapInfo');
+  if (info) { info.innerHTML = `📻 Выберите гекс для артиллерийского налёта (${batteryLabel}).`; info.style.color = '#f1c40f'; }
+  try { if (typeof redrawMap === 'function') redrawMap(); } catch (e) {}
+  try { if (typeof renderMapActionPanel === 'function') renderMapActionPanel(); } catch (e) {}
+  return true;
+}
+function cancelTacticalArtilleryCall() {
+  if (appData && appData.map) appData.map.pendingArtilleryCall = null;
+  try { if (typeof redrawMap === 'function') redrawMap(); } catch (e) {}
+  try { if (typeof renderMapActionPanel === 'function') renderMapActionPanel(); } catch (e) {}
+}
+function requestTacticalArtilleryStrike(hexKey) {
+  const squad = (typeof currentSquad !== 'undefined') ? currentSquad : null;
+  const idx = (typeof currentSquadIndex !== 'undefined') ? currentSquadIndex : -1;
+  const map = appData && appData.map;
+  const status = tacticalArtilleryStatus(squad);
+  if (!status.ok) {
+    log(`📻 Артподдержка недоступна: ${status.reason}`);
+    cancelTacticalArtilleryCall();
+    return false;
+  }
+  if (!map || !map.grid || !map.grid[hexKey]) {
+    log(`⛔ Гекс ${hexKey} не найден на тактической карте.`);
+    return false;
+  }
+  if (idx < 0 || (typeof tacticalActionAllowed === 'function' && !tacticalActionAllowed(squad, 'utility'))) {
+    cancelTacticalArtilleryCall();
+    return false;
+  }
+  if (typeof spendAP === 'function' && !spendAP(idx, TACTICAL_ARTY_AP_COST)) {
+    log('⛔ Недостаточно ОД для вызова артиллерии (нужно 1 ОД).');
+    return false;
+  }
+  const battery = status.battery;
+  // залп тратит 10% боекомплекта батареи — как обстрел на оперативной карте
+  try { if (typeof consumeOperationalAmmo === 'function') consumeOperationalAmmo(battery.unit, 'ordnance'); } catch (e) {}
+  const arriveTurn = (Number.isFinite(Number(currentTurn)) ? Number(currentTurn) : 1) + TACTICAL_ARTY_ARRIVE_DELAY;
+  const call = {
+    id: `arty-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    squadIdx: idx,
+    spotterName: squad ? squad.name : '',
+    batteryUnitId: battery.unitId,
+    batteryName: battery.unit.name,
+    isSau: !!battery.isSau,
+    shells: battery.shells,
+    targetHex: String(hexKey),
+    calledTurn: (Number.isFinite(Number(currentTurn)) ? Number(currentTurn) : 1),
+    arriveTurn,
+    resolved: false
+  };
+  if (!Array.isArray(status.battle.pendingArtillery)) status.battle.pendingArtillery = [];
+  status.battle.pendingArtillery.push(call);
+  log(`📻 ${call.spotterName}: по рации передан вызов — «${call.batteryName}» (${battery.dist} гекс. от боя) бьёт по гексу ${call.targetHex}: ${call.shells} снарядов.`);
+  log(`⏳ Залп придёт в начале следующего хода (ход ${call.arriveTurn}).`);
+  try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast(`📻 Артналёт по гексу ${call.targetHex} — в начале следующего хода`, 'info'); } catch (e) {}
+  cancelTacticalArtilleryCall();
+  try { if (typeof saveData === 'function') saveData(); } catch (e) {}
+  try { if (typeof updateUI === 'function') updateUI(); } catch (e) {}
+  return true;
+}
+// Все отделения (свои и вражеские), стоящие в гексе тактической карты.
+function tacticalArtilleryHexOccupants(hexKey) {
+  const map = (appData && appData.map) || {};
+  const cell = map.grid && map.grid[hexKey];
+  if (!cell) return [];
+  const out = [];
+  const players = appData.squads || [];
+  (Array.isArray(cell.squadIds) ? cell.squadIds : []).forEach(i => {
+    const sq = players[i];
+    if (sq && !sq.isDestroyed && !sq.isRetreated && (sq.fighters || []).some(f => f && f.hp > 0)) {
+      out.push({ squad: sq, side: 'player', index: i });
+    }
+  });
+  const enemies = map.enemySquads || [];
+  (Array.isArray(cell.enemySquadIds) ? cell.enemySquadIds : []).forEach(i => {
+    const sq = enemies[i];
+    if (sq && !sq.isDestroyed && !sq.isRetreated && (sq.fighters || []).some(f => f && f.hp > 0)) {
+      out.push({ squad: sq, side: 'enemy', index: i });
+    }
+  });
+  return out;
+}
+function tacticalArtilleryApplyDamage(entry, points, res) {
+  if (!entry || !entry.squad || points <= 0) return 0;
+  const squad = entry.squad;
+  // ⚡ v13.108: артиллерия не повреждает ДОТы/дзоты/бункеры
+  if (typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(squad)) {
+    if (!res.dotSkipped.includes(squad.name || 'ДОТ')) res.dotSkipped.push(squad.name || 'ДОТ');
+    return 0;
+  }
+  if (typeof applyDamagePointsToEnemy === 'function') {
+    return applyDamagePointsToEnemy(squad, points, res, { silent: false });
+  }
+  // фолбэк (тестовые среды, где map_actions.js не загружен)
+  let applied = 0;
+  for (let i = 0; i < points; i++) {
+    const alive = (squad.fighters || []).filter(f => f && f.hp > 0);
+    if (!alive.length) break;
+    const f = alive[Math.floor(Math.random() * alive.length)];
+    f.hp = Math.max(0, Number(f.hp) - 1);
+    applied++;
+    if (f.hp === 0 && res.killed.indexOf(f.name || 'боец') < 0) res.killed.push(f.name || 'боец');
+  }
+  res.damage += applied;
+  return applied;
+}
+function tacticalArtilleryResolveCall(call, battle) {
+  const map = (appData && appData.map) || {};
+  if (!map.grid || !map.grid[call.targetHex]) {
+    log(`📻 Налёт отменён: гекс ${call.targetHex} отсутствует на карте боя.`);
+    return { ok: false, reason: 'no-hex' };
+  }
+  const wind = (typeof rollD12 === 'function') ? rollD12() : 12;
+  const finalHex = (typeof tacticalSmokeWindDestination === 'function')
+    ? tacticalSmokeWindDestination(call.targetHex, wind, map) : String(call.targetHex);
+  const drift = finalHex === String(call.targetHex)
+    ? 'Штиль — залп лег на указанный гекс.'
+    : `Ветер ${wind === 1 ? 12 : wind - 1} часов — залп смещён в гекс ${finalHex}.`;
+  log(`───────────────`);
+  log(`💥 АРТИЛЛЕРИЙСКИЙ НАЛЁТ: «${call.batteryName}» по гексу ${call.targetHex} (${call.shells} снарядов)`);
+  log(`🎲 d12 = ${wind}. ${drift}`);
+  const occupants = tacticalArtilleryHexOccupants(finalHex);
+  if (occupants.length === 0) {
+    log(`💨 Налёт прошёл по пустому гексу ${finalHex} — потерь нет.`);
+    return { ok: true, hex: finalHex, damage: 0, killed: 0 };
+  }
+  let hits = 0, totalDamage = 0;
+  const perSquad = new Map();
+  for (let i = 0; i < call.shells; i++) {
+    const roll = (typeof rollD10 === 'function') ? rollD10() : 0;
+    if (roll < TACTICAL_ARTY_HIT_THRESHOLD) {
+      log(`   ❌ Снаряд ${i + 1}: промах (d10 = ${roll}).`);
+      continue;
+    }
+    // САУ бьёт мощнее миномёта: 1d10 против 1d6 (как на оперативной карте)
+    const dmgRoll = call.isSau
+      ? ((typeof rollD10 === 'function') ? rollD10() : 0)
+      : ((typeof rollD6 === 'function') ? rollD6() : 0);
+    hits++;
+    const entry = occupants[Math.floor(Math.random() * occupants.length)];
+    const res = { damage: 0, killed: [], wounded: [], notes: [], vehicleResults: [], dotSkipped: [] };
+    const applied = tacticalArtilleryApplyDamage(entry, dmgRoll, res);
+    totalDamage += applied;
+    const stat = perSquad.get(entry.squad) || { squad: entry.squad, side: entry.side, damage: 0, killed: [] };
+    stat.damage += applied;
+    res.killed.forEach(n => stat.killed.push(n));
+    perSquad.set(entry.squad, stat);
+    log(`   💥 Снаряд ${i + 1}: попадание (d10 = ${roll}), урон ${dmgRoll} — «${entry.squad.name}».`);
+    res.dotSkipped.forEach(name => log(`   🏰 ${name}: артиллерия ДОТ не повреждает.`));
+  }
+  let killed = 0;
+  perSquad.forEach(stat => {
+    if (stat.damage <= 0) return;
+    killed += stat.killed.length;
+    log(`   🔻 «${stat.squad.name}»: −${stat.damage} ОЗ${stat.killed.length ? `, погибли: ${stat.killed.join(', ')}` : ''}`);
+    try { if (typeof markTacticalSuppressed === 'function') markTacticalSuppressed(stat.squad, stat.side); } catch (e) {}
+    try { if (typeof tacticalChangeMorale === 'function') tacticalChangeMorale(stat.squad, -Math.max(1, Math.round(stat.damage / 2))); } catch (e) {}
+  });
+  log(`───────────────`);
+  log(`💥 Итог налёта: попаданий ${hits} из ${call.shells}, урон ${totalDamage}, потери ${killed}.`);
+  try {
+    if (typeof window !== 'undefined' && typeof window.toast === 'function') {
+      window.toast(`💥 Артналёт: гекс ${finalHex}, урон ${totalDamage}`, totalDamage > 0 ? 'success' : 'info');
+    }
+  } catch (e) {}
+  return { ok: true, hex: finalHex, hits, damage: totalDamage, killed };
+}
+// Вызывается в начале хода ИГРОКА: пришедшие налёты разбираются по очереди.
+function resolveTacticalArtilleryCalls() {
+  const battle = tacticalArtilleryRecord();
+  if (!battle || !Array.isArray(battle.pendingArtillery) || !battle.pendingArtillery.length) return 0;
+  const turn = Number.isFinite(Number(currentTurn)) ? Number(currentTurn) : 1;
+  const due = battle.pendingArtillery.filter(call => call && !call.resolved && Number(call.arriveTurn) <= turn);
+  let resolved = 0;
+  due.forEach(call => {
+    // Наводчик выбыл — корректировать некому, налёт отменяется
+    const spotter = (appData.squads || [])[Number(call.squadIdx)];
+    if (!spotter || spotter.isDestroyed || spotter.isRetreated ||
+        (spotter.fighters || []).every(f => !f || f.hp <= 0)) {
+      log(`📻 Налёт «${call.batteryName}» по гексу ${call.targetHex} ОТМЕНЁН: наводчик выбыл, корректировать некому.`);
+      call.resolved = true;
+      call.cancelled = true;
+      resolved++;
+      return;
+    }
+    if (!tacticalSquadHasAliveRadioOperator(spotter)) {
+      log(`📻 Налёт «${call.batteryName}» по гексу ${call.targetHex} ОТМЕНЁН: радист убит — связь прекращена.`);
+      call.resolved = true;
+      call.cancelled = true;
+      resolved++;
+      return;
+    }
+    tacticalArtilleryResolveCall(call, battle);
+    call.resolved = true;
+    resolved++;
+  });
+  if (resolved) {
+    battle.pendingArtillery = battle.pendingArtillery.filter(call => call && !call.resolved);
+    try { if (typeof saveData === 'function') saveData(); } catch (e) {}
+    try { if (typeof redrawMap === 'function') redrawMap(); } catch (e) {}
+  }
+  return resolved;
 }
 
 
@@ -15659,6 +16133,134 @@ function tacticalBeginPlayerTurn(squads) {
 }
 
 const TACTICAL_SMOKE_DURATION_PHASES = 2;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.109 (п.1): ДЫМОВЫЕ СНАРЯДЫ АМПУЛОМЁТА
+//    Отдельная способность расчёта ампуломёта: свой заряд (3 дыма на отделение),
+//    основной боезапас (ammoOrdnance) НЕ тратится. Завеса ставится в любой гекс
+//    в пределах эффективной дальности ампуломёта по тем же правилам, что и
+//    дымовыми гранатами: бросок d12 на ветер, 12 — штиль, иначе облако сносит
+//    на 1 гекс; держится 2 фазы (TACTICAL_SMOKE_DURATION_PHASES).
+// ═══════════════════════════════════════════════════════════════════════════
+// (AMPULOMET_SMOKE_CHARGES объявлен рядом с APP_VERSION — миграции сейвов
+//  выполняются выше по файлу и должны видеть константу без TDZ)
+function ampulometActiveCrews(squad) {
+  if (!squad || !Array.isArray(squad.crewInstances)) return [];
+  let weapons = [];
+  try { weapons = (typeof getFactionCrewWeapons === 'function') ? (getFactionCrewWeapons(squad.faction) || []) : []; } catch (e) { weapons = []; }
+  return squad.crewInstances.filter(ci => {
+    if (!ci || ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') return false;
+    if (ci.deployed === false) return false;
+    const cw = weapons.find(w => w && w.name === ci.weaponName);
+    return !!(cw && cw.isAmpulomet);
+  });
+}
+function ampulometSmokeChargesLeft(squad) {
+  if (!squad) return 0;
+  const raw = Number(squad.ampulometSmoke);
+  if (Number.isFinite(raw)) return raw;
+  // старый сейв — выдаём полный комплект
+  squad.ampulometSmoke = AMPULOMET_SMOKE_CHARGES;
+  return AMPULOMET_SMOKE_CHARGES;
+}
+function ampulometSmokeRange(squad) {
+  let weapons = [];
+  try { weapons = (typeof getFactionCrewWeapons === 'function') ? (getFactionCrewWeapons(squad.faction) || []) : []; } catch (e) { weapons = []; }
+  let range = 0;
+  ampulometActiveCrews(squad).forEach(ci => {
+    const cw = weapons.find(w => w && w.name === ci.weaponName);
+    if (cw) range = Math.max(range, Number(cw.effectiveRange) || 0);
+  });
+  return range > 0 ? range : 8;
+}
+// Запуск дымового снаряда: гекс выбирается кликом по карте (или передаётся сразу).
+function beginAmpulometSmoke() {
+  const squad = (typeof currentSquad !== 'undefined') ? currentSquad : null;
+  if (!squad || typeof tacticalActionAllowed === 'function' && !tacticalActionAllowed(squad, 'utility')) return;
+  if (ampulometActiveCrews(squad).length === 0) {
+    log('⛔ Дымовые снаряды ставит только расчёт ампуломёта.');
+    return;
+  }
+  if (ampulometSmokeChargesLeft(squad) <= 0) {
+    log('⛔ У расчёта не осталось дымовых снарядов.');
+    try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast('🌫️ Дымовые снаряды ампуломёта израсходованы', 'warn'); } catch (e) {}
+    return;
+  }
+  if (!appData || !appData.map || !appData.map.grid) { log('⛔ Тактическая карта не загружена.'); return; }
+  const idx = (typeof currentSquadIndex !== 'undefined') ? currentSquadIndex : -1;
+  if (idx < 0 || typeof getBattleSquadHex !== 'function' || !getBattleSquadHex(appData.map.grid, idx, false)) {
+    log('⛔ Сначала разместите отряд на тактической карте.');
+    return;
+  }
+  appData.map.pendingMapAttack = null;
+  appData.map.pendingMapBinoculars = null;
+  appData.map.pendingAmpulometSmoke = { squadIdx: idx, range: ampulometSmokeRange(squad) };
+  try { if (typeof mapActionInfo === 'function') mapActionInfo(`🌫️ Выберите гекс для дымового снаряда (до ${ampulometSmokeRange(squad)} гексов от расчёта).`); } catch (e) {}
+  const info = document.getElementById('mapInfo');
+  if (info) { info.innerHTML = '🌫️ Выберите гекс на карте для дымового снаряда ампуломёта.'; info.style.color = '#f1c40f'; }
+  try { if (typeof redrawMap === 'function') redrawMap(); } catch (e) {}
+  try { if (typeof renderMapActionPanel === 'function') renderMapActionPanel(); } catch (e) {}
+}
+function cancelAmpulometSmoke() {
+  if (appData && appData.map) appData.map.pendingAmpulometSmoke = null;
+  try { if (typeof redrawMap === 'function') redrawMap(); } catch (e) {}
+  try { if (typeof renderMapActionPanel === 'function') renderMapActionPanel(); } catch (e) {}
+}
+function fireAmpulometSmokeShell(hexKey) {
+  const squad = (typeof currentSquad !== 'undefined') ? currentSquad : null;
+  if (!squad || (typeof tacticalActionAllowed === 'function' && !tacticalActionAllowed(squad, 'utility'))) {
+    cancelAmpulometSmoke();
+    return false;
+  }
+  const idx = (typeof currentSquadIndex !== 'undefined') ? currentSquadIndex : -1;
+  const map = appData && appData.map;
+  if (idx < 0 || !map || !map.grid || !map.grid[hexKey]) {
+    log('⛔ Гекс не найден на тактической карте.');
+    cancelAmpulometSmoke();
+    return false;
+  }
+  if (ampulometActiveCrews(squad).length === 0) { log('⛔ Нет активного расчёта ампуломёта.'); cancelAmpulometSmoke(); return false; }
+  const charges = ampulometSmokeChargesLeft(squad);
+  if (charges <= 0) { log('⛔ У расчёта не осталось дымовых снарядов.'); cancelAmpulometSmoke(); return false; }
+  const pos = (typeof getBattleSquadHex === 'function') ? getBattleSquadHex(map.grid, idx, false) : null;
+  if (!pos) { log('⛔ Сначала разместите отряд на тактической карте.'); cancelAmpulometSmoke(); return false; }
+  const range = ampulometSmokeRange(squad);
+  const dist = (typeof hexGridDistance === 'function')
+    ? hexGridDistance(pos.col, pos.row, Number(String(hexKey).split(',')[0]), Number(String(hexKey).split(',')[1]))
+    : 0;
+  if (dist > range) {
+    log(`⛔ Гекс ${hexKey} вне досягаемости ампуломёта (${dist} гексов, дальность ${range}).`);
+    try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast(`🌫️ Далеко для ампуломёта: ${dist} из ${range} гексов`, 'warn'); } catch (e) {}
+    return false;
+  }
+  if (typeof spendAP === 'function' && !spendAP(idx, 1)) { // 0,5 ОД — как дымовые гранаты
+    log('⛔ Недостаточно ОД (требуется 0.5 ОД).');
+    return false;
+  }
+  const wind = (typeof rollD12 === 'function') ? rollD12() : 12;
+  const center = (typeof tacticalSmokeWindDestination === 'function')
+    ? tacticalSmokeWindDestination(hexKey, wind, map) : String(hexKey);
+  const cloud = (typeof tacticalCreateSmokeCloud === 'function')
+    ? tacticalCreateSmokeCloud(center, (typeof getTacticalActiveSide === 'function' && getTacticalActiveSide()) || 'player')
+    : null;
+  if (!cloud) {
+    if (typeof actionPoints !== 'undefined' && actionPoints[idx]) actionPoints[idx].ap += 1;
+    log('❌ Не удалось создать дымовую завесу на выбранной карте. Заряд возвращён.');
+    cancelAmpulometSmoke();
+    return false;
+  }
+  squad.ampulometSmoke = charges - 1;
+  const directionText = wind === 12
+    ? 'Штиль — завеса встала на выбранном гексе.'
+    : `Ветер ${wind === 1 ? 12 : wind - 1} часов — облако смещено в гекс ${center}.`;
+  log(`🌫️ ${squad.name}: дымовой снаряд ампуломёта по гексу ${hexKey}. ${directionText} Осталось зарядов: ${squad.ampulometSmoke}.`);
+  try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast(`🌫️ Дымовая завеса: ${cloud.center}`, 'info'); } catch (e) {}
+  cancelAmpulometSmoke();
+  try { if (typeof saveData === 'function') saveData(); } catch (e) {}
+  try { if (appData.campaign && appData.campaign.online && typeof onlinePushBattles === 'function') onlinePushBattles(true); } catch (e) {}
+  try { if (typeof updateUI === 'function') updateUI(); } catch (e) {}
+  return true;
+}
 function tacticalCubeRound(x, y, z) {
   let rx = Math.round(x), ry = Math.round(y), rz = Math.round(z);
   const dx = Math.abs(rx - x), dy = Math.abs(ry - y), dz = Math.abs(rz - z);
@@ -21928,6 +22530,16 @@ function handleHexAction(key, point) {
     return;
   }
 
+  // ⚡ v13.109 (п.1): дымовой снаряд ампуломёта — ждём выбор гекса
+  if (appData.map.pendingAmpulometSmoke && typeof mapHexClickDuringAmpulometSmoke === 'function') {
+    if (mapHexClickDuringAmpulometSmoke(key)) return;
+  }
+
+  // ⚡ v13.109 (п.2): вызов артподдержки — ждём выбор гекса налёта
+  if (appData.map.pendingArtilleryCall && typeof mapHexClickDuringArtilleryCall === 'function') {
+    if (mapHexClickDuringArtilleryCall(key)) return;
+  }
+
   // Тактическая панель действий: бинокль выбирает гекс и раскрывает скрытые отряды.
   if (appData.map.pendingMapBinoculars && typeof mapHexClickDuringBinoculars === 'function') {
     if (mapHexClickDuringBinoculars(key)) return;
@@ -25930,16 +26542,22 @@ function executeMoveOrder(unit, order) {
     }
 
     // ШТАБЫ: проверяем телефонную связь при движении
+    // ⚡ v13.109 (п.4): пока штаб смещается, связисты ПЕРЕКЛАДЫВАЮТ линии —
+    //    связь недоступна, но сами линии не «умирают»: по прибытии на новое
+    //    место кабель прокладывается заново (до 7 гексов на линию).
     if (unit.type === 'battalion_hq' || unit.type === 'company_hq' || unit.type === 'hq') {
         const unitId = appData.campaign.opUnits.indexOf(unit);
         if (hardMode.phoneLines) {
             const affectedLines = hardMode.phoneLines.filter(line =>
-                line.fromUnitId === unitId || line.toUnitId === unitId
+                (line.fromUnitId === unitId || line.toUnitId === unitId) && line.intact
             );
             affectedLines.forEach(line => {
                 line.intact = false;
-                log(`📞 Телефонная линия оборвана (штаб движется).`);
+                line.laying = true;
             });
+            if (affectedLines.length) {
+                log(`📞 Связисты перекладывают ${affectedLines.length} телефонн${affectedLines.length === 1 ? 'ую линию' : 'ых линий'} — пока штаб в движении, связь недоступна.`);
+            }
         }
     }
 
@@ -26273,9 +26891,12 @@ function isHexOnLine(hexCol, hexRow, lineCol1, lineRow1, lineCol2, lineRow2) {
 
 // ⚡ v13.019: ЦЕЛОСТНОСТЬ ТЕЛЕФОННЫХ ЛИНИЙ (проверяется в конце хода).
 //    Линия ОБРЫВАЕТСЯ, если:
-//      а) ЛЮБОЙ из двух отрядов-концов переместился с гекса,
-//         зафиксированного при прокладке (line.fromHex / line.toHex);
+//      а) конец линии сместился дальше, чем связисты могут дотянуть кабель
+//         (больше PHONE_LINE_MAX_STEPS гексов пути от штаба батальона);
 //      б) враг стоит на самой линии.
+// ⚡ v13.109 (п.4): смещение в пределах 7 гексов линию НЕ рвёт — связисты
+//    продлевают/перекладывают кабель по новому маршруту; если сместился штаб,
+//    все его линии прокладываются заново.
 function checkPhoneLinesIntact() {
     if (!hardMode || !hardMode.phoneLines) return;
     refreshSignalLosses();
@@ -26294,17 +26915,40 @@ function checkPhoneLinesIntact() {
             return;
         }
 
-        // (а) ПЕРЕМЕЩЕНИЕ КОНЦА ЛИНИИ — ЛИНИЯ ОБРЫВАЕТСЯ
+        // (а) ПЕРЕМЕЩЕНИЕ КОНЦА ЛИНИИ — связисты перекладывают кабель
         if (line.fromHex && line.toHex) {
             const [fc, fr] = String(line.fromHex).split(',').map(Number);
             const [tc, tr] = String(line.toHex).split(',').map(Number);
             const fromMoved = (fc !== fromUnit.col || fr !== fromUnit.row);
             const toMoved = (tc !== toUnit.col || tr !== toUnit.row);
             if (fromMoved || toMoved) {
-                line.intact = false;
-                const who = fromMoved ? fromUnit.name : toUnit.name;
-                log(`📞 Телефонная линия оборвана! Юнит ${who} переместился.`);
-                return;
+                const hq = (typeof getSignalHQ === 'function') ? getSignalHQ() : null;
+                const hqId = hq ? (appData.campaign.opUnits || []).indexOf(hq) : -1;
+                const isHqLine = hqId >= 0 && (line.fromUnitId === hqId || line.toUnitId === hqId);
+                // кабель тянется от штаба батальона до второго конца линии
+                const recipient = (line.fromUnitId === hqId) ? toUnit : fromUnit;
+                const rebuild = (hq && isHqLine && recipient)
+                    ? buildPhoneSignalRouteTo(hq, recipient)
+                    : { ok: false, reason: 'Штаб батальона — не конец линии.' };
+                if (rebuild.ok) {
+                    line.path = rebuild.route.map(point => ({ col: point.col, row: point.row }));
+                    line.fromHex = `${hq.col},${hq.row}`;
+                    line.toHex = `${recipient.col},${recipient.row}`;
+                    line.intact = true;
+                    line.laying = false;
+                    delete line.relayPending;
+                    line.reconnectedAtTurn = (appData.campaign && appData.campaign.currentTurn) || 1;
+                    const cableLen = Math.max(0, rebuild.route.length - 1);
+                    const who = fromMoved ? fromUnit.name : toUnit.name;
+                    log(`📞 Телефонная линия ${fromUnit.name} ↔ ${toUnit.name} переложена: «${who}» сместился, связисты продлили кабель (${cableLen} гекс. от штаба).`);
+                } else {
+                    line.intact = false;
+                    line.laying = true;        // связисты перекладывают линию
+                    line.relayPending = true;  // после прибытия — попытка перекладки
+                    const who = fromMoved ? fromUnit.name : toUnit.name;
+                    log(`📞 Телефонная линия оборвана! «${who}» отошёл дальше ${PHONE_LINE_MAX_STEPS} гексов кабеля — ${rebuild.reason || 'связистам не хватило катушки'}.`);
+                    return;
+                }
             }
         }
 
@@ -28700,6 +29344,21 @@ function submitOrder()   {
             if (!confirm(msg)) {
                 return;
             }
+        }
+    }
+
+    // ⚡ v13.109 (п.4): ТЕЛЕФОННЫЙ КАБЕЛЬ — не дальше 7 гексов от штаба.
+    //    Юнит с телефоном может сместиться: связисты продлевают линию за ним.
+    //    Если до новой точки кабель не дотягивается (больше 7 гексов пути),
+    //    приказ НЕ выдаётся — иначе связь будет потеряна.
+    if ((orderType === 'move' || orderType === 'retreat') && orderWaypoints.length > 0 &&
+        typeof phoneCableCheckForDestination === 'function') {
+        const dest = orderWaypoints[orderWaypoints.length - 1];
+        const cable = phoneCableCheckForDestination(unit, Number(dest.col), Number(dest.row));
+        if (cable && cable.ok === false) {
+            const limit = (typeof PHONE_LINE_MAX_STEPS !== 'undefined') ? PHONE_LINE_MAX_STEPS : 7;
+            alert(`📞 Приказ не отдан: телефонный кабель не дотягивается.\n\n«${unit.name}» с телефоном смещается не дальше ${limit} гексов кабеля от штаба батальона.\n${cable.reason}\n\nВыберите точку ближе к штабу или отзовите телефон (связистов) с юнита.`);
+            return;
         }
     }
 

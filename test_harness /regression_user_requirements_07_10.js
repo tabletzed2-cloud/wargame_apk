@@ -70,8 +70,12 @@ test('7: telephone line stays broken during movement and is rebuilt after the fi
 
 test('7: перепроложенный кабель соединяет новый гекс взвода с текущим гексом штаба', () => {
   const s = createSandbox(freshAppData());
+  // ⚡ v13.109 (п.4): перекладка кабеля вынесена в buildPhoneSignalRouteTo,
+  //    предел длины — константа PHONE_LINE_MAX_STEPS.
+  s.run(sliceConst(HTML, 'PHONE_LINE_MAX_STEPS'));
   loadHtml(s, ['getSignalHQ', 'findSignalPath', 'signalInfantryMover', 'normalizePhoneRoutePoints',
-    'enemiesBlockingSignalAt', 'validatePhoneSignalRoute', 'reconnectPhoneLinesAfterUnitMove']);
+    'enemiesBlockingSignalAt', 'validatePhoneSignalRoute', 'buildPhoneSignalRouteTo',
+    'reconnectPhoneLinesAfterUnitMove']);
   s.run(`
     var hardMode = { enabled: true, hqUnitId: 0, phoneLines: [
       { id: 'phone-line-1', fromUnitId: 0, toUnitId: 1, path: [{col:0,row:0},{col:1,row:0}],
