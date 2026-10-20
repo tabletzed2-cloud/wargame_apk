@@ -1583,13 +1583,47 @@ function openInitialCardDistributionStage() {
     overlay = document.createElement('div');
     overlay.id = 'initialCardStageOverlay';
     overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-label', 'Распределение бонусных карт');
+    overlay.setAttribute('aria-label', 'Памятка и распределение бонусных карт');
     document.body.appendChild(overlay);
   }
+  const campaign = appData && appData.campaign;
+  overlay.innerHTML = campaign && !campaign.initialCardBriefingSeen
+    ? initialCardBriefingHtml()
+    : initialCardDistributionHtml(true);
+  overlay.style.display = 'block';
+  overlay.scrollTop = 0;
+  if (campaign) campaign.initialCardStageMinimized = false;
+  if (typeof updateInitialCardStageRestoreBar === 'function') updateInitialCardStageRestoreBar();
+  return true;
+}
+function initialCardBriefingHtml() {
+  return `<div class="initial-card-screen initial-card-briefing">
+    <h2>🃏 Памятка перед распределением карт</h2>
+    <p>Сначала ознакомьтесь с лимитами и особенностями, затем переходите к выбору — назначенные карты закрепятся за взводами до конца сценария.</p>
+    <ul>
+      <li>Карты распределяются отдельно между пехотными, сапёрными и разведывательными взводами.</li>
+      <li>Обычно можно выбрать до 3 бонусных карт на взвод; третья карта добавляет случайный дебафф.</li>
+      <li>«Комиссар» разрешает 4 бонусные карты с одним дебаффом. «Торговый дух» для BeVe — до 4 без дебаффа.</li>
+      <li>На батальон допускается не более 3 копий одной карты. Выбор можно свернуть, не теряя черновик.</li>
+    </ul>
+    <div class="initial-card-actions">
+      <button class="menu-btn" type="button" onclick="beginInitialCardDistribution()">Понятно, перейти к распределению</button>
+      <button type="button" onclick="skipInitialCampaignBonusCards()" style="background:#555;">Продолжить без карт</button>
+    </div>
+  </div>`;
+}
+function beginInitialCardDistribution() {
+  const campaign = appData && appData.campaign;
+  if (campaign) {
+    campaign.initialCardBriefingSeen = true;
+    campaign.initialCardStageMinimized = false;
+    try { saveData(); } catch (e) {}
+  }
+  const overlay = document.getElementById('initialCardStageOverlay');
+  if (!overlay) return openInitialCardDistributionStage();
   overlay.innerHTML = initialCardDistributionHtml(true);
   overlay.style.display = 'block';
   overlay.scrollTop = 0;
-  if (appData && appData.campaign) appData.campaign.initialCardStageMinimized = false;
   if (typeof updateInitialCardStageRestoreBar === 'function') updateInitialCardStageRestoreBar();
   return true;
 }
@@ -3601,7 +3635,8 @@ function redrawOperationalMapNow() {
         appData.campaign.opSetupStage === 'placement';
     const placeSelect = document.getElementById('opPlaceSelect');
     const placementSelectedUnit = placeSelect && Number(placeSelect.value) >= 0
-        ? (appData.campaign.opUnits || [])[Number(placeSelect.value)] : null;
+        ? (appData.campaign.opUnits || [])[Number(placeSelect.value)]
+        : (appData.campaign.selectedOpUnit || null);
     if ((appData.campaign.online && (onlinePlacementPhase || hasUnplacedPlayerUnits)) || localPlacementMode || localSetupZone) {
         // ⚡ v13.088: зона делается заметно ярче нейтральной подложки гексов.
         ctx.fillStyle = 'rgba(46, 204, 113, 0.45)';
@@ -3610,6 +3645,12 @@ function redrawOperationalMapNow() {
         for (let zRow = 0; zRow < OP_MAP_ROWS; zRow++) {
             for (let zCol = 0; zCol < OP_MAP_COLS; zCol++) {
                 if (!isHexInPlacementZone(appData.campaign.scenario, appData.campaign.playerFaction, zCol, zRow).ok) continue;
+                const placementTerrain = (typeof getOpHexTypes === 'function') ? getOpHexTypes(zCol, zRow) : [];
+                const hardBlocked = placementTerrain.includes('water') || placementTerrain.includes('swamp_impassable');
+                const unsafeForSelected = !!(placementSelectedUnit &&
+                    !opPlacementHexSafety(placementSelectedUnit, zCol, zRow).ok);
+                // Недоступные клетки не выделяем вообще: ни красным крестом, ни зелёным.
+                if (hardBlocked || unsafeForSelected) continue;
                 const zx = zCol * Math.sqrt(3) * size + (zRow % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
                 const zy = zRow * 1.5 * size + size;
                 ctx.beginPath();
@@ -3623,22 +3664,6 @@ function redrawOperationalMapNow() {
                 ctx.closePath();
                 ctx.fill();
                 ctx.stroke();
-                const placementTerrain = (typeof getOpHexTypes === 'function') ? getOpHexTypes(zCol, zRow) : [];
-                const hardBlocked = placementTerrain.includes('water') || placementTerrain.includes('swamp_impassable');
-                const unsafeForSelected = placementSelectedUnit &&
-                    !opPlacementHexSafety(placementSelectedUnit, zCol, zRow).ok;
-                if (hardBlocked || unsafeForSelected) {
-                    ctx.save();
-                    ctx.fillStyle = 'rgba(150,25,25,.62)';
-                    ctx.strokeStyle = '#ff5b5b';
-                    ctx.lineWidth = Math.max(2, size * .08);
-                    ctx.fill();
-                    ctx.beginPath();
-                    ctx.moveTo(zx-size*.42, zy-size*.25); ctx.lineTo(zx+size*.42, zy+size*.25);
-                    ctx.moveTo(zx+size*.42, zy-size*.25); ctx.lineTo(zx-size*.42, zy+size*.25);
-                    ctx.stroke();
-                    ctx.restore();
-                }
             }
         }
     }
@@ -3647,7 +3672,10 @@ function redrawOperationalMapNow() {
     const selectedUnit = appData.campaign.selectedOpUnit;
     if (selectedUnit && selectedUnit.availableHexes) {
         ctx.fillStyle = 'rgba(255, 255, 0, 0.3)';
+        const setupPlacementDisplay = appData.campaign.opSetupStage === 'placement' || localPlacementMode || onlinePlacementPhase;
         selectedUnit.availableHexes.forEach(h => {
+            if (setupPlacementDisplay && (!isHexInPlacementZone(appData.campaign.scenario, appData.campaign.playerFaction, h.col, h.row).ok ||
+                !opPlacementHexSafety(selectedUnit, h.col, h.row).ok)) return;
             const x = h.col * Math.sqrt(3) * size + (h.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
             const y = h.row * 1.5 * size + size;
             ctx.beginPath();
@@ -30191,11 +30219,62 @@ function formatOrderTime(min) {
 /**
  * ⚡ v13.064: СПРАВКА «когда приказ будет выполнен».
  *   • посыльный в пути  — ждём оставшиеся ходы доставки;
- *   • активный приказ   — исполнится в конце текущего хода;
- *   • приказ на время   — ждём, пока часы операции дойдут до startTimeMin;
+ *   • активный приказ   — путь оценивается с учётом стоимости ОД;
+ *   • приказ на время   — учитывается ожидание до startTimeMin;
  *   • очередь           — срока нет (ждёт свободного посыльного).
  * Возвращает { turns, etaTime, etaTurn, text } либо null для завершённых.
  */
+function estimateOrderMovementTurns(order, unit) {
+    const movementTypes = new Set(['move', 'attack', 'retreat', 'escort']);
+    if (!order || !unit || (!movementTypes.has(order.type) && order.type !== 'series')) return 1;
+    const steps = order.type === 'series'
+        ? (Array.isArray(order.series) ? order.series.filter(step => step && step.status !== 'completed') : [])
+        : [order];
+    if (!steps.length) return 1;
+    let totalTurns = 0;
+    let routeUnit = { ...unit };
+    steps.forEach((step, stepIndex) => {
+        if (!movementTypes.has(step.type)) { totalTurns += 1; return; }
+        let waypoints = Array.isArray(step.waypoints) ? step.waypoints.map(point => ({ col: Number(point.col), row: Number(point.row) })) : [];
+        if (stepIndex === 0 && step.startHex) {
+            const [startCol, startRow] = String(step.startHex).split(',').map(Number);
+            const path = [{ col: startCol, row: startRow }, ...waypoints];
+            const currentIndex = path.findIndex(point => point.col === routeUnit.col && point.row === routeUnit.row);
+            if (currentIndex > 0) waypoints.splice(0, currentIndex);
+        } else if (stepIndex === 0) {
+            for (let i = waypoints.length - 1; i >= 0; i--) {
+                if (waypoints[i].col === routeUnit.col && waypoints[i].row === routeUnit.row) {
+                    waypoints.splice(0, i + 1);
+                    break;
+                }
+            }
+        }
+        if (!waypoints.length && step.targetHex) {
+            const [col, row] = String(step.targetHex).split(',').map(Number);
+            if (Number.isFinite(col) && Number.isFinite(row)) waypoints = [{ col, row }];
+        }
+        if (!waypoints.length || typeof buildOrderRoute !== 'function') { totalTurns += 1; return; }
+        let plan = null;
+        try { plan = buildOrderRoute(routeUnit, waypoints); } catch (e) {}
+        if (!plan || !Array.isArray(plan.route) || !plan.route.length) { totalTurns += 1; return; }
+        let apCost = 0, previous = { col: routeUnit.col, row: routeUnit.row };
+        plan.route.forEach(next => {
+            let cost = NaN;
+            try { if (typeof getOpMoveCost === 'function') cost = getOpMoveCost(routeUnit, previous.col, previous.row, next.col, next.row); } catch (e) {}
+            if (!Number.isFinite(cost)) {
+                try { if (typeof getOpPlannedMoveCost === 'function') cost = getOpPlannedMoveCost(routeUnit, previous.col, previous.row, next.col, next.row); } catch (e) {}
+            }
+            apCost += Number.isFinite(cost) ? Math.max(1, cost) : 1;
+            previous = next;
+        });
+        const maxAp = Math.max(1, Number(routeUnit.maxAp) || 4);
+        const turnAp = (step.stealth || routeUnit.stealthMove) ? Math.max(1, Math.min(maxAp, 2)) : maxAp;
+        totalTurns += Math.max(1, Math.ceil(apCost / turnAp));
+        routeUnit = { ...routeUnit, col: plan.target.col, row: plan.target.row };
+    });
+    return Math.max(1, totalTurns);
+}
+
 function getOrderEta(order) {
     if (!order) return null;
     const st = order.status;
@@ -30217,26 +30296,28 @@ function getOrderEta(order) {
                  text: '⏳ ждёт свободного посыльного — срок зависит от того, когда освободится посыльный' };
     }
 
-    // сколько ещё раз нужно нажать «Завершить ход» до исполнения
-    let turns = 1; // активный/ожидающий приказ выполняется в конце этого хода
+    // Сначала рассчитываем доставку/ожидание назначенного времени, затем —
+    // ориентировочную длительность самого приказа (в частности, путь в ОД).
+    let turnsToStart = 1; // активный приказ начнёт выполняться в конце ближайшего хода
     if (st === 'delivering') {
-        turns = Math.max(1, (Number(order.deliveryTurnsNeeded) || 1) - (Number(order.deliveryTurnsPassed) || 0));
+        turnsToStart = Math.max(1, (Number(order.deliveryTurnsNeeded) || 1) - (Number(order.deliveryTurnsPassed) || 0));
     }
 
     // приказ «на время»: после доставки ждём наступления startTimeMin
     // ⚡ v13.089 (пункт 4): прошедшее время не переносит приказ на сутки вперёд
     let timeWait = 0;
     if (order.startTimeMin !== null && order.startTimeMin !== undefined) {
-        const timeAtExec = (curTime + perTurn * turns) % 1440;
+        const timeAtExec = (curTime + perTurn * turnsToStart) % 1440;
         const diff = orderStartDelayMinutes(order, timeAtExec);
         if (diff > 0) timeWait = Math.ceil(diff / perTurn);
     }
-    turns += timeWait;
+    const executionTurns = estimateOrderMovementTurns(order, receiver);
+    const turns = turnsToStart + timeWait + executionTurns - 1;
 
     const etaTime = (curTime + perTurn * turns) % 1440;
     const etaTurn = curTurn + turns;
     const when = turns <= 1 ? 'в конце этого хода' : `через ${turns} хода`;
-    let text = `🕓 ${when} · к ${formatOrderTime(etaTime)} (ход ${etaTurn})`;
+    let text = `ожидается к ${formatOrderTime(etaTime)} · ${when} (ход ${etaTurn})`;
     if (timeWait > 0) text += ` · назначен на ${formatOrderTime(order.startTimeMin)}`;
     return { turns, etaTime, etaTurn, text };
 }
@@ -30445,7 +30526,7 @@ function renderActiveOrders() {
         // ⚡ v13.064: СПРАВКА — когда приказ будет выполнен
         const eta = getOrderEta(order);
         const etaHtml = eta
-            ? `<div style="color:#9ad0ea; font-size:0.72rem; margin-top:1px;">${eta.text}</div>`
+            ? `<div role="status" aria-label="Ожидаемое время выполнения приказа" style="color:#d9f1ff; font-size:0.84rem; font-weight:600; margin-top:4px; padding:4px 7px; background:#14232e; border-left:3px solid #3498db; border-radius:3px;">⏱️ Ожидаемое время выполнения: ${eta.text}</div>`
             : '';
 
         // ⚡ v13.064: подробности приказа («ℹ️») — что именно приказано
@@ -30486,8 +30567,7 @@ function renderActiveOrders() {
 
     // ⚡ v13.064: краткая справка по срокам
     html += `<div style="color:#777; font-size:0.72rem; margin-top:6px;">
-        🕓 Один операционный ход = ${getOpTurnMinutes()} минут. Приказ исполняется в конце хода:
-        по рации/телефону — в этот же ход, посыльным — когда дойдёт (3–4 гекса за ход).
+        🕓 Один операционный ход = ${getOpTurnMinutes()} минут. Оценка учитывает доставку, назначенное время и ОД маршрута; контакт с противником или изменение пути может её сдвинуть. Посыльный проходит примерно 3–4 гекса за ход. Если срок пока нельзя оценить (например, приказ ждёт свободного посыльного), это указано отдельно.
         Кнопка «ℹ️ приказ» показывает приказ целиком — маршрут, цель и получателей.
     </div>`;
 
