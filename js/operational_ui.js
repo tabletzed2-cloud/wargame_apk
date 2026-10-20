@@ -163,6 +163,7 @@
     host.innerHTML = `<div class="op-setup-title">${STAGE_TITLES[stage]}</div>` +
       `<div class="op-setup-copy">${copy}</div>` +
       `<div class="op-setup-actions"><span class="op-setup-note">${detail}</span>` +
+      `<button type="button" onclick="showCampaignTutorialStage('${stage}', true)" style="padding:4px 8px;">❔ Подсказка</button>` +
       `<span class="op-setup-progress">${progress}/${STAGES.length}</span></div>`;
 
     const button = document.getElementById('btnFinishPlacement');
@@ -194,6 +195,7 @@
     if (enemyPanel && c.online) enemyPanel.style.display = 'none';
     if (stage === 'communications') ensureHardMode();
     updatePlacementTray();
+    if (typeof showCampaignTutorialStage === 'function') showCampaignTutorialStage(stage, false);
   }
 
 
@@ -1286,6 +1288,12 @@
     const show = !!(c && c.active && activeMap()) && !state.menuOpen;
     bar.style.display = show ? 'flex' : 'none';
     const stage = getStage();
+    const sideTabs = document.getElementById('opPanelTabs');
+    const commTab = sideTabs && sideTabs.querySelector('[data-op-side-tab="communication"]');
+    const supplyTab = sideTabs && sideTabs.querySelector('[data-op-side-tab="supply"]');
+    const hardModeOn = typeof hardMode !== 'undefined' && !!hardMode.enabled;
+    if (commTab) commTab.style.display = hardModeOn && ['communications', 'orders'].includes(stage) ? '' : 'none';
+    if (supplyTab) supplyTab.style.display = hardModeOn && stage === 'orders' ? '' : 'none';
     const comm = bar.querySelector('[data-quick-action="communication"]');
     const order = bar.querySelector('[data-quick-action="order"]');
     const supply = bar.querySelector('[data-quick-action="supply"]');
@@ -1298,6 +1306,8 @@
     const merge = bar.querySelector('[data-quick-action="merge"]');
     if (merge && !show) merge.style.display = 'none';
     if (show) positionUnitActions();
+    const hasVisibleAction = (order && order.style.display !== 'none') || (merge && merge.style.display !== 'none');
+    bar.style.display = show && hasVisibleAction ? 'flex' : 'none';
   }
 
   function setCategory(category) {
@@ -1472,20 +1482,8 @@
         (typeof hasAtGunWeapons === 'function' && hasAtGunWeapons(unit)) || unit.type === 'tank_platoon' || /танк/i.test(String(unit.name || ''));
       if (!eligible) throw new Error('Приказ «Обстрелять гекс» доступен только артиллерии, САУ, танкам, миномётам и ПТО.');
       if (!/^\d+,\d+$/.test(String(draft.targetHex || ''))) throw new Error('Выберите гекс для обстрела.');
-      // ⚡ v13.099 (п.21, решение игрока): дальность проверяется СРАЗУ при отдаче
-      //    приказа — нельзя отдать заведомо невыполнимый приказ по гексу.
-      //    Пехота/ПТО — 3 гекса, 82-мм миномёт — 4, САУ и артиллерия — 10.
-      //    Проверка выполняется только когда в сборке есть обе функции дальности
-      //    (в тестовых срезах их может не быть — тогда приказ не блокируем).
-      if (typeof operationalHexFireRange === 'function' && typeof getOpHexDistance === 'function' &&
-          unit.col != null && unit.row != null) {
-        const parts = String(draft.targetHex).split(',').map(Number);
-        const maxRange = operationalHexFireRange(unit);
-        const distance = getOpHexDistance(unit.col, unit.row, parts[0], parts[1]);
-        if (Number.isFinite(distance) && distance > maxRange) {
-          throw new Error(`Цель слишком далеко: ${distance} гекс(ов), для этого отряда максимум ${maxRange}.`);
-        }
-      }
+      // Дальность проверяется при выполнении, а не при постановке в очередь:
+      // приказ может идти после «Движения», когда батарея прибудет в радиус.
       type = 'shoot';
       options.targetHex = String(draft.targetHex);
       // ⚡ v13.106 (п.10): длительность обстрела — 10/20/30/60 минут (залп каждые 10 минут)

@@ -23,6 +23,11 @@
     #tacticalRoundBar { position:sticky; top:0; z-index:80; flex-wrap:wrap; align-items:center; gap:6px 14px;
       padding:10px 12px; margin:4px 0 8px; background:#142033; color:#ecf0f1; border:1px solid #4fc3f7; border-radius:8px; }
     #tacticalRoundLabel { font-size:1.15rem; color:#f1c40f; }
+    /* Компактная панель начального размещения — освобождаем экран карты. */
+    #battlePlacementPanel { max-height: min(23vh, 180px); overflow-y:auto; padding:5px 7px !important; font-size:.78rem !important; line-height:1.25; }
+    #battlePlacementPanel button, #battlePlacementPanel select { padding:4px 6px; margin:2px; font-size:.78rem; }
+    #squadToPlace { max-width:min(48vw, 260px); font-size:.82rem; }
+    #tacticalEnemyPlacementPanel { max-height:100px; overflow-y:auto; font-size:.78rem; }
     #tacticalRoundProgress { font-size:.9rem; }
     #tacticalRoundSide { font-weight:700; }
     #tacticalRoundActions { display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin-left:auto; }
@@ -697,6 +702,60 @@ function forceDeepUpdate(reason) {
 let selectedFaction = null;
 let selectedSubFaction = null; // 'belgian' | 'dutch' | null — ⚡ v13.045 (R30): влияет на выбор карт в бою
 let inStandaloneBattle = false; // ⚡ v13.045 (R30): открыт одиночный бой (меню «Бой»)
+
+// Каркас этапных подсказок кампании. Для каждого этапа позже добавим свой скриншот.
+const CAMPAIGN_TUTORIAL_STAGES = {
+  placement: { title: 'Размещение войск', text: 'Выберите отряд на панели или в списке и разместите его в зелёной стартовой зоне. Красные кресты обозначают гексы, куда выбранный отряд не может встать или откуда не сможет выйти.' },
+  fortifications: { title: 'Бонусы, талреп-якорь и ДОТы', text: 'На этом этапе распределите доступные бонусы экипировки (в том числе талреп-якорь) и задайте позиции ДОТов. Талреп-якорь помогает подходящей технике преодолевать холмы; ДОТ закреплён и настраивается на карте своего оперативного гекса.' },
+  communications: { title: 'Связь', text: 'Распределите радиостанции и телефоны между штабами и подразделениями, затем проложите доступные линии связи. Связь влияет на передачу приказов и снабжение.' },
+  cards: { title: 'Бонусные карты', text: 'Распределите карты между подходящими взводами, проверьте ограничения по количеству и подтвердите выбор. Карты дают подразделениям особые возможности и модификаторы.' },
+  orders: { title: 'Приказы', text: 'Выберите подразделение, задайте действие и цель. Для последовательности действий добавляйте приказы в очередь: например, сначала движение в точку, затем обстрел. После проверки отдайте приказ и следите за его доставкой и статусом.' }
+};
+function getCampaignTutorialEnabled() {
+  try { const value = localStorage.getItem('campaignTutorialEnabled'); return value == null ? true : value === 'true'; }
+  catch (e) { return true; }
+}
+function setCampaignTutorialEnabled(enabled) {
+  try { localStorage.setItem('campaignTutorialEnabled', enabled ? 'true' : 'false'); } catch (e) {}
+}
+function showCampaignTutorialStage(stage, force) {
+  const data = CAMPAIGN_TUTORIAL_STAGES[stage];
+  const campaign = appData && appData.campaign;
+  if (!data || (!force && !getCampaignTutorialEnabled())) return false;
+  if (!force && campaign) {
+    if (!Array.isArray(campaign.tutorialSeenStages)) campaign.tutorialSeenStages = [];
+    if (campaign.tutorialSeenStages.includes(stage)) return false;
+    campaign.tutorialSeenStages.push(stage);
+    try { saveData(); } catch (e) {}
+  }
+  let modal = document.getElementById('campaignTutorialModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'campaignTutorialModal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.style.cssText = 'position:fixed;inset:0;z-index:3500;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:14px;';
+    document.body.appendChild(modal);
+  }
+  const stageOrder = Object.keys(CAMPAIGN_TUTORIAL_STAGES);
+  const number = stageOrder.indexOf(stage) + 1;
+  modal.innerHTML = `<section style="width:min(760px,96vw);max-height:90vh;overflow:auto;background:#17212b;color:#ecf0f1;border:1px solid #4fc3f7;border-radius:12px;padding:18px;box-shadow:0 12px 40px #000;">
+    <div style="font-size:.85rem;color:#8fd3ff;">Подсказка · этап ${number} из ${stageOrder.length}</div>
+    <h2 style="margin:6px 0 12px;color:#f1c40f;">${data.title}</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;align-items:start;">
+      <div style="min-height:190px;border:1px dashed #72808d;border-radius:8px;background:#10171d;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;color:#aab7c4;">
+        <div>🖼️<br><b>Скриншот этого этапа</b><br><small>Добавим сюда после загрузки изображения</small></div>
+      </div>
+      <p style="margin:0;line-height:1.55;">${data.text}</p>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+      <button type="button" onclick="document.getElementById('campaignTutorialModal').style.display='none'" style="background:#2980b9;">Понятно, перейти к этапу</button>
+    </div>
+  </section>`;
+  modal.style.display = 'flex';
+  return true;
+}
+
     // === Модальное окно выбора фракции ===
 function showFactionModal() {
   console.log('showFactionModal вызвана');
@@ -705,7 +764,13 @@ const content = document.getElementById('factionModalContent');
 content.innerHTML = `
   <div style="text-align:center;color:#fff;font-size:1.8rem;margin-bottom:20px;">Выберите фракцию</div>
   <div id="factionCardsContainer" style="display:flex;flex-wrap:wrap;justify-content:center;"></div>
+  <label style="display:flex;align-items:center;justify-content:center;gap:8px;margin:18px auto 0;color:#ddd;font-size:1rem;">
+    <input id="campaignTutorialPreference" type="checkbox" style="width:18px;height:18px;" onchange="setCampaignTutorialEnabled(this.checked)">
+    Показывать подсказки по этапам кампании
+  </label>
 `;
+const tutorialToggle = document.getElementById('campaignTutorialPreference');
+if (tutorialToggle) tutorialToggle.checked = getCampaignTutorialEnabled();
 const container = document.getElementById('factionCardsContainer');
 const factions = [
   { key: 'BeVe', name: 'BeVe', img: 'images/BeVe/BeVe.png' },
@@ -2095,7 +2160,7 @@ function buildOperationalUnits() {
                 }
                 ['ap', 'maxAp', 'isDefending', 'orders', 'messengerState', 'isDestroyed',
                  'isAmbush', 'hidden', 'detected', 'noiseMarker', 'suppressed',
-                 'behavior', 'hasPhone', 'cardSelection', 'operationalMorale', 'operationalRouted', 'operationalAtHQ', 'operationalRetreatTargetHQ', 'operationalMoraleLastPressureTurn',
+                 'behavior', 'hasPhone', 'cardSelection', 'operationalMorale', 'operationalRouted', 'operationalAtHQ', 'operationalRetreatTargetHQ', 'operationalMoraleLastPressureTurn', 'operationalTankThreatActive',
                  'operationalAmmoRouted', 'operationalAmmoAtTarget', 'operationalAmmoRetreatTarget', 'operationalAmmoRetreatBlocked', 'operationalAmmoArrivalLogged', 'isSurrendered', 'surrenderedAt'].forEach(k => {
                     if (old[k] !== undefined) {
                         try { u[k] = JSON.parse(JSON.stringify(old[k])); } catch (e) { u[k] = old[k]; }
@@ -2795,7 +2860,15 @@ function renderCampaignMiniMap() {
         });
     };
     dotFor(camp.opUnits, '#2ecc71');
-    dotFor(camp.enemyOpUnits, '#e74c3c');
+    const knownEnemies = (camp.enemyOpUnits || []).filter(u => {
+        if (!u || u.isDestroyed || u.hidden) return false;
+        // Не раскрываем неизвестные позиции: применяем те же правила, что и карта операции.
+        if (u.isStaticFortification || u.type === 'dots' || (u.name && /ДОТ/i.test(u.name))) return true;
+        if (u.detected !== true && !u.noiseMarker) return false;
+        try { if (camp.online && typeof onlineEnemyVisible === 'function' && !onlineEnemyVisible(u)) return false; } catch (e) { return false; }
+        return true;
+    });
+    dotFor(knownEnemies, '#e74c3c');
     // 4) открытый сейчас гекс — жёлтая заливка и рамка
     const currentKey = campaignMiniMapCurrentHex();
     const caption = document.getElementById('campaignMiniMapCaption');
@@ -3526,6 +3599,9 @@ function redrawOperationalMapNow() {
     //    в т.ч. при перетаскивании уже стоящих юнитов (замещении) и в режиме просмотра.
     const localSetupZone = !appData.campaign.online && hasConfiguredPlayerZone &&
         appData.campaign.opSetupStage === 'placement';
+    const placeSelect = document.getElementById('opPlaceSelect');
+    const placementSelectedUnit = placeSelect && Number(placeSelect.value) >= 0
+        ? (appData.campaign.opUnits || [])[Number(placeSelect.value)] : null;
     if ((appData.campaign.online && (onlinePlacementPhase || hasUnplacedPlayerUnits)) || localPlacementMode || localSetupZone) {
         // ⚡ v13.088: зона делается заметно ярче нейтральной подложки гексов.
         ctx.fillStyle = 'rgba(46, 204, 113, 0.45)';
@@ -3547,6 +3623,22 @@ function redrawOperationalMapNow() {
                 ctx.closePath();
                 ctx.fill();
                 ctx.stroke();
+                const placementTerrain = (typeof getOpHexTypes === 'function') ? getOpHexTypes(zCol, zRow) : [];
+                const hardBlocked = placementTerrain.includes('water') || placementTerrain.includes('swamp_impassable');
+                const unsafeForSelected = placementSelectedUnit &&
+                    !opPlacementHexSafety(placementSelectedUnit, zCol, zRow).ok;
+                if (hardBlocked || unsafeForSelected) {
+                    ctx.save();
+                    ctx.fillStyle = 'rgba(150,25,25,.62)';
+                    ctx.strokeStyle = '#ff5b5b';
+                    ctx.lineWidth = Math.max(2, size * .08);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.moveTo(zx-size*.42, zy-size*.25); ctx.lineTo(zx+size*.42, zy+size*.25);
+                    ctx.moveTo(zx+size*.42, zy-size*.25); ctx.lineTo(zx-size*.42, zy+size*.25);
+                    ctx.stroke();
+                    ctx.restore();
+                }
             }
         }
     }
@@ -4443,6 +4535,11 @@ function handleOpMapClick(e) {
       return;
     }
     const [col, row] = closestKey.split(',').map(Number);
+    const placementSafety = opPlacementHexSafety(targetUnit, col, row);
+    if (!placementSafety.ok) {
+      document.getElementById('mapInfo').innerHTML = `⛔ Нельзя разместить «${targetUnit.name}» на гексе (${col},${row}): ${placementSafety.reason}.`;
+      return;
+    }
 
     // ⚡ v13.031/v13.032: онлайн-матч — размещение ТОЛЬКО в зоне своей фракции
     if (appData.campaign.online) {
@@ -8460,6 +8557,9 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
                     const battleSquad = normalizeSquadForBattle(JSON.parse(JSON.stringify(sq)));
                     battleSquad.opUnitName = u.name;
                     battleSquad.opUnitType = u.type || null;
+                    if (typeof isOperationalMoraleUnit === 'function' && isOperationalMoraleUnit(u)) {
+                        battleSquad.operationalMoralePercent = getOperationalMorale(u) / OPERATIONAL_MORALE_MAX;
+                    }
                     if (isStaticOpUnit(u)) {
                         const maxEmbrasures = dotEmbrasureCount(u);
                         const hp = u.embrasureHp === undefined ? maxEmbrasures : Math.max(0, Math.min(maxEmbrasures, Number(u.embrasureHp) || 0));
@@ -8489,6 +8589,9 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
                     const battleSquad = normalizeSquadForBattle(JSON.parse(JSON.stringify(s)));
                     battleSquad.opUnitName = u.name;
                     battleSquad.opUnitType = u.type || null;
+                    if (typeof isOperationalMoraleUnit === 'function' && isOperationalMoraleUnit(u)) {
+                        battleSquad.operationalMoralePercent = getOperationalMorale(u) / OPERATIONAL_MORALE_MAX;
+                    }
                     tacticalApplyOperationalMobilityToBattleSquad(battleSquad, u);
                     const exists = out.some(ps => ps.name === battleSquad.name && ps.opUnitName === u.name);
                     if (!exists) out.push(battleSquad);
@@ -9883,7 +9986,14 @@ function applyOperationalMoralePressures() {
             return;
         }
         if (surrounded) changeOperationalMorale(unit, -10, 'окружение');
-        if (tankThreat) changeOperationalMorale(unit, -8, 'угроза вражеской бронетехники');
+        // Штраф за угрозу бронетехники действует один раз за эпизод угрозы;
+        // повторно применяется только после выхода из угрозы и нового сближения.
+        if (tankThreat && !unit.operationalTankThreatActive) {
+            changeOperationalMorale(unit, -8, 'угроза вражеской бронетехники');
+            unit.operationalTankThreatActive = true;
+        } else if (!tankThreat) {
+            unit.operationalTankThreatActive = false;
+        }
         // ⚡ v13.099 (п.13): даже при высоком духе взвод, потерявший почти весь
         //    состав, отходит к штабу, а не остаётся «в строю» с 1 бойцом из 18.
         maybeRetreatShatteredOperationalUnit(unit);
@@ -10896,6 +11006,13 @@ function tacticalInitializeSquadMorale(squad, battleId) {
     squad.tacticalMoraleMax = Math.max(1, living);
     squad.baseMorale = squad.tacticalMoraleMax;
     squad.currentMorale = living;
+  }
+  // Оперативный дух взвода задаёт стартовый уровень духа каждого его
+  // тактического отделения в той же пропорции (0–100%).
+  const operationalMoralePercent = Number(squad.operationalMoralePercent);
+  if (Number.isFinite(operationalMoralePercent) && living > 0) {
+    squad.currentMorale = Math.max(0, Math.min(squad.tacticalMoraleMax,
+      Math.round(squad.tacticalMoraleMax * Math.max(0, Math.min(1, operationalMoralePercent)))));
   }
   if (battleId !== undefined && battleId !== null) {
     squad.tacticalMoraleInitializedBattleId = String(battleId);
@@ -21804,6 +21921,79 @@ async function loadInfoFile(filename, containerId) {
     }
 
     var tacticalMapClickTimer = null;
+    // Тактический туман войны: видимость строится по фактическим позициям своих отрядов.
+    let tacticalVisibleHexes = null;
+    function tacticalFogIsActive() {
+      if (!appData || !appData.currentBattleId || !appData.map || appData.map.mode === 'hexEdit') return false;
+      const battle = (appData.campaign && appData.campaign.activeBattles || []).find(b => b && b.id === appData.currentBattleId);
+      return !(battle && battle.placement && battle.placement.phase !== 'done');
+    }
+    function tacticalHexCube(col, row) {
+      const x = col - (row - (row & 1)) / 2, z = row;
+      return { x, y: -x-z, z };
+    }
+    function tacticalCubeToOddR(cube) { return { col: cube.x + (cube.z - (cube.z & 1)) / 2, row: cube.z }; }
+    function tacticalHexLine(from, to) {
+      const a = tacticalHexCube(from.col, from.row), b = tacticalHexCube(to.col, to.row);
+      const n = Math.max(Math.abs(a.x-b.x), Math.abs(a.y-b.y), Math.abs(a.z-b.z));
+      const out = [];
+      for (let i=0; i<=n; i++) {
+        const t = n ? i/n : 0;
+        let x=a.x+(b.x-a.x)*t, y=a.y+(b.y-a.y)*t, z=a.z+(b.z-a.z)*t;
+        let rx=Math.round(x), ry=Math.round(y), rz=Math.round(z);
+        const dx=Math.abs(rx-x), dy=Math.abs(ry-y), dz=Math.abs(rz-z);
+        if (dx>dy && dx>dz) rx=-ry-rz; else if (dy>dz) ry=-rx-rz; else rz=-rx-ry;
+        out.push(tacticalCubeToOddR({x:rx,y:ry,z:rz}));
+      }
+      return out;
+    }
+    function tacticalCellHeight(cell) {
+      const type = String(cell && cell.type || 'grass');
+      const base = (cell && Number.isFinite(Number(cell.level))) ? Number(cell.level) : 0;
+      return Math.max(base, /mountain/i.test(type) ? 2 : (type === 'hill' ? 1 : 0));
+    }
+    function tacticalHasLineOfSight(observer, target) {
+      const line = tacticalHexLine(observer, target);
+      const sourceCell = appData.map.grid[`${observer.col},${observer.row}`] || {};
+      const eye = tacticalCellHeight(sourceCell);
+      for (let i=1; i<line.length-1; i++) {
+        const p=line[i], key=`${p.col},${p.row}`;
+        const cell=appData.map.grid[key] || {};
+        const type=String(cell.type || 'grass');
+        const height=tacticalCellHeight(cell);
+        const forest=(type === 'forest' || type === 'shelled_forest');
+        const highGround=(type === 'hill' || /mountain/i.test(type));
+        // Лес/высота на уровне наблюдателя закрывают обзор; с господствующей высоты
+        // можно видеть сквозь лес, лежащий ниже.
+        if ((forest || highGround) && height >= eye) return false;
+      }
+      return true;
+    }
+    function buildTacticalVisibleHexes() {
+      if (!tacticalFogIsActive()) return null;
+      const visible=new Set();
+      const grid=appData.map.grid || {};
+      Object.keys(grid).forEach(key => {
+        const cell=grid[key];
+        (cell && Array.isArray(cell.squadIds) ? cell.squadIds : []).forEach(id => {
+          const squad=appData.squads && appData.squads[id];
+          if (!squad || squad.hidden || squad.isDestroyed || squad.isRetreated) return;
+          const [col,row]=key.split(',').map(Number);
+          const range=Math.max(1, Number(squad.visionRange) || 6);
+          for (let r=Math.max(0,row-range); r<=Math.min(TACTICAL_MAP_SIZE-1,row+range); r++) {
+            for (let c=Math.max(0,col-range); c<=Math.min(TACTICAL_MAP_SIZE-1,col+range); c++) {
+              if (typeof hexGridDistance === 'function' && hexGridDistance(col,row,c,r)>range) continue;
+              if (tacticalHasLineOfSight({col,row},{col:c,row:r})) visible.add(`${c},${r}`);
+            }
+          }
+        });
+      });
+      return visible;
+    }
+    function tacticalShouldShowEnemyAt(hexKey) {
+      return typeof tacticalVisibleHexes === 'undefined' || !tacticalVisibleHexes || tacticalVisibleHexes.has(String(hexKey));
+    }
+
     function redrawMap() {
       const canvas = document.getElementById('gameMap');
       if (!canvas) return;
@@ -21826,6 +22016,7 @@ async function loadInfoFile(filename, containerId) {
       ctx.setTransform(dprT, 0, 0, dprT, 0, 0);
       const size = appData.map.baseHexSize * appData.map.zoomLevel;
       const gridCols = TACTICAL_MAP_SIZE, gridRows = TACTICAL_MAP_SIZE;
+      tacticalVisibleHexes = buildTacticalVisibleHexes();
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       appData.map.centers = [];
@@ -22145,6 +22336,13 @@ if (img && img.complete) {
   ctx.textBaseline = 'middle';
   ctx.fillText(tData.icon, x, y);
 }
+// Затемняем неразведанные тактические клетки (перед отрисовкой юнитов/меток).
+if (typeof tacticalVisibleHexes !== 'undefined' && tacticalVisibleHexes && !tacticalVisibleHexes.has(String(hexKey))) {
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.64)';
+  ctx.fill();
+  ctx.restore();
+}
 if (appData.map.mode === 'edit' && hexData.level !== undefined && hexData.level !== 0) {
   ctx.fillStyle = '#fff';
   ctx.font = `bold ${size * 0.25}px Arial`;
@@ -22333,7 +22531,7 @@ if (squadIds.length > 0) {
         const startX = x;
         enemyIds.forEach((enemyId, idx) => {
           const enemy = appData.map.enemySquads[enemyId];
-          if (!enemy || enemy.hidden) return;
+          if (!enemy || enemy.hidden || (typeof tacticalShouldShowEnemyAt === 'function' && !tacticalShouldShowEnemyAt(hexKey))) return;
           // ⚡ v13.100 (п.8): ДОТ противника виден всегда (укрепление не прячется)
           const fixedForts = (typeof tacticalSquadIsFixedFortification === 'function') && tacticalSquadIsFixedFortification(enemy);
           if (!fixedForts && !enemy.detected && !enemy.isDestroyed && !enemy.isRetreated && enemy.status !== 'retreated') return;
@@ -23776,6 +23974,8 @@ function endOperationalTurn() {
         return;
     }
 
+    // Отметить завершение до смены номера хода, чтобы сохранить момент окончания.
+    try { stampCompletedOrderTurns(); } catch (e) {}
     // ⚡ ИНИЦИАЛИЗАЦИЯ, если не задано (v13.018)
     if (appData.campaign.opTurnStartTime === undefined) {
         appData.campaign.opTurnStartTime = appData.campaign.currentTime || 0;
@@ -23860,6 +24060,7 @@ function endOperationalTurn() {
     try { advanceSignalTransfers(); } catch (e) { console.warn('signal transfers:', e.message); }
     try { advanceSupplyDeliveries(); } catch (e) { console.warn('supply deliveries:', e.message); }
     try { syncSupplyRearConnection(); } catch (e) { console.warn('rear connection:', e.message); }
+    try { pruneExpiredCompletedOrders(); } catch (e) { console.warn('completed order cleanup:', e.message); }
     try { updateCampaignObjectives(true); } catch (e) { console.warn('campaign objectives:', e.message); }
     if (resumePausedCampaignBattlesAfterOrders(appData.campaign.currentTurn, true)) {
         log('▶️ Оперативные приказы выполнены — приостановленные тактические бои снова доступны.');
@@ -24908,8 +25109,8 @@ function executeSeriesOrder(unit, order) {
 
         case 'shoot':
             executeShootOrder(unit, currentAction);
-            if (currentAction.status !== 'cancelled') {
-                currentAction.status = 'completed';
+            // Вне дальности шаг серии остаётся активным и повторится после движения.
+            if (currentAction.status === 'completed') {
                 log(`✅ [${unit.name}] Обстрел выполнен.`);
             }
             break;
@@ -25594,8 +25795,8 @@ function executeShootOrder(unit, order) {
     const maxRange = operationalHexFireRange(unit);
 
     if (distance > maxRange) {
-        log(`❌ ${unit.name} не может обстрелять (${targetCol},${targetRow}) - слишком далеко (${distance} гексов, максимум ${maxRange}).`);
-        order.status = 'cancelled';
+        // Не отменяем приказ: он может быть следующим шагом серии после движения.
+        log(`⏳ ${unit.name}: цель (${targetCol},${targetRow}) пока вне дальности (${distance}/${maxRange}); приказ обстрела ожидает подхода.`);
         return;
     }
 
@@ -28192,6 +28393,11 @@ function advanceSupplyDeliveries() {
 function showSupplyPanel() {
     const panel = document.getElementById('supplyPanel');
     if (!panel) return;
+    if (typeof openOperationalSidePanel === 'function') {
+        openOperationalSidePanel('supply');
+        renderSupplyPanel();
+        return;
+    }
     panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
     renderSupplyPanel();
 }
@@ -28347,7 +28553,8 @@ function showCommunicationPanel() {
     const panel = document.getElementById('communicationPanel');
     if (!hardMode.enabled) { alert('Hard Mode не включен!'); return; }
     if (panel) {
-        panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+        if (typeof openOperationalSidePanel === 'function') openOperationalSidePanel('communication');
+        else panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
         renderCommunicationPanel();
     }
 }
@@ -29949,6 +30156,26 @@ function getAllOrdersList() {
     return [...(hardMode.messengerQueue || []), ...(hardMode.pendingOrders || []), ...(hardMode.orders || [])];
 }
 
+// Завершённые приказы видны ещё один полный оперативный ход; затем их
+// убираем только из рабочих очередей. Запись в orderJournal не затрагивается.
+function stampCompletedOrderTurns() {
+    const turn = Number((appData && appData.campaign && appData.campaign.currentTurn) || currentTurn || 1);
+    getAllOrdersList().forEach(order => {
+        if (order && order.status === 'completed' && !Number.isFinite(Number(order.completedTurn))) {
+            order.completedTurn = turn;
+        }
+    });
+}
+function pruneExpiredCompletedOrders() {
+    stampCompletedOrderTurns();
+    const turn = Number((appData && appData.campaign && appData.campaign.currentTurn) || currentTurn || 1);
+    ['messengerQueue', 'pendingOrders', 'orders'].forEach(key => {
+        if (!Array.isArray(hardMode[key])) return;
+        hardMode[key] = hardMode[key].filter(order => !(order && order.status === 'completed' &&
+            Number.isFinite(Number(order.completedTurn)) && turn >= Number(order.completedTurn) + 2));
+    });
+}
+
 // ⚡ v13.064: один операционный ход = 10 минут игрового времени
 function getOpTurnMinutes() { return 10; }
 
@@ -30138,9 +30365,18 @@ function renderActiveOrders() {
         }
     }
 
+    stampCompletedOrderTurns();
     const allOrders = getAllOrdersList();
+    // После ретрансляции показываем отдельные приказы взводам, а не дублирующую
+    // строку штаба роты. Непереданные адресаты остаются в строке родителя.
+    const visibleOrders = allOrders.filter(order => {
+        if (!order || order.type !== 'company_order') return true;
+        const recipients = getCompanyOrderRecipients(order);
+        const relays = allOrders.filter(item => item && item.relayParentId === order.id);
+        return recipients.some(recipient => !relays.some(relay => Number(relay.toUnitId) === Number(recipient.id)));
+    });
 
-    if (allOrders.length === 0) {
+    if (visibleOrders.length === 0) {
         container.innerHTML = '<span style="color:#aaa;">Нет активных приказов</span>';
         return;
     }
@@ -30157,30 +30393,30 @@ function renderActiveOrders() {
     const units = (appData.campaign && appData.campaign.opUnits) || [];
     let html = '';
 
-    allOrders.forEach((order, orderIdx) => {
+    visibleOrders.forEach((order) => {
+        const orderIdx = allOrders.indexOf(order);
         // ====== КОМУ ПРИКАЗ ======
         let unitName;
         let typeLabel;
+        let relayInfo = '';
         if (order.type === 'artillery_strike') {
-            const hq = units[order.fromUnitId];
-            unitName = (hq ? hq.name : 'Штаб батальона') + ` → гекс ${order.targetHex || '?'}`;
+            unitName = `Гекс ${order.targetHex || '?'}`;
             typeLabel = getOrderTypeLabel(order.type);
         } else if (order.type === 'company_order') {
-            // ⚡ v13.064: приказ взводам через штаб роты — показываем РЕАЛЬНЫЙ
-            //    приказ (orderType), а не служебный тип company_order.
             const company = units[order.toUnitId];
-            const recipients = getCompanyOrderRecipients(order);
-            unitName = `${recipients.length} взводам`;
-            typeLabel = `📋 ${getOrderTypeLabel(order.orderType || '—')} · через ${company ? company.name : 'штаб роты'}`;
+            const recipients = getCompanyOrderRecipients(order).filter(recipient =>
+                !allOrders.some(relay => relay && relay.relayParentId === order.id && Number(relay.toUnitId) === Number(recipient.id)));
+            unitName = recipients.length ? recipients.map(recipient => recipient.name).join(', ') : 'Подчинённые взводы';
+            typeLabel = getOrderTypeLabel(order.orderType || '—');
+            relayInfo = `через штаб роты ${company ? company.name : ''}`;
         } else {
             const toUnit = units[order.toUnitId];
             unitName = toUnit ? toUnit.name : 'Неизвестно';
             typeLabel = getOrderTypeLabel(order.type);
-            // ⚡ v13.064: копия приказа, которую штаб роты передал взводу
             if (order.relayParentId) {
                 const companyId = Number.isFinite(order.relayCompanyId) ? order.relayCompanyId : order.fromUnitId;
                 const company = units[companyId];
-                if (company) typeLabel += ` <span style="color:#3498db;">↳ через ${company.name}</span>`;
+                if (company) relayInfo = `через штаб роты ${company.name}`;
             }
         }
 
@@ -30229,13 +30465,14 @@ function renderActiveOrders() {
         // ⚡ v13.064: завершённый приказ удаляется крестиком сразу,
         //    выполняющийся — только после подтверждения.
         const finished = (order.status === 'completed' || order.status === 'cancelled');
-        const cancelBtn = `<button onclick="cancelOrder(${order.id})" style="background:${finished ? '#555' : '#7f3b30'}; font-size:0.7rem; padding:2px 6px; margin-left:6px; cursor:pointer;"
-                title="${finished ? 'Убрать завершённый приказ из списка' : 'Отменить выполняющийся приказ (запросит подтверждение)'}">✕ ${finished ? 'Убрать' : 'Отменить'}</button>`;
+        const cancelBtn = order.status === 'completed' ? '' : `<button onclick="cancelOrder(${order.id})" style="background:${finished ? '#555' : '#7f3b30'}; font-size:0.7rem; padding:2px 6px; margin-left:6px; cursor:pointer;"
+                title="${finished ? 'Убрать из списка' : 'Отменить выполняющийся приказ (запросит подтверждение)'}">✕ ${finished ? 'Убрать' : 'Отменить'}</button>`;
+        const relayHtml = relayInfo ? `<small style="display:block; color:#74b9e6; font-size:.72rem;">↳ ${relayInfo}</small>` : '';
 
         html += `
             <div style="background:#2a2a2a; padding:4px 6px; margin:3px 0; border-radius:4px;${finished ? ' opacity:0.75;' : ''}">
               <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap;">
-                <span style="flex:1 1 auto;">${priorityBtns} ${typeLabel} → ${unitName}${seriesInfo}</span>
+                <span style="flex:1 1 auto;">${priorityBtns} <strong>${unitName}</strong> — ${typeLabel}${seriesInfo}${relayHtml}</span>
                 <button onclick="toggleOrderDetails(${order.id})" style="background:#2c3e50; font-size:0.7rem; padding:2px 6px; cursor:pointer;"
                         title="Показать приказ целиком: маршрут, цель, получатели">${detailsOpen ? '🔼' : 'ℹ️'} приказ</button>
                 <span style="color:#aaa; font-size:0.78rem;">${statusText}</span>
@@ -30455,6 +30692,34 @@ function getUnplacedOpUnits() {
 //    ДОТы — к переднему краю зоны; штаб батальона, миномёты, артиллерия — в тыл;
 //    штабы рот — в середину; остальные — от центра зоны. Не более 2 юнитов на
 //    гекс (если места не хватило — до 4), только проходимые для юнита гексы.
+// Проверка стартовой/ручной расстановки: не ставим отряд в непроходимый
+// гекс и не оставляем его без хотя бы одного доступного выхода.
+function opPlacementHexSafety(unit, col, row) {
+    const scenario = appData && appData.campaign && appData.campaign.scenario;
+    if (typeof isHexInPlayableArea === 'function' && !isHexInPlayableArea(scenario, col, row)) {
+        return { ok: false, reason: 'гекс за пределами игровой карты' };
+    }
+    const types = (typeof getOpHexTypes === 'function') ? getOpHexTypes(col, row) : ['grass'];
+    const terrain = types && types[0];
+    if (terrain === 'water' || terrain === 'swamp_impassable') return { ok: false, reason: 'непроходимая местность' };
+    if (typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit)) return { ok: true, reason: '' };
+    if (typeof getOpMoveCost !== 'function' || typeof getOpHexNeighbors !== 'function') return { ok: true, reason: '' };
+    const neighbors = getOpHexNeighbors(col, row) || [];
+    let canEnter = false, canExit = false;
+    for (const n of neighbors) {
+        if (!n || !Number.isFinite(Number(n.col)) || !Number.isFinite(Number(n.row))) continue;
+        const nc = Number(n.col), nr = Number(n.row);
+        try {
+            if (Number.isFinite(getOpMoveCost(unit, nc, nr, col, row))) canEnter = true;
+            if (Number.isFinite(getOpMoveCost(unit, col, row, nc, nr))) canExit = true;
+        } catch (e) {}
+        if (canEnter && canExit) break;
+    }
+    if (!canEnter) return { ok: false, reason: 'этот отряд не может заехать на гекс' };
+    if (!canExit) return { ok: false, reason: 'у гекса нет проходимого выхода — отряд окажется в ловушке' };
+    return { ok: true, reason: '' };
+}
+
 function getFactionPlacementHexes(scenario, faction) {
     const out = [];
     if (typeof isHexInPlacementZone !== 'function') return out;
@@ -30532,6 +30797,11 @@ function autoPlaceUnplacedUnits(opts) {
     getUnplacedOpUnits().filter(u => !u.embarkedInBtr).forEach(u => {
         const h = getConfiguredStartHex(scenario, faction, u);
         if (!h) return;
+        const safety = opPlacementHexSafety(u, h.col, h.row);
+        if (!safety.ok) {
+            log(`⚠️ ${u.name}: стартовый гекс (${h.col},${h.row}) пропущен — ${safety.reason}; юнит будет размещён на безопасном гексе.`);
+            return;
+        }
         u.col = h.col; u.row = h.row;
         u.autoPlaced = true;
         configured++;
@@ -30603,7 +30873,7 @@ function autoPlaceUnplacedUnits(opts) {
     const queue = unplaced.slice().sort((a, b) => catRank[category(a)] - catRank[category(b)]);
     let placed = 0;
     queue.forEach(u => {
-        const list = orders[category(u)];
+        const list = orders[category(u)].filter(h => opPlacementHexSafety(u, h.col, h.row).ok);
         const pick = (limit) => list.find(h => {
             const k = h.col + ',' + h.row;
             if ((occ[k] || 0) >= limit) return false;
@@ -31015,8 +31285,22 @@ function opIsIndirectFireUnit(unit) {
   return ['sau_battery', 'regimental_artillery', 'artillery_support'].includes(unit.type) ||
     /САУ|артиллер|миномет|миномёт/i.test(String(unit.name || ''));
 }
+function opUnitInPlayerSight(unit) {
+  try {
+    const camp = appData && appData.campaign;
+    if (!camp || !(camp.enemyOpUnits || []).includes(unit) || unit.col == null || unit.row == null) return false;
+    return (camp.opUnits || []).some(observer => observer && !observer.isDestroyed &&
+      observer.col != null && observer.row != null &&
+      getOpHexDistance(observer.col, observer.row, unit.col, unit.row) <= 3 &&
+      !opLineOfSightBlocked(observer.col, observer.row, unit.col, unit.row));
+  } catch (e) { return false; }
+}
 function opDetectionModifier(unit) {
   let mod = getOpDetectionModifier(unit);
+  // Вражеский отряд, попавший в обзор наших подразделений, заметнее:
+  // +2 к результату обнаружения.
+  if (opUnitInPlayerSight(unit)) mod += 2;
+
   if (unit.movedThisTurn) mod += 1;
   // Штраф за технику уже включён в getOpDetectionModifier.
   if (unit.suppressed) mod += 1;
@@ -32818,7 +33102,16 @@ function opLineOfSightBlocked(col1, row1, col2, row2) {
         const col = x + (z - (z & 1)) / 2;
         if (col < 0 || row < 0) continue;
         const types = (typeof getOpHexTypes === 'function') ? getOpHexTypes(col, row) : ['grass'];
-        if (types.includes('hill') || types.includes('forest')) return true;
+        const opCellHeight = (c, r, terrainTypes) => {
+            const cell = appData.campaign && appData.campaign.opMapGrid && appData.campaign.opMapGrid[`${c},${r}`];
+            const explicit = cell && !Array.isArray(cell) && Number.isFinite(Number(cell.level)) ? Number(cell.level) : 0;
+            const highTerrain = (terrainTypes || []).some(t => /mountain/i.test(String(t))) ? 2 : ((terrainTypes || []).includes('hill') ? 1 : 0);
+            return Math.max(explicit, highTerrain);
+        };
+        const eyeHeight = opCellHeight(col1, row1, (typeof getOpHexTypes === 'function') ? getOpHexTypes(col1, row1) : []);
+        const blockHeight = opCellHeight(col, row, types);
+        const blocks = types.some(t => t === 'hill' || t === 'forest' || t === 'shelled_forest' || /mountain/i.test(String(t)));
+        if (blocks && blockHeight >= eyeHeight) return true;
     }
     return false;
 }
@@ -32835,6 +33128,9 @@ function unitCanBeDetected(unit) {
     // ⚡ v13.051 (R36#1): обнаруживать некому — юнит НЕ обнаружен (раньше — «true»,
     //    и до расстановки противника все юниты помечались обнаруженными)
     if (enemies.length === 0) return false;
+    // Противник, попавший в обзор хотя бы одного нашего отряда, доступен для проверки
+    // обнаружения даже если стоит неподвижно дальше стандартного шумового радиуса.
+    if (opUnitInPlayerSight(unit)) return true;
     // Проверяем каждого наблюдателя: препятствие от ближайшего врага не должно
     // отменять обнаружение другим врагом с чистой линией видимости.
     const moved = !!unit.movedThisTurn && !(unit.stealthMove && !opDetectionIsArmored(unit));
@@ -38798,8 +39094,8 @@ function onlineOnSnapshotSync() {
     <button onclick="exportCampaignProgress()" style="background:#27ae60;">💾 Сохранить прогресс</button>
     <button onclick="importCampaignProgress()" style="background:#2980b9;">📂 Загрузить прогресс</button>
   </div>
-      <!-- ⚡ НОВЫЙ ЛОГ ДЕЙСТВИЙ -->
-  <div style="margin-top:15px; border-top:1px solid #444; padding-top:10px;">
+      <!-- ⚡ Лог действий перенесён в правую боковую панель через initOperationalSidePanels(). -->
+  <div id="opLogPanel" style="margin-top:15px; border-top:1px solid #444; padding-top:10px;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
       <strong style="color:#f1c40f;">📋 Лог операций</strong>
       <button onclick="clearOpLog()" style="background:#555; font-size:0.8rem; padding:3px 8px;">Очистить</button>
@@ -38858,7 +39154,7 @@ function onlineOnSnapshotSync() {
 </div>
 
 <!-- Кнопка открытия панели связи -->
-<div style="margin-bottom:8px;">
+<div id="opLegacyPanelButtons" style="margin-bottom:8px;">
   <button onclick="showCommunicationPanel()" id="showCommPanelBtn" style="background:#3498db; display:none;">
     📡 Связь
   </button>
@@ -39686,6 +39982,7 @@ function autoPlaceEnemyUnits(opts) {
 // ⚡ v13.076: F3 — гейты новичка (UX_GATES): закрытые чипы скрываются, а не блокируются.
 
 let uxActionBarSig = '';   // подпись последней отрисовки: DOM переписывается только при изменении
+let uxActionBarCollapsed = false;
 
 function uxEsc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -39855,8 +40152,8 @@ function uxRenderActionBar() {
     st.chips.map(c => c.id + '=' + c.label).join(','), st.hidden.map(c => c.id).join(','), 'H:' + hintIds].join('|');
   if (sig === uxActionBarSig && bar.style.display === 'flex') return;
   uxActionBarSig = sig;
-  const head = '<div class="ux-ab-head">🎯 <b>' + uxEsc(u.name) + '</b> · ОД ' + (u.ap || 0) + '/' + (u.maxAp || u.ap || 0) +
-    (u.embarkedInBtr ? ' · <span style="color:#95a5a6;">в БТР</span>' : '') + '</div>';
+  const head = '<div class="ux-ab-head"><span>🎯 <b>' + uxEsc(u.name) + '</b> · ОД ' + (u.ap || 0) + '/' + (u.maxAp || u.ap || 0) +
+    (u.embarkedInBtr ? ' · <span style="color:#95a5a6;">в БТР</span>' : '') + '</span><button type="button" class="ux-ab-toggle" onclick="toggleUxActionBar()" aria-expanded="' + (!uxActionBarCollapsed) + '" title="Свернуть или развернуть действия выбранного отряда">' + (uxActionBarCollapsed ? '▸' : '▾') + '</button></div>';
   // ⚡ v13.077: чипы с подсказкой — пунктирная рамка и метка 💡 (действие доступно!)
   const hintSet = {};
   (st.hints || []).forEach(c => { hintSet[c.id] = true; });
@@ -39873,9 +40170,20 @@ function uxRenderActionBar() {
   else if (!st.chips.length && !st.hidden.length) tail = '<div class="ux-ab-note">Сейчас для этого отряда нет доступных действий.</div>';
   // ⚡ v13.077: подсказка «💡 …» — что нового попробовать и когда (не в ходе оппонента)
   if (!st.locked) tail += uxHintNote(st.hints);
-  bar.innerHTML = head + chips + tail;
+  bar.innerHTML = head + '<div id="uxActionBarBody" style="display:' + (uxActionBarCollapsed ? 'none' : 'flex') + '; flex-wrap:wrap; gap:6px; align-items:center; width:100%;">' + chips + tail + '</div>';
   bar.style.display = 'flex';
 }
+function toggleUxActionBar() {
+  uxActionBarCollapsed = !uxActionBarCollapsed;
+  const body = document.getElementById('uxActionBarBody');
+  const button = document.querySelector('#uxActionBar .ux-ab-toggle');
+  if (body) body.style.display = uxActionBarCollapsed ? 'none' : 'flex';
+  if (button) {
+    button.textContent = uxActionBarCollapsed ? '▸' : '▾';
+    button.setAttribute('aria-expanded', String(!uxActionBarCollapsed));
+  }
+}
+window.toggleUxActionBar = toggleUxActionBar;
 
 // ⚡ v13.077: ПОДСКАЗКА-ПУЛЬСАЦИЯ. Кнопка текущего шага чек-листа мягко светится
 // (CSS .ux-hint-glow) — ничего не скрывается, глаз новичка ведётся к действию.
@@ -39911,7 +40219,7 @@ function uxHintGlowTargets() {
       push('#btnFinishPlacement');
     }
   } else {
-    if (!done.communication) push('#opQuickActions [data-quick-action=\"communication\"]');
+    if (!done.communication) push('#opPanelTabs [data-op-side-tab=\"communication\"]');
     else if (!done.orders) push('#opQuickActions [data-quick-action=\"order\"]');
     else if (!done.turn) push('#opEndTurnBtn');
   }
@@ -40076,5 +40384,84 @@ window.uxGatesRefresh = function () { uxApplyGates(); uxRenderActionBar(); };
 </script>
 <script src="js/operational_ui.js"></script>
 
+<script>
+(function () {
+  let activeOperationalSidePanel = null;
+  function initOperationalSidePanels() {
+    const map = document.getElementById('opMapContainer');
+    if (!map || document.getElementById('opMapWorkspace')) return;
+    const workspace = document.createElement('div');
+    workspace.id = 'opMapWorkspace';
+    workspace.className = 'op-map-workspace';
+    const left = document.createElement('aside');
+    left.id = 'opLeftSidePanel';
+    left.className = 'op-side-panel op-side-panel-left';
+    left.innerHTML = '<div class="op-side-panel-head"><strong id="opLeftPanelTitle">Полевые панели</strong><button type="button" onclick="closeOperationalSidePanels()" aria-label="Закрыть боковую панель">✕</button></div><div id="opLeftPanelContent"></div>';
+    const right = document.createElement('aside');
+    right.id = 'opRightSidePanel';
+    right.className = 'op-side-panel op-side-panel-right';
+    right.innerHTML = '<div class="op-side-panel-head"><strong>📋 Лог операций</strong><button type="button" onclick="toggleOperationalLogPanel()" aria-label="Свернуть журнал">✕</button></div><div id="opRightPanelContent"></div>';
+    const tabs = document.createElement('div');
+    tabs.id = 'opPanelTabs';
+    tabs.className = 'op-panel-tabs';
+    tabs.innerHTML = '<div><button type="button" data-op-side-tab="communication" onclick="showCommunicationPanel()">📡 Связь</button><button type="button" data-op-side-tab="supply" onclick="showSupplyPanel()">🚚 Снабжение</button></div><button type="button" class="op-log-tab" onclick="toggleOperationalLogPanel()">📋 Лог событий</button>';
+    map.parentNode.insertBefore(tabs, map);
+    map.parentNode.insertBefore(workspace, map);
+    workspace.appendChild(left);
+    workspace.appendChild(map);
+    workspace.appendChild(right);
+    const leftContent = document.getElementById('opLeftPanelContent');
+    ['communicationPanel', 'supplyPanel'].forEach(id => {
+      const panel = document.getElementById(id);
+      if (panel) { panel.classList.add('op-side-panel-content'); leftContent.appendChild(panel); }
+    });
+    const logPanel = document.getElementById('opLogPanel');
+    const rightContent = document.getElementById('opRightPanelContent');
+    if (logPanel && rightContent) { logPanel.classList.add('op-side-panel-content'); rightContent.appendChild(logPanel); }
+  }
+  window.openOperationalSidePanel = function (kind) {
+    initOperationalSidePanels();
+    const workspace = document.getElementById('opMapWorkspace');
+    const comm = document.getElementById('communicationPanel');
+    const supply = document.getElementById('supplyPanel');
+    const left = document.getElementById('opLeftSidePanel');
+    const title = document.getElementById('opLeftPanelTitle');
+    if (!workspace || !left) return;
+    if (activeOperationalSidePanel === kind && workspace.classList.contains('op-left-open')) {
+      closeOperationalSidePanels();
+      return;
+    }
+    activeOperationalSidePanel = kind;
+    workspace.classList.add('op-left-open');
+    workspace.classList.remove('op-right-open');
+    if (comm) comm.style.display = kind === 'communication' ? 'block' : 'none';
+    if (supply) supply.style.display = kind === 'supply' ? 'block' : 'none';
+    if (title) title.textContent = kind === 'communication' ? '📡 Связь' : '🚚 Снабжение';
+  };
+  window.closeOperationalSidePanels = function () {
+    const workspace = document.getElementById('opMapWorkspace');
+    if (workspace) workspace.classList.remove('op-left-open', 'op-right-open');
+    activeOperationalSidePanel = null;
+    ['communicationPanel', 'supplyPanel'].forEach(id => {
+      const panel = document.getElementById(id);
+      if (panel) panel.style.display = 'none';
+    });
+  };
+  window.toggleOperationalLogPanel = function () {
+    initOperationalSidePanels();
+    const workspace = document.getElementById('opMapWorkspace');
+    if (!workspace) return;
+    const open = workspace.classList.contains('op-right-open');
+    workspace.classList.remove('op-left-open');
+    workspace.classList.toggle('op-right-open', !open);
+    activeOperationalSidePanel = null;
+    ['communicationPanel', 'supplyPanel'].forEach(id => {
+      const panel = document.getElementById(id);
+      if (panel) panel.style.display = 'none';
+    });
+  };
+  initOperationalSidePanels();
+})();
+</script>
 </body>
 </html>

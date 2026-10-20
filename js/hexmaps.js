@@ -620,6 +620,7 @@ function applyHexOverlays(grid, hexKey) {
         if (!cell) return;
         cell.type = edits[k];
         cell.variant = (ov.hexVariants && ov.hexVariants[k]) || 0;
+        if (rotations[k] !== undefined) cell.rotation = normalizeHexRotation(rotations[k], 0);
         cell.ov = 1;
         if (edits[k] === 'trenches') applyFortificationOwner(cell, k);
     });
@@ -628,6 +629,7 @@ function applyHexOverlays(grid, hexKey) {
         if (!cell) return;
         cell.type = 'trenches';
         cell.variant = (ov.hexVariants && ov.hexVariants[k]) || 0;
+        if (rotations[k] !== undefined) cell.rotation = normalizeHexRotation(rotations[k], 0);
         cell.ov = 1;
         cell._deploymentTrenchOverlay = 1;
         applyFortificationOwner(cell, k);
@@ -1789,9 +1791,12 @@ function cancelPendingHexEditDraftUI() {
         }
     });
     const n = Object.keys(draft.cells).length;
-    clearPendingHexEditDraft(st.hexKey);
+    // Оставляем черновик активным: после снятия отметок игрок может сразу
+    // расставить окопы заново, не закрывая и не переоткрывая редактор.
+    draft.cells = {}; draft.variants = {}; draft.rotations = {};
+    draft.updatedAt = Date.now();
     const infoBox = document.getElementById('mapInfo');
-    if (infoBox) { infoBox.textContent = `↩️ Черновик снят: снято отметок ${n}. Сам приказ можно отменить в журнале приказов.`; infoBox.style.color = '#f1c40f'; }
+    if (infoBox) { infoBox.textContent = `↩️ Черновик снят: снято отметок ${n}. Можно сразу отметить клетки заново; сам приказ — в журнале приказов.`; infoBox.style.color = '#f1c40f'; }
     try { saveData(); } catch (e) {}
     showHexEditorBanner();
     try { redrawMap(); } catch (e) {}
@@ -1834,7 +1839,9 @@ function recordPendingHexEditClick(st, cell) {
         delete draft.rotations[cell];
         working.type = baseType;
         working.variant = baseCell && Number.isFinite(baseCell.variant) ? baseCell.variant : 0;
+        working.rotation = normalizeHexRotation(baseCell ? baseCell.rotation : undefined, 0);
         if (baseCell && Number.isFinite(baseCell.level)) working.level = baseCell.level;
+        delete working.ov;
         showInfo(`↩️ Черновик: гекс ${cell} — отметка снята. Отметок: ${Object.keys(draft.cells).length}.`, '#f1c40f');
         try { saveData(); } catch (e) {}
         try { redrawMap(); } catch (e) {}
@@ -1994,6 +2001,8 @@ function hexEditClick(hexKeyCell) {
     const variant = st.kind === 'trenches' ? 0
         : (fixedIndex >= 0 ? fixedIndex : ((nVar > 1) ? Math.floor(Math.random() * nVar) : 0));
     ov.hexVariants[hexKeyCell] = variant;
+    if (!ov.hexRotations || typeof ov.hexRotations !== 'object') ov.hexRotations = {};
+    ov.hexRotations[hexKeyCell] = normalizeHexRotation(working.rotation, 0);
     ov[st.rule.pointsField] = left - 1;
     st.undo.push(hexKeyCell);
     st.placed++;
@@ -2073,6 +2082,7 @@ function hexEditUndo() {
             appData.map.grid[k].type = baseCell ? baseCell.type : 'grass';
             appData.map.grid[k].variant = (baseCell && Number.isFinite(baseCell.variant)) ? baseCell.variant : 0;
             appData.map.grid[k].level = (baseCell && Number.isFinite(baseCell.level)) ? baseCell.level : 0;
+            appData.map.grid[k].rotation = normalizeHexRotation(baseCell ? baseCell.rotation : undefined, 0);
             delete appData.map.grid[k].ov;
         }
         saveHexOverlays(st.hexKey);
