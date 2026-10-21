@@ -15,15 +15,15 @@ s.run(`
   var __roll = 10, __los = false;
   appData.campaign.currentTurn = 4;
 `);
-for (const fn of ['opCheckUnitDetection', 'opIsIndirectFireUnit', 'tacticalCanFireAreaHex', 'tacticalAreaOccupantsAtTarget', 'hasCardNamed', 'bonusCardSelectionLimit', 'cardSelectionNeedsDebuff']) {
+for (const fn of ['addOperationalArtilleryNoise', 'opDetectionIsArmored', 'opCheckUnitDetection', 'opIsIndirectFireUnit', 'tacticalCanFireAreaHex', 'tacticalAreaOccupantsAtTarget', 'hasCardNamed', 'bonusCardSelectionLimit', 'cardSelectionNeedsDebuff']) {
   try { s.run(sliceFunction(HTML, fn)); } catch (e) { console.error(fn, e.message); }
 }
 s.run(`var directUnit = {name:'Пехота', col:1,row:1}; var directResult = opCheckUnitDetection(directUnit,{fireType:'direct'});`);
 ok(s.evalCtx('directUnit.detected === true && directResult.immediate === true'), 'прямой огонь немедленно раскрывает стрелявший отряд');
 s.run(`appData.campaign.enemyOpUnits = [{name:'Наблюдатель',col:8,row:8}]; var indirectUnit = {name:'Минбатарея', type:'mortar_battery', col:1,row:1}; var indirectSight = opCheckUnitDetection(indirectUnit,{fireType:'indirect'});`);
-ok(s.evalCtx('indirectUnit.detected === true && indirectSight.lineOfSight === true'), 'непрямой огонь раскрывает позицию при прямой видимости');
+ok(s.evalCtx('indirectUnit.detected === false && indirectSight.anonymous === true && appData.campaign.opNoiseMarkers.length === 3'), 'батарея при огне создаёт три анонимных маркера шума, не раскрывая свою позицию');
 s.run(`__los = true; __roll = 1; var concealedGun = {name:'САУ', type:'sau_battery', col:1,row:1}; var indirectHidden = opCheckUnitDetection(concealedGun,{fireType:'indirect'});`);
-ok(s.evalCtx('concealedGun.detected === false && concealedGun.fireDetectionResolvedTurn === 4'), 'при отсутствии видимости навесной огонь разрешает отдельную проверку');
+ok(s.evalCtx('concealedGun.detected === false && concealedGun.fireDetectionResolvedTurn === 4 && concealedGun.noiseMarker === false'), 'непрямой огонь САУ не создаёт точный маркер на позиции стрелка');
 s.run(`
   __los = false;
   var shooter = {faction:'A', name:'82-мм миномёт', crewInstances:[]};

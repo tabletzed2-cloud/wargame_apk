@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.109
+// ⚡ BUILD-МАРКЕР: v13.127
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -893,6 +893,12 @@ function mapHexClickDuringBinoculars(key) {
     const observerPos = getBattleSquadHex(appData.map.grid, idx, false);
     if (observerPos && typeof tacticalSmokeBlocksSight === 'function' && tacticalSmokeBlocksSight(observerPos.key, key, appData.map)) {
         mapActionInfo('💨 Дымовая завеса закрывает линию обзора — цель не обнаружена.');
+        return true;
+    }
+    const [targetCol, targetRow] = String(key).split(',').map(Number);
+    if (observerPos && typeof window !== 'undefined' && typeof window.tacticalHasLineOfSight === 'function' &&
+        !window.tacticalHasLineOfSight({ col: observerPos.col, row: observerPos.row }, { col: targetCol, row: targetRow })) {
+        mapActionInfo('⛰️ Лес или возвышенность закрывают обзор бинокля — цель не обнаружена.');
         return true;
     }
     const enemies = appData.map.enemySquads || [];

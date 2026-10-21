@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.109
+// ⚡ BUILD-МАРКЕР: v13.127
 // v13.062: fixed DOT coordinates and no placement bypass for eliminated squads.
 // ⚡ v13.061: current release tactical deployment rules.
 // ============================================================
@@ -382,7 +382,12 @@ function renderPlacementPanel() {
     if (!el) return;
     const battle = getCurrentBattleRecord();
     const p = battle && battle.placement;
-    if (!p || p.phase === 'done') { el.style.display = 'none'; el.innerHTML = ''; return; }
+    const selectorWrap = document.getElementById('battleSquadToPlaceWrap');
+    const selectorSlot = document.getElementById('squadToPlaceToolbarSlot');
+    if (!p || p.phase === 'done') {
+        if (selectorSlot && selectorWrap && selectorWrap.parentNode !== selectorSlot) selectorSlot.appendChild(selectorWrap);
+        el.style.display = 'none'; el.innerHTML = ''; return;
+    }
     const online = !!(appData.campaign && appData.campaign.online);
     const iAmAttacker = p.attackerSide === 'player';
     const mine = placementSideStatus(battle, 'player');
@@ -422,7 +427,25 @@ function renderPlacementPanel() {
         '<button onclick="setMapMode(\'place\')" style="background:#27ae60;">🏷️ Разместить</button>' +
         (p.playerReady ? '<span style="color:#e67e22;">⏳ ждём противника…</span>' : '<span style="font-size:0.85em; color:#bbb;">выберите отряд в списке «Отряд» и кликните по гексу</span>') +
         '</div>';
-    el.innerHTML = html;
+    const cardGroups = new Map();
+    (appData.squads || []).forEach(squad => {
+        if (!squad || squad.hidden) return;
+        const names = [...new Set((squad.appliedCards || []).filter(Boolean).map(String))];
+        if (!names.length) return;
+        const owner = String(squad.opUnitName || 'Без привязки к взводу');
+        if (!cardGroups.has(owner)) cardGroups.set(owner, new Set());
+        names.forEach(name => cardGroups.get(owner).add(name));
+    });
+    const escapeText = value => String(value).replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+    const cardHtml = cardGroups.size
+        ? `<div style="margin-top:5px;padding:5px;background:#15251b;border:1px solid #376244;border-radius:5px;"><b>🃏 Карточки по взводам:</b>${Array.from(cardGroups, ([owner,names]) => `<div>${escapeText(owner)}: ${Array.from(names).map(escapeText).join(', ')}</div>`).join('')}</div>`
+        : '';
+    el.innerHTML = html + cardHtml;
+    if (selectorWrap && selectorWrap.parentNode !== el && typeof el.insertBefore === 'function' && typeof document.createElement === 'function') {
+        const selectorBox = document.createElement('div');
+        selectorBox.style.cssText = 'margin:4px 0;padding:4px;background:#322b19;border:1px solid #8a773a;border-radius:5px;';
+        selectorBox.appendChild(selectorWrap); el.insertBefore(selectorBox, el.firstChild);
+    }
     el.style.display = 'block';
 }
 

@@ -5,7 +5,7 @@ const source = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8')
 function assert(condition, message) { if (!condition) throw new Error(message); }
 
 assert(source.includes('Number(squad.visionRange) || 6'), 'tactical sight fallback must be six hexes');
-assert(source.includes('getOpHexDistance(observer.col, observer.row, unit.col, unit.row) <= 3'), 'operational sight radius must be three hexes');
+assert(source.includes('getOpHexDistance(observer.col, observer.row, unit.col, unit.row) <= visionRange') && source.includes("? 1 : 3"), 'operational sight radius is three hexes by day and one at night');
 assert(source.includes("workspace.className = 'op-map-workspace'") && source.includes('op-right-open'), 'non-overlay side-panel workspace must be initialized');
 const operationalCss = fs.readFileSync(path.join(__dirname, '..', 'css', 'operational_ui.css'), 'utf8');
 assert(operationalCss.includes('.op-panel-tabs') && operationalCss.includes('position: fixed') && operationalCss.includes('width: calc(100% - 104px)'), 'side controls must stay fixed at screen edges while drawers reserve map space');
@@ -51,6 +51,7 @@ const etaCtx = {
   formatTime: minute => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`,
   orderStartDelayMinutes: (order, at) => ((Number(order.startTimeMin) - at) % 1440 + 1440) % 1440,
   operationalOrderWaitsForDisembark: () => false,
+  isVehicleMobilityUnit: unit => !!unit && (unit.type === 'vehicle' || unit.type === 'tank_platoon' || unit.type === 'btr_platoon'),
   buildOrderRoute: (unit, waypoints) => ({ route: Array.from({ length: Math.max(0, waypoints[0].col - unit.col) }, (_, i) => ({ col: unit.col + i + 1, row: unit.row })), target: waypoints[0] }),
   getOpMoveCost: () => 1
 };

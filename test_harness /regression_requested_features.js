@@ -401,7 +401,7 @@ test('дым скрывает отряд, блокирует обнаружен�
   loadHtml(s, [
     'tacticalCubeRound', 'tacticalHexLineKeys', 'tacticalSmokeActiveClouds', 'tacticalHexIsSmoky',
     'tacticalSmokeBlocksSight', 'tacticalSquadBattlePosition', 'tacticalSmokeBlocksAttack',
-    'tacticalSmokeAllEnemyObserversBlocked', 'tacticalApplySmokeConcealment', 'tacticalCreateSmokeCloud',
+    'tacticalSmokeAllEnemyObserversBlocked', 'tacticalApplySmokeConcealment', 'tacticalCreateSmokeCloud', 'tacticalIlluminationActive',
     'tacticalExpireSmoke', 'tacticalMergeSmokeClouds', 'tacticalSmokeWindDestination', 'deploySmokeScreen', 'autoDetectOneSquad'
   ]);
   loadModuleFunctions(s, 'js/map_actions.js', ['mapActionEnemyAlive', 'mapActionEnemyIsVehicle', 'mapActionEvalTarget']);
@@ -480,7 +480,7 @@ test('дым скрывает отряд, блокирует обнаружен�
 // 5. 82-мм миномёт тратит боеприпасы типа ordnance.
 test('стрельба 82-мм миномёта расходует снаряды, а не патроны', () => {
   const s = createSandbox(freshAppData());
-  loadHtml(s, ['is82mmMortarSquad', 'tacticalVehicleAimBonus', 'tacticalVehicleMovementAccuracyPenalty', 'attackOrdnance']);
+  loadHtml(s, ['is82mmMortarSquad', 'tacticalVehicleAimBonus', 'tacticalVehicleMovementAccuracyPenalty', 'attackOrdnance', 'tacticalSquadHasCard', 'tacticalAmmoSavingApplies', 'tacticalAmmoCostAfterCards', 'spendTacticalAmmo']);
   s.run(`
     function getFactionCrewWeapons() { return [{ name: 'Миномёт 82 мм', type: 'mortar', shotRule: 'fixed_per_crew', crewSize: 5, shotsFull: 3, shotsReduced2: 2, shotsReduced1: 1, splashDamageDice: 1 }]; }
     function getScopedActiveModifiersForSquad() { return []; }
@@ -754,7 +754,7 @@ test('бинокль штабов и разведки обнаруживает �
 // 12. Штаб получает осветительные ракеты, запускает их с карты и снимает ночной штраф на ход.
 test('штаб всегда получает осветительные ракеты; запуск использует механику ночного модификатора', () => {
   const s = createSandbox(freshAppData());
-  loadHtml(s, ['tacticalHQFlareOwnerKey', 'ensureBattleHQFlareSupply', 'ensureStandaloneHQFlareSupply', 'fireFlare', 'getScopedActiveCardsForSquad']);
+  loadHtml(s, ['tacticalHQFlareOwnerKey', 'ensureBattleHQFlareSupply', 'ensureStandaloneHQFlareSupply', 'tacticalIlluminationActive', 'createTacticalFlareEvent', 'fireFlare', 'getScopedActiveCardsForSquad']);
   s.run(`
     function tacticalActionAllowed() { return true; }
     function spendAP() { return true; }
@@ -764,6 +764,7 @@ test('штаб всегда получает осветительные раке
     var issued = ensureBattleHQFlareSupply(battle);
     var standaloneHQ = { name: 'Штаб батальона', fighters: [{ hp: 3 }] };
     ensureStandaloneHQFlareSupply([standaloneHQ]);
+    appData.map = {};
     appData.activeCards = [{ name: 'Ночь', opUnitName: 'Штаб роты №1', active: true, accuracyMod: -2 }];
     appData.campaign.active = true;
     appData.currentBattleId = 4;
@@ -1125,6 +1126,7 @@ test('тактическое перемещение проходит по каж
     function tacticalDogSledEligible() { return false; }
     function tacticalMaybeTriggerFireField() {} function tacticalCheckMaraudingOnEntry() { return false; }
     function tacticalAutoEngageMelee() { return null; } function recalcReachable() {}
+    function isArmoredTacticalSquad() { return false; } function tacticalResolveArmoredContact() {}
     function recordDaggerApproachIfEligible() {} function saveData() {} function updateUI() {} function redrawMap() {}
     currentTurn=1;actionPoints=[{ap:3,maxAp:3}];
     var mover={name:'Стрелковое отделение',hexPos:[0,0],fighters:[{hp:3}]};appData.squads=[mover];
