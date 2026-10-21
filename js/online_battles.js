@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.109
+// ⚡ BUILD-МАРКЕР: v13.127
 // v13.062: monotonic turn handoff; synchronize routing and melee without stale phase rollback.
 // ⚡ v13.061: sync retreat state and attacker/defender phase in online battle snapshots.
 // ============================================================
@@ -219,6 +219,18 @@ function onlineBattleSnapshot(battle, status) {
             id: event.id, fieldId: event.fieldId, target: event.target, targetName: event.targetName,
             fromKey: event.fromKey, toKey: event.toKey, turn: Number(event.turn) || snapshotTurn
         })),
+        // Shared illumination and anonymous armored-vehicle noise contacts.
+        illuminationFlare: tacticalMap.illuminationFlare &&
+            (!onlineBattlesEnabled() || !tacticalMap.illuminationFlare.ownerRole || tacticalMap.illuminationFlare.ownerRole === ONLINE.role) ? {
+            id: String(tacticalMap.illuminationFlare.id || ''),
+            turn: Number(tacticalMap.illuminationFlare.turn) || snapshotTurn,
+            expiresTurn: Number(tacticalMap.illuminationFlare.expiresTurn) || (Number(tacticalMap.illuminationFlare.turn) || snapshotTurn) + 1,
+            owner: tacticalMap.illuminationFlare.owner || 'player',
+            ownerRole: tacticalMap.illuminationFlare.ownerRole || null
+        } : null,
+        noiseMarkers: (Array.isArray(tacticalMap.tacticalNoiseMarkers) ? tacticalMap.tacticalNoiseMarkers : [])
+            .filter(marker => marker && marker.viewerSide === 'enemy' && Number(marker.expiresTurn) >= snapshotTurn)
+            .map(marker => ({ col: Number(marker.col), row: Number(marker.row), label: 'Шум', turn: Number(marker.turn) || snapshotTurn, expiresTurn: Number(marker.expiresTurn) || snapshotTurn })),
         // ⚡ v13.054 (R39#4): подавление отрядов оппонента моим огнём с карты
         //    {имя отряда: метка времени} — у оппонента отряд получит «Подавлен»
         supOut: onlineSupPlain(battle.onlineSupOut)
@@ -537,6 +549,34 @@ function onlineMergeOppBattle(battle, e) {
     const tacticalMap = live ? ((typeof appData !== 'undefined' && appData.map) || null) : (battle.tacticalMap || null);
     if (tacticalMap && Array.isArray(e.smokeClouds) && typeof tacticalMergeSmokeClouds === 'function') {
         if (tacticalMergeSmokeClouds(tacticalMap, e.smokeClouds, e.turn)) changed = true;
+    }
+    // A flare is a shared tactical event: translate the sender's turn to the
+    // receiver's local turn and apply it once (repeated cloud snapshots must
+    // not keep extending the illumination).
+    if (tacticalMap && e.illuminationFlare && e.illuminationFlare.id) {
+        const seen = Array.isArray(tacticalMap.onlineFlareEventsSeen) ? tacticalMap.onlineFlareEventsSeen : (tacticalMap.onlineFlareEventsSeen = []);
+        const flareId = String(e.illuminationFlare.id);
+        if (!seen.includes(flareId)) {
+            const localTurn = live ? ((typeof currentTurn !== 'undefined' && Number(currentTurn)) || Number(battle.currentTurn) || 1) : (Number(battle.currentTurn) || 1);
+            tacticalMap.onlineFlareEventsSeen = [...seen, flareId].slice(-30);
+            tacticalMap.illuminationFlare = { id: flareId, turn: localTurn, expiresTurn: localTurn + 1, owner: 'enemy', ownerRole: e.illuminationFlare.ownerRole || null };
+            if (live && typeof appData !== 'undefined') {
+                appData.flareEventId = flareId;
+                appData.flareActive = true;
+                appData.flareTurn = localTurn;
+                appData.flareExpiresTurn = localTurn + 1;
+            }
+            try { log('🚀 Противник запустил осветительную ракету: обоим игрокам доступна дневная видимость на этот тактический ход.'); } catch (err) {}
+            changed = true;
+        }
+    }
+    if (tacticalMap && Array.isArray(e.noiseMarkers)) {
+        const nextMarkers = e.noiseMarkers.filter(marker => marker && Number.isFinite(Number(marker.col)) && Number.isFinite(Number(marker.row)))
+            .map(marker => ({ col: Number(marker.col), row: Number(marker.row), label: 'Шум', turn: Number(marker.turn) || Number(e.turn) || 1, expiresTurn: Number(marker.expiresTurn) || Number(e.turn) || 1 }));
+        if (JSON.stringify(tacticalMap.remoteTacticalNoiseMarkers || []) !== JSON.stringify(nextMarkers)) {
+            tacticalMap.remoteTacticalNoiseMarkers = nextMarkers;
+            changed = true;
+        }
     }
     const fireFieldMySquads = onlineBattleMySquads(battle);
     if (tacticalMap && Array.isArray(e.fireFields) && typeof tacticalMergeFireFields === 'function') {
