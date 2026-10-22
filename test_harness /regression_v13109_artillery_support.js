@@ -109,7 +109,21 @@ test('2б: батареи отбираются по типу, дистанции
         'залп САУ и миномётной батареи различается');
 });
 
-test('2в: заявка уходит на следующий ход и разбирается в начале своего хода', () => {
+test('2в: залп выполняется даже после гибели наводчика и потери связи', () => {
+    const s = createSandbox(freshAppData());
+    s.run(sliceFunction(HTML, 'resolveTacticalArtilleryCalls'));
+    s.run(`var currentTurn=3; var battle={pendingArtillery:[{id:'call-1',squadIdx:0,arriveTurn:3,resolved:false}]};
+      appData.squads=[{isDestroyed:true,fighters:[]}]; var executed=0;
+      function tacticalArtilleryRecord(){return battle;}
+      function tacticalArtilleryResolveCall(call){executed++;call.fired=true;}
+      function log(){} function saveData(){} function redrawMap(){};`);
+    s.run('var dueCount=resolveTacticalArtilleryCalls();');
+    assert.strictEqual(s.evalCtx('executed'), 1, 'pending strike is resolved without checking the spotter or radio');
+    assert.strictEqual(s.evalCtx('dueCount'), 1);
+    assert.strictEqual(s.evalCtx('battle.pendingArtillery.length'), 0, 'resolved strike is removed from queue');
+});
+
+test('2г: заявка уходит на следующий ход и разбирается в начале своего хода', () => {
     const request = sliceFunction(HTML, 'requestTacticalArtilleryStrike');
     assert.ok(/pendingArtillery\.push\(call\)/.test(request), 'заявка сохраняется в бою');
     assert.ok(/TACTICAL_ARTY_ARRIVE_DELAY/.test(request), 'залп приходит не мгновенно');
@@ -118,8 +132,8 @@ test('2в: заявка уходит на следующий ход и разб�
     assert.ok(/const TACTICAL_ARTY_HIT_THRESHOLD = 7;/.test(HTML), 'd10 ≥ 7 бьёт в заданный гекс, 1–6 сносит в соседа');
     const resolve = sliceFunction(HTML, 'resolveTacticalArtilleryCalls');
     assert.ok(/arriveTurn\) <= turn/.test(resolve), 'налёт приходит в свой ход');
-    assert.ok(/радист убит — связь прекращена/.test(resolve), 'без радиста налёт отменяется');
-    assert.ok(/tacticalArtilleryResolveCall\(call, battle\)/.test(resolve), 'налёт разбирается');
+    assert.ok(!/call\.cancelled = true|ОТМЕНЁН:.*(?:наводчик|радист)/.test(resolve), 'после передачи заявки гибель наводчика или потеря связи не отменяет налёт');
+    assert.ok(/tacticalArtilleryResolveCall\(call, battle\)/.test(resolve), 'налёт разбирается независимо от состояния наводчика');
     assert.ok(/resolveTacticalArtilleryCalls\(\)/.test(sliceFunction(HTML, 'nextTurn')),
         'разбор вызывается при смене хода');
     const shell = sliceFunction(HTML, 'tacticalArtilleryResolveCall');
@@ -153,6 +167,7 @@ test('sandbox: полный цикл — вызов, очередь, залп в
         fighters: [{ name: 'Командир', hp: 3 }, { name: 'Радист 1', hp: 3 }]
     }];
     const s = createSandbox(app);
+    s.run(sliceFunction(HTML, 'operationalAmmoShotsAvailable'));
     s.run(`
         var TACTICAL_ARTY_AP_COST = 2, TACTICAL_ARTY_ARRIVE_DELAY = 1, TACTICAL_ARTY_HIT_THRESHOLD = 7;
         var TACTICAL_ARTY_MORTAR_SHELLS = 6, TACTICAL_ARTY_SAU_SHELLS = 4;
@@ -169,7 +184,7 @@ test('sandbox: полный цикл — вызов, очередь, залп в
         getOpHexDistance = (c1, r1, c2, r2) => Math.abs(c1 - c2) + Math.abs(r1 - r2);
         operationalAmmoSquads = (u) => (u.squads || []);
         unitOperationalAmmoTotal = () => 40;
-        consumeOperationalAmmo = () => true;
+        consumeOperationalAmmo = (unit, kind, shots) => shots;
         var AP_SPENT = 0;
         spendAP = (idx, cost) => { AP_SPENT += cost; return true; };
         getAP = () => 10;

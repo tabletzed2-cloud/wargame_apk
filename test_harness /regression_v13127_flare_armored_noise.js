@@ -78,7 +78,7 @@ test('оперативная броня игнорирует старое скр
   assert(s.evalCtx("direct.result === 'detected' && armor.detected === true && generated.length === 1"), 'operational armor in direct LOS is revealed without stale decoy markers');
 });
 
-test('flare restores daytime accuracy for both sides during the tactical round only', () => {
+test('flare restores daytime accuracy for both sides during its two tactical phases only', () => {
   const s = createSandbox(freshAppData());
   for (const fn of ['tacticalIlluminationActive', 'getNightModifier', 'getScopedActiveModifiersForSquad']) s.run(sliceFunction(HTML, fn));
   s.run(`var currentTurn=4; function isNightTime(){return true;}

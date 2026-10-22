@@ -174,6 +174,8 @@ function onlineBattleSnapshot(battle, status) {
             effects: s.effects && typeof s.effects === 'object' ? JSON.parse(JSON.stringify(s.effects)) : {},
             baseMorale: Number.isFinite(Number(s.baseMorale)) ? Number(s.baseMorale) : 5,
             tacticalMoraleMax: Number.isFinite(Number(s.tacticalMoraleMax)) ? Number(s.tacticalMoraleMax) : null,
+            tacticalMoraleLegacyScale: Number.isFinite(Number(s.tacticalMoraleLegacyScale)) ? Number(s.tacticalMoraleLegacyScale) : null,
+            tacticalMoraleScaleVersion: Number.isFinite(Number(s.tacticalMoraleScaleVersion)) ? Number(s.tacticalMoraleScaleVersion) : null,
             tacticalOriginalRosterSize: Number.isFinite(Number(s.tacticalOriginalRosterSize)) ? Number(s.tacticalOriginalRosterSize) : null,
             icon: s.icon || s.vehicleIcon || null,
             isVehicle: !!s.isVehicle,
@@ -690,6 +692,8 @@ function onlineMergeOppBattle(battle, e) {
                 currentMorale: (cs.currentMorale !== null && cs.currentMorale !== undefined) ? cs.currentMorale : 5,
                 baseMorale: Number.isFinite(Number(cs.baseMorale)) ? Number(cs.baseMorale) : 5,
                 tacticalMoraleMax: Number.isFinite(Number(cs.tacticalMoraleMax)) ? Number(cs.tacticalMoraleMax) : undefined,
+                tacticalMoraleLegacyScale: Number.isFinite(Number(cs.tacticalMoraleLegacyScale)) ? Number(cs.tacticalMoraleLegacyScale) : undefined,
+                tacticalMoraleScaleVersion: Number.isFinite(Number(cs.tacticalMoraleScaleVersion)) ? Number(cs.tacticalMoraleScaleVersion) : undefined,
                 tacticalOriginalRosterSize: Number.isFinite(Number(cs.tacticalOriginalRosterSize)) ? Number(cs.tacticalOriginalRosterSize) : undefined,
                 embarkedSquadIndex: null,
                 fighters: (cs.fighters || []).map(f => ({ name: f.name || 'Боец', weapon: f.weapon || 'Винтовка', isCommander: !!f.isCommander, hp: f.hp, maxHp: f.maxHp }))
@@ -732,7 +736,7 @@ function onlineMergeOppBattle(battle, e) {
         if (cs.effects && typeof cs.effects === 'object' && JSON.stringify(s.effects || {}) !== JSON.stringify(cs.effects)) {
             s.effects = JSON.parse(JSON.stringify(cs.effects)); changed = true;
         }
-        ['baseMorale', 'tacticalMoraleMax', 'tacticalOriginalRosterSize'].forEach(k => {
+        ['baseMorale', 'tacticalMoraleMax', 'tacticalMoraleLegacyScale', 'tacticalMoraleScaleVersion', 'tacticalOriginalRosterSize'].forEach(k => {
             if (cs[k] !== undefined && cs[k] !== null && Number.isFinite(Number(cs[k])) && Number(s[k]) !== Number(cs[k])) {
                 s[k] = Number(cs[k]); changed = true;
             }
@@ -749,7 +753,10 @@ function onlineMergeOppBattle(battle, e) {
         else if (cs.detected || cs.firedThisTurn) s.detected = true;
         if (cs.currentMorale !== null && cs.currentMorale !== undefined) {
             const pendingMorale = Math.max(0, (battle.onlineMoraleOut && battle.onlineMoraleOut[s.name] || 0) - (e.moraleIn && e.moraleIn[s.name] || 0));
-            const value = Math.max(0, cs.currentMorale - pendingMorale);
+            const pendingMoraleDelta = typeof tacticalMoraleDeltaPercent === 'function'
+                ? tacticalMoraleDeltaPercent(s, pendingMorale)
+                : pendingMorale * 100 / Math.max(1, Number(s.tacticalMoraleLegacyScale) || Number(s.tacticalMoraleMax) || Number(s.baseMorale) || 1);
+            const value = Math.max(0, cs.currentMorale - pendingMoraleDelta);
             if (s.currentMorale !== value) { s.currentMorale = value; changed = true; }
         }
         // позиция на карте боя (⚡ v13.055: до готовности обоих расстановка оппонента скрыта)
@@ -815,7 +822,12 @@ function onlineMergeOppBattle(battle, e) {
         const squad = mySquads.find(s => s && s.name === name);
         const delta = Number(total) - (battle.onlineMoraleIn[name] || 0);
         if (!squad || !Number.isFinite(delta) || delta <= 0) return;
-        squad.currentMorale = Math.max(0, (squad.currentMorale ?? squad.baseMorale ?? 5) - delta);
+        if (typeof tacticalChangeMorale === 'function') tacticalChangeMorale(squad, -delta);
+        else {
+            const legacyScale = Math.max(1, Number(squad.tacticalMoraleLegacyScale) || Number(squad.tacticalMoraleMax) || Number(squad.baseMorale) || 1);
+            const current = Number(squad.currentMorale ?? squad.baseMorale ?? 5) || 0;
+            squad.currentMorale = Math.max(0, current - delta * 100 / legacyScale);
+        }
         battle.onlineMoraleIn[name] = Number(total);
         if (typeof tacticalMaybeAutoRetreat === 'function') tacticalMaybeAutoRetreat(squad, 'player', mySquads.indexOf(squad));
         if (live && typeof currentSquad !== 'undefined' && currentSquad === squad) morale = squad.currentMorale;
@@ -838,8 +850,9 @@ function onlineMergeOppBattle(battle, e) {
                 if (typeof tacticalRecordIncomingCasualty === 'function') tacticalRecordIncomingCasualty(s);
                 if (typeof tacticalApplyFighterMoraleLoss === 'function') tacticalApplyFighterMoraleLoss(s, f, 'player');
                 else {
+                    const legacyScale = Math.max(1, Number(s.tacticalMoraleLegacyScale) || Number(s.tacticalMoraleMax) || Number(s.baseMorale) || 1);
                     const morale = (s.currentMorale !== undefined && s.currentMorale !== null) ? Number(s.currentMorale) : Number(s.baseMorale || 5);
-                    s.currentMorale = Math.max(0, (Number.isFinite(morale) ? morale : 5) - (f.isCommander ? 2 : 1));
+                    s.currentMorale = Math.max(0, (Number.isFinite(morale) ? morale : 5) - (f.isCommander ? 2 : 1) * 100 / legacyScale);
                 }
             }
             if (f.hp !== before) {
