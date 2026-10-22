@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.127
+// ⚡ BUILD-МАРКЕР: v13.128
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -144,7 +144,8 @@ function mapActionEligibleAmmoRunners(squad) {
 
 function mapActionCanUseBinoculars(squad) {
     const label = `${(squad && squad.name) || ''} ${(squad && squad.opUnitName) || ''} ${(squad && squad.opUnitType) || ''}`;
-    return /(штаб|headquarters|\bhq\b|battalion_hq|company_hq|развед)/i.test(label) && !/снабж/i.test(label);
+    return (/(штаб|headquarters|\bhq\b|battalion_hq|company_hq|развед)/i.test(label) && !/снабж/i.test(label)) ||
+        (squad && squad.faction === 'BeVe' && /снайперское звено OIP/i.test(String(squad.name || '')));
 }
 
 function mapActionEnemyAlive(enemy) {
@@ -152,7 +153,7 @@ function mapActionEnemyAlive(enemy) {
     return (enemy.fighters || []).filter(f => f && f.hp > 0).length;
 }
 function mapActionEnemyTargetable(enemy) {
-    return !!enemy && enemy.hidden !== true && !!enemy.detected && !enemy.isRetreated && enemy.status !== 'retreated' && mapActionEnemyAlive(enemy) > 0;
+    return !!enemy && !enemy.camouflaged && enemy.hidden !== true && !!enemy.detected && !enemy.isRetreated && enemy.status !== 'retreated' && mapActionEnemyAlive(enemy) > 0;
 }
 function mapActionEnemyIsVehicle(enemy) {
     return !!(enemy && (enemy.isVehicle || enemy.armor));
@@ -436,6 +437,9 @@ function renderMapActionPanel() {
         });
         const utilityAllowed = typeof tacticalActionAllowed !== 'function' || tacticalActionAllowed(squad, 'utility', true);
         const utilityDisabled = (ap < 2 || routed || !pos || phaseLocked || meleeEngaged || !utilityAllowed) ? 'disabled' : '';
+        if (typeof tacticalCanCamouflage === 'function' && tacticalCanCamouflage(squad)) {
+            html += `<button onclick="selectSquad(${idx}); tacticalCamouflageSelectedSquad();" ${utilityDisabled} title="1 ОД: доступно в первом раунде до движения/стрельбы в лесу, на камнях или в кустах; раскрывается при движении или стрельбе">🎭 Замаскироваться (1 ОД)</button>`;
+        }
         if (mapActionCanUseBinoculars(squad)) {
             html += `<button onclick="mapBeginBinoculars()" ${utilityDisabled} title="1 ОД: выбрать гекс и обнаружить скрытые в нём отряды">🔭 Бинокль (1 ОД)</button>`;
         }
@@ -600,6 +604,11 @@ function mapShowQuickActionMenu(idx, hexKey, clientX, clientY) {
             'Боец вернётся с 30 патронами, 10 снарядами или 5 гранатами');
         actionCount++;
     }
+    if (typeof tacticalCanCamouflage === 'function' && tacticalCanCamouflage(squad)) {
+        html += button('camouflage', '🎭 Замаскироваться (1 ОД)', disableBase || ap < 2 || meleeEngaged || !utilityAllowed,
+            'Только в первом раунде до движения/стрельбы, в лесу, на камнях или в кустах');
+        actionCount++;
+    }
     if (mapActionCanUseBinoculars(squad)) {
         html += button('binoculars', '🔭 Бинокль', disableBase || ap < 2 || meleeEngaged || !utilityAllowed, '1 ОД: выбрать гекс и обнаружить скрытые отряды');
         actionCount++;
@@ -638,6 +647,7 @@ function mapShowQuickActionMenu(idx, hexKey, clientX, clientY) {
         if (action.startsWith('dotmg:')) { mapAction('dotmg', Number(action.slice(6))); return; }
         if (action === 'ammo-run') { mapBeginAmmoRun(); return; }
         if (action === 'binoculars') { mapBeginBinoculars(); return; }
+        if (action === 'camouflage') { if (typeof selectSquad === 'function') selectSquad(idx); if (typeof tacticalCamouflageSelectedSquad === 'function') tacticalCamouflageSelectedSquad(); renderMapActionPanel(); return; }
         if (action === 'flare') { mapFireFlare(idx); return; }
         if (action === 'dismount') {
             if (typeof selectSquad === 'function') selectSquad(idx);
@@ -849,7 +859,7 @@ function mapBeginBinoculars() {
     const idx = mapActionSelectedIdx();
     if (idx < 0) { mapActionInfo('⚠️ Сначала выберите свой отряд на карте.', '#e74c3c'); return; }
     const squad = appData.squads[idx];
-    if (!mapActionCanUseBinoculars(squad)) { mapActionInfo('🔭 Бинокль доступен только штабам и разведывательным отделениям.', '#e74c3c'); return; }
+    if (!mapActionCanUseBinoculars(squad)) { mapActionInfo('🔭 Бинокль доступен штабам, разведчикам и снайперскому звену BeVe.', '#e74c3c'); return; }
     if (typeof tacticalActionAllowed === 'function' && !tacticalActionAllowed(squad, 'utility')) return;
     if (!getBattleSquadHex(appData.map.grid, idx, false)) { mapActionInfo('⚠️ Отряд не размещён на карте.', '#e74c3c'); return; }
     if ((typeof getAP === 'function' ? getAP(idx) : 0) < 2) { mapActionInfo('⛔ Для бинокля требуется 1 ОД.', '#e74c3c'); return; }
@@ -904,7 +914,7 @@ function mapHexClickDuringBinoculars(key) {
     const enemies = appData.map.enemySquads || [];
     const found = [];
     enemies.forEach((enemy, enemyIdx) => {
-        if (!enemy || (typeof tacticalEnemyIsNeutralized === 'function' && tacticalEnemyIsNeutralized(enemy)) || mapActionEnemyAlive(enemy) <= 0) return;
+        if (!enemy || enemy.camouflaged || (typeof tacticalEnemyIsNeutralized === 'function' && tacticalEnemyIsNeutralized(enemy)) || mapActionEnemyAlive(enemy) <= 0) return;
         let pos = getBattleSquadHex(appData.map.grid, enemyIdx, true);
         if (!pos && Array.isArray(enemy.hexPos)) pos = { key: enemy.hexPos.join(',') };
         if (!pos || pos.key !== key) return;
@@ -921,6 +931,10 @@ function mapHexClickDuringBinoculars(key) {
         enemy.detected = true;
         enemy.binocularsDetectedTurn = (typeof currentTurn !== 'undefined') ? currentTurn : 1;
     });
+    appData.map.reconRevealedHexes = Array.isArray(appData.map.reconRevealedHexes) ? appData.map.reconRevealedHexes : [];
+    const reconTurn = (typeof currentTurn !== 'undefined' ? Number(currentTurn) : 1) || 1;
+    appData.map.reconRevealedHexes = appData.map.reconRevealedHexes.filter(item => item && Number(item.expiresTurn) >= reconTurn && String(item.key) !== String(key));
+    appData.map.reconRevealedHexes.push({ key: String(key), expiresTurn: reconTurn + 1 });
     appData.map.pendingMapBinoculars = null;
     if (found.length) {
         mapActionInfo(`🔭 На гексе ${key} обнаружены: ${found.map(e => e.name).join(', ')}.`, '#2ecc71');
@@ -1127,7 +1141,12 @@ function applyDamagePointsToEnemy(enemy, points, res, options) {
     for (let i = 0; i < points; i++) {
         const alive = (enemy.fighters || []).filter(f => f && f.hp > 0);
         if (alive.length === 0) break;
-        const f = alive[Math.floor(Math.random() * alive.length)];
+        // Sniper damage can be pinned to one random fighter; if that fighter
+        // drops, the remaining points of this shot must not spill to the squad.
+        const f = options.targetFighter
+            ? (alive.includes(options.targetFighter) ? options.targetFighter : null)
+            : alive[Math.floor(Math.random() * alive.length)];
+        if (!f) break;
         f.hp = Math.max(0, (f.hp || 0) - 1);
         applied++;
         if (f.hp === 0) {
@@ -1299,9 +1318,13 @@ function reportAttackOutcome(kind, data) {
             if (mapActionEnemyIsVehicle(enemy)) res.notes.push('пулемёт ДОТа не наносит урон бронетехнике');
             else applyDamagePointsToEnemy(enemy, data.hits || 0, res);
             break;
-        case 'sniper':
-            applyDamagePointsToEnemy(enemy, (data.hits ? (data.damage || 0) : 0), res);
+        case 'sniper': {
+            if (!(data.hits > 0)) break;
+            const livingFighters = (enemy.fighters || []).filter(f => f && f.hp > 0);
+            const selectedFighter = livingFighters[Math.floor(Math.random() * livingFighters.length)];
+            if (selectedFighter) applyDamagePointsToEnemy(enemy, Number(data.damage) || 0, res, { targetFighter: selectedFighter });
             break;
+        }
         case 'grenades': {
             const hexOccupants = mapActionAreaOccupantsAtTarget(idx).filter(u => mapActionEnemyAlive(u) > 0);
             if (!((data.areaFire === true || hexOccupants.length > 1) && mapActionApplyAreaDamage(idx, data.damage, res))) {
