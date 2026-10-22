@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.127
+// ⚡ BUILD-МАРКЕР: v13.128
 // v13.062: monotonic turn handoff; synchronize routing and melee without stale phase rollback.
 // ⚡ v13.061: sync retreat state and attacker/defender phase in online battle snapshots.
 // ============================================================
@@ -180,6 +180,7 @@ function onlineBattleSnapshot(battle, status) {
             armor: s.armor || null,
             pos: myPlaced ? (pos[i] || null) : null,
             hidden: !!s.hidden,
+            camouflaged: !!s.camouflaged,
             detected: !!s.detected,
             firedThisTurn: !!(s.actionsThisTurn && (s.actionsThisTurn.shots || 0) > 0),
             isDestroyed: !!s.isDestroyed,
@@ -713,7 +714,7 @@ function onlineMergeOppBattle(battle, e) {
             if (f.hp !== expected) { f.hp = expected; changed = true; }
             seen[i] = f.hp;
         });
-        ['hidden', 'isDestroyed', 'isSurrendered', 'isRetreated', 'isRouting', 'dismounted', 'suppressed'].forEach(k => {
+        ['hidden', 'camouflaged', 'isDestroyed', 'isSurrendered', 'isRetreated', 'isRouting', 'dismounted', 'suppressed'].forEach(k => {
             const v = !!cs[k];
             if (!!s[k] !== v) { s[k] = v; changed = true; }
         });
@@ -744,7 +745,8 @@ function onlineMergeOppBattle(battle, e) {
         if (cs.meleeOpponentName) s.meleeOpponentName = cs.meleeOpponentName;
         else if (s.meleeOpponentName && (battle.phaseRevision || 0) <= (e.phaseRevision || 0)) delete s.meleeOpponentName;
         if (s.isRetreated && typeof tacticalClearMeleeEngagement === 'function') tacticalClearMeleeEngagement(s);
-        if (cs.detected || cs.firedThisTurn) s.detected = true;
+        if (cs.camouflaged) s.detected = false;
+        else if (cs.detected || cs.firedThisTurn) s.detected = true;
         if (cs.currentMorale !== null && cs.currentMorale !== undefined) {
             const pendingMorale = Math.max(0, (battle.onlineMoraleOut && battle.onlineMoraleOut[s.name] || 0) - (e.moraleIn && e.moraleIn[s.name] || 0));
             const value = Math.max(0, cs.currentMorale - pendingMorale);

@@ -115,7 +115,7 @@ test('2в: заявка уходит на следующий ход и разб�
     assert.ok(/TACTICAL_ARTY_ARRIVE_DELAY/.test(request), 'залп приходит не мгновенно');
     assert.ok(/spendAP\(idx, TACTICAL_ARTY_AP_COST\)/.test(request), 'вызов стоит 1 ОД');
     assert.ok(/consumeOperationalAmmo/.test(request), 'батарея тратит снаряды');
-    assert.ok(/const TACTICAL_ARTY_HIT_THRESHOLD = 6;/.test(HTML), 'попадание снаряда — d10 ≥ 6');
+    assert.ok(/const TACTICAL_ARTY_HIT_THRESHOLD = 7;/.test(HTML), 'd10 ≥ 7 бьёт в заданный гекс, 1–6 сносит в соседа');
     const resolve = sliceFunction(HTML, 'resolveTacticalArtilleryCalls');
     assert.ok(/arriveTurn\) <= turn/.test(resolve), 'налёт приходит в свой ход');
     assert.ok(/радист убит — связь прекращена/.test(resolve), 'без радиста налёт отменяется');
@@ -123,7 +123,9 @@ test('2в: заявка уходит на следующий ход и разб�
     assert.ok(/resolveTacticalArtilleryCalls\(\)/.test(sliceFunction(HTML, 'nextTurn')),
         'разбор вызывается при смене хода');
     const shell = sliceFunction(HTML, 'tacticalArtilleryResolveCall');
-    assert.ok(/tacticalSmokeWindDestination/.test(shell), 'рассеивание — как у дымовой завесы (d12)');
+    assert.ok(/tacticalArtilleryScatterHex\(call\.targetHex, roll, map\)/.test(shell), 'каждый снаряд отдельно попадает/сносится');
+    assert.ok(/tacticalArtilleryScatterHex/.test(HTML) && /oddRow/.test(sliceFunction(HTML, 'tacticalArtilleryScatterHex')), 'снос использует шесть соседей с учётом чётности строки');
+    assert.ok(/Math\.floor\(rawDamage \* 0\.6\)/.test(shell) && /afterTerrain \* damageable\.length/.test(shell), 'окоп снижает урон на 40%, затем он умножается на число отрядов');
     assert.ok(/Итог налёта/.test(shell), 'результат залпа виден в журнале');
     assert.ok(/tacticalIsDotSquad\(squad\)/.test(sliceFunction(HTML, 'tacticalArtilleryApplyDamage')),
         'ДОТ не получает урона от артиллерии');
@@ -152,7 +154,7 @@ test('sandbox: полный цикл — вызов, очередь, залп в
     }];
     const s = createSandbox(app);
     s.run(`
-        var TACTICAL_ARTY_AP_COST = 2, TACTICAL_ARTY_ARRIVE_DELAY = 1, TACTICAL_ARTY_HIT_THRESHOLD = 6;
+        var TACTICAL_ARTY_AP_COST = 2, TACTICAL_ARTY_ARRIVE_DELAY = 1, TACTICAL_ARTY_HIT_THRESHOLD = 7;
         var TACTICAL_ARTY_MORTAR_SHELLS = 6, TACTICAL_ARTY_SAU_SHELLS = 4;
         currentTurn = 1; currentSquadIndex = 0; currentSquad = appData.squads[0];
         hardMode.enabled = true; hardMode.hqUnitId = 0;
@@ -171,8 +173,8 @@ test('sandbox: полный цикл — вызов, очередь, залп в
         var AP_SPENT = 0;
         spendAP = (idx, cost) => { AP_SPENT += cost; return true; };
         getAP = () => 10;
-        rollD12 = () => 12; // штиль — залп ложится в указанный гекс
-        tacticalSmokeWindDestination = (key) => key;
+        rollD10 = () => 8; // прямое попадание в заданный гекс
+        rollD6 = () => 6;
         tacticalIsDotSquad = (sq) => /ДОТ|дзот/i.test(String((sq && sq.name) || ''));
     `);
     s.run(sliceFunction(HTML, 'tacticalArtilleryRecord'));
@@ -187,6 +189,8 @@ test('sandbox: полный цикл — вызов, очередь, залп в
     s.run(sliceFunction(HTML, 'requestTacticalArtilleryStrike'));
     s.run(sliceFunction(HTML, 'tacticalArtilleryHexOccupants'));
     s.run(sliceFunction(HTML, 'tacticalArtilleryApplyDamage'));
+    s.run(sliceFunction(HTML, 'tacticalArtilleryScatterHex'));
+    s.run(sliceFunction(HTML, 'tacticalArtilleryHexHasTrenches'));
     s.run(sliceFunction(HTML, 'tacticalArtilleryResolveCall'));
     s.run(sliceFunction(HTML, 'resolveTacticalArtilleryCalls'));
     s.run(`

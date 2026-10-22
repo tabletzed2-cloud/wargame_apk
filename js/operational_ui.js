@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.127 — tactical grenade-area fire, commissioner card limit, unified rules.
+// ⚡ BUILD-МАРКЕР: v13.128 — tactical grenade-area fire, commissioner card limit, unified rules.
 (function () {
   'use strict';
 
@@ -413,11 +413,17 @@
     if (pan.raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(pan.raf);
     pan.raf = 0;
   }
+  function clampPanViewport(viewport) {
+    if (!viewport) return;
+    viewport.scrollLeft = Math.max(0, Math.min(viewport.scrollLeft, Math.max(0, viewport.scrollWidth - viewport.clientWidth)));
+    viewport.scrollTop = Math.max(0, Math.min(viewport.scrollTop, Math.max(0, viewport.scrollHeight - viewport.clientHeight)));
+  }
   function panInertia(viewport) {
     pan.vx *= 0.92; pan.vy *= 0.92;
     if (Math.abs(pan.vx) < 0.4 && Math.abs(pan.vy) < 0.4) { pan.raf = 0; return; }
     viewport.scrollLeft -= pan.vx;
     viewport.scrollTop -= pan.vy;
+    clampPanViewport(viewport);
     if (typeof requestAnimationFrame === 'function') pan.raf = requestAnimationFrame(() => panInertia(viewport));
     else pan.raf = 0;
   }
@@ -457,6 +463,7 @@
     pan.x = event.clientX; pan.y = event.clientY; pan.t = now;
     viewport.scrollLeft = pan.left - dx;
     viewport.scrollTop = pan.top - dy;
+    clampPanViewport(viewport);
   }
   function endPan() {
     if (pan.id == null && !pan.raf) return;
@@ -988,7 +995,7 @@
     }
     if (action === 'recon') return !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
     if (action === 'dig_in' || action === 'prep_positions') return !(typeof isVehicleMobilityUnit === 'function' && isVehicleMobilityUnit(unit)) && !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
-    if (action === 'dismount') return (unit.mobility === 'bicycle' || unit.mobility === 'motorcycle') && !unit.dismounted;
+    if (action === 'dismount') return unit.faction === 'BeVe' && (unit.mobility === 'bicycle' || unit.dismountedFromMobility === 'bicycle') && !unit.dismounted;
     if (action === 'remount') return !!unit.dismounted;
     if (action === 'embark') return !unit.embarkedInBtr && !unit.hidden && unit.col != null &&
       !/БТР|танк|САУ|ДОТ|Бронеавтомобиль/i.test(String(unit.name || ''));
@@ -1085,7 +1092,12 @@
     const passenger = !!unit.embarkedInBtr;
     const artillery = !passenger && unit && (unit.type === 'battalion_hq' || unit.type === 'hq') &&
       typeof canIssueArtilleryStrike === 'function' && canIssueArtilleryStrike();
-    const artilleryLeft = campaign() ? 4 - (Number(campaign().artilleryStrikesUsed) || 0) : 0;
+    const artilleryReserved = campaign() && typeof getAllOrdersList === 'function' ? getAllOrdersList().reduce((sum, order) => {
+      if (!order || order.type !== 'artillery_strike' || !['active','queued','pending','delivering'].includes(order.status) || !Number.isFinite(Number(order.artilleryDurationMin))) return sum;
+      const duration = Number(order.artilleryDurationMin) || 20;
+      return sum + Math.max(0, (Number(order.artilleryUnitsReserved) || Math.floor((duration - 10) / 10)) - (Number(order.artilleryUnitsFired) || 0));
+    }, 0) : 0;
+    const artilleryLeft = campaign() ? 4 - (Number(campaign().artilleryStrikesUsed) || 0) - artilleryReserved : 0;
     const carried = passenger ? null : passengerOf(unit);
     return `<div class="op-cmd-head"><div><div class="op-cmd-title">${esc(unit.name)}</div>` +
       `<div class="op-cmd-subtitle">${passenger ? 'Десант в БТР · выберите приказ' : 'Выберите тип приказа'}</div></div><button type="button" class="op-cmd-close" data-cmd="close" aria-label="Закрыть">×</button></div>` +
@@ -1187,9 +1199,10 @@
       }
       body += contactField(draft.behavior) + timeField(draft.time);
     } else if (draft.category === 'artillery') {
-      body += `<div class="op-cmd-note">Штаб батальона назначит доступный артиллерийский обстрел. Поддержка при старте обязательна; максимум — 4 за кампанию. Приказ сработает не раньше следующего хода.</div>` +
+      body += `<div class="op-cmd-note">Пристрелка: 10 снарядов, 5% попадания, 1d12 урона. Полный интервал: 20 снарядов, 25% (в окопах 15%); корректировщик — 40% +5 п.п. за каждый дополнительный пехотный взвод на гексе. Каждый полный интервал расходует 1 из 4 единиц; минимум 20 минут.</div>` +
         `<div class="op-cmd-note">Целевой гекс: ${esc(draft.targetHex || 'не выбран')}</div>` +
-        pointPicker('Выбрать гекс обстрела', 'target') + timeField(draft.time);
+        pointPicker('Выбрать гекс обстрела', 'target') +
+        `<label class="op-cmd-field">Длительность<select data-draft-field="duration">${[20,30,40,50].map(m => `<option value="${m}"${Number(draft.duration) === m ? ' selected' : ''}>${m} минут · ${m / 10 - 1} ед.</option>`).join('')}</select></label>` + timeField(draft.time);
       if (state.mapPick === 'target') body += mapPickHint();
     }
 
@@ -1362,6 +1375,7 @@
     else if (field === 'btrUnitId') draft.btrUnitId = value;
     else if (field === 'targetEnemyId') draft.targetEnemyId = value;
     else if (field === 'shellMinutes') draft.shellMinutes = (typeof normalizeShellMinutes === 'function') ? normalizeShellMinutes(value) : 10;
+    else if (field === 'duration') draft.duration = Math.max(20, Math.min(50, Math.ceil((Number(value) || 20) / 10) * 10));
   }
   function startMapPick(kind) {
     if (!state.draft) return;
@@ -1948,7 +1962,7 @@
     const picked = selectedUnit();
     if (!picked.unit || !(picked.unit.type === 'battalion_hq' || picked.unit.type === 'hq')) throw new Error('Арт. обстрел назначает штаб батальона.');
     if (typeof canIssueArtilleryStrike === 'function' && !canIssueArtilleryStrike()) throw new Error('У батальона нет артиллерийской поддержки.');
-    if ((Number(campaign().artilleryStrikesUsed) || 0) >= 4) throw new Error('Лимит артиллерийской поддержки исчерпан: 4 обстрела за кампанию.');
+    if ((Number(campaign().artilleryStrikesUsed) || 0) >= 4) throw new Error('Лимит артиллерийской поддержки исчерпан: 4 единицы уже применены.');
     if (!state.draft.targetHex) throw new Error('Выберите гекс артиллерийского обстрела.');
     const hasManualTime = String(state.draft.time || '').trim() !== '';
     const time = hasManualTime ? parseMinuteInput(state.draft.time) : null;
@@ -1957,7 +1971,7 @@
     const timeEl = document.getElementById('orderStartTime');
     if (target) target.value = state.draft.targetHex;
     if (timeEl) timeEl.value = time == null ? '' : formatMinuteInput(time);
-    submitArtilleryStrikeOrder();
+    if (submitArtilleryStrikeOrder(Number(state.draft.duration) || 20) !== true) throw new Error('Артиллерийский обстрел не назначен — проверьте лимит выделенных единиц.');
     markChecklist('orders');
     closeCommandMenu(true);
   }
@@ -1972,7 +1986,7 @@
     if (action === 'fire-kind') { startFireKind(button.getAttribute('data-kind')); return; }
     if (action === 'artillery') {
       state.menuPage = 'details';
-      state.draft = { category: 'artillery', behavior: 'ignore', time: '', targetHex: '' };
+      state.draft = { category: 'artillery', behavior: 'ignore', time: '', targetHex: '', duration: 20 };
       state.error = '';
       renderCommandMenu();
       return;
