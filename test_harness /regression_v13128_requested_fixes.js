@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { createSandbox, freshAppData } = require('./sandbox');
-const { sliceFunction, HTML, ROOT } = require('./extract');
+const { sliceFunction, sliceConst, HTML, ROOT } = require('./extract');
 const mapActions = fs.readFileSync(path.join(ROOT, 'js/map_actions.js'), 'utf8');
 const online = fs.readFileSync(path.join(ROOT, 'js/online_battles.js'), 'utf8');
 const operationalUi = fs.readFileSync(path.join(ROOT, 'js/operational_ui.js'), 'utf8');
@@ -61,12 +61,16 @@ test('маскировка доступна только в первом рау�
   assert(online.includes('camouflaged: !!s.camouflaged') && online.includes('if (cs.camouflaged) s.detected = false'), 'online snapshots preserve concealment');
 });
 
-test('оперативная мораль не ограничивает тактический моральный дух', () => {
+test('тактические отряды наследуют оперативный дух на общей шкале 0–100', () => {
   const s = createSandbox(freshAppData());
-  s.run(sliceFunction(HTML, 'tacticalInitializeSquadMorale'));
-  s.run(`function isArmoredTacticalSquad(){return false;} function tacticalMarkStartingMoraleCasualties(){};
-    const squad={name:'Пехота',fighters:[{hp:3}],operationalMoralePercent:0}; tacticalInitializeSquadMorale(squad,'battle');`);
-  assert(s.evalCtx('squad.currentMorale===1 && squad.tacticalMoraleMax===1'), 'tactical morale comes from the squad, not operational morale');
+  s.run(sliceConst(HTML, 'ARMOR_TACTICAL_MORALE'));
+  s.run(`currentSquad=null; morale=0; appData.campaign.opUnits=[{name:'Взвод',operationalMorale:63}];
+    function tacticalMarkStartingMoraleCasualties(){};`);
+  for (const fn of ['tacticalNormalizeMoraleScale','tacticalMoraleScale','tacticalMoraleCurrent','tacticalMoraleDeltaPercent',
+    'tacticalFindOperationalMoraleOwner','tacticalIsSniperOrMortarSquad','isArmoredTacticalSquad','tacticalInitializeSquadMorale']) s.run(sliceFunction(HTML, fn));
+  s.run(`var squad={name:'Пехота',opUnitName:'Взвод',fighters:[{hp:3}],operationalMoralePercent:0};
+    tacticalInitializeSquadMorale(squad,'battle');`);
+  assert(s.evalCtx('squad.currentMorale===63 && squad.tacticalMoraleMax===100 && squad.tacticalMoraleScaleVersion===1'), 'the tactical squad inherits its platoon morale on the normalized scale');
 });
 
 test('подкрепление не переносит центр активного боя; бронеавтомобиль не входит на холм/камни', () => {
@@ -110,8 +114,13 @@ test('обстрел длится минимум 20 минут: 10 минут п
     currentTurn=3; appData.campaign.currentTurn=3; executeArtilleryStrikeOrder(oldOrder);`);
   assert(legacy.evalCtx("appData.campaign.artilleryStrikesUsed===1 && oldOrder.status==='completed' && salvoTypes.length===2"), 'pre-v13.128 active orders retain their already charged unit without double billing');
   const actual = createSandbox(freshAppData());
+  actual.run(sliceConst(HTML, 'OP_ARTILLERY_ARMOR_DAMAGE_CHANCE'));
+  actual.run(sliceConst(HTML, 'OP_ARTILLERY_ARMOR_PENETRATION_MM'));
+  actual.run(sliceFunction(HTML, 'applyOperationalArtilleryArmorHit'));
+  actual.run(sliceFunction(HTML, 'applyOperationalArtilleryArmorHitsAtHex'));
   actual.run(sliceFunction(HTML, 'executeArtilleryStrikeSalvo')); actual.run(sliceFunction(HTML, 'executeArtilleryStrikeOrder'));
   actual.run(`var currentTurn=2; OP_MAP_COLS=40; OP_MAP_ROWS=40; Math.random=()=>0;
+    function isArmoredUnit(){return false;} function processVehicleHit(){return null;} function selectTargetVehicle(){return null;}
     function orderShouldExecuteNow(){return true;} function isHexInPlayableArea(){return true;}
     function getOpHexDistance(a,b,c,d){return Math.max(Math.abs(a-c),Math.abs(b-d));}
     function hasRadio(){return true;} function hasActivePhoneAt(){return false;}
@@ -198,18 +207,18 @@ test('приказы взводам штаба роты получают нез�
   assert(HTML.includes("((b && b.type === 'company_order') ? 1 : 0) - ((a && a.type === 'company_order') ? 1 : 0)"), 'company relay pass precedes the HQ order');
 });
 
-test('осветительная ракета действует до начала следующего раунда независимо от стороны фазы', () => {
+test('осветительная ракета действует ровно две последовательные фазы независимо от стороны', () => {
   const s = createSandbox(freshAppData());
   s.run(sliceFunction(HTML, 'createTacticalFlareEvent')); s.run(sliceFunction(HTML, 'tacticalIlluminationActive'));
-  s.run(`var currentTurn=10, phaseCompleted=0; appData.map={};
-    function getTacticalBattleRecord(){return {};} function getTacticalRoundProgress(){return {completed:phaseCompleted};}
+  s.run(`var currentTurn=10; appData.map={};
+    function getTacticalBattleRecord(){return {};}
     var first=createTacticalFlareEvent('player'); var firstExpiry=appData.map.illuminationFlare.expiresTurn;
-    var firstPhaseActive=tacticalIlluminationActive(10); var defenderPhaseActive=tacticalIlluminationActive(11); var nextRoundInactive=!tacticalIlluminationActive(12);
-    currentTurn=21; phaseCompleted=1; var second=createTacticalFlareEvent('enemy'); var secondExpiry=appData.map.illuminationFlare.expiresTurn;
-    var secondPhaseActive=tacticalIlluminationActive(21); var nextRoundAfterDefenderInactive=!tacticalIlluminationActive(22);`);
-  assert(s.evalCtx('firstExpiry===11 && firstPhaseActive && defenderPhaseActive && nextRoundInactive'), 'flare in first phase spans the defender phase but not the next round');
-  assert(s.evalCtx('secondExpiry===21 && secondPhaseActive && nextRoundAfterDefenderInactive'), 'flare in defender phase expires at the next round boundary');
-  assert(HTML.includes('до начала следующего тактического раунда'), 'flare message reflects round-based duration');
+    var playerPhaseActive=tacticalIlluminationActive(10); var enemyPhaseActive=tacticalIlluminationActive(11); var expiredAfterTwoPhases=!tacticalIlluminationActive(12);
+    currentTurn=21; var second=createTacticalFlareEvent('enemy'); var secondExpiry=appData.map.illuminationFlare.expiresTurn;
+    var enemyPhaseActiveFirst=tacticalIlluminationActive(21); var playerPhaseActiveNext=tacticalIlluminationActive(22); var expiredAfterNextPhase=!tacticalIlluminationActive(23);`);
+  assert(s.evalCtx('firstExpiry===11 && playerPhaseActive && enemyPhaseActive && expiredAfterTwoPhases'), 'player flare spans its own phase and the opposing phase only');
+  assert(s.evalCtx('secondExpiry===22 && enemyPhaseActiveFirst && playerPhaseActiveNext && expiredAfterNextPhase'), 'enemy flare spans its own phase and the player phase only');
+  assert(HTML.includes('две фазы'), 'flare log states the two-phase duration');
 });
 
 console.log(`Итог v13.128: PASS ${pass} · FAIL ${fail}`);

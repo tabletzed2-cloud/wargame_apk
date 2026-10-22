@@ -4502,12 +4502,16 @@ function handleOpMapClick(e) {
     const isSau = shooter.name && shooter.name.includes('САУ');
     const hasArmor = targetUnits.some(u => isArmoredUnit(u));
 
-    if (isSau && hasArmor) {
-        const maxRange = 3; // ПТО-огонь САУ только до 3 гексов
-        if (distance > maxRange) {
-            document.getElementById('mapInfo').innerHTML = `❌ САУ не может вести ПТО-огонь дальше 3 гексов. Дистанция: ${distance}.`;
+    if (isSau && hasArmor && distance > 3) {
+        if (distance > 10) {
+            document.getElementById('mapInfo').innerHTML = `❌ САУ не может обстреливать цель дальше 10 гексов. Дистанция: ${distance}.`;
             return;
         }
+        const vehicles = shooter.isGroup && Array.isArray(shooter.vehicleList)
+            ? shooter.vehicleList.filter(v => v && !v.isDestroyed && !v.destroyed).length : 1;
+        executeMortarSalvo(shooter, targetUnits, distance, 7 * Math.max(1, vehicles), '1d10');
+        cancelOpShooting();
+        return;
     } else {
         const maxRange = isMediumArtillery(shooter) ? operationalMediumArtilleryRange(shooter) : (isSau ? 10 : 3);
         if (distance > maxRange) {
@@ -9075,6 +9079,8 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
             currentMorale: (squad.currentMorale !== undefined && squad.currentMorale !== null) ? squad.currentMorale : (squad.baseMorale || 5),
             baseMorale: squad.baseMorale || 5,
             tacticalMoraleMax: squad.tacticalMoraleMax || squad.baseMorale || (squad.fighters || []).length || 5,
+            tacticalMoraleLegacyScale: squad.tacticalMoraleLegacyScale || null,
+            tacticalMoraleScaleVersion: squad.tacticalMoraleScaleVersion || null,
             tacticalOriginalRosterSize: squad.tacticalOriginalRosterSize || (squad.fighters || []).length,
             detected: !!ambushTriggered
         });
@@ -9392,9 +9398,12 @@ function tacticalMergeOperationalUnitSquads(unit, battleSquads) {
             squad.mergedIntoSquadName = recipients[0] && recipients[0].name || null;
         });
         recipients.forEach(squad => {
+            if (typeof tacticalNormalizeMoraleScale === 'function') tacticalNormalizeMoraleScale(squad);
             squad.tacticalOriginalRosterSize = capacity;
-            squad.tacticalMoraleMax = capacity;
-            squad.baseMorale = capacity;
+            squad.tacticalMoraleLegacyScale = Math.max(1, Number(squad.tacticalMoraleLegacyScale) || capacity);
+            squad.tacticalMoraleMax = 100;
+            squad.baseMorale = 100;
+            squad.tacticalMoraleScaleVersion = 1;
             if (squad.isRetreated) delete squad.isRetreated;
             if (squad.status === 'retreated') delete squad.status;
             delete squad.retreatReason;
@@ -10232,7 +10241,7 @@ function syncBattleLossesToCampaign(battleId) {
             mergeMissingFightersIntoBattleSquad(battleSquad, targetSquad);
             const persistentFields = [
                 'fighters', 'ammoSmall', 'ammoOrdnance', 'grenades', 'currentMorale', 'baseMorale',
-                'tacticalOriginalRosterSize', 'tacticalMoraleMax', 'tacticalMoraleInitializedBattleId',
+                'tacticalOriginalRosterSize', 'tacticalMoraleMax', 'tacticalMoraleLegacyScale', 'tacticalMoraleScaleVersion', 'tacticalMoraleInitializedBattleId',
                 'appliedCards', 'effects', 'panzerblindeCharges', 'atRifleGrenades', 'flemishFury',
                 'flemishFuryUsed', 'crewInstances', 'thermiteCharges', 'smokeGrenades', 'flares',
                 'canCallMortar', 'adrenalineUsed', 'ammoRegenCounter', 'attackCounter',
@@ -10248,21 +10257,16 @@ function syncBattleLossesToCampaign(battleId) {
                 unit.embrasureHp = Math.max(0, maxEmbrasures - Math.max(0, Number(battleSquad.embrasuresDisabled) || 0));
             }
             if (targetSquad.fighters) targetSquad.fighters.forEach(f => { if (f.hasIPP === undefined) f.hasIPP = false; });
-            const combatAliveAfter = getOperationalCombatFighters(unit).filter(f => f && f.hp > 0).length;
-            const tacticalLosses = Math.max(0, combatAliveBefore - combatAliveAfter);
-            // ⚡ v13.099 (п.13): потери взвода в этом бою считаются от исходной
-            //    численности (а не от предыдущего вызова синхронизации) — иначе
-            //    первые потери могли пройти мимо духа, и взвод оставался «в строю»
-            //    с духом 100/100, потеряв 17 бойцов из 18.
-            const initialStrength = Math.max(1, Number(unit.operationalInitialStrength) || Math.max(1, combatAliveAfter));
-            const totalLosses = Math.max(0, initialStrength - combatAliveAfter);
-            unit.operationalMoraleLossesByBattle = unit.operationalMoraleLossesByBattle || {};
-            const alreadyCounted = Math.max(0, Number(unit.operationalMoraleLossesByBattle[battle.id]) || 0);
-            const newLosses = Math.max(0, totalLosses - alreadyCounted);
-            const appliedLosses = Math.max(newLosses, tacticalLosses);
-            if (appliedLosses > 0) {
-                unit.operationalMoraleLossesByBattle[battle.id] = totalLosses;
-                changeOperationalMorale(unit, -4 * appliedLosses, 'потери в тактическом бою');
+            // После боя возвращаем общий дух взвода как средневзвешенное значение
+            // тактических отделений на общей шкале 0–100.
+            const ownedBattleSquads = (battle.playerSquads || []).filter(sq => sq && !sq.isVehicle &&
+                (sq.opUnitName === unit.name || (!sq.opUnitName && (unit.squads || []).some(us => us && us.name === sq.name))));
+            const moraleWeight = sq => Math.max(1, Number(sq.tacticalOriginalRosterSize) || (sq.fighters || []).length || 1);
+            const totalMoraleWeight = ownedBattleSquads.reduce((sum, sq) => sum + moraleWeight(sq), 0);
+            if (totalMoraleWeight > 0 && typeof changeOperationalMorale === 'function') {
+                const mergedMorale = ownedBattleSquads.reduce((sum, sq) =>
+                    sum + tacticalMoraleCurrent(sq) * moraleWeight(sq), 0) / totalMoraleWeight;
+                changeOperationalMorale(unit, mergedMorale - getOperationalMorale(unit), 'итог тактического боя');
             }
             maybeRetreatShatteredOperationalUnit(unit, 'почти весь состав взвода выведен из строя');
             const allDead = isOpUnitWipedOut(unit);
@@ -10344,7 +10348,8 @@ function syncBattleLossesToCampaign(battleId) {
         battle.enemySquads.forEach(enemySquad => {
             if (enemySquad.isVehicle) return; // машины обработаны выше
             for (let unit of appData.campaign.enemyOpUnits) {
-                const targetSquad = unit.squads.find(s => s.name === enemySquad.name);
+                const targetSquad = unit.squads.find(s => s.name === enemySquad.name &&
+                    (!enemySquad.opUnitName || enemySquad.opUnitName === unit.name));
                 if (targetSquad) {
                     // ⚡ v13.067: то же для вражеских штабов
                     mergeMissingFightersIntoBattleSquad(enemySquad, targetSquad);
@@ -10357,7 +10362,18 @@ function syncBattleLossesToCampaign(battleId) {
                     if (enemySquad.baseMorale !== undefined) targetSquad.baseMorale = enemySquad.baseMorale;
                     if (enemySquad.tacticalOriginalRosterSize !== undefined) targetSquad.tacticalOriginalRosterSize = enemySquad.tacticalOriginalRosterSize;
                     if (enemySquad.tacticalMoraleMax !== undefined) targetSquad.tacticalMoraleMax = enemySquad.tacticalMoraleMax;
+                    if (enemySquad.tacticalMoraleLegacyScale !== undefined) targetSquad.tacticalMoraleLegacyScale = enemySquad.tacticalMoraleLegacyScale;
+                    if (enemySquad.tacticalMoraleScaleVersion !== undefined) targetSquad.tacticalMoraleScaleVersion = enemySquad.tacticalMoraleScaleVersion;
                     if (enemySquad.tacticalMoraleInitializedBattleId !== undefined) targetSquad.tacticalMoraleInitializedBattleId = enemySquad.tacticalMoraleInitializedBattleId;
+                    const ownedEnemySquads = (battle.enemySquads || []).filter(sq => sq && !sq.isVehicle &&
+                        (sq.opUnitName === unit.name || (!sq.opUnitName && (unit.squads || []).some(us => us && us.name === sq.name))));
+                    const moraleWeight = sq => Math.max(1, Number(sq.tacticalOriginalRosterSize) || (sq.fighters || []).length || 1);
+                    const totalMoraleWeight = ownedEnemySquads.reduce((sum, sq) => sum + moraleWeight(sq), 0);
+                    if (totalMoraleWeight > 0 && typeof changeOperationalMorale === 'function') {
+                        const mergedMorale = ownedEnemySquads.reduce((sum, sq) =>
+                            sum + tacticalMoraleCurrent(sq) * moraleWeight(sq), 0) / totalMoraleWeight;
+                        changeOperationalMorale(unit, mergedMorale - getOperationalMorale(unit), 'итог тактического боя');
+                    }
                     if (enemySquad.isSurrendered || enemySquad.status === 'surrendered') {
                         targetSquad.isSurrendered = true;
                         targetSquad.status = 'surrendered';
@@ -11011,16 +11027,47 @@ function retreatFromMelee() {
   }
   saveData(); updateUI(); redrawMap();
 }
-function tacticalMoraleScale(squad) {
+function tacticalNormalizeMoraleScale(squad) {
   if (!squad) return 0;
+  if (Number(squad.tacticalMoraleScaleVersion) === 1) {
+    const current = Number(squad.currentMorale);
+    squad.currentMorale = Number.isFinite(current) ? Math.max(0, Math.min(100, current)) : 100;
+    if (typeof currentSquad !== 'undefined' && currentSquad === squad) morale = squad.currentMorale;
+    return 100;
+  }
+  const fighters = Array.isArray(squad.fighters) ? squad.fighters : [];
+  const living = fighters.filter(f => f && (f.hp === undefined || Number(f.hp) > 0)).length;
   const configured = Number(squad.tacticalMoraleMax !== undefined ? squad.tacticalMoraleMax : squad.baseMorale);
-  if (Number.isFinite(configured) && configured > 0) return configured;
-  const living = (squad.fighters || []).filter(f => f && (f.hp === undefined || Number(f.hp) > 0)).length;
-  return Math.max(1, living);
+  const legacyScale = Number.isFinite(configured) && configured > 0
+    ? configured
+    : Math.max(1, Number(squad.tacticalOriginalRosterSize) || fighters.length || living || 1);
+  const previous = Number(squad.currentMorale);
+  squad.tacticalMoraleLegacyScale = Math.max(1, legacyScale);
+  squad.currentMorale = Number.isFinite(previous)
+    ? Math.max(0, Math.min(100, Math.round(previous / legacyScale * 100)))
+    : 100;
+  squad.baseMorale = 100;
+  squad.tacticalMoraleMax = 100;
+  squad.tacticalMoraleScaleVersion = 1;
+  if (typeof currentSquad !== 'undefined' && currentSquad === squad) morale = squad.currentMorale;
+  return 100;
+}
+function tacticalMoraleScale(squad) {
+  return tacticalNormalizeMoraleScale(squad);
 }
 function tacticalMoraleCurrent(squad) {
+  tacticalMoraleScale(squad);
   const current = Number(squad && squad.currentMorale);
-  return Number.isFinite(current) ? Math.max(0, current) : tacticalMoraleScale(squad);
+  return Number.isFinite(current) ? Math.max(0, Math.min(100, current)) : 100;
+}
+function tacticalMoraleDeltaPercent(squad, delta) {
+  const legacyScale = Math.max(1, Number(squad && squad.tacticalMoraleLegacyScale) || (squad && squad.fighters || []).length || 1);
+  return Number(delta || 0) * 100 / legacyScale;
+}
+function tacticalFindOperationalMoraleOwner(squad) {
+  if (!squad || !squad.opUnitName || !appData || !appData.campaign) return null;
+  const all = [...(appData.campaign.opUnits || []), ...(appData.campaign.enemyOpUnits || [])];
+  return all.find(unit => unit && unit.name === squad.opUnitName) || null;
 }
 function tacticalMarkStartingMoraleCasualties(squad, battleId) {
   if (!squad || battleId === undefined || battleId === null) return 0;
@@ -11059,32 +11106,22 @@ function tacticalInitializeSquadMorale(squad, battleId) {
   const living = fighters.filter(f => f && (f.hp === undefined || Number(f.hp) > 0)).length;
   const capacity = Math.max(Number(squad.tacticalOriginalRosterSize) || 0, fighters.length);
   squad.tacticalOriginalRosterSize = capacity;
-  const isSniperOrMortar = !squad.armor && !/ДОТ/i.test(squad.name || '') && (
-    /Снайперское звено|снайпер|Минометный расч[её]т|Миномётный расч[её]т|Расч[её]т мином[её]та|Расч[её]т бутылком[её]та|Расч[её]т ампулом[её]та/i.test(squad.name || '') ||
-    (Array.isArray(squad.crewInstances) && squad.crewInstances.some(ci => ci && /мином[её]т|бутылком[её]т|ампулом[её]т/i.test(ci.weaponName || ''))) ||
-    (fighters.length > 0 && fighters.length <= 3 && fighters.some(f => f && /Снайпер|Geweer OIP/i.test((f.name || '') + ' ' + (f.weapon || ''))))
-  );
-  // ⚡ v13.108: бронетехника — боевой дух 14 (не по числу членов экипажа).
-  //    Проверка встроенная: функцию могут не вынести в тестовый срез.
-  const squadIsArmor = (typeof isArmoredTacticalSquad === 'function')
-    ? isArmoredTacticalSquad(squad)
-    : (!!(squad.armor || squad.isVehicle) && !/ДОТ|дзот|бункер/i.test(String(squad.name || '')));
-  if (squadIsArmor && typeof ARMOR_TACTICAL_MORALE !== 'undefined') {
-    squad.tacticalMoraleMax = ARMOR_TACTICAL_MORALE;
-    squad.baseMorale = ARMOR_TACTICAL_MORALE;
-    squad.currentMorale = living > 0 ? ARMOR_TACTICAL_MORALE : 0;
-  } else if (isSniperOrMortar) {
-    const losses = Math.max(0, capacity - living);
-    squad.tacticalMoraleMax = 5;
-    squad.baseMorale = 5;
-    squad.currentMorale = capacity > 0 ? (living > 0 ? Math.max(1, 5 - losses) : 0) : 5;
-  } else {
-    squad.tacticalMoraleMax = Math.max(1, living);
-    squad.baseMorale = squad.tacticalMoraleMax;
-    squad.currentMorale = living;
-  }
-  // Тактический дух рассчитывается только по текущему составу и условиям боя;
-  // оперативное состояние батальона не вызывает отступление в этой схватке.
+  const owner = tacticalFindOperationalMoraleOwner(squad);
+  const inherited = owner && owner.operationalMorale !== undefined && owner.operationalMorale !== null &&
+      Number.isFinite(Number(owner.operationalMorale))
+    ? Math.max(0, Math.min(100, Number(owner.operationalMorale)))
+    : 100;
+  // All tactical squads and operational platoons now use the same 0–100 scale.
+  // Existing per-class scales (fighter count, 5 for specialists, 14 for armor)
+  // remain only as a conversion basis for their old morale modifiers.
+  const oldScale = isArmoredTacticalSquad(squad) ? ARMOR_TACTICAL_MORALE
+    : tacticalIsSniperOrMortarSquad(squad) ? 5 : Math.max(1, capacity);
+  squad.tacticalMoraleLegacyScale = oldScale;
+  squad.tacticalMoraleMax = 100;
+  squad.baseMorale = 100;
+  squad.currentMorale = inherited;
+  squad.tacticalMoraleScaleVersion = 1;
+  if (typeof currentSquad !== 'undefined' && currentSquad === squad) morale = inherited;
   if (battleId !== undefined && battleId !== null) {
     squad.tacticalMoraleInitializedBattleId = String(battleId);
     tacticalMarkStartingMoraleCasualties(squad, battleId);
@@ -11125,10 +11162,8 @@ function tacticalInitializeBattleMorale(battle) {
   } else {
     all.forEach(squad => {
       if (String(squad.tacticalMoraleInitializedBattleId || '') === battleId) return;
-      const living = (squad.fighters || []).filter(f => f && (f.hp === undefined || Number(f.hp) > 0)).length;
-      const existingScale = Number(squad.tacticalMoraleMax || squad.baseMorale);
-      squad.tacticalMoraleMax = Number.isFinite(existingScale) && existingScale > 0 ? existingScale : Math.max(1, living);
       squad.tacticalOriginalRosterSize = Math.max(Number(squad.tacticalOriginalRosterSize) || 0, (squad.fighters || []).length);
+      tacticalNormalizeMoraleScale(squad);
       squad.tacticalMoraleInitializedBattleId = battleId;
     });
   }
@@ -11148,15 +11183,15 @@ function tacticalEffectiveMoraleForSquad(squad) {
     if (Number.isFinite(selectedValue)) return selectedValue;
   }
   let effective = raw;
-  try { effective += (getScopedActiveModifiersForSquad(squad) || []).reduce((sum, mod) => sum + (Number(mod && mod.moraleMod) || 0), 0); } catch (e) {}
+  try { effective += tacticalMoraleDeltaPercent(squad, (getScopedActiveModifiersForSquad(squad) || []).reduce((sum, mod) => sum + (Number(mod && mod.moraleMod) || 0), 0)); } catch (e) {}
   const isPlayerSquad = !!(appData && (appData.squads || []).includes(squad));
   if (isPlayerSquad && (appData.squads || []).some(s => (s && s.fighters || []).some(f => f && f.awards && f.awards.includes('loyalty')))) {
-    effective += 1;
+    effective += tacticalMoraleDeltaPercent(squad, 1);
   }
   if (squad.effects && squad.effects.geenDuibreed && (squad.fighters || []).some(f => f && f.isCommander && Number(f.hp) > 0)) {
     const loyalty = isPlayerSquad && (appData.squads || []).some(s => (s && s.fighters || []).some(f => f && f.awards && f.awards.includes('loyalty')));
-    if (loyalty) effective -= 1;
-    effective += 2;
+    if (loyalty) effective -= tacticalMoraleDeltaPercent(squad, 1);
+    effective += tacticalMoraleDeltaPercent(squad, 2);
   }
   return effective;
 }
@@ -11176,7 +11211,8 @@ function tacticalSquadIsSuppressed(squad) {
 function tacticalChangeMorale(squad, delta) {
   if (!squad) return 0;
   const scale = tacticalMoraleScale(squad);
-  const next = Math.max(0, Math.min(scale || Infinity, tacticalMoraleCurrent(squad) + Number(delta || 0)));
+  const normalizedDelta = tacticalMoraleDeltaPercent(squad, delta);
+  const next = Math.max(0, Math.min(scale || 100, tacticalMoraleCurrent(squad) + normalizedDelta));
   squad.currentMorale = next;
   if (typeof currentSquad !== 'undefined' && currentSquad === squad) morale = next;
   return next;
@@ -13524,20 +13560,18 @@ currentSquad.fighters.forEach((f, index) => {
 
       container.innerHTML = html;
 
-      const base = currentSquad.baseMorale;
-      const mod = getScopedActiveModifiersForSquad(currentSquad).reduce((s, c) => s + (c.moraleMod || 0), 0);
-      let extraMorale = 0;
-      // бонус знака «За верность Республике»
-if (appData.squads.some(s => s.fighters.some(f => f.awards?.includes('loyalty')))) {
-  extraMorale += 1;
-}
-if (currentSquad.effects?.geenDuibreed) {
-  const commanderAlive = currentSquad.fighters.some(f => f.isCommander && f.hp > 0);
-  if (commanderAlive) extraMorale = 2;
-}
-const eff = morale + mod + extraMorale;
+      const base = tacticalMoraleScale(currentSquad);
+      const current = tacticalMoraleCurrent(currentSquad);
+      const mod = getScopedActiveModifiersForSquad(currentSquad).reduce((sum, card) => sum + (card.moraleMod || 0), 0);
+      const hasLoyalty = appData.squads.some(s => s.fighters.some(f => f.awards?.includes('loyalty')));
+      let extraMorale = hasLoyalty ? 1 : 0;
+      if (currentSquad.effects?.geenDuibreed && currentSquad.fighters.some(f => f.isCommander && f.hp > 0)) {
+        if (hasLoyalty) extraMorale -= 1;
+        extraMorale += 2;
+      }
+      const eff = current + tacticalMoraleDeltaPercent(currentSquad, mod + extraMorale);
       const pct = Math.max(0, eff / base * 100);
-      document.getElementById('moraleContainer').innerHTML = `<div>Дух: ${morale}/${base} ${mod !== 0 ? `(эфф. ${eff})` : ''}</div><div class="morale-bar" style="width:${pct}%; background:${eff <= 0 ? '#c0392b' : eff <= base/2 ? '#f39c12' : '#27ae60'}"></div>`;
+      document.getElementById('moraleContainer').innerHTML = `<div>Дух: ${current}/${base} ${mod !== 0 ? `(эфф. ${eff.toFixed(1)})` : ''}</div><div class="morale-bar" style="width:${pct}%; background:${eff <= 0 ? '#c0392b' : eff <= base/2 ? '#f39c12' : '#27ae60'}"></div>`;
 
       // Обновляем отображение ОД и хода
       document.getElementById('apDisplay').innerText = getAP(currentSquadIndex);
@@ -14808,8 +14842,16 @@ function requestTacticalArtilleryStrike(hexKey) {
     return false;
   }
   const battery = status.battery;
-  // залп тратит 10% боекомплекта батареи — как обстрел на оперативной карте
-  try { if (typeof consumeOperationalAmmo === 'function') consumeOperationalAmmo(battery.unit, 'ordnance'); } catch (e) {}
+  const shellCount = operationalAmmoShotsAvailable(battery.unit, 'ordnance', battery.shells);
+  if (!shellCount) {
+    log(`⛔ У батареи «${battery.unit.name}» нет снарядов для залпа.`);
+    return false;
+  }
+  if (typeof consumeOperationalAmmo === 'function' &&
+      consumeOperationalAmmo(battery.unit, 'ordnance', shellCount) !== shellCount) {
+    log(`⛔ Не удалось списать ${shellCount} снарядов у батареи «${battery.unit.name}».`);
+    return false;
+  }
   const arriveTurn = (Number.isFinite(Number(currentTurn)) ? Number(currentTurn) : 1) + TACTICAL_ARTY_ARRIVE_DELAY;
   const call = {
     id: `arty-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -14818,7 +14860,7 @@ function requestTacticalArtilleryStrike(hexKey) {
     batteryUnitId: battery.unitId,
     batteryName: battery.unit.name,
     isSau: !!battery.isSau,
-    shells: battery.shells,
+    shells: shellCount,
     targetHex: String(hexKey),
     calledTurn: (Number.isFinite(Number(currentTurn)) ? Number(currentTurn) : 1),
     arriveTurn,
@@ -14947,6 +14989,17 @@ function tacticalArtilleryResolveCall(call, battle) {
       : ((typeof rollD6 === 'function') ? rollD6() : 1);
     const trenches = tacticalArtilleryHexHasTrenches(finalHex, map);
     const afterTerrain = trenches ? Math.floor(rawDamage * 0.6) : rawDamage;
+    // Каждая машина в гексе попадания получает собственную независимую
+    // проверку 5% за этот снаряд; результат обычного распределения урона
+    // между отрядами на эту проверку не влияет. Миномёт остаётся исключением.
+    if (call.isSau && typeof applyVehicleHitToEnemy === 'function') {
+      damageable.filter(entry => isArmoredTacticalSquad(entry.squad)).forEach(armoredEntry => {
+        if (Math.random() >= OP_ARTILLERY_ARMOR_DAMAGE_CHANCE) return;
+        const vehicleResult = { damage: 0, killed: [], wounded: [], notes: [], vehicleResults: [], dotSkipped: [] };
+        const vehicleRoll = Math.floor(Math.random() * 5) + 2; // 2–6: исключаем рикошет; успех 5% означает повреждение
+        applyVehicleHitToEnemy(armoredEntry.squad, vehicleRoll, 999, vehicleResult, call.batteryName);
+      });
+    }
     // На каждого дополнительного живого отряда в гексе приходится ещё одна
     // такая же порция общего урона; отдельные очки случайно распределяются.
     const scaledDamage = afterTerrain * damageable.length;
@@ -14993,23 +15046,8 @@ function resolveTacticalArtilleryCalls() {
   const due = battle.pendingArtillery.filter(call => call && !call.resolved && Number(call.arriveTurn) <= turn);
   let resolved = 0;
   due.forEach(call => {
-    // Наводчик выбыл — корректировать некому, налёт отменяется
-    const spotter = (appData.squads || [])[Number(call.squadIdx)];
-    if (!spotter || spotter.isDestroyed || spotter.isRetreated ||
-        (spotter.fighters || []).every(f => !f || f.hp <= 0)) {
-      log(`📻 Налёт «${call.batteryName}» по гексу ${call.targetHex} ОТМЕНЁН: наводчик выбыл, корректировать некому.`);
-      call.resolved = true;
-      call.cancelled = true;
-      resolved++;
-      return;
-    }
-    if (!tacticalSquadHasAliveRadioOperator(spotter)) {
-      log(`📻 Налёт «${call.batteryName}» по гексу ${call.targetHex} ОТМЕНЁН: радист убит — связь прекращена.`);
-      call.resolved = true;
-      call.cancelled = true;
-      resolved++;
-      return;
-    }
+    // После передачи заявки налёт выполняется даже если наводчик выбыл
+    // или связь с ним прервалась: команда уже принята батареей.
     tacticalArtilleryResolveCall(call, battle);
     call.resolved = true;
     resolved++;
@@ -15470,11 +15508,9 @@ function createTacticalFlareEvent(owner) {
   const role = (owner === 'enemy' && typeof ONLINE !== 'undefined' && ONLINE && ONLINE.role)
     ? ONLINE.role : ((owner === 'player' && typeof ONLINE !== 'undefined' && ONLINE && ONLINE.role) ? ONLINE.role : null);
   const battle = (typeof getTacticalBattleRecord === 'function') ? getTacticalBattleRecord() : null;
-  const progress = (typeof getTacticalRoundProgress === 'function') ? getTacticalRoundProgress(battle) : { completed: 0 };
-  const phaseInRound = Math.max(0, Number(progress && progress.completed) || 0) % 2;
-  // A flare cast in the first phase lasts through the defender phase. A flare
-  // cast in the second phase expires as the next round begins, before its first phase.
-  const expiresTurn = turn + (phaseInRound === 0 ? 1 : 0);
+  // currentTurn advances after every side's phase, so turn and turn+1 are
+  // exactly the launching side's phase and the opponent's phase.
+  const expiresTurn = turn + 1;
   const event = { id: `flare-${turn}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`, turn, expiresTurn, owner: owner || 'player', ownerRole: role };
   if (appData.map) appData.map.illuminationFlare = event;
   appData.flareEventId = event.id;
@@ -15493,7 +15529,7 @@ function fireFlare() {
   }
   currentSquad.flares--;
   createTacticalFlareEvent('player');
-  log('🚀 Осветительная ракета запущена: видимость для обеих сторон повышена до начала следующего тактического раунда.');
+  log('🚀 Осветительная ракета запущена: видимость повышена на две фазы — вашу и фазу противника.');
   try { if (typeof redrawMap === 'function') redrawMap(); } catch (e) {}
   try { if (appData.campaign && appData.campaign.online && typeof onlinePushBattles === 'function') onlinePushBattles(true); } catch (e) {}
   saveData();
@@ -15503,7 +15539,7 @@ function enemyFlare() {
   if (!appData.enemyFlareAvailable || appData.enemyFlareTurn !== currentTurn) return;
   createTacticalFlareEvent('enemy');
   appData.enemyFlareAvailable = false; // однократно
-  log('🚀 Противником пущена осветительная ракета: видимость для обеих сторон повышена до начала следующего тактического раунда.');
+  log('🚀 Противником пущена осветительная ракета: видимость повышена на две фазы — фазу противника и вашу.');
   try { if (typeof redrawMap === 'function') redrawMap(); } catch (e) {}
   saveData();
   updateUI();
@@ -15850,16 +15886,21 @@ function resupply(type) {
   saveData();
   updateUI();
 }
-    function changeMorale(d) { if (!currentSquad) return; morale = Math.max(0, morale + d); currentSquad.currentMorale = morale; tacticalMaybeAutoRetreat(currentSquad, 'player', currentSquadIndex); updateUI(); saveData(); }
-    function setMoraleDirect() { const v = parseInt(document.getElementById('moraleDirectInput').value); if (!isNaN(v) && currentSquad) { morale = Math.max(0, v); currentSquad.currentMorale = morale; tacticalMaybeAutoRetreat(currentSquad, 'player', currentSquadIndex); updateUI(); saveData(); } }
+    function changeMorale(d) { if (!currentSquad) return; tacticalMoraleScale(currentSquad); morale = Math.max(0, Math.min(100, morale + d)); currentSquad.currentMorale = morale; tacticalMaybeAutoRetreat(currentSquad, 'player', currentSquadIndex); updateUI(); saveData(); }
+    function setMoraleDirect() { const v = parseInt(document.getElementById('moraleDirectInput').value); if (!isNaN(v) && currentSquad) { tacticalMoraleScale(currentSquad); morale = Math.max(0, Math.min(100, v)); currentSquad.currentMorale = morale; tacticalMaybeAutoRetreat(currentSquad, 'player', currentSquadIndex); updateUI(); saveData(); } }
     function healAll() { if (!isTacticalHealthEditTestMode()) { log('Ручное лечение доступно только в тестовом режиме.'); return; } if (!currentSquad) return; currentSquad.fighters.forEach(f => f.hp = f.maxHp); morale = currentSquad.baseMorale; currentSquad.currentMorale = morale; suppressed = routed = false; updateUI(); saveData(); }
     function resetAll() { if (!isTacticalHealthEditTestMode()) { log('Ручной сброс здоровья доступен только в тестовом режиме.'); return; } if (!currentSquad) return; currentSquad.fighters.forEach(f => f.hp = f.maxHp); morale = currentSquad.baseMorale; currentSquad.currentMorale = morale; suppressed = routed = false; updateUI(); saveData(); }
     function getEffectiveMorale() {
-  let base = morale;
-  const mod = getScopedActiveModifiersForSquad(currentSquad).reduce((s, c) => s + (c.moraleMod || 0), 0);
-  // бонус знака «За верность Республике»
+  const base = tacticalMoraleCurrent(currentSquad);
+  const mod = getScopedActiveModifiersForSquad(currentSquad).reduce((sum, card) => sum + (card.moraleMod || 0), 0);
   const hasLoyalty = appData.squads.some(s => s.fighters.some(f => f.awards?.includes('loyalty')));
-  return base + mod + (hasLoyalty ? 1 : 0);
+  let extraMorale = hasLoyalty ? 1 : 0;
+  if (currentSquad.effects && currentSquad.effects.geenDuibreed &&
+      (currentSquad.fighters || []).some(f => f && f.isCommander && Number(f.hp) > 0)) {
+    if (hasLoyalty) extraMorale -= 1;
+    extraMorale += 2;
+  }
+  return base + tacticalMoraleDeltaPercent(currentSquad, mod + extraMorale);
 }
     function isInfantrySquad(s) { return s.name.includes('Пехотное отделение'); }
 function isInfantryOrSupport(s) { return /Пехотное отделение|Отделение поддержки|Стрелковое отделение|Штурмовое отделение|Сап[её]рное отделение/i.test(s.name || ''); }
@@ -17183,9 +17224,8 @@ function autoTacticalDetectionMod(squad) {
   if (!armored && (squad.crouchMoved || (crouchMove && squad.movedThisTurn))) mod -= 1;
   // ⚡ v13.099 (п.8): не двигался и не стрелял — обнаружить почти невозможно
   if (!squad.movedThisTurn && !fired && !squad.firedThisTurn) mod -= 2;
-  // ⚡ v13.108 (п.10): осветительная ракета убирает ночной штраф на ОДИН ход —
-  //    поэтому проверяем и номер хода запуска (flareTurn), а не только сам флаг:
-  //    иначе ракета, запущенная когда-то давно, продолжала «светить» весь бой.
+  // Осветительная ракета действует на две последовательные фазы; проверяем
+  // номер запуска и конца действия, чтобы старое событие не светило весь бой.
   const flareUp = !!(tacticalIlluminationActive(typeof currentTurn !== 'undefined' ? currentTurn : null));
   // ⚡ v13.099 (п.8): ночь снижает вероятность обнаружения (осветительная ракета отменяет)
   try {
@@ -21014,7 +21054,7 @@ function activateSelectedCards() {
         appData.squads.filter(s => s.faction === 'A.I.R.F.' && (s.name.includes('Стрелковое') || s.name.includes('Штурмовое') || s.name.includes('Саперное') || s.name.includes('Штаб'))).forEach(s => {
           if (!s.effects) s.effects = {};
           s.effects.porLaRevolucion = { active: true, used: false };
-          s.currentMorale = Math.min(s.baseMorale, (s.currentMorale || s.baseMorale) + 1);
+          tacticalChangeMorale(s, 1);
           if (!s.appliedCards) s.appliedCards = [];
           s.appliedCards.push(card.name);
         });
@@ -24809,6 +24849,8 @@ function executeArtilleryStrikeSalvo(order, rangingShot) {
     };
 
     const applySquadStrike = (t, dmg) => {
+        // Проверка артиллерийского повреждения каждой машины выполняется один
+        // раз на попавший снаряд для всех машин в обстреливаемом гексе.
         // v13.108+: артиллерия ДОТы не повреждает вообще — пропуск
         if (isStaticOpUnit(t.unit)) {
             const embMax = dotEmbrasureCount(t.unit);
@@ -24888,6 +24930,7 @@ function executeArtilleryStrikeSalvo(order, rangingShot) {
         if (!livingTargets.length) continue;
         const target = livingTargets[Math.floor(Math.random() * livingTargets.length)];
         hitTargets.add(target.unit);
+        applyOperationalArtilleryArmorHitsAtHex(c, r, 'полковая артиллерия');
         const damage = rollD12();
         applySquadStrike(target, damage);
     }
@@ -25992,12 +26035,12 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
     if (armorSkipped > 0) {
         log(`ℹ️ ${unit.name}: ${armorSkipped} цел. бронетехники исключены — миномёт по броне не работает.`);
     }
-    // ⚡ v13.069 (R48#6): залп тратит снаряды (10%); нет снарядов — нет огня
-    if (!requireOperationalAmmo(unit, 'ordnance')) return;
-    consumeOperationalAmmo(unit, 'ordnance');
+    // Сокращаем залп до точного числа доступных снарядов и списываем каждый выстрел.
+    rounds = operationalAmmoShotsAvailable(unit, 'ordnance', rounds);
+    if (!rounds || !requireOperationalAmmo(unit, 'ordnance', rounds)) return;
     unit.firedThisTurn = true;
     if (typeof opCheckUnitDetection === 'function') opCheckUnitDetection(unit, { fireType: 'indirect' });
-    let hits = 0, totalSalvoDamage = 0, totalKilled = 0, dotHits = 0;
+    let hits = 0, shellsFired = 0, totalSalvoDamage = 0, totalKilled = 0, dotHits = 0;
     // ⚡ v13.099 (п.4): отдельный учёт попаданий по невидимым целям
     let hiddenVictimsHit = 0, hiddenDamage = 0, hiddenKilled = 0, dotEmbrasuresDestroyed = 0;
     // ⚡ v13.108: результат залпа попадает в постоянную панель уведомлений
@@ -26024,9 +26067,11 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
         // ⚡ v13.069 (R48#5): миномёты броню не бьют (у САУ поведение прежнее)
         const alive = enemies.filter(e => !e.isDestroyed && (!mortarNoArmor || !isArmoredUnit(e)));
         if (alive.length === 0) break;
+        shellsFired++;
         if (Math.random() < 0.5) {
             hits++;
             const victim = alive[Math.floor(Math.random() * alive.length)];
+            if (!mortarNoArmor) applyOperationalArtilleryArmorHitsAtHex(victim.col, victim.row, unit.name);
             if (isStaticOpUnit(victim)) continue; // ДОТ неуязвим
             const victimHidden = victimHiddenFn(victim);
             const rawDmg = dmgPerHit === '1d6' ? rollD6() : (dmgPerHit === '1d10' ? rollD10() : (rollD6() + rollD6())); // 1d6 / 1d10 / 2d6
@@ -26048,6 +26093,10 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
         }
         // ⚡ Лог засоряем только ИТОГОМ, а не каждым снарядом
     }
+    if (shellsFired > 0 && consumeOperationalAmmo(unit, 'ordnance', shellsFired) !== shellsFired) {
+        log(`🚫 ${unit.name}: не удалось списать ${shellsFired} фактически выпущенных снарядов.`);
+        return;
+    }
     // ⚡ v13.099 (п.4) / v13.100 (п.3): урон и потери по НЕВИДИМЫМ целям в отчёт
     //    НЕ попадают вообще — ни по именам, ни счётчиками: иначе уведомление само
     //    выдаёт, что на гексе были необнаруженные подразделения.
@@ -26055,7 +26104,7 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
     const visibleKilled = totalKilled - hiddenKilled;
     const visibleHits = hits - hiddenVictimsHit;
     const visibleNames = enemies.filter(e => !victimHiddenFn(e)).map(e => e.name);
-    const summary = `🎯 ${unit.name}: ${visibleHits}/${shellCount} снарядов попали | Урон: ${visibleDamage}${visibleKilled > 0 ? ` | Убито: ${visibleKilled}` : ''}` +
+    const summary = `🎯 ${unit.name}: ${visibleHits}/${shellsFired} снарядов попали | Урон: ${visibleDamage}${visibleKilled > 0 ? ` | Убито: ${visibleKilled}` : ''}` +
         (dotEmbrasuresDestroyed > 0 && visibleNames.length ? ` | ДОТ: амбразур разрушено ${dotEmbrasuresDestroyed}` : '') +
         (visibleNames.length ? '' : ' | видимых разведке целей на гексе нет');
     log(summary);
@@ -26091,16 +26140,16 @@ function executeLightArtilleryBarrage(unit, targets, distance) {
 
     const aliveT = targets.filter(t => !t.isDestroyed);
     if (aliveT.length === 0) return;
-    // ⚡ v13.069 (R48#6): огонь лёгкой артиллерии тоже тратит снаряды
-    if (!requireOperationalAmmo(unit, 'ordnance')) return;
-    consumeOperationalAmmo(unit, 'ordnance');
+    const availableShots = operationalAmmoShotsAvailable(unit, 'ordnance', 12);
+    if (!availableShots || !requireOperationalAmmo(unit, 'ordnance', availableShots)) return;
+    if (consumeOperationalAmmo(unit, 'ordnance', availableShots) !== availableShots) return;
     unit.firedThisTurn = true;
     if (typeof opCheckUnitDetection === 'function') opCheckUnitDetection(unit, { fireType: 'indirect' });
     const victim = aliveT[0];
     let hitChance = 0.15;
     if (distance === 1) hitChance = 0.35;
     else if (distance === 2) hitChance = 0.25;
-    const SHOTS = 12;
+    const SHOTS = availableShots;
     let hits = 0, damage = 0;
     for (let i = 0; i < SHOTS; i++) {
         if (Math.random() < hitChance) {
@@ -26191,6 +26240,12 @@ executeMortarSalvo(unit, [nearest.unit], nearest.dist, mortarRoundsForUnit(unit,
             const armorNear = enemies.filter(e => isArmoredUnit(e));
             if (armorNear.length > 0) {
                 const nearest = getNearestOpUnit(armorNear, unit.col, unit.row);
+                if (isSau && nearest.dist > 3) {
+                    const vehicles = unit.isGroup && Array.isArray(unit.vehicleList)
+                        ? unit.vehicleList.filter(v => v && !v.isDestroyed && !v.destroyed).length : 1;
+                    executeMortarSalvo(unit, [nearest.unit], nearest.dist, 7 * Math.max(1, vehicles), '1d10');
+                    return true;
+                }
                 opShootingState.active = true;
                 opShootingState.shooter = unit;
                 opShootingState.targets = [nearest.unit];
@@ -26231,21 +26286,9 @@ function operationalHexFireRange(unit) {
     if (typeof isMediumArtillery === 'function' && isMediumArtillery(unit)) {
         return typeof operationalMediumArtilleryRange === 'function' ? operationalMediumArtilleryRange(unit) : 10;
     }
-    const sources = [unit, ...(unit.squads || []), ...(unit.vehicleList || []).flatMap(vehicle => [vehicle, ...(vehicle && vehicle.squads || [])])];
-    const faction = unit.faction || (unit.squads || []).find(squad => squad && squad.faction)?.faction;
-    const weapons = typeof getFactionCrewWeapons === 'function' ? (getFactionCrewWeapons(faction) || []) : [];
-    const ranges = [];
-    sources.forEach(source => {
-        (source && source.crewInstances || []).forEach(instance => {
-            if (!instance || instance.active === false || instance.status === 'destroyed') return;
-            const weapon = weapons.find(item => item && item.name === instance.weaponName);
-            if (weapon && (weapon.type === 'at_gun' || /танк|оруд|пушка/i.test(String(weapon.name || ''))) && Number(weapon.effectiveRange) > 0) {
-                ranges.push(Number(weapon.effectiveRange));
-            }
-        });
-    });
-    if (ranges.length) return Math.max(...ranges);
-    if ((typeof hasAtGunWeapons === 'function' && hasAtGunWeapons(unit)) || unit.type === 'tank_platoon' || /танк/i.test(String(unit.name || ''))) return 10;
+    // Прямой ПТО-огонь по бронетехнике ограничен тремя гексами независимо
+    // от паспортной дальности орудия. Дальше САУ использует навесной залп.
+    if ((typeof hasAtGunWeapons === 'function' && hasAtGunWeapons(unit)) || unit.type === 'tank_platoon' || /танк/i.test(String(unit.name || ''))) return 3;
     return 3;
 }
 
@@ -26307,7 +26350,6 @@ function executeShootOrder(unit, order) {
         }
         unit.firedThisTurn = true;
         if (typeof opCheckUnitDetection === 'function') opCheckUnitDetection(unit, { fireType: opIsIndirectFireUnit(unit) ? 'indirect' : 'direct' });
-        try { if (typeof consumeOperationalAmmo === 'function') consumeOperationalAmmo(unit, hasAtGunWeapons(unit) ? 'ordnance' : 'small'); } catch (e) {}
         // ⚡ v13.106 (п.10): длительность обстрела — число залпов по ходам
         const shellMinutes = normalizeShellMinutes(order.shellMinutes);
         const shellTurns = shellTurnsForMinutes(shellMinutes);
@@ -26473,10 +26515,17 @@ function executeShootOrder(unit, order) {
 
     // ⚡ ВЫПОЛНЯЕМ ОБСТРЕЛ
     if (hasAtGuns && hasArmor) {
-        // Стреляем ПТО по бронетехнике
-        opShootingState.weaponType = 'at';
-        console.log('   Используем ПТО');
-        executeOpShootAt(enemies, distance);
+        const isSau = unit.type === 'sau_battery' || /САУ/i.test(String(unit.name || ''));
+        if (isSau && distance > 3) {
+            const vehicles = unit.isGroup && Array.isArray(unit.vehicleList)
+                ? unit.vehicleList.filter(v => v && !v.isDestroyed && !v.destroyed).length : 1;
+            executeMortarSalvo(unit, enemies, distance, 7 * Math.max(1, vehicles), '1d10');
+        } else {
+            // Прямой ПТО-огонь допустим только до 3 гексов включительно.
+            opShootingState.weaponType = 'at';
+            console.log('   Используем ПТО');
+            executeOpShootAt(enemies, distance);
+        }
     } else if (hasMGs || hasAtGuns) {
         // Стреляем по пехоте
         opShootingState.weaponType = 'mg';
@@ -26571,6 +26620,7 @@ function buildOpAreaFireMark(unit, turn, turnsLeft) {
         owner: 'player',
         turnsLeft: Math.max(1, Math.floor(Number(turnsLeft) || 1)),
         unitName: unit.name,
+        ammoKind: (isSau || isMortar || (typeof hasAtGunWeapons === 'function' && hasAtGunWeapons(unit))) ? 'ordnance' : 'small',
         isMortar: isMortar,
         rounds: rounds,
         damageDie: isSau ? '1d10' : '1d6'
@@ -26750,21 +26800,35 @@ function resolveOperationalAreaFire() {
         // Плотная цель проще накрывается площадным огнём: +15% залпа за
         // каждый дополнительный отряд на гексе, максимум +60%.
         const densityBonus = Math.min(0.60, Math.max(0, victims.length - 1) * 0.15);
-        const rounds = Math.max(baseRounds, Math.round(baseRounds * (1 + densityBonus)));
+        let rounds = Math.max(baseRounds, Math.round(baseRounds * (1 + densityBonus)));
+        const firingUnits = enemyShot ? (campaign.enemyOpUnits || []) : (campaign.opUnits || []);
+        const firingUnit = firingUnits.find(u => u && u.name === mark.unitName);
+        const ammoKind = mark.ammoKind || (mark.isMortar || mark.damageDie === '1d10' ? 'ordnance' : 'small');
+        if (firingUnit && typeof operationalAmmoShotsAvailable === 'function') {
+            rounds = operationalAmmoShotsAvailable(firingUnit, ammoKind, rounds);
+            if (!rounds) {
+                log(`🚫 ${mark.unitName || 'Артиллерия'}: боеприпасы закончились — следующий залп отменён.`);
+                delete cell.areaFire;
+                return;
+            }
+        }
         const die = mark.damageDie === '1d10' ? '1d10' : '1d6';
         const isMortar = mark.isMortar === true;
         const rollDamage = () => (die === '1d10')
             ? ((typeof rollD10 === 'function') ? rollD10() : 5)
             : ((typeof rollD6 === 'function') ? rollD6() : 3);
-        let visibleHits = 0, visibleDamage = 0, visibleKilled = 0, hiddenHits = 0;
+        let visibleHits = 0, visibleDamage = 0, visibleKilled = 0, hiddenHits = 0, roundsFired = 0;
         const shooterLabel = enemyShot ? 'Вражеская артиллерия' : (mark.unitName || 'отряд');
         const capture = beginOpShellCapture({ shooter: shooterLabel, kind: 'area', col: col, row: row, trench: trench, ownSide: enemyShot });
         for (let i = 0; i < rounds; i++) {
-            if (Math.random() > 0.5) continue;
-            // миномёт по броне не работает (v13.069 R48#5)
+            // Миномёт по броне не работает (v13.069 R48#5); если допустимых целей нет,
+            // оставшиеся снаряды не выпускаются и не списываются.
             const eligible = victims.filter(v => !(isMortar && typeof isArmoredUnit === 'function' && isArmoredUnit(v)));
             if (!eligible.length) break;
+            roundsFired++;
+            if (Math.random() > 0.5) continue;
             const victim = eligible[Math.floor(Math.random() * eligible.length)];
+            if (!isMortar) applyOperationalArtilleryArmorHitsAtHex(victim.col, victim.row, shooterLabel);
             // Свои отряды видны всегда; у противника необнаруженные цели не раскрываются (v13.100 п.3)
             const hidden = enemyShot ? false : ((typeof opVictimHiddenFromPlayer === 'function')
                 ? opVictimHiddenFromPlayer(victim)
@@ -26783,6 +26847,10 @@ function resolveOperationalAreaFire() {
                 visibleDamage += result.damage;
                 visibleKilled += result.killed;
             }
+        }
+        if (firingUnit && roundsFired > 0 && typeof consumeOperationalAmmo === 'function' &&
+            consumeOperationalAmmo(firingUnit, ammoKind, roundsFired) !== roundsFired) {
+            log(`🚫 ${mark.unitName || 'Артиллерия'}: не удалось списать ${roundsFired} фактически выпущенных снарядов.`);
         }
         endOpShellCapture(capture, { trench: trench });
         victims.forEach(victim => {
@@ -28256,11 +28324,9 @@ function supplyAssetCounts(unit) {
 //    Пока жив хотя бы один боец взвода — склад наш; после разгрома взвода
 //    часть запаса теряется, снабжение батальона нарушается, а остаток можно
 //    отбить назад — вернув свой юнит на гекс склада (врагов там быть не должно).
-// ⚡ v13.069 (R48#6): стрельба по карте операции и огонь по готовности
-//    расходуют боезапас: 10% текущего запаса за каждую стрельбу.
-//    kind: 'small' — патроны (стрелковое/пулемёты), 'ordnance' — снаряды (орудия, миномёты).
-const SUPPLY_SHOT_SPEND = 0.10;
-
+// Оперативный боезапас — дискретный: каждый фактически произведённый выстрел
+// расходует одну единицу соответствующего вида. Экономия карт применяется к
+// числу выстрелов, а не к проценту от текущего запаса.
 function operationalAmmoField(kind) {
     return kind === 'ordnance' ? 'ammoOrdnance' : 'ammoSmall';
 }
@@ -28276,44 +28342,58 @@ function operationalAmmoSquads(unit) {
 
 function unitOperationalAmmoTotal(unit, kind) {
     const field = operationalAmmoField(kind);
-    return operationalAmmoSquads(unit).reduce((sum, sq) => sum + (Number(sq[field]) || 0), 0);
+    return operationalAmmoSquads(unit).reduce((sum, sq) => sum + Math.max(0, Math.floor(Number(sq[field]) || 0)), 0);
 }
 
-// Списывает 10% боезапаса. Возвращает true, если стрельба возможна (что-то было).
-function consumeOperationalAmmo(unit, kind) {
+function operationalAmmoShotsAvailable(unit, kind, requested) {
+    const count = Math.max(0, Math.floor(Number(requested) || 0));
+    if (!count || operationalAmmoSquads(unit).length === 0) return count;
+    return Math.min(count, Math.floor(unitOperationalAmmoTotal(unit, kind)));
+}
+
+// Списывает ровно заданное число выстрелов; берёт запас последовательно из отрядов.
+function consumeOperationalAmmo(unit, kind, shots) {
+    const requested = Math.max(0, Math.floor(Number(shots) || 0));
+    const squads = operationalAmmoSquads(unit);
+    if (!requested) return 0;
+    if (!squads.length) return requested;
+    if (unitOperationalAmmoTotal(unit, kind) < requested) return 0;
     const field = operationalAmmoField(kind);
-    let spent = 0;
-    operationalAmmoSquads(unit).forEach(sq => {
-        const cur = Number(sq[field]) || 0;
-        if (cur <= 0) return;
-        const savesAmmo = !!((sq.effects && sq.effects.calvinistAmmoSaving) || (Array.isArray(sq.appliedCards) && sq.appliedCards.includes('Кальвинистская бережливость')));
-        const normalTake = Math.max(1, Math.round(cur * SUPPLY_SHOT_SPEND));
-        let take = normalTake;
+    let remaining = requested;
+    squads.forEach(sq => {
+        if (remaining <= 0) return;
+        const available = Math.max(0, Math.floor(Number(sq[field]) || 0));
+        if (!available) return;
+        const rawShots = Math.min(available, remaining);
+        const savesAmmo = !!((sq.effects && sq.effects.calvinistAmmoSaving) ||
+            (Array.isArray(sq.appliedCards) && sq.appliedCards.includes('Кальвинистская бережливость')));
+        let paid = rawShots;
         if (savesAmmo) {
             const ledger = sq.operationalAmmoSavingLedger || (sq.operationalAmmoSavingLedger = {});
             const channel = ledger[kind] || (ledger[kind] = { raw: 0, paid: 0 });
-            const rawTotal = (Number(channel.raw) || 0) + normalTake;
+            const rawTotal = (Number(channel.raw) || 0) + rawShots;
             const paidTotal = Math.ceil(rawTotal * 0.8);
-            take = Math.max(0, paidTotal - (Number(channel.paid) || 0));
+            paid = Math.max(0, paidTotal - (Number(channel.paid) || 0));
             channel.raw = rawTotal;
             channel.paid = paidTotal;
         }
-        take = Math.min(cur, take);
-        sq[field] = Math.max(0, cur - take);
-        spent += take;
+        sq[field] = Math.max(0, available - paid);
+        remaining -= rawShots;
     });
-    return spent > 0;
+    return remaining === 0 ? requested : 0;
 }
 
-// Проверка перед стрельбой: нет боезапаса — стрелять нечем (с записью в лог)
-function requireOperationalAmmo(unit, kind) {
-    // Юниты без учёта боезапаса (у них нет отрядов с патронами/снарядами) не блокируем
-    if (operationalAmmoSquads(unit).length === 0) return true;
-    if (unitOperationalAmmoTotal(unit, kind) > 0) return true;
+// Проверка перед стрельбой: хватает ли запаса на заданное число выстрелов.
+function requireOperationalAmmo(unit, kind, shots) {
+    const required = Math.max(1, Math.floor(Number(shots) || 1));
+    const squads = operationalAmmoSquads(unit);
+    // Юниты без отслеживаемого боезапаса сохраняют прежнее поведение.
+    if (squads.length === 0) return true;
+    if (unitOperationalAmmoTotal(unit, kind) >= required) return true;
     const what = kind === 'ordnance' ? 'снарядов' : 'патронов';
-    log(`🚫 [${unit ? unit.name : '?'}]: нет ${what} — стрельба по карте операции невозможна. Отправьте снабжение (🚚 Снабжение).`);
+    log(`🚫 [${unit ? unit.name : '?'}]: для залпа нужно ${required} ${what}, в запасе ${unitOperationalAmmoTotal(unit, kind)} — отправьте снабжение (🚚 Снабжение).`);
     const mi = document.getElementById('mapInfo');
-    if (mi) { mi.innerHTML = `🚫 ${unit ? unit.name : ''}: нет ${what} — нужно снабжение.`; mi.style.color = '#e74c3c'; }
+    if (mi) { mi.innerHTML = `🚫 ${unit ? unit.name : ''}: недостаточно ${what} (нужно ${required}).`; mi.style.color = '#e74c3c'; }
     return false;
 }
 
@@ -33847,6 +33927,75 @@ function artilleryCaliberMm(unit) {
     return 0; // не артиллерия
 }
 
+
+// Для каждого танка/машины в гексе, куда попал артиллерийский снаряд,
+// проводится отдельная проверка 5%. Успех означает реальное повреждение.
+const OP_ARTILLERY_ARMOR_DAMAGE_CHANCE = 0.05;
+const OP_ARTILLERY_ARMOR_PENETRATION_MM = 30;
+function applyOperationalArtilleryArmorHit(target, vehicle, sourceName) {
+    const armoredTarget = !!target && (
+        isArmoredUnit(target) || (!!vehicle && (
+            vehicle.armor || vehicle.isVehicle || (typeof isArmoredUnit === 'function' && isArmoredUnit(vehicle))
+        ))
+    );
+    if (!armoredTarget || Math.random() >= OP_ARTILLERY_ARMOR_DAMAGE_CHANCE) return null;
+    const selected = vehicle || ((target.isGroup && typeof selectTargetVehicle === 'function')
+        ? selectTargetVehicle(target) : target);
+    if (!selected || selected.isDestroyed || selected.destroyed || typeof processVehicleHit !== 'function') return null;
+    // Успешная 5%-ная проверка означает именно повреждение машины: выбираем
+    // повреждаемую локацию и разрешаем её по обычным последствиям попадания.
+    const locations = ['hull', 'suspension', 'turret', 'engine', 'ammo'];
+    const location = locations[Math.floor(Math.random() * locations.length)];
+    const armor = selected.armor || target.armor || {};
+    const armorValue = location === 'suspension' ? 5
+        : location === 'turret' ? (Number(armor.turret) || Number(armor.front) || 20)
+        : (location === 'engine' || location === 'ammo') ? (Number(armor.side) || Number(armor.rear) || 15)
+        : (Number(armor.front) || 20);
+    const penetration = Math.max(OP_ARTILLERY_ARMOR_PENETRATION_MM, armorValue + 1);
+    const result = processVehicleHit(selected, location, penetration, armorValue, sourceName || 'артиллерия');
+    if (result && (result.result === 'destroyed' || result.result === 'exploded')) {
+        selected.isDestroyed = true;
+        selected.destroyed = true;
+        if (target.isGroup && Array.isArray(target.vehicleList)) {
+            target.vehicleList = target.vehicleList.filter(item => item !== selected);
+            target.groupSize = target.vehicleList.length;
+            if (!target.groupSize) target.isDestroyed = true;
+        } else {
+            target.isDestroyed = true;
+        }
+    }
+    try { log(`🎯 Артиллерийское повреждение бронетехники «${selected.name || target.name}»: ${result.message || result.result}.`); } catch (e) {}
+    return result;
+}
+
+function applyOperationalArtilleryArmorHitsAtHex(col, row, sourceName) {
+    const campaign = appData && appData.campaign;
+    if (!campaign) return 0;
+    const units = [...(campaign.opUnits || []), ...(campaign.enemyOpUnits || [])];
+    let checked = 0;
+    units.forEach(unit => {
+        if (!unit || unit.isDestroyed || Number(unit.col) !== Number(col) || Number(unit.row) !== Number(row) ||
+            (typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit))) return;
+        const unitIsArmored = typeof isArmoredUnit === 'function' && isArmoredUnit(unit);
+        let vehicles = [];
+        if (unit.isGroup && Array.isArray(unit.vehicleList)) {
+            vehicles = unit.vehicleList.filter(vehicle => vehicle && !vehicle.isDestroyed && !vehicle.destroyed &&
+                (vehicle.armor || vehicle.isVehicle || (typeof isArmoredUnit === 'function' && isArmoredUnit(vehicle))));
+        } else if (Array.isArray(unit.squads)) {
+            vehicles = unit.squads.filter(squad => squad && !squad.isDestroyed &&
+                (squad.armor || squad.isVehicle || (typeof isArmoredUnit === 'function' && isArmoredUnit(squad))) &&
+                (!Array.isArray(squad.fighters) || squad.fighters.some(fighter => fighter && Number(fighter.hp) > 0)));
+        }
+        if (!unitIsArmored && !vehicles.length) return;
+        if (!vehicles.length) vehicles = [unit];
+        vehicles.forEach(vehicle => {
+            checked++;
+            applyOperationalArtilleryArmorHit(unit, vehicle === unit ? null : vehicle, sourceName);
+        });
+    });
+    return checked;
+}
+
 // ⚡ v13.047 (R32#1): миномётная батарея (ЛЮБОГО калибра) — не может обстреливать
 //    ДОТ. Повредить амбразуру могут только ствольные орудия >70мм (САУ/артиллерия).
 function isMortarUnit(unit) {
@@ -33990,8 +34139,8 @@ function executeOpShoot(targets, distance) {
         return;
     }
 
-    // ⚡ v13.069 (R48#6): стрельба по карте тратит боезапас (10%); нет запаса — нет огня.
-    //    У артиллерии расход считается по снарядам, у пехоты — по патронам.
+    // Оперативная стрельба списывает фактически выпущенные патроны/снаряды ниже;
+    // при частичном запасе количество выстрелов уменьшается до доступного.
     const shootAmmoKind = ((typeof isMortarUnit === 'function' && isMortarUnit(shooter)) ||
                            (typeof isMediumArtillery === 'function' && isMediumArtillery(shooter))) ? 'ordnance' : 'small';
     if (!requireOperationalAmmo(shooter, shootAmmoKind)) { cancelOpShooting(); return; }
@@ -34080,6 +34229,16 @@ function executeOpShoot(targets, distance) {
     let totalDamage = 0;
     let weaponDetails = [];
     let btrMgFire = false;
+    let roundsFired = 0;
+    const trackedAmmo = operationalAmmoSquads(shooter).length > 0;
+    let ammoRemaining = trackedAmmo ? unitOperationalAmmoTotal(shooter, 'small') : Infinity;
+    const takeRounds = requested => {
+        const count = Math.max(0, Math.floor(Number(requested) || 0));
+        const fired = Math.min(count, ammoRemaining);
+        ammoRemaining -= fired;
+        roundsFired += fired;
+        return fired;
+    };
 
     // ⚡ v13.020: ГРУППА ТЕХНИКИ — стрелки живут в vehicleList (squads пустые).
     //    БТР с десантом на ходу: 6 выстрелов пулемётом на КАЖДЫЙ БТР
@@ -34094,14 +34253,15 @@ function executeOpShoot(targets, distance) {
             const crewAlive = (v.fighters || []).some(f => f.hp > 0) ||
                 (v.squads && v.squads[0] && v.squads[0].fighters && v.squads[0].fighters.some(f => f.hp > 0));
             if (!crewAlive) continue;
-            const shots = 6;
+            const shots = takeRounds(6);
+            if (!shots) continue;
             // ⚡ v13.027: бонус штаба BeVe (+20%)
             const hc = Math.min(1, (distance === 1 ? 0.35 : (distance === 2 ? 0.25 : 0.15)) * hqModMg);
             let h = 0;
             for (let i = 0; i < shots; i++) {
                 if (Math.random() < hc) { h++; totalDamage += rollD6(); }
             }
-            weaponDetails.push(`${v.name} (6 выстр., попаданий ${h})`);
+            weaponDetails.push(`${v.name} (${shots} выстр., попаданий ${h})`);
         }
     } else if (shooter.isGroup && shooter.vehicleList && shooter.vehicleList.length > 0) {
         // Прочая техника в группе — пулемёты каждой машины
@@ -34117,8 +34277,9 @@ function executeOpShoot(targets, distance) {
                     if (!cw || cw.type !== 'mg') continue;
                     const alive = (ci.fighterIndices || []).filter(idx => squad.fighters && squad.fighters[idx] && squad.fighters[idx].hp > 0).length;
                     if (alive > 0) {
-                        totalDamage += 10;
-                        weaponDetails.push(`${cw.name} — ${v.name} (10 ед.)`);
+                        const shots = takeRounds(10);
+                        totalDamage += shots;
+                        if (shots) weaponDetails.push(`${cw.name} — ${v.name} (${shots} выстр.)`);
                     }
                 }
             }
@@ -34155,10 +34316,9 @@ function executeOpShoot(targets, distance) {
                                 squad.fighters[idx] && squad.fighters[idx].hp > 0
                             ).length;
                             if (alive > 0) {
-                                const shots = 4;
+                                const shots = takeRounds(4);
                                 totalDamage += shots;
-                                opMgFired++;
-                                weaponDetails.push(`${cw.name} (×4)`);
+                                if (shots) { opMgFired++; weaponDetails.push(`${cw.name} (×${shots})`); }
                             }
                         } else if (cw.type === 'at_gun') {
                             // Орудие - артиллерийский обстрел
@@ -34175,7 +34335,8 @@ function executeOpShoot(targets, distance) {
                                 // ⚡ v13.027: бонус штаба BeVe (+20%)
                                 hitChance = Math.min(1, hitChance * hqModMg);
 
-                                const totalShots = 12;
+                                const totalShots = takeRounds(12);
+                                if (!totalShots) continue;
                                 let hits = 0;
                                 let damage = 0;
                                 for (let i = 0; i < totalShots; i++) {
@@ -34202,10 +34363,9 @@ function executeOpShoot(targets, distance) {
                         ).length;
 
                         if (alive > 0) {
-                            let damage = 10; // Станковый пулемет
-                            totalDamage += damage;
-                            opMgFired++;
-                            weaponDetails.push(`${cw.name} (${damage} ед.)`);
+                            const shots = takeRounds(10); // станковый пулемёт
+                            totalDamage += shots;
+                            if (shots) { opMgFired++; weaponDetails.push(`${cw.name} (${shots} выстр.)`); }
                         }
                     }
                 }
@@ -34243,15 +34403,16 @@ function executeOpShoot(targets, distance) {
                     }
 
                     if (damage > 0) {
-                        totalDamage += damage;
-                        weaponDetails.push(`${label} (${damage} ед.)`);
+                        const shots = takeRounds(damage);
+                        totalDamage += shots;
+                        if (shots) weaponDetails.push(`${label} (${shots} выстр.)`);
                     }
                 });
             }
         }
     }
 
-    if (totalDamage === 0) {
+    if (roundsFired === 0) {
         document.getElementById('mapInfo').innerHTML = '❌ Нет боеспособного стрелкового оружия!';
         cancelOpShooting();
         return;
@@ -34282,7 +34443,7 @@ function executeOpShoot(targets, distance) {
             }
         }
     }
-    consumeOperationalAmmo(shooter, 'small');   // ⚡ v13.069 (R48#6): 10% патронов за стрельбу
+    if (consumeOperationalAmmo(shooter, 'small', roundsFired) !== roundsFired) { cancelOpShooting(); return; }
 
     // ⚡ ИТОГОВЫЙ УРОН - ОБЪЯВЛЯЕМ ПЕРЕД ИСПОЛЬЗОВАНИЕМ
     // (у БТР-огня на ходу шанс попадания уже учтён дистанцией — без distanceMod)
@@ -34926,7 +35087,7 @@ function executeOpShootAt(targets, distance) {
         return;
     }
 
-    // ⚡ v13.069 (R48#6): огонь орудий тратит снаряды (10% за стрельбу)
+    // Точный расход боеприпасов выполняется по числу выстрелов после проверок цели.
     if (!requireOperationalAmmo(shooter, 'ordnance')) { cancelOpShooting(); return; }
 
     // ⚡ v13.022: юнит в тактическом бою НЕ ведёт обстрел по карте кампании
@@ -34938,9 +35099,18 @@ function executeOpShootAt(targets, distance) {
         return;
     }
 
-    // Для САУ: ПТО-огонь только до 3 гексов
-    if (shooter.name && shooter.name.includes('САУ') && distance > 3) {
-        document.getElementById('mapInfo').innerHTML = '❌ САУ не может вести ПТО-огонь дальше 3 гексов.';
+    // Дальний огонь САУ по бронетехнике — непрямой залп, а не прямой ПТО-выстрел.
+    if (shooter.name && /САУ/i.test(shooter.name) && Number(distance) > 3 &&
+        targets.some(target => isArmoredUnit(target))) {
+        if (Number(distance) > 10) {
+            const mi = document.getElementById('mapInfo');
+            if (mi) mi.innerHTML = `❌ САУ не может обстреливать цель дальше 10 гексов. Дистанция: ${distance}.`;
+            cancelOpShooting();
+            return;
+        }
+        const vehicles = shooter.isGroup && Array.isArray(shooter.vehicleList)
+            ? shooter.vehicleList.filter(vehicle => vehicle && !vehicle.isDestroyed && !vehicle.destroyed).length : 1;
+        executeMortarSalvo(shooter, targets, Number(distance), 7 * Math.max(1, vehicles), '1d10');
         cancelOpShooting();
         return;
     }
@@ -34979,6 +35149,12 @@ function executeOpShootAt(targets, distance) {
         return;
     }
     const armorTargets = getArmorUnits(targets);
+    if (Number(distance) > 3) {
+        document.getElementById('mapInfo').innerHTML = '❌ Прямой огонь ПТО по бронетехнике доступен только до 3 гексов включительно.';
+        log(`⚠️ [${shooter.name}]: ПТО не стреляет по бронетехнике дальше 3 гексов (дистанция ${distance}).`);
+        cancelOpShooting();
+        return;
+    }
     if (armorTargets.length === 0) {
         document.getElementById('mapInfo').innerHTML = '❌ На этом гексе нет бронетехники!';
         cancelOpShooting();
@@ -34992,31 +35168,23 @@ function executeOpShootAt(targets, distance) {
         cancelOpShooting();
         return;
     }
+    const totalShots = operationalAmmoShotsAvailable(shooter, 'ordnance', gunCount * 12);
+    if (!totalShots || !requireOperationalAmmo(shooter, 'ordnance', totalShots)) { cancelOpShooting(); return; }
 
-    // Боеприпасы и маркер выстрела списываются только после всех проверок цели и оружия.
     shooter.firedThisTurn = true;
     if (typeof opCheckUnitDetection === 'function') opCheckUnitDetection(shooter, { fireType: 'direct' });
-    consumeOperationalAmmo(shooter, 'ordnance');
 
     // ⚡ НЕ ТРАТИМ ОД (стрельба по готовности или на ходу)
     const savedAP = shooter.ap;
-
-    const totalShots = gunCount * 12;
     let hitChance = 0;
     let penetrationKey = 0;
 
-    switch (distance) {
+    switch (Number(distance)) {
         case 1: hitChance = 0.30; penetrationKey = 10; break;
         case 2: hitChance = 0.20; penetrationKey = 20; break;
-        case 3: hitChance = 0.05; penetrationKey = 30; break; // ⚡ v13.046 (R31#9): ПТО по броне с 3 гексов — 5%
-        case 4: case 5: hitChance = 0.08; penetrationKey = 35; break;
-        case 6: case 7: hitChance = 0.06; penetrationKey = 38; break;
-        case 8: case 9: case 10: hitChance = 0.04; penetrationKey = 40; break;
-        default: hitChance = 0.03; penetrationKey = 40;
+        case 3: hitChance = 0.05; penetrationKey = 30; break;
+        default: hitChance = 0; penetrationKey = 30;
     }
-    // ⚡ v13.020: таблицы пробития в data.js рассчитаны на дистанции 1–30 (мм).
-    //    Ключи 35/38/40 в таблицах отсутствуют → пробитие было 0 уже с 4-го гекса.
-    penetrationKey = Math.min(penetrationKey, 30);
 
     // ⚡ v13.073: огонь на ходу (штурм) — большой штраф меткости
     if (shooter.movedThisTurn) {
@@ -35029,23 +35197,6 @@ function executeOpShootAt(targets, distance) {
     if (hqModAt > 1) {
         hitChance = Math.min(1, hitChance * hqModAt);
         log(`🎖️ [${shooter.name}]: поддержка штаба (в радиусе 2 гексов) — точность +20% (${Math.round(hitChance * 100)}%).`);
-    }
-
-    // ⚡ v13.069 (R48#4): по ДВИЖУЩЕЙСЯ бронетехнике на дальней дистанции (4+)
-    //    попасть труднее: −1 к попаданию, а ночью −2 (вместо обычного ночного −1).
-    const targetWasMoving = (armorTargets || []).some(t => t && (
-        t.movedThisTurn ||
-        (Array.isArray(t.squads) && t.squads.some(sq => sq && sq.movedThisTurn)) ||
-        (Array.isArray(t.vehicleList) && t.vehicleList.some(v => v && v.movedThisTurn))
-    ));
-    const isNightNow = (typeof getNightModifier === 'function') && getNightModifier() < 1;
-    let movingTargetNightApplied = false;
-    if (distance >= 4 && targetWasMoving) {
-        hitChance = isNightNow ? hitChance * 0.25 : hitChance * 0.5;
-        movingTargetNightApplied = isNightNow;
-        log(isNightNow
-            ? `🌙🚙 Цель движется в темноте (дистанция ${distance}): штраф −2 к попаданию по бронетехнике.`
-            : `🚙 Цель движется (дистанция ${distance}): штраф −1 к попаданию по бронетехнике.`);
     }
 
     // Определяем пробиваемость
@@ -35069,6 +35220,12 @@ function executeOpShootAt(targets, distance) {
         if (penetration > 0) break;
     }
 
+    const nightMod = getNightModifier();
+    if (nightMod < 1) {
+        hitChance *= nightMod;
+        log(`🌙 Ночь: шанс попадания умножен на ${nightMod.toFixed(2)}.`);
+    }
+
     // Определяем максимальную броню среди целей
     let maxArmor = 0;
     armorTargets.forEach(t => {
@@ -35083,6 +35240,7 @@ function executeOpShootAt(targets, distance) {
     });
 
     let hits = 0;
+    let actualShotsFired = 0;
     let penetrations = 0;
     let destroyedUnits = [];
     let hitDetails = [];
@@ -35090,14 +35248,18 @@ function executeOpShootAt(targets, distance) {
     //    отправим защитнику (потери дойдут в его «Батальон»)
     let enemyDamaged = false;
 
-    for (let target of armorTargets) {
+    const shotsPerTarget = Math.floor(totalShots / armorTargets.length);
+    const extraShots = totalShots % armorTargets.length;
+    for (let targetIndex = 0; targetIndex < armorTargets.length; targetIndex++) {
+        const target = armorTargets[targetIndex];
         console.log(`🎯 Обстрел цели: ${target.name}${target.isGroup ? ' (группа, ' + (target.vehicleList ? target.vehicleList.length : 0) + ' машин)' : ''}`);
 
-        const shotsForTarget = Math.floor(totalShots / armorTargets.length);
+        const shotsForTarget = shotsPerTarget + (targetIndex < extraShots ? 1 : 0);
 
         for (let i = 0; i < shotsForTarget; i++) {
             // ⚡ v13.024: вся группа уничтожена — выстрелы по ней прекращаем
             if (target.isDestroyed) break;
+            actualShotsFired++;
             const hitRoll = Math.random();
             if (hitRoll <= hitChance) {
                 // ⚡ v13.024: цель выбирается СЛУЧАЙНО ДЛЯ КАЖДОГО ПОПАДАНИЯ
@@ -35193,13 +35355,6 @@ function executeOpShootAt(targets, distance) {
                 }
 
                 console.log(`   Броня "${location}": ${armorValue}мм, пробитие: ${penetration}мм`);
-               // ⚡ НОЧНОЙ МОДИФИКАТОР
-    //    ⚡ v13.069 (R48#4): для движущейся цели ночной штраф уже учтён (−2 вместо −1)
-    const nightMod = getNightModifier();
-    if (nightMod < 1 && !movingTargetNightApplied) {
-        hitChance *= nightMod; // Снижаем шанс попадания вдвое
-        log(`🌙 Ночь! Шанс попадания снижен на 50%`);
-    }
                 // ⚡ ОБРАБАТЫВАЕМ ПОПАДАНИЕ
                 const result = processVehicleHit(targetVehicle, location, penetration, armorValue, shooter.name);
                 // ⚡ v13.043 (R28#1): реальный урон модулям/расчёту → защитник узнает
@@ -35277,6 +35432,13 @@ function executeOpShootAt(targets, distance) {
         }
     }
 
+    // Списываем только снаряды, которые реально успели выстрелить (в том числе промахи).
+    if (actualShotsFired > 0 && consumeOperationalAmmo(shooter, 'ordnance', actualShotsFired) !== actualShotsFired) {
+        log(`🚫 ${shooter.name}: не удалось списать ${actualShotsFired} фактически выпущенных снарядов.`);
+        cancelOpShooting();
+        return;
+    }
+
     // Удаляем полностью уничтоженные юниты
     if (destroyedUnits.length > 0) {
         // ⚡ v13.043 (R28#1): онлайн — НЕ удаляем юнит из локального списка
@@ -35343,7 +35505,7 @@ function executeOpShootAt(targets, distance) {
     }
 
     const result = {
-        shots: totalShots,
+        shots: actualShotsFired,
         hits: hits,
         penetrations: penetrations,
         destroyed: destroyedUnits.length,

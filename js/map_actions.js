@@ -1154,8 +1154,13 @@ function applyDamagePointsToEnemy(enemy, points, res, options) {
             if (typeof tacticalApplyFighterMoraleLoss === 'function') {
                 tacticalApplyFighterMoraleLoss(enemy, f, side);
             } else {
-                const m = (enemy.currentMorale !== undefined && enemy.currentMorale !== null) ? enemy.currentMorale : (enemy.baseMorale || 5);
-                enemy.currentMorale = Math.max(0, m - (f.isCommander ? 2 : 1));
+                const loss = f.isCommander ? 2 : 1;
+                if (typeof tacticalChangeMorale === 'function') tacticalChangeMorale(enemy, -loss);
+                else {
+                    const scale = Math.max(1, Number(enemy.tacticalMoraleLegacyScale) || Number(enemy.tacticalMoraleMax) || Number(enemy.baseMorale) || 1);
+                    const m = (enemy.currentMorale !== undefined && enemy.currentMorale !== null) ? enemy.currentMorale : (enemy.baseMorale || 5);
+                    enemy.currentMorale = Math.max(0, m - loss * 100 / scale);
+                }
             }
             if (!options.silent) { try { log(`   ☠️ «${enemy.name}»: ${f.name || 'боец'} погиб`); } catch (e) {} }
         } else {
@@ -1346,8 +1351,12 @@ function reportAttackOutcome(kind, data) {
             break;
         case 'melee': {
             applyDamagePointsToEnemy(enemy, data.damage || 0, res);
-            const m = (enemy.currentMorale !== undefined && enemy.currentMorale !== null) ? enemy.currentMorale : (enemy.baseMorale || 5);
-            enemy.currentMorale = Math.max(0, m - 1);
+            if (typeof tacticalChangeMorale === 'function') tacticalChangeMorale(enemy, -1);
+            else {
+                const scale = Math.max(1, Number(enemy.tacticalMoraleLegacyScale) || Number(enemy.tacticalMoraleMax) || Number(enemy.baseMorale) || 1);
+                const m = (enemy.currentMorale !== undefined && enemy.currentMorale !== null) ? enemy.currentMorale : (enemy.baseMorale || 5);
+                enemy.currentMorale = Math.max(0, m - 100 / scale);
+            }
             const battle = typeof getTacticalBattleRecord === 'function' ? getTacticalBattleRecord() : null;
             if (battle) { battle.onlineMoraleOut = battle.onlineMoraleOut || {}; battle.onlineMoraleOut[enemy.name] = (battle.onlineMoraleOut[enemy.name] || 0) + 1; }
             if (mapActionEnemyAlive(enemy) > 0 && typeof currentSquad !== 'undefined' && currentSquad) {
