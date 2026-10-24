@@ -5,7 +5,7 @@
   const STAGES = ['placement', 'fortifications', 'communications', 'cards', 'orders'];
   const STAGE_TITLES = {
     placement: 'Этап 1 из 5 · Размещение',
-    fortifications: 'Этап 2 из 5 · ДОТы и талреп-якоря',
+    fortifications: 'Этап 2 из 5 · Укрепления',
     communications: 'Этап 3 из 5 · Связь',
     cards: 'Этап 4 из 5 · Бонусные карты',
     orders: 'Этап 5 из 5 · Приказы'
@@ -145,22 +145,38 @@
     if (stage === 'placement') {
       const count = (typeof getUnplacedOpUnits === 'function') ? getUnplacedOpUnits().length : 0;
       copy = 'Перетащите карточки отрядов на гексы своей зелёной зоны. Если перетаскивание неудобно, выберите отряд в списке и щёлкните по гексу. Список остаётся открытым.';
-      detail = count ? `Осталось разместить: ${count}.` : 'Все отряды на карте. После проверки переходите к ДОТам и талреп-якорям.';
+      detail = count ? `Осталось разместить: ${count}.` : (c.playerFaction === 'BeVe'
+        ? 'Все отряды на карте. После проверки переходите к расстановке ДОТов.'
+        : 'Все отряды на карте. После проверки переходите к этапу укреплений.');
     } else if (stage === 'fortifications') {
-      const needsDots = c.playerFaction === 'BeVe' && typeof initialFortificationHexCount === 'function' && initialFortificationHexCount() > 0;
+      const isBeVe = c.playerFaction === 'BeVe';
+      const isAirf = c.playerFaction === 'A.I.R.F.';
+      const needsDots = isBeVe && typeof initialFortificationHexCount === 'function' && initialFortificationHexCount() > 0;
       const dotsDone = !needsDots || (typeof initialFortificationComplete === 'function' && initialFortificationComplete());
-      // ⚡ v13.092 (п.2): гексы ДОТов — из стартовых позиций, игрок выбирает только клетку
-      copy = 'ДОТы уже стоят на своих оперативных гексах (стартовые позиции из js/data.js). Откройте «Расставить ДОТы» и укажите на карте каждого гекса клетку для ДОТа; при необходимости выдайте талреп-якорь выбранной технике.';
-      detail = needsDots ? (dotsDone ? 'ДОТы расставлены.' : 'ДОТы ещё не расставлены — откройте «Расставить ДОТы».') : 'ДОТов для начальной расстановки нет; талреп-якорь можно выдать выбранной технике.';
+      // На этом этапе показываем только действие текущей фракции.
+      if (isBeVe) {
+        copy = 'Разместите ДОТы батальона: нажмите «Расставить ДОТы» и укажите клетку на карте каждого оперативного гекса.';
+        detail = needsDots ? (dotsDone ? 'ДОТы расставлены.' : 'ДОТы ещё не расставлены — откройте «Расставить ДОТы».') : 'У этого батальона нет ДОТов для размещения.';
+      } else if (isAirf) {
+        copy = 'Выдайте талреп-якорь выбранной бронетехнике, если хотите использовать фракционный бонус.';
+        detail = 'Талреп-якорь можно выдать выбранной технике.';
+      } else {
+        copy = 'Проверьте укрепления батальона и переходите к настройке связи.';
+        detail = 'Для этой фракции отдельные действия на этапе укреплений не требуются.';
+      }
     } else if (stage === 'cards') {
-      copy = 'Связь настроена. Теперь отдельным меню распределите бонусные карты между пехотными, сапёрными и разведывательными взводами: до 3 карт на взвод (третья добавит случайный дебафф), не более 3 копий одной карты на батальон.';
+      copy = 'Связь настроена. Теперь отдельным меню распределите бонусные карты между пехотными, сапёрными и разведывательными взводами: третья бонусная карта добавит случайную четвёртую карту (бонус или дебафф), не более 3 копий одной бонусной карты на батальон.';
       detail = c.initialPlatoonCardsAssigned ? 'Карты уже закреплены за взводами.' : 'Нажмите «Распределить карты», чтобы открыть меню раздачи.';
     } else {
       copy = 'Hard Mode включён автоматически. Нажмите закреплённую кнопку «Связь», чтобы при необходимости распределить рации и телефоны. После этого подтвердите готовность перейти к картам.';
       detail = 'Связь штаба уже настроена; дополнительные рации/телефоны можно распределить сейчас или позже.';
     }
     const progress = STAGES.indexOf(stage) + 1;
-    host.innerHTML = `<div class="op-setup-title">${STAGE_TITLES[stage]}</div>` +
+    const stageTitle = stage === 'fortifications'
+      ? (c.playerFaction === 'BeVe' ? 'Этап 2 из 5 · Расстановка ДОТов'
+        : c.playerFaction === 'A.I.R.F.' ? 'Этап 2 из 5 · Талреп-якорь' : STAGE_TITLES[stage])
+      : STAGE_TITLES[stage];
+    host.innerHTML = `<div class="op-setup-title">${stageTitle}</div>` +
       `<div class="op-setup-copy">${copy}</div>` +
       `<div class="op-setup-actions"><span class="op-setup-note">${detail}</span>` +
       `<button type="button" onclick="showCampaignTutorialStage('${stage}', true)" style="padding:4px 8px;">❔ Подсказка</button>` +
@@ -171,8 +187,9 @@
       button.textContent = stage === 'placement' ? '✅ Размещение завершено' :
         stage === 'fortifications' ? '➡️ Перейти к связи' :
         stage === 'cards' ? (c.initialPlatoonCardsAssigned ? '✅ Перейти к приказам' : '🎖️ Распределить карты') : '🎖️ Перейти к картам';
-      button.title = stage === 'placement' ? 'Перейти к этапу ДОТов и талреп-якорей' :
-        stage === 'fortifications' ? 'Завершить этап укреплений' :
+      button.title = stage === 'placement'
+        ? (c.playerFaction === 'BeVe' ? 'Перейти к расстановке ДОТов' : 'Перейти к этапу укреплений')
+        : stage === 'fortifications' ? 'Завершить этап укреплений' :
         stage === 'cards' ? 'Открыть меню распределения бонусных карт по взводам' : 'Подтвердить готовность и перейти к распределению карт';
       button.style.display = 'inline-block';
     }
@@ -667,7 +684,9 @@
       markChecklist('place');
       setStage('fortifications');
       if (typeof setOpMapMode === 'function') setOpMapMode('view');
-      setMapMessage('✅ Размещение подтверждено. Теперь этап ДОТов и талреп-якорей.', '#27ae60');
+      setMapMessage(c.playerFaction === 'BeVe'
+        ? '✅ Размещение подтверждено. Теперь этап расстановки ДОТов.'
+        : '✅ Размещение подтверждено. Теперь этап укреплений.', '#27ae60');
       return;
     }
     if (stage === 'fortifications') {
