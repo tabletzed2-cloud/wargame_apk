@@ -1586,7 +1586,7 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
     const st = hexEditorState;
     const battleRoot = document.getElementById('battleApp');
     if (battleRoot && battleRoot.classList) {
-        const editorMode = !!st && ['trenches', 'prep'].includes(st.kind);
+        const editorMode = !!st && ['trenches', 'prep', 'initialFortification'].includes(st.kind);
         if (typeof battleRoot.classList.toggle === 'function') battleRoot.classList.toggle('hex-editor-mode', editorMode);
         else if (editorMode && typeof battleRoot.classList.add === 'function') battleRoot.classList.add('hex-editor-mode');
         else if (!editorMode && typeof battleRoot.classList.remove === 'function') battleRoot.classList.remove('hex-editor-mode');
@@ -1647,7 +1647,7 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
       <span style="color:#f1c40f; font-size:0.9rem;">Осталось правок: <b>${left}</b> (поставлено в этой сессии: ${st.placed})</span>
       <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
         <button onclick="hexEditUndo()" style="background:#8e44ad;">↩️ Отменить последнюю</button>
-        <button onclick="rotateSelectedHex()" style="background:#8e44ad;">↻ Повернуть выбранную клетку (60°)</button>
+        <button id="hexEditorRotateButton" onclick="rotateSelectedHex()" style="background:#8e44ad;">↻ ${st.kind === 'trenches' ? 'Повернуть текстуру окопа' : 'Повернуть выбранную клетку'} (60°)</button>
         ${draftCancelBtn}
         <button onclick="closeHexEditor()" style="background:#27ae60;">✅ Готово — ${st.prevBattleId ? 'вернуться в бой' : 'на карту операции'}</button>
       </div>
@@ -1927,6 +1927,9 @@ function applyPendingHexEdits(hexKey, kind) {
 function hexEditClick(hexKeyCell) {
     const st = hexEditorState;
     if (!st) return false;
+    // Запоминаем кликнутую клетку и для черновика: кнопка поворота текстуры
+    // должна работать до исполнения приказа «Окопаться» так же, как после него.
+    if (appData.map) appData.map.lastEditedHex = hexKeyCell;
     // ⚡ v13.099 (п.6): правки приказа, который ещё не выполнен, идут в черновик
     if (st.draftMode) return recordPendingHexEditClick(st, hexKeyCell);
     const ov = getHexOverlay(st.hexKey, true);

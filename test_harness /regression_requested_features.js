@@ -26,59 +26,40 @@ function loadModuleFunctions(s, filename, names) {
   names.forEach(name => s.run(sliceFunction(source, name)));
 }
 
-// 1. Третья бонусная карта добавляет один фракционный дебафф; каталог противника исключён.
-test('три бонусные карты дают один авто-дебафф только из пула фракции игрока', () => {
+// 1. Третья бонусная карта добавляет случайную четвёртую карту смешанной природы.
+test('третья бонусная карта выбирает четвёртую из фракционного пула бонусов и дебаффов', () => {
   const s = createSandbox(freshAppData());
-  loadHtml(s, ['collectCardLibraryForContext', 'getFactionScopedCardEntries', 'getRandomNegativeCardForUnit', 'getUnitCardFactionContext', 'activateSelectedCards']);
+  loadHtml(s, ['getFactionScopedCardEntries', 'getRandomFourthCardForUnit', 'getUnitCardFactionContext']);
   s.run(`
     function computeSubFactionFromSquads() { return null; }
     function isCardAvailableToUnit() { return true; }
     function getCurrentCampaignBattle() { return null; }
-    function getBattleCardContext() { return { faction: 'A.I.R.F.', subFaction: null }; }
-    function renderActiveEffects() {}
+    function countBattalionBonusCardCopies() { return 0; }
     var airfCards = [
       { name: 'AIRF bonus 1', type: 'bonus' }, { name: 'AIRF bonus 2', type: 'bonus' },
       { name: 'AIRF bonus 3', type: 'bonus' },
+      { name: 'Залп отчаяния', type: 'bonus' },
       { name: 'AIRF penalty', type: 'negative', subfaction: 'common' }
     ];
-    var beveCards = [
-      { name: 'BeVe-only penalty', type: 'negative', subfaction: 'common' },
-      { name: 'BeVe-only global copy', type: 'negative', subfaction: 'common' }
-    ];
+    var beveCards = [{ name: 'BeVe-only penalty', type: 'negative', subfaction: 'common' }];
     appData.factions = {
       'A.I.R.F.': { cardLibrary: airfCards },
       'BeVe': { cardLibrary: beveCards },
-      '_global': { cardLibrary: [
-        { name: 'BeVe-only global copy', type: 'negative', subfaction: 'common' },
-        { name: 'Shared common penalty', type: 'negative', subfaction: 'common' }
-      ] }
+      '_global': { cardLibrary: [{ name: 'Shared common card', type: 'bonus', subfaction: 'common' }] }
     };
-    var entries = collectCardLibraryForContext({ faction: 'A.I.R.F.', subFaction: null });
-    var scopedEntries = getFactionScopedCardEntries({ faction: 'A.I.R.F.', subFaction: null });
-    var testUnit = { name: 'AIRF platoon', squads: [{ faction: 'A.I.R.F.' }] };
-    var automaticCandidates = [getRandomNegativeCardForUnit(testUnit, [], []), getRandomNegativeCardForUnit(testUnit, [], [])]
-      .map(item => item && item.card.name);
-
-    appData.squads = [];
-    appData.activeCards = [];
-    var selectedCardDivs = airfCards.filter(c => c.type === 'bonus').map(c => ({
-      dataset: { faction: 'A.I.R.F.', name: c.name }, classList: { remove() {} }
-    }));
-    document.querySelectorAll = function (selector) { return selector === '.card-item.selected' ? selectedCardDivs : []; };
-    activateSelectedCards();
-    var automaticAssigned = appData.activeCards.filter(c => c.type === 'negative').map(c => c.name);
+    var testUnit = { name: 'AIRF platoon', faction: 'A.I.R.F.', squads: [{ faction: 'A.I.R.F.' }] };
+    var candidates = [0.01, 0.4, 0.99].map(roll => {
+      Math.random = () => roll;
+      return getRandomFourthCardForUnit(testUnit, testUnit.squads, ['AIRF bonus 1', 'AIRF bonus 2', 'AIRF bonus 3']);
+    }).map(item => item && ({ name: item.card.name, type: item.card.type, faction: item.faction }));
   `);
-  const shown = s.evalCtx(`JSON.stringify(entries.map(c => [c.name, c.faction]))`);
-  const scoped = JSON.parse(s.evalCtx(`JSON.stringify(scopedEntries.map(x => [x.card.name, x.faction]))`));
-  const autoCandidates = JSON.parse(s.evalCtx('JSON.stringify(automaticCandidates)'));
-  const autoAssigned = JSON.parse(s.evalCtx('JSON.stringify(automaticAssigned)'));
-  includes(shown, 'A.I.R.F.', 'в списке есть карты выбранной фракции');
-  includes(shown, 'Shared common penalty', 'доступная общая карта сохраняется');
-  excludes(shown, 'BeVe-only', 'в списке нет карт фракции противника');
-  assert(!scoped.some(([name]) => name.startsWith('BeVe-only')), 'фракционный пул авто-дебаффов не содержит BeVe');
-  assert(autoCandidates.every(name => ['AIRF penalty', 'Shared common penalty'].includes(name)), 'случайный дебафф выбирается только из пула игрока');
-  equal(autoAssigned.length, 1, 'три бонуса добавляют один автоматический дебафф');
-  assert(['AIRF penalty', 'Shared common penalty'].includes(autoAssigned[0]), 'автоматический дебафф взят из библиотеки игрока или общего пула, не противника');
+  const candidates = JSON.parse(s.evalCtx('JSON.stringify(candidates)'));
+  assert(candidates.every(item => item && item.faction !== 'BeVe'), 'в пул не попадают карты противника');
+  assert(candidates.some(item => item.type === 'bonus'), 'случайной картой может быть бонус');
+  assert(candidates.some(item => item.type === 'negative'), 'случайной картой может быть дебафф');
+  assert(candidates.some(item => item.name === 'Залп отчаяния' && item.faction === 'A.I.R.F.'), 'в пул A.I.R.F. включён «Залп отчаяния»');
+  includes(HTML.slice(HTML.indexOf('function commitInitialCampaignCardAssignments'), HTML.indexOf('async function selectInitialCampaignBonusCards')),
+    'getRandomFourthCardForUnit', 'начальная раздача применяет случайную четвёртую карту');
 });
 
 // 2. Закреплённая кнопка завершения хода находится рядом с часами кампании.
@@ -1291,9 +1272,10 @@ test('«Мародёрство» требует A.I.R.F.-атакующего с
 test('тактическое подавление от духа действует строго ниже 30%, а ручное подавление независимо', () => {
   const s = createSandbox(freshAppData());
   loadHtml(s, [
+    'tacticalNormalizeMoraleScale', 'tacticalFindOperationalMoraleOwner',
     'tacticalMoraleScale', 'tacticalMoraleCurrent', 'tacticalEffectiveMoraleForSquad',
     'tacticalMoraleIsSuppressed', 'tacticalMoraleIsCritical', 'tacticalSquadIsSuppressed',
-    'tacticalChangeMorale', 'tacticalMoraleBattleKey', 'tacticalRecordNearbyMoraleLoss',
+    'tacticalChangeMorale', 'tacticalMoraleDeltaPercent', 'tacticalMoraleBattleKey', 'tacticalRecordNearbyMoraleLoss',
     'tacticalApplyFighterMoraleLoss', 'tacticalMarkTacticalHexOccupied', 'tacticalMarkTacticalSquadDestroyedHex',
     'tacticalSquadHexPosition', 'tacticalSquadsDistance', 'tacticalSquadHasStubbornCard',
     'tacticalStubbornAtStartingHex', 'tacticalIsHeadquartersSquad', 'tacticalHasLiveHeadquartersFor',
@@ -1315,21 +1297,21 @@ test('тактическое подавление от духа действуе
       return Math.max(Math.abs(q1-q2),Math.abs(r1-r2),Math.abs((q1+r1)-(q2+r2)));
     }
     appData.map={grid:{},enemySquads:[],activeSide:'player'};
-    var unit={name:'Пехота',faction:'BeVe',fighters:[{name:'Боец',hp:3}],baseMorale:10,tacticalMoraleMax:10,currentMorale:3};
+    var unit={name:'Пехота',faction:'BeVe',fighters:[{name:'Боец',hp:3}],baseMorale:100,tacticalMoraleMax:100,currentMorale:30};
     appData.squads=[unit];
     var at30=tacticalMoraleIsSuppressed(unit), moveAt30=tacticalActionAllowed(unit,'move',true);
-    unit.currentMorale=2;
+    unit.currentMorale=20;
     var at20=tacticalMoraleIsSuppressed(unit), moveAt20=tacticalActionAllowed(unit,'move',true);
     var shootAt20=tacticalActionAllowed(unit,'shoot',true), lowMoralePenalty=getTacticalSuppressionAccuracyPenalty(unit);
     var routAt20=tacticalMaybeAutoRetreat(unit,'player',0);
     unit.suppressed=true;
     var combinedPenalty=getTacticalSuppressionAccuracyPenalty(unit), manualBlocksMovement=tacticalActionAllowed(unit,'move',true);
-    unit.currentMorale=3;
+    unit.currentMorale=30;
     var moraleRecovered=tacticalMoraleIsSuppressed(unit), manualStillBlocks=tacticalSquadIsSuppressed(unit);
     var manualOnlyPenalty=getTacticalSuppressionAccuracyPenalty(unit);
     unit.suppressed=false;
     var movementAfterManualClear=tacticalActionAllowed(unit,'move',true);
-    unit.currentMorale=1;
+    unit.currentMorale=10;
     var routAt10=tacticalMaybeAutoRetreat(unit,'player',0), routingAt10=unit.isRouting;
   `);
   equal(s.evalCtx('at30'), false, 'ровно 30% не считается подавлением');
@@ -1352,8 +1334,9 @@ test('тактическое подавление от духа действуе
 test('потеря бойца снижает дух на 1, командира на 2, а гибель/моральный отход дают союзникам один −1 в радиусе 2', () => {
   const s = createSandbox(freshAppData());
   loadHtml(s, [
+    'tacticalNormalizeMoraleScale', 'tacticalFindOperationalMoraleOwner', 'isArmoredTacticalSquad', 'tacticalIsSniperOrMortarSquad',
     'tacticalMoraleScale', 'tacticalMoraleCurrent', 'tacticalEffectiveMoraleForSquad', 'tacticalMoraleIsSuppressed',
-    'tacticalMoraleIsCritical', 'tacticalChangeMorale', 'tacticalMoraleBattleKey', 'tacticalMarkTacticalHexOccupied',
+    'tacticalMoraleIsCritical', 'tacticalChangeMorale', 'tacticalMoraleDeltaPercent', 'tacticalMoraleBattleKey', 'tacticalMarkTacticalHexOccupied',
     'tacticalMarkTacticalSquadDestroyedHex', 'tacticalRecordNearbyMoraleLoss', 'tacticalApplyFighterMoraleLoss',
     'tacticalMarkStartingMoraleCasualties', 'tacticalInitializeSquadMorale',
     'tacticalSquadHexPosition', 'tacticalSquadsDistance', 'tacticalSquadHasStubbornCard', 'tacticalStubbornAtStartingHex',
@@ -1411,23 +1394,23 @@ test('потеря бойца снижает дух на 1, командира �
     var afterDeath=[near1.currentMorale,near2.currentMorale,far.currentMorale,deadNear.currentMorale];
     var destroyedHex=appData.map.grid['2,2'].tacticalDestroyedUnitSides.player;
   `);
-  equal(s.evalCtx('ordinary.currentMorale'), 4, 'потеря обычного бойца снимает 1 дух');
-  equal(s.evalCtx('commanderMorale'), 3, 'гибель командира снижает дух ровно на 2, не на 3');
-  equal(s.evalCtx('fixedScale'), 5, 'знаменатель остаётся равным исходному составу после потери');
-  equal(s.evalCtx('lateStartingMorale'), 2, 'поздно добавленный отряд получает стартовый дух по числу живых бойцов');
+  equal(s.evalCtx('ordinary.currentMorale'), 80, 'потеря бойца снижает мораль на 20 пунктов из-за перевода старой шкалы 0–5 в 0–100');
+  equal(s.evalCtx('commanderMorale'), 60, 'гибель командира снижает мораль на 40 пунктов (старое значение −2 из 5)');
+  equal(s.evalCtx('fixedScale'), 100, 'тактический боевой дух использует единую шкалу 0–100');
+  equal(s.evalCtx('lateStartingMorale'), 100, 'поздно добавленный отряд наследует единый стартовый дух 100');
   equal(s.evalCtx('preBattleDeathIgnored'), false, 'уже погибший до начала боя боец не списывается повторно');
   equal(s.evalCtx('lateBattleLoss'), true, 'поздно добавленная группа учитывает потери после инициализации');
-  equal(s.evalCtx('lateScale'), 2, 'фиксированный знаменатель поздней группы сохраняется до конца боя');
-  equal(s.evalCtx('lateSquad.currentMorale'), 1, 'мораль поздней группы уменьшается только за нового погибшего');
+  equal(s.evalCtx('lateScale'), 100, 'поздняя группа также использует шкалу 0–100');
+  equal(s.evalCtx('Math.round(lateSquad.currentMorale)'), 67, 'потеря бойца уменьшает дух по переведённой старой шкале 0–3');
   equal(s.evalCtx('deathEvent'), true, 'гибель последнего бойца фиксирует событие');
   equal(s.evalCtx('duplicateDeath'), false, 'повторная обработка смерти не создаёт второе событие');
-  equal(s.evalCtx('JSON.stringify(afterDeath)'), '[4,4,5,5]', 'только живые союзники в радиусе 2 теряют по одному духу');
+  equal(s.evalCtx('JSON.stringify(afterDeath)'), '[80,80,5,5]', 'только живые союзники в радиусе 2 теряют эквивалент одного пункта старой шкалы');
   equal(s.evalCtx('destroyedHex'), true, 'гекс последнего уничтоженного противника отмечен в истории');
 
   const route = createSandbox(freshAppData());
   loadHtml(route, [
-    'tacticalMoraleScale','tacticalMoraleCurrent','tacticalEffectiveMoraleForSquad','tacticalMoraleIsCritical','tacticalChangeMorale',
-    'tacticalMoraleBattleKey','tacticalRecordNearbyMoraleLoss','tacticalSquadHexPosition','tacticalSquadsDistance',
+    'tacticalNormalizeMoraleScale','tacticalMoraleScale','tacticalMoraleCurrent','tacticalEffectiveMoraleForSquad','tacticalMoraleIsCritical','tacticalChangeMorale',
+    'tacticalMoraleBattleKey','tacticalMoraleDeltaPercent','tacticalRecordNearbyMoraleLoss','tacticalSquadHexPosition','tacticalSquadsDistance',
     'tacticalSquadHasStubbornCard','tacticalStubbornAtStartingHex','tacticalIsHeadquartersSquad','tacticalHasLiveHeadquartersFor',
     'tacticalPlatoonSquadsFor','tacticalHeadquartersIsLost','tacticalApplyHeadquartersLossMoralePenalty','tacticalMaybeAutoRetreat',
     'tacticalRemoveUnitFromMap','tacticalClearMeleeEngagement','tacticalRetreatUnit'
@@ -1445,8 +1428,8 @@ test('потеря бойца снижает дух на 1, командира �
   `);
   equal(route.evalCtx('moraleRoute'), true, 'критически низкий дух начинает автоматический отход');
   equal(route.evalCtx('duplicateRoute'), false, 'один отход регистрируется один раз');
-  equal(route.evalCtx('afterFirst'), 4, 'моральный отход снижает дух союзника в радиусе 2 на 1');
-  equal(route.evalCtx('afterSecond'), 4, 'повторный вызов не дублирует потерю');
+  equal(route.evalCtx('afterFirst'), 80, 'моральный отход снижает дух союзника на эквивалент одного пункта прежней шкалы');
+  equal(route.evalCtx('afterSecond'), 80, 'повторный вызов не дублирует потерю');
   route.run(`
     var stubbornStart={name:'Упрямые на старте',faction:'BeVe',fighters:[{hp:3}],hexPos:[2,2],tacticalStartHexKey:'2,2',
       effects:{stubborn:true},baseMorale:10,tacticalMoraleMax:10,currentMorale:0,isRouting:true,retreatReason:'morale'};
@@ -1469,9 +1452,9 @@ test('потеря бойца снижает дух на 1, командира �
   equal(route.evalCtx('retainedWithoutHq'), '[3,2]', 'без штаба подразделение удерживает текущий гекс');
 });
 
-test('поздно добавленный отряд получает собственный фиксированный знаменатель морали', () => {
+test('поздно добавленный отряд нормализуется к шкале морали 0–100', () => {
   const s = createSandbox(freshAppData());
-  loadHtml(s, ['tacticalMarkStartingMoraleCasualties', 'tacticalInitializeSquadMorale', 'tacticalEnsureSquadMoraleInitialized']);
+  loadHtml(s, ['tacticalNormalizeMoraleScale', 'tacticalFindOperationalMoraleOwner', 'isArmoredTacticalSquad', 'tacticalIsSniperOrMortarSquad', 'tacticalMarkStartingMoraleCasualties', 'tacticalInitializeSquadMorale', 'tacticalEnsureSquadMoraleInitialized']);
   s.run(`
     var battle={id:'battle-late',cardsChosen:true,placement:{phase:'done'},tacticalMoraleInitialized:true};
     var campaignLate={name:'Добавлен поздно',baseMorale:5,currentMorale:2,fighters:[{hp:3},{hp:3},{hp:3},{hp:3}]};
@@ -1485,12 +1468,12 @@ test('поздно добавленный отряд получает собст
     var standaloneInit=tacticalEnsureSquadMoraleInitialized(standaloneLate);
   `);
   equal(s.evalCtx('campaignInit'), true, 'новый участник кампанийного боя инициализируется сразу');
-  equal(s.evalCtx('campaignScale'), 4, 'знаменатель нового отряда равен исходному числу бойцов');
-  equal(s.evalCtx('campaignMorale'), 4, 'начальный дух поздней группы равен её живому составу');
+  equal(s.evalCtx('campaignScale'), 100, 'тактическая шкала позднего участника равна 100');
+  equal(s.evalCtx('campaignMorale'), 100, 'поздно добавленный участник инициализируется с полным духом по правилам боя');
   equal(s.evalCtx('campaignId'), 'battle-late', 'инициализация привязана к конкретному бою');
   equal(s.evalCtx('standaloneInit'), true, 'поздно добавленный соло-отряд тоже инициализируется');
-  equal(s.evalCtx('standaloneLate.tacticalMoraleMax'), 3, 'соло-знаменатель фиксирован по составу на момент добавления');
-  equal(s.evalCtx('standaloneLate.currentMorale'), 3, 'соло-отряд получает стартовый дух по числу бойцов');
+  equal(s.evalCtx('standaloneLate.tacticalMoraleMax'), 100, 'соло-бой использует общую шкалу духа 0–100');
+  equal(s.evalCtx('standaloneLate.currentMorale'), 100, 'новый соло-отряд начинает со 100 пунктами духа');
 });
 
 test('только три тактических fallback-отряда используют исходный дух 1', () => {
@@ -1700,11 +1683,11 @@ test('подсветка сектора и приказ «Обстрелять �
     function executeOpShootAt(targets) { shotTargets = targets.map(target => target.name); }
     var tank = { name: 'Танк CL/39', type: 'tank_platoon', col: 0, row: 0, ap: 4 };
     appData.campaign.enemyOpUnits = [
-      { name: 'Пехота А', col: 5, row: 0, fighters: [{ hp: 3 }] },
-      { name: 'Пехота Б', col: 5, row: 0, fighters: [{ hp: 3 }] },
-      { name: 'Пехота В', col: 6, row: 0, fighters: [{ hp: 3 }] }
+      { name: 'Пехота А', col: 2, row: 0, fighters: [{ hp: 3 }] },
+      { name: 'Пехота Б', col: 2, row: 0, fighters: [{ hp: 3 }] },
+      { name: 'Пехота В', col: 3, row: 0, fighters: [{ hp: 3 }] }
     ];
-    var order = { type: 'shoot', targetHex: '5,0', status: 'active' };
+    var order = { type: 'shoot', targetHex: '2,0', status: 'active' };
     executeShootOrder(tank, order);
   `);
   equal(s.evalCtx('JSON.stringify(shotTargets)'), '["Пехота А","Пехота Б"]', 'под обстрел попали все, и только юниты целевого гекса');

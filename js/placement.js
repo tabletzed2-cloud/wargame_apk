@@ -80,6 +80,90 @@ function placementZoneKeys(entryDir, size) {
     return keys;
 }
 
+function placementBattleGrid(battle) {
+    return battle && typeof appData !== 'undefined' && appData.currentBattleId === battle.id && appData.map && appData.map.grid
+        ? appData.map.grid : (battle && battle.tacticalMap && battle.tacticalMap.grid) || {};
+}
+function placementBicycleBlitzHasCard(squad) {
+    return !!(squad && ((squad.effects && squad.effects.bicycleBlitz && squad.effects.bicycleBlitz.active !== false) ||
+        (Array.isArray(squad.appliedCards) && squad.appliedCards.includes('Велоблиц'))));
+}
+function placementBicycleBlitzUnitNames(battle) {
+    const p = battle && battle.placement;
+    return p && Array.isArray(p.bicycleBlitzUnitNames) ? p.bicycleBlitzUnitNames.slice() : [];
+}
+function placementBicycleBlitzEligible(battle, squad) {
+    const p = battle && battle.placement;
+    return !!(p && p.phase !== 'done' && squad &&
+        placementBicycleBlitzUnitNames(battle).includes(String(squad.opUnitName || '')) &&
+        typeof isBicycleTacticalSquad === 'function' && isBicycleTacticalSquad(squad) &&
+        !squad.dismounted && placementBicycleBlitzHasCard(squad));
+}
+function placementBicycleBlitzZoneKeys(battle, unitName, dir) {
+    if (!PLACEMENT_DIRS.includes(dir)) return [];
+    const grid = placementBattleGrid(battle);
+    return placementZoneKeys(dir, placementMapSize(battle)).filter(key => {
+        const cell = grid[key];
+        return !!cell && (Number(cell.level) || 0) === 0;
+    });
+}
+function placementRegisterBicycleBlitz(battle) {
+    const p = battle && battle.placement;
+    const unitName = p && String(p.bicycleBlitzOpportunityUnitName || '');
+    if (!unitName) return [];
+    const eligible = (battle.playerSquads || []).filter(squad => squad && squad.opUnitName === unitName &&
+        typeof isBicycleTacticalSquad === 'function' && isBicycleTacticalSquad(squad) &&
+        !squad.dismounted && !squad.hidden && !squad.isDestroyed &&
+        (squad.fighters || []).some(f => f && Number(f.hp) > 0) && placementBicycleBlitzHasCard(squad));
+    if (!eligible.length) return [];
+    const hasLevelZeroDeployment = PLACEMENT_DIRS.some(dir => placementBicycleBlitzZoneKeys(battle, unitName, dir).length > 0);
+    if (!hasLevelZeroDeployment) return []; // нет законной зоны — не блокируем обычное размещение
+    p.bicycleBlitzUnitNames = [unitName];
+    if (!p.bicycleBlitzDirections || typeof p.bicycleBlitzDirections !== 'object') p.bicycleBlitzDirections = {};
+    return p.bicycleBlitzUnitNames.slice();
+}
+function placementRecordBicycleBlitzCardSelection(battle, unitName, selection) {
+    const p = battle && battle.placement;
+    if (!p || String(p.bicycleBlitzOpportunityUnitName || '') !== String(unitName || '')) return false;
+    const cards = selection && Array.isArray(selection.cards) ? selection.cards : [];
+    if (!cards.some(card => (card && (card.name || card.card && card.card.name)) === 'Велоблиц')) return false;
+    p.bicycleBlitzCardSelected = true;
+    placementRegisterBicycleBlitz(battle);
+    return true;
+}
+function placementMaybeReopenForBicycleBlitz(battle) {
+    const p = battle && battle.placement;
+    if (!p || !p.bicycleBlitzCardSelected || p.phase !== 'done' || p.bicycleBlitzRepositionUsed ||
+        Number(battle.tacticalPhasesCompleted || 0) > 0 || Number(battle.currentTurn || 1) > 1) return false;
+    const names = placementRegisterBicycleBlitz(battle);
+    if (!names.length) return false;
+    p.bicycleBlitzReposition = true;
+    p.bicycleBlitzRepositionUsed = true;
+    p.bicycleBlitzDirections = {};
+    p.playerReady = false;
+    p.enemyReady = true;
+    p.phase = 'placing';
+    try { saveData(); } catch (e) {}
+    openPlacementPhase(battle);
+    return true;
+}
+function placementSetBicycleBlitzDir(unitName, dir) {
+    const battle = getCurrentBattleRecord();
+    const p = battle && battle.placement;
+    const name = String(unitName || '');
+    if (!p || !placementBicycleBlitzUnitNames(battle).includes(name) || !PLACEMENT_DIRS.includes(dir)) return false;
+    if (!placementBicycleBlitzZoneKeys(battle, name, dir).length) {
+        placementInfo('⛔ На выбранном фланге нет клеток уровня высоты 0. Выберите другой фланг.', '#e74c3c');
+        return false;
+    }
+    if (!p.bicycleBlitzDirections || typeof p.bicycleBlitzDirections !== 'object') p.bicycleBlitzDirections = {};
+    p.bicycleBlitzDirections[name] = dir;
+    try { saveData(); } catch (e) {}
+    renderPlacementPanel();
+    try { if (typeof redrawMap === 'function') redrawMap(); } catch (e) {}
+    return true;
+}
+
 // ---------- запись боя ----------
 function getBattleRecordById(id) {
     if (typeof appData === 'undefined' || !appData.campaign || !Array.isArray(appData.campaign.activeBattles)) return null;
@@ -186,6 +270,11 @@ function placementSideAllowed(battle, side, key, squad) {
     if (squads.some(s => s.fixedTacticalPosition && s.fixedTacticalPosition.key === key && s.fixedTacticalPosition.hexKey === battle.hexKey)) return true;
     if (!p) return true;
     if (p.ambush) return true;
+    if (side === 'player' && placementBicycleBlitzEligible(battle, squad)) {
+        const unitName = String(squad.opUnitName || '');
+        const dir = p.bicycleBlitzDirections && p.bicycleBlitzDirections[unitName];
+        return !!dir && placementBicycleBlitzZoneKeys(battle, unitName, dir).includes(key);
+    }
     // ⚡ v13.099 (п.18): подкрепление обороны входит со своим подразделением
     //    с той стороны, откуда оно пришло на гекс боя (полоса у соответствующего края).
     if (squad && squad.placementArrivalDir && side !== p.attackerSide) {
@@ -214,6 +303,12 @@ function placementCheckPlace(side, key, wasPlaced, squad) {
     if (!p) return null;
     if (p.phase === 'done' && wasPlaced) return null; // после размещения — как раньше (свободная перестановка)
     if (p.phase !== 'done' && side === 'player' && p.playerReady) return '✅ Вы уже завершили размещение — переставлять отряды нельзя, ждём противника.';
+    if (p.bicycleBlitzReposition && side === 'player' && !placementBicycleBlitzEligible(battle, squad)) {
+        return '⛔ Дополнительное размещение «Велоблиц» доступно только атакующему велосипедному взводу.';
+    }
+    if (placementBicycleBlitzEligible(battle, squad) && !(p.bicycleBlitzDirections && p.bicycleBlitzDirections[squad.opUnitName])) {
+        return '🚲 Сначала выберите фланг «Велоблица» в панели размещения.';
+    }
     if (placementSideAllowed(battle, side, key, squad)) return null;
     // Обороняющемуся игроку не раскрываем направление и форму стартовой зоны атакующего.
     if (squad && squad.placementArrivalDir && p.attackerSide !== side) {
@@ -311,7 +406,7 @@ function placementSideStatus(battle, side) {
         if (!alive) return;
         if (pos[i]) {
             placed.push(s.name);
-            if (!placementSideAllowed(battle, side, pos[i])) violations.push(`${s.name} (${pos[i]})`);
+            if (!placementSideAllowed(battle, side, pos[i], s)) violations.push(`${s.name} (${pos[i]})`);
         } else unplaced.push(s.name);
     });
     return { placed, unplaced, violations, total: placed.length + unplaced.length };
@@ -328,7 +423,9 @@ function placementIntroText(battle) {
     const iAmAttacker = p.attackerSide === 'player';
     const hp = String(battle.hexKey || '').split(',');
     let s = `📍 Размещение перед боем на гексе (${hp[0]},${hp[1]}).\n\n`;
-    if (p.ambush) {
+    if (p.bicycleBlitzReposition) {
+        s += '🚲 Выберите фланг «Велоблица» и переставьте атакующий велосипедный взвод. Доступны только клетки высоты 0; остальные подразделения менять нельзя.';
+    } else if (p.ambush) {
         s += '🥷 Засада сработала: все отряды противника обнаружены и уже расставлены случайно. Вы можете разместить свои отряды в любой точке карты.';
     } else if (iAmAttacker) {
         s += `Вы — АТАКУЮЩИЙ: ваши юниты вошли на гекс ${PLACEMENT_DIR_LABELS[p.entryDir]}. Ваша зона размещения — 2 ряда у этого края карты боя (зелёная подсветка).`;
@@ -392,7 +489,9 @@ function renderPlacementPanel() {
     const iAmAttacker = p.attackerSide === 'player';
     const mine = placementSideStatus(battle, 'player');
     let html = `<div style="font-weight:bold; color:#f1c40f; margin-bottom:4px;">📍 Размещение перед боем — вы ${iAmAttacker ? 'АТАКУЮЩИЙ' : 'ОБОРОНЯЮЩИЙСЯ'}</div>`;
-    if (p.ambush) {
+    if (p.bicycleBlitzReposition) {
+        html += '<div>🚲 Дополнительное размещение «Велоблиц»: выберите фланг и переместите велосипедный взвод; остальные подразделения остаются на месте.</div>';
+    } else if (p.ambush) {
         html += '<div>🥷 Засада сработала: противник расставлен случайно и обнаружен. Свои отряды размещайте в любой точке карты.</div>';
     } else if (iAmAttacker) {
         html += `<div>Вы вошли ${PLACEMENT_DIR_LABELS[p.entryDir]}: размещайтесь в зелёной зоне у края карты.</div>`;
@@ -437,6 +536,22 @@ function renderPlacementPanel() {
         names.forEach(name => cardGroups.get(owner).add(name));
     });
     const escapeText = value => String(value).replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+    const blitzNames = placementBicycleBlitzUnitNames(battle);
+    if (blitzNames.length) {
+        html += `<div style="margin-top:5px;padding:6px;background:#10282d;border:1px solid #20b9c4;border-radius:5px;color:#d7faff;">` +
+            `<b>🚲 Велоблиц — выбор фланга</b><div style="font-size:.9em;margin:3px 0;">Атакующий взвод, вошедший на гекс верхом, может развернуться с любого фланга. Размещение разрешено только на клетках высоты 0.</div>` +
+            blitzNames.map(name => {
+                const selected = p.bicycleBlitzDirections && p.bicycleBlitzDirections[name] || '';
+                const options = PLACEMENT_DIRS.map(dir => {
+                    const available = placementBicycleBlitzZoneKeys(battle, name, dir).length > 0;
+                    return `<option value="${dir}" ${selected === dir ? 'selected' : ''} ${available ? '' : 'disabled'}>${PLACEMENT_DIR_LABELS[dir]}${available ? '' : ' — нет клеток высоты 0'}</option>`;
+                }).join('');
+                return `<label style="display:inline-flex;align-items:center;gap:5px;margin:3px 6px 3px 0;">${escapeText(name)}: <select data-bicycle-blitz-unit="${escapeText(name)}" onchange="placementSetBicycleBlitzDir(this.dataset.bicycleBlitzUnit,this.value)" style="background:#26343a;color:#fff;">` +
+                    `<option value="" disabled ${selected ? '' : 'selected'}>Выбрать фланг</option>${options}</select></label>`;
+            }).join('') +
+            (p.bicycleBlitzReposition ? '<div style="font-size:.85em;color:#ffd166;">Переставьте велосипедный взвод в выбранную зону; остальные отряды сейчас не перемещаются.</div>' : '') +
+            '</div>';
+    }
     const cardHtml = cardGroups.size
         ? `<div style="margin-top:5px;padding:5px;background:#15251b;border:1px solid #376244;border-radius:5px;"><b>🃏 Карточки по взводам:</b>${Array.from(cardGroups, ([owner,names]) => `<div>${escapeText(owner)}: ${Array.from(names).map(escapeText).join(', ')}</div>`).join('')}</div>`
         : '';
@@ -518,7 +633,10 @@ function placementFinish() {
     p.playerReady = true;
     p.playerReadyAt = Date.now();
     if (!online) p.enemyReady = true;
-    if (p.playerReady && p.enemyReady) p.phase = 'done';
+    if (p.playerReady && p.enemyReady) {
+        p.phase = 'done';
+        p.bicycleBlitzReposition = false;
+    }
     try { log(`📍 Размещение: вы готовы (${mine.placed.length} отр.)${p.phase === 'done' ? ' — бой начинается!' : ' — ждём противника.'}`); } catch (e) {}
     try { saveData(); } catch (e) {}
     if (online) {
@@ -598,5 +716,26 @@ function drawPlacementZone(ctx, size) {
         ctx.closePath();
         ctx.fill();
     });
+    const blitzNames = placementBicycleBlitzUnitNames(battle);
+    if (blitzNames.length) {
+        ctx.globalAlpha = 0.42;
+        ctx.fillStyle = '#16d9e0';
+        blitzNames.forEach(name => {
+            const dir = p.bicycleBlitzDirections && p.bicycleBlitzDirections[name];
+            if (!dir) return;
+            placementBicycleBlitzZoneKeys(battle, name, dir).forEach(key => {
+                const c = centers[key];
+                if (!c) return;
+                ctx.beginPath();
+                for (let i = 0; i < 6; i++) {
+                    const a = Math.PI / 180 * (60 * i - 30);
+                    const xi = c.x + size * Math.cos(a), yi = c.y + size * Math.sin(a);
+                    if (i === 0) ctx.moveTo(xi, yi); else ctx.lineTo(xi, yi);
+                }
+                ctx.closePath();
+                ctx.fill();
+            });
+        });
+    }
     ctx.restore();
 }

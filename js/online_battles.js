@@ -153,6 +153,7 @@ function onlineBattleSnapshot(battle, status) {
         id: battle.id,
         hexKey: battle.hexKey,
         status: status || (battle.onlineFinished ? 'finished' : 'active'),
+        result: battle.result || null,
         turn: snapshotTurn,
         myUnitNames: battle.playerUnitNames || (battle.playerUnitName ? battle.playerUnitName.split(', ') : []),
         oppUnitNames: battle.enemyUnitNames || (battle.enemyUnitName ? battle.enemyUnitName.split(', ') : []),
@@ -355,6 +356,7 @@ function onlineBattleFinished(battle) {
     appData.campaign.onlineFinishedBattles[onlineBattleKey(battle.hexKey)] = {
         id: battle.id, hexKey: battle.hexKey, turn: battle.currentTurn || 1,
         oppBattleId: battle.onlineOppBattleId || null, at: Date.now(),
+        result: battle.result || null,
         moraleOut: onlineSupPlain(battle.onlineMoraleOut),
         moraleIn: onlineSupPlain(battle.onlineMoraleIn),
         dmgOut: onlineDmgPlain(battle.onlineDmgOut), dmgIn: onlineDmgPlain(battle.onlineDmgIn)

@@ -26,7 +26,7 @@ function tacticalHarness({distance = 3, los = false} = {}) {
     function log(){}
     window.tacticalHasLineOfSight=function(){return lineIsClear;};
     var viewer={name:'Пехота',fighters:[{hp:3}],visionRange:6};
-    var tank={name:'Танк №1',armor:'heavy',hidden:true,detected:false,fighters:[{hp:3}]};
+    var tank={name:'Танк №1',armor:'heavy',hidden:true,detected:false,movedThisTurn:true,fighters:[{hp:3}]};
     var grid={'0,0':{squadIds:[0],enemySquadIds:[]},'${distance},0':{squadIds:[],enemySquadIds:[0]}};
     appData.squads=[viewer]; appData.map={grid,enemySquads:[tank],tacticalNoiseMarkers:[]};
     autoDetectOneSquad(tank,'enemy');
@@ -40,12 +40,20 @@ test('тактическая броня в прямой видимости об�
   assert(s.evalCtx('appData.map.tacticalNoiseMarkers.length === 0'), 'direct visibility must not leave noise decoys');
 });
 
-test('тактическая броня вне прямой видимости в радиусе 4 даёт ровно три смежных маркера', () => {
+test('движущаяся тактическая броня вне прямой видимости даёт шум в своём и двух соседних гексах', () => {
   const s = tacticalHarness({distance:3, los:false});
   assert(s.evalCtx('tank.detected === false && tank.noiseMarker === true'), 'vehicle identity/position remains hidden');
   assert(s.evalCtx('appData.map.tacticalNoiseMarkers.length === 3'), 'three adjacent noise markers are created');
   assert(s.evalCtx("appData.map.tacticalNoiseMarkers.every(m => m.viewerSide === 'player' && m.label === 'Шум')"), 'only the opposing viewer receives anonymous markers');
-  assert(s.evalCtx("appData.map.tacticalNoiseMarkers.every(m => !(m.col === 3 && m.row === 0))"), 'exact tank hex is not disclosed');
+  assert(s.evalCtx("appData.map.tacticalNoiseMarkers.some(m => m.col === 3 && m.row === 0)"), 'the source hex receives an anonymous noise marker');
+  assert(s.evalCtx("new Set(appData.map.tacticalNoiseMarkers.map(m => `${m.col},${m.row}`)).size === 3"), 'the source plus two neighbors are the only marked hexes');
+});
+
+test('неподвижная тактическая броня не создаёт шумовых маркеров', () => {
+  const s = tacticalHarness({distance:3, los:false});
+  s.run('appData.map.tacticalNoiseMarkers=[]; tank.movedThisTurn=false; tank.noiseMarker=true; var stationary=tacticalResolveArmoredContact(tank);');
+  assert(s.evalCtx("stationary.result === 'hidden' && stationary.stationary === true"), 'stationary vehicle remains unidentified and silent');
+  assert(s.evalCtx('appData.map.tacticalNoiseMarkers.length === 0 && tank.noiseMarker === false'), 'no source or decoy marker is created');
 });
 
 test('тактическая броня дальше радиуса 4 без линии видимости не раскрывается и не создаёт шум', () => {
@@ -64,7 +72,7 @@ test('оперативная броня игнорирует старое скр
     function log(){}
     appData.campaign={currentTurn:3,online:false,opUnits:[],enemyOpUnits:[],opNoiseMarkers:[]};
     var spotter={name:'Пехота',col:0,row:0};
-    var armor={name:'Танк',type:'tank_platoon',col:3,row:0,hidden:true,stealthMove:true};
+    var armor={name:'Танк',type:'tank_platoon',col:3,row:0,hidden:true,stealthMove:true,movedThisTurn:true};
     appData.campaign.opUnits=[spotter]; appData.campaign.enemyOpUnits=[armor];
   `);
   s.run(sliceFunction(HTML, 'opDetectionIsArmored'));
@@ -72,7 +80,9 @@ test('оперативная броня игнорирует старое скр
   s.run('var outcome=opCheckUnitDetection(armor,{log:false});');
   assert(s.evalCtx("outcome.result === 'noise' && armor.hidden === false && armor.stealthMove === false"), 'old stealth state is removed and armor remains anonymous');
   assert(s.evalCtx("generated.length === 1 && generated[0].viewer === 'player'"), 'noise goes to the opposing viewer');
-  s.run('armor.col=5; armor.detected=true; armor.noiseMarker=true; armor.fireDetectionResolvedTurn=0; var distant=opCheckUnitDetection(armor,{log:false});');
+  s.run('armor.movedThisTurn=false; armor.detected=true; armor.noiseMarker=true; armor.fireDetectionResolvedTurn=0; var stationary=opCheckUnitDetection(armor,{log:false});');
+  assert(s.evalCtx("stationary.result === 'hidden' && armor.detected === false && armor.noiseMarker === false && generated.length === 1"), 'stationary armor creates no noise and clears stale markers');
+  s.run('armor.movedThisTurn=true; armor.col=5; armor.detected=true; armor.noiseMarker=true; armor.fireDetectionResolvedTurn=0; var distant=opCheckUnitDetection(armor,{log:false});');
   assert(s.evalCtx("distant.result === 'hidden' && armor.detected === false && armor.noiseMarker === false"), 'no exact contact appears beyond four operational hexes');
   s.run('armor.col=3; losClear=true; armor.fireDetectionResolvedTurn=0; var direct=opCheckUnitDetection(armor,{log:false});');
   assert(s.evalCtx("direct.result === 'detected' && armor.detected === true && generated.length === 1"), 'operational armor in direct LOS is revealed without stale decoy markers');

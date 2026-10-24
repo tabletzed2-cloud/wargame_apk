@@ -155,7 +155,7 @@ test('10: карта, назначенная на старте, применяе
   const s = createSandbox(freshAppData());
   loadHtml(s, ['computeSubFactionFromSquads', 'getUnitCardFactionContext', 'getCardDefinitionByName',
     'getCardTargetSpec', 'getCardTargetCandidates', 'isCardAvailableToUnit', 'isCardSelectableOpUnit',
-    'countBattalionBonusCardCopies', 'getRandomNegativeCardForUnit', 'addAppliedCardName',
+    'countBattalionBonusCardCopies', 'getRandomFourthCardForUnit', 'addAppliedCardName',
     'applyCardToPlatoon', 'commitInitialCampaignCardAssignments']);
   installCardLibraries(s);
   s.run(`
@@ -184,15 +184,16 @@ test('10: карта, назначенная на старте, применяе
   equal(s.evalCtx('appData.campaign.initialPlatoonCardsAssigned'), true, 'начальная раздача сохранена в кампании');
 });
 
-test('10: третья стартовая бонусная карта закрепляет один случайный дебафф за взводом', () => {
+test('10: третья стартовая бонусная карта закрепляет случайную четвёртую карту за взводом', () => {
   const s = createSandbox(freshAppData());
   loadHtml(s, ['computeSubFactionFromSquads', 'getUnitCardFactionContext', 'getCardDefinitionByName',
     'getCardTargetSpec', 'getCardTargetCandidates', 'isCardAvailableToUnit', 'isCardSelectableOpUnit',
-    'getFactionScopedCardEntries', 'countBattalionBonusCardCopies', 'getRandomNegativeCardForUnit',
+    'getFactionScopedCardEntries', 'countBattalionBonusCardCopies', 'getRandomFourthCardForUnit',
     'addAppliedCardName', 'applyCardToPlatoon', 'commitInitialCampaignCardAssignments']);
   s.run(`
     var selectedFaction = 'BeVe';
     function computeSubFactionFromSquads() { return null; }
+    function getCurrentCampaignBattle() { return null; }
     appData.factions = { BeVe: { cardLibrary: [
       {name:'Тестовый бонус 1',type:'bonus'}, {name:'Тестовый бонус 2',type:'bonus'},
       {name:'Тестовый бонус 3',type:'bonus'}, {name:'Тестовый дебафф',type:'negative'}
@@ -206,7 +207,7 @@ test('10: третья стартовая бонусная карта закре
   equal(s.evalCtx('ok'), true, 'раздача трёх бонусов принята');
   equal(s.evalCtx('unit.cardSelection.cards.filter(card => card.type === "bonus").length'), 3, 'назначены ровно три бонуса');
   equal(s.evalCtx('unit.cardSelection.cards.filter(card => card.type === "negative").length'), 1, 'автоматически добавлен один дебафф');
-  equal(s.evalCtx('unit.cardSelection.cards.find(card => card.type === "negative").automaticDebuff'), true, 'дебафф помечен как автоматический');
+  equal(s.evalCtx('unit.cardSelection.cards.find(card => card.type === "negative").automaticFourthCard'), true, 'случайная четвёртая карта помечена как автоматически добавленная');
 });
 
 test('10: раздача стартовых карт идёт отдельным этапом после связи', () => {
