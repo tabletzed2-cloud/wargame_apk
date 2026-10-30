@@ -15,7 +15,7 @@ s.run(`
   var __roll = 10, __los = false;
   appData.campaign.currentTurn = 4;
 `);
-for (const fn of ['addOperationalArtilleryNoise', 'opDetectionIsArmored', 'opCheckUnitDetection', 'opIsIndirectFireUnit', 'tacticalCanFireAreaHex', 'tacticalAreaOccupantsAtTarget', 'hasCardNamed', 'bonusCardSelectionLimit', 'cardSelectionNeedsDebuff']) {
+for (const fn of ['addOperationalArtilleryNoise', 'opDetectionIsArmored', 'opCheckUnitDetection', 'opIsIndirectFireUnit', 'tacticalCanFireAreaHex', 'tacticalAreaOccupantsAtTarget', 'hasCardNamed', 'cardDraftBonusLimit', 'bonusCardSelectionLimit', 'cardSelectionNeedsDebuff']) {
   try { s.run(sliceFunction(HTML, fn)); } catch (e) { console.error(fn, e.message); }
 }
 s.run(`var directUnit = {name:'Пехота', col:1,row:1}; var directResult = opCheckUnitDetection(directUnit,{fireType:'direct'});`);
@@ -41,7 +41,7 @@ const grenadeFn = sliceFunction(HTML, 'throwGrenades');
 s.run(grenadeFn);
 ok(/grenadeAreaTargets\.length > 1/.test(grenadeFn) && /reportAttackOutcome\('grenades',[\s\S]{0,120}areaFire: grenadeArea/.test(grenadeFn), 'гранатный бросок по скоплению активирует площадное распределение урона');
 ok(/if \(currentSquad\.grenades <= 0\)[\s\S]{0,180}spendAP/.test(grenadeFn), 'отсутствие гранат проверяется до списания ОД');
-s.run(`var commLimit = bonusCardSelectionLimit([{name:'Комиссар'}]); var commDebuff = cardSelectionNeedsDebuff(4,[{name:'Комиссар'}]); var tradeDebuff = cardSelectionNeedsDebuff(4,[{name:'Торговый дух'}]);`);
-ok(s.evalCtx('commLimit === 4 && commDebuff === true && tradeDebuff === false'), 'Комиссар открывает 4 бонуса с одним дебаффом, Торговый дух сохраняет отсутствие дебаффа');
+s.run(`var commLimit = bonusCardSelectionLimit([{name:'Комиссар'}]); var commRandom = cardSelectionNeedsDebuff(3,[{name:'Комиссар'}]); var commBelow = cardSelectionNeedsDebuff(2,[{name:'Комиссар'}]); var tradeRandom = cardSelectionNeedsDebuff(4,[{name:'Торговый дух'}]);`);
+ok(s.evalCtx('commLimit === 3 && commRandom === true && commBelow === false && tradeRandom === false'), 'Комиссар: 3 выбора + случайная карта; Торговый дух: 4 выбора без случайной (v13.135)');
 console.log(`Итог: PASS ${pass} · FAIL ${fail}`);
 process.exitCode = fail ? 1 : 0;

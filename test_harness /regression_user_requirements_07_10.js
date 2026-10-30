@@ -113,7 +113,7 @@ test('10: начальная кампания показывает отдель�
   s.run(sliceConst(HTML, 'INITIAL_CAMPAIGN_CARD_CATEGORIES'));
   loadHtml(s, ['computeSubFactionFromSquads', 'getUnitCardFactionContext', 'getCardDefinitionByName',
     'getCardTargetSpec', 'getCardTargetCandidates', 'isCardAvailableToUnit', 'isCardSelectableOpUnit', 'isBicycleTacticalSquad',
-    'collectCardLibraryForContext', 'escapeCardHtml', 'initialCampaignCardUnitHtml', 'initialCardDistributionHtml', 'renderInitialCampaignCardDistribution']);
+    'collectCardLibraryForContext', 'escapeCardHtml', 'cardDraftBonusLimit', 'initialCampaignCardUnitHtml', 'initialCardDistributionHtml', 'renderInitialCampaignCardDistribution']);
   installCardLibraries(s);
   s.run(`
     function computeSubFactionFromSquads() { return null; }
@@ -136,7 +136,7 @@ test('10: начальная кампания показывает отдель�
 
 test('10: снятие бонусной карты немедленно обновляет счётчик выбора', () => {
   const s = createSandbox(freshAppData());
-  loadHtml(s, ['toggleInitialCampaignCard', 'saveInitialCampaignCardDraft']);
+  loadHtml(s, ['cardDraftBonusLimit', 'toggleInitialCampaignCard', 'saveInitialCampaignCardDraft']);
   s.run(`
     var countLabel = { textContent: '' };
     var fakeGroup = { querySelectorAll: () => [
@@ -148,7 +148,7 @@ test('10: снятие бонусной карты немедленно обно
     var changed = toggleInitialCampaignCard(uncheckedCard);
   `);
   equal(s.evalCtx('changed'), false, 'снятая карточка не остаётся выбранной');
-  equal(s.evalCtx('countLabel.textContent'), 'Выбрано: 2/3', 'счётчик отражает оставшиеся отмеченные карты');
+  equal(s.evalCtx('countLabel.textContent'), 'Выбрано: 2/2', 'счётчик отражает оставшиеся отмеченные карты (лимит 2, v13.135)');
 });
 
 test('10: карта, назначенная на старте, применяется ровно к выбранному взводу и закрывает повторный выбор', () => {
@@ -156,7 +156,8 @@ test('10: карта, назначенная на старте, применяе
   loadHtml(s, ['computeSubFactionFromSquads', 'getUnitCardFactionContext', 'getCardDefinitionByName',
     'getCardTargetSpec', 'getCardTargetCandidates', 'isCardAvailableToUnit', 'isCardSelectableOpUnit',
     'countBattalionBonusCardCopies', 'getRandomFourthCardForUnit', 'addAppliedCardName',
-    'applyCardToPlatoon', 'commitInitialCampaignCardAssignments']);
+    'applyCardToPlatoon', 'commitInitialCampaignCardAssignments',
+    'hasCardNamed', 'cardDraftBonusLimit', 'bonusCardSelectionLimit', 'cardSelectionNeedsDebuff']);
   installCardLibraries(s);
   s.run(`
     var selectedFaction = 'BeVe';
@@ -184,19 +185,50 @@ test('10: карта, назначенная на старте, применяе
   equal(s.evalCtx('appData.campaign.initialPlatoonCardsAssigned'), true, 'начальная раздача сохранена в кампании');
 });
 
-test('10: третья стартовая бонусная карта закрепляет случайную четвёртую карту за взводом', () => {
+test('10: полный лимит стартовых бонусов (2) закрепляет случайную карту за взводом', () => {
   const s = createSandbox(freshAppData());
   loadHtml(s, ['computeSubFactionFromSquads', 'getUnitCardFactionContext', 'getCardDefinitionByName',
     'getCardTargetSpec', 'getCardTargetCandidates', 'isCardAvailableToUnit', 'isCardSelectableOpUnit',
     'getFactionScopedCardEntries', 'countBattalionBonusCardCopies', 'getRandomFourthCardForUnit',
-    'addAppliedCardName', 'applyCardToPlatoon', 'commitInitialCampaignCardAssignments']);
+    'addAppliedCardName', 'applyCardToPlatoon', 'commitInitialCampaignCardAssignments',
+    'hasCardNamed', 'cardDraftBonusLimit', 'bonusCardSelectionLimit', 'cardSelectionNeedsDebuff']);
+  s.run(`
+    var selectedFaction = 'BeVe';
+    function computeSubFactionFromSquads() { return null; }
+    function getCurrentCampaignBattle() { return null; }
+    // v13.135 (п.3): базовый лимит — 2 выбранные; при полном выборе выдаётся
+    // случайная карта (бонус или дебафф). Пул: выбранные исключаются, остаётся
+    // ровно одна карта — дебафф, поэтому результат детерминирован.
+    appData.factions = { BeVe: { cardLibrary: [
+      {name:'Тестовый бонус 1',type:'bonus'}, {name:'Тестовый бонус 2',type:'bonus'},
+      {name:'Тестовый дебафф',type:'negative'}
+    ] } };
+    var unit = {name:'Пехотный взвод',type:'infantry_platoon',faction:'BeVe',squads:[${JSON.stringify(newSquad('Отделение №1'))}]};
+    appData.campaign.opUnits = [unit];
+    var ok = commitInitialCampaignCardAssignments([{unitName:unit.name,cards:[
+      {name:'Тестовый бонус 1',faction:'BeVe'}, {name:'Тестовый бонус 2',faction:'BeVe'}
+    ],targets:{}}]);
+  `);
+  equal(s.evalCtx('ok'), true, 'раздача двух бонусов принята');
+  equal(s.evalCtx('unit.cardSelection.cards.filter(card => card.type === "bonus").length'), 2, 'назначены ровно два выбранных бонуса');
+  equal(s.evalCtx('unit.cardSelection.cards.filter(card => card.type === "negative").length'), 1, 'автоматически добавлена одна случайная карта');
+  equal(s.evalCtx('unit.cardSelection.cards.find(card => card.type === "negative").automaticFourthCard'), true, 'случайная карта помечена как автоматически добавленная');
+});
+
+test('10: сверх лимита (3 бонуса без «Комиссара») стартовая раздача отклоняется', () => {
+  const s = createSandbox(freshAppData());
+  loadHtml(s, ['computeSubFactionFromSquads', 'getUnitCardFactionContext', 'getCardDefinitionByName',
+    'getCardTargetSpec', 'getCardTargetCandidates', 'isCardAvailableToUnit', 'isCardSelectableOpUnit',
+    'getFactionScopedCardEntries', 'countBattalionBonusCardCopies', 'getRandomFourthCardForUnit',
+    'addAppliedCardName', 'applyCardToPlatoon', 'commitInitialCampaignCardAssignments',
+    'hasCardNamed', 'cardDraftBonusLimit', 'bonusCardSelectionLimit', 'cardSelectionNeedsDebuff']);
   s.run(`
     var selectedFaction = 'BeVe';
     function computeSubFactionFromSquads() { return null; }
     function getCurrentCampaignBattle() { return null; }
     appData.factions = { BeVe: { cardLibrary: [
       {name:'Тестовый бонус 1',type:'bonus'}, {name:'Тестовый бонус 2',type:'bonus'},
-      {name:'Тестовый бонус 3',type:'bonus'}, {name:'Тестовый дебафф',type:'negative'}
+      {name:'Тестовый бонус 3',type:'bonus'}
     ] } };
     var unit = {name:'Пехотный взвод',type:'infantry_platoon',faction:'BeVe',squads:[${JSON.stringify(newSquad('Отделение №1'))}]};
     appData.campaign.opUnits = [unit];
@@ -204,10 +236,8 @@ test('10: третья стартовая бонусная карта закре
       {name:'Тестовый бонус 1',faction:'BeVe'}, {name:'Тестовый бонус 2',faction:'BeVe'}, {name:'Тестовый бонус 3',faction:'BeVe'}
     ],targets:{}}]);
   `);
-  equal(s.evalCtx('ok'), true, 'раздача трёх бонусов принята');
-  equal(s.evalCtx('unit.cardSelection.cards.filter(card => card.type === "bonus").length'), 3, 'назначены ровно три бонуса');
-  equal(s.evalCtx('unit.cardSelection.cards.filter(card => card.type === "negative").length'), 1, 'автоматически добавлен один дебафф');
-  equal(s.evalCtx('unit.cardSelection.cards.find(card => card.type === "negative").automaticFourthCard'), true, 'случайная четвёртая карта помечена как автоматически добавленная');
+  equal(s.evalCtx('ok'), false, 'три бонуса без «Комиссара» отклонены (лимит 2)');
+  equal(s.alerts.length > 0, true, 'игроку показано предупреждение о лимите');
 });
 
 test('10: раздача стартовых карт идёт отдельным этапом после связи', () => {
