@@ -382,6 +382,15 @@
          ни сообщений, ни кнопок «Расставить окопы». Теперь элемент один и переезжает
          (relocateMapInfo) на тот экран, который открыт. -->
     <div id="battleMapInfoSlot"><div id="mapInfo" style="margin-top:6px; font-size:0.9rem; color:#aaa;"></div></div>
+    <!-- ⚡ v13.133 (п.4): журнал событий КОНКРЕТНОГО тактического боя -->
+    <div style="margin:4px 0;"><button onclick="toggleBattleEventLog()" title="Что происходит в этом тактическом бою">📋 Журнал боя</button></div>
+    <div id="battleEventLogPanel" style="display:none; margin:6px 0; padding:8px; background:#16212b; border:1px solid #5dade2; border-radius:8px; font-size:0.85rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <b style="color:#5dade2;">📋 Журнал тактического боя</b>
+        <button onclick="toggleBattleEventLog()" style="padding:2px 8px;">✖ Скрыть</button>
+      </div>
+      <div id="battleEventLogList" data-battle-id="" style="max-height:280px; overflow-y:auto; margin-top:6px; font-size:0.8rem; line-height:1.35;"></div>
+    </div>
     <!-- ⚡ v13.053 (R38#3): правки карты ИМЕННО ЭТОГО гекса боя (если есть) — из боя можно
          расставить окопы и вернуться в бой кнопкой «✅ Готово — вернуться в бой» -->
     <!-- ⚡ v13.055 (R39#3): фаза размещения перед боем — роль (атакующий/обороняющийся), зона, готовность -->
@@ -460,7 +469,56 @@
     function rollD6() { return Math.floor(Math.random()*6)+1; }
     function formatTime(minutes) { const h = Math.floor(minutes / 60); const m = minutes % 60; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;}
     function rollD10() { return Math.floor(Math.random()*10)+1; }
-    function log(msg) { const d = document.getElementById('log'); if(d){ d.innerHTML += msg+'<br>'; d.scrollTop = d.scrollHeight; } }
+    function log(msg) { const d = document.getElementById('log'); if(d){ d.innerHTML += msg+'<br>'; d.scrollTop = d.scrollHeight; }
+        // ⚡ v13.133 (п.4): событие попадает и в журнал КОНКРЕТНОГО тактического боя
+        try { if (typeof appendBattleEventLog === 'function') appendBattleEventLog(msg); } catch (ignored) {}
+    }
+// ⚡ v13.133 (п.4): ЖУРНАЛ СОБЫТИЙ ТАКТИЧЕСКОГО БОЯ.
+//    У каждого боя (battle.eventLog) — свой журнал: что происходит в НЁМ.
+//    Глобальный #log пишется всё подряд; сюда — только пока открыт этот бой.
+function appendBattleEventLog(msg) {
+    try {
+        if (typeof appData === 'undefined' || !appData || !appData.currentBattleId || !appData.campaign) return;
+        const battle = (appData.campaign.activeBattles || []).find(b => b && String(b.id) === String(appData.currentBattleId));
+        if (!battle) return;
+        if (!Array.isArray(battle.eventLog)) battle.eventLog = [];
+        const turn = (battle.currentTurn !== undefined && battle.currentTurn !== null) ? battle.currentTurn
+            : ((appData.campaign && appData.campaign.currentTurn) || 1);
+        battle.eventLog.push({ turn: turn, text: String(msg) });
+        if (battle.eventLog.length > 600) battle.eventLog.splice(0, battle.eventLog.length - 600);
+        const box = document.getElementById('battleEventLogList');
+        if (box && String(box.getAttribute('data-battle-id') || '') === String(battle.id)) {
+            const div = document.createElement('div');
+            div.style.cssText = 'margin:2px 0; padding:2px 0; border-bottom:1px solid #22303c;';
+            div.innerHTML = `<span style="color:#5dade2;">[ход ${turn}]</span> ${msg}`;
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+        }
+    } catch (ignored) {}
+}
+function renderBattleEventLog() {
+    const box = document.getElementById('battleEventLogList');
+    if (!box) return;
+    let battle = null;
+    try {
+        battle = (appData.campaign.activeBattles || []).find(b => b && String(b.id) === String(appData.currentBattleId));
+    } catch (e) {}
+    box.setAttribute('data-battle-id', battle ? String(battle.id) : '');
+    if (!battle) { box.innerHTML = '<span style="color:#aaa;">Нет активного тактического боя.</span>'; return; }
+    const rows = Array.isArray(battle.eventLog) ? battle.eventLog : [];
+    if (!rows.length) { box.innerHTML = '<span style="color:#aaa;">Журнал боя пуст.</span>'; return; }
+    box.innerHTML = rows.map(ev =>
+        `<div style="margin:2px 0; padding:2px 0; border-bottom:1px solid #22303c;"><span style="color:#5dade2;">[ход ${ev.turn}]</span> ${ev.text}</div>`
+    ).join('');
+    box.scrollTop = box.scrollHeight;
+}
+function toggleBattleEventLog(forceOpen) {
+    const panel = document.getElementById('battleEventLogPanel');
+    if (!panel) return;
+    const open = forceOpen === true || (forceOpen === undefined && panel.style.display === 'none');
+    panel.style.display = open ? 'block' : 'none';
+    if (open) renderBattleEventLog();
+}
 // ⚡ v13.094 (п.2): необработанная ошибка не должна уводить игрока в главное
 //    меню: фиксируем её в логе/тосте и продолжаем игру с текущего экрана.
 window.addEventListener('error', function (e) {
@@ -6139,18 +6197,26 @@ appData.templates.forEach(t => {
   });
 })();
 (function migrateSniperAndMortarMorale() {
+  // ⚡ v13.133 (п.1): раньше миграция принудительно держала снайперские звенья и
+  //    расчёты (миномёт/бутылкомёт/ампуломёт) на «малой» шкале духа 5/5 и при
+  //    каждой загрузке ОТКАТЫВАЛА шкалу 0–100 обратно (amпуломёты, бутылкомёты,
+  //    снайперы «не переформатировались» в 100/100). Теперь дух у них — на общей
+  //    шкале 0–100 (как у всех юнитов), а 5 остаётся только базой для старых
+  //    модификаторов морали (tacticalMoraleLegacyScale).
   const isSniperOrMortar = s => s && !s.armor && !/ДОТ/i.test(s.name || '') &&
     (/Снайперское звено|снайпер|Минометный расч[её]т|Миномётный расч[её]т|Расч[её]т мином[её]та|Расч[её]т бутылком[её]та|Расч[её]т ампулом[её]та/i.test(s.name || '') ||
       (Array.isArray(s.crewInstances) && s.crewInstances.some(ci => ci && /мином[её]т|бутылком[её]т|ампулом[её]т/i.test(ci.weaponName || ''))));
   const upgrade = s => {
     if (!isSniperOrMortar(s)) return;
-    const fighters = Array.isArray(s.fighters) ? s.fighters : [];
-    const capacity = fighters.length;
-    const living = fighters.filter(f => f && Number(f.hp) > 0).length;
-    const losses = Math.max(0, capacity - living);
-    s.baseMorale = 5;
-    s.tacticalMoraleMax = 5;
-    s.currentMorale = capacity > 0 ? (living > 0 ? Math.max(1, 5 - losses) : 0) : 5;
+    s.tacticalMoraleLegacyScale = 5;
+    if (Number(s.tacticalMoraleScaleVersion) !== 1) {
+      const prev = Number(s.currentMorale);
+      const oldScale = Math.max(1, Number(s.tacticalMoraleMax) || Number(s.baseMorale) || 5);
+      s.currentMorale = Number.isFinite(prev) ? Math.max(0, Math.min(100, Math.round(prev / oldScale * 100))) : 100;
+      s.baseMorale = 100;
+      s.tacticalMoraleMax = 100;
+      s.tacticalMoraleScaleVersion = 1;
+    }
   };
   (appData.squads || []).forEach(upgrade);
   if (appData.map && Array.isArray(appData.map.enemySquads)) appData.map.enemySquads.forEach(upgrade);
@@ -6162,7 +6228,29 @@ appData.templates.forEach(t => {
       if (!b) return;
       (b.playerSquads || []).forEach(upgrade);
       (b.enemySquads || []).forEach(upgrade);
-      if (b.tacticalMap && Array.isArray(b.tacticalMap.enemySquads)) b.tacticalMap.enemySquads.forEach(upgrade);
+      if (b.tacticalMap) (b.tacticalMap.enemySquads || []).forEach(upgrade);
+    });
+  }
+})();
+// ⚡ v13.133 (п.1): любой отряд, оставшийся на старой шкале духа (в т.ч. карточные
+//    расчёты, связисты и т.п.), приводится к шкале 0–100, как у всех юнитов.
+(function normalizeAllLegacyMoraleScales() {
+  const upgrade = s => {
+    if (!s || Number(s.tacticalMoraleScaleVersion) === 1) return;
+    if (typeof tacticalNormalizeMoraleScale === 'function') tacticalNormalizeMoraleScale(s);
+  };
+  (appData.squads || []).forEach(upgrade);
+  if (appData.map && Array.isArray(appData.map.enemySquads)) appData.map.enemySquads.forEach(upgrade);
+  (appData.templates || []).forEach(upgrade);
+  const camp = appData.campaign;
+  if (camp) {
+    (camp.opUnits || []).forEach(u => (u && u.squads || []).forEach(upgrade));
+    (camp.enemyOpUnits || []).forEach(u => (u && u.squads || []).forEach(upgrade));
+    (camp.activeBattles || []).forEach(b => {
+      if (!b) return;
+      (b.playerSquads || []).forEach(upgrade);
+      (b.enemySquads || []).forEach(upgrade);
+      if (b.tacticalMap) (b.tacticalMap.enemySquads || []).forEach(upgrade);
     });
   }
 })();
@@ -7840,8 +7928,11 @@ function mirrorOrderToEscorts(order) {
     const recipients = order.type === 'company_order'
         ? (Array.isArray(order.subUnitIdsAll) ? order.subUnitIdsAll : (order.subUnitIds || []))
         : [order.toUnitId];
-    const hqId = (typeof findBattalionHq === 'function') ? findBattalionHq()
-        : (appData.campaign ? Number(hardMode.hqUnitId) : -1);
+    // ⚡ v13.133 (п.2): приказы раздаёт командующий штаб (штаб батальона
+    //    или наследовавший командование штаб роты)
+    const hqId = (typeof commandHQIndex === 'function' && commandHQIndex() >= 0) ? commandHQIndex()
+        : ((typeof findBattalionHq === 'function') ? findBattalionHq()
+        : (appData.campaign ? Number(hardMode.hqUnitId) : -1));
     if (!Number.isFinite(Number(hqId)) || Number(hqId) < 0) return 0;
     let copied = 0;
     escortMirrorDepth++;
@@ -7872,18 +7963,91 @@ function mirrorOrderToEscorts(order) {
     return copied;
 }
 
+// ⚡ v13.133 (п.2): НАСЛЕДОВАНИЕ КОМАНДОВАНИЯ.
+//    Жив штаб батальона — командует он (всё работает как раньше).
+//    Уничтожен/разбит — командование переходит к штабам роты в порядке
+//    №1 → №2 → №3 (по имени «Штаб роты №N»). Приказы командующего штаба
+//    доставляются его посыльными (или рацией, если рации есть у обоих).
+function isHQUnitDown(unit) {
+    if (!unit) return true;
+    if (unit.isDestroyed || unit.isSurrendered || unit.isRetreated) return true;
+    try { if (typeof isOpUnitWipedOut === 'function' && isOpUnitWipedOut(unit)) return true; } catch (e) {}
+    return false;
+}
+function getCommandingHQUnit() {
+    const units = (appData && appData.campaign && appData.campaign.opUnits) || [];
+    const isBattalionHQName = (u) => u && (u.type === 'battalion_hq' || u.type === 'hq' ||
+        (/Штаб/i.test(u.name || '') && /Батальон/i.test(u.name || '')));
+    const battalion = units.find(u => isBattalionHQName(u));
+    if (battalion && !isHQUnitDown(battalion)) return battalion;
+    const companyNum = (u) => { const m = /№\s*(\d+)/.exec((u && u.name) || ''); return m ? Number(m[1]) : 999; };
+    const companies = units
+        .map((u, idx) => ({ u, idx }))
+        .filter(x => x.u && (x.u.type === 'company_hq' || /Штаб роты/i.test(x.u.name || '')))
+        .sort((a, b) => companyNum(a.u) - companyNum(b.u) || a.idx - b.idx);
+    const alive = companies.find(x => !isHQUnitDown(x.u));
+    return alive ? alive.u : null;
+}
+function commandHQInfo() {
+    const unit = getCommandingHQUnit();
+    if (!unit) return null;
+    const units = (appData.campaign && appData.campaign.opUnits) || [];
+    const isBattalion = unit.type === 'battalion_hq' || unit.type === 'hq' ||
+        (/Штаб/i.test(unit.name || '') && /Батальон/i.test(unit.name || ''));
+    return { unit, unitId: units.indexOf(unit), isBattalion };
+}
+function commandSuccessionActive() {
+    const info = (typeof commandHQInfo === 'function') ? commandHQInfo() : null;
+    return !!(info && !info.isBattalion);
+}
+function commandHQIndex() {
+    const info = (typeof commandHQInfo === 'function') ? commandHQInfo() : null;
+    return info ? info.unitId : -1;
+}
+// ⚡ v13.133 (п.2): смена командующего штаба объявляется в логе один раз.
+function checkCommandSuccession() {
+    try {
+        const info = (typeof commandHQInfo === 'function') ? commandHQInfo() : null;
+        if (!info) return null;
+        const prevName = (appData.campaign && appData.campaign.commandHQName) || null;
+        const name = info.unit.name || (info.isBattalion ? 'Штаб батальона' : 'Штаб роты');
+        if (prevName !== name) {
+            if (appData.campaign) appData.campaign.commandHQName = name;
+            if (prevName) {
+                log(`🏴 Командование перешло к «${name}»${info.isBattalion ? '' : ' (штаб батальона уничтожен — приказы доставляются его посыльными, телефоны больше не работают; рация — только если рации есть у штаба и получателя)'}.`);
+            }
+        }
+        return info.unit;
+    } catch (e) { return null; }
+}
+
 function checkCommunication(fromUnit, toUnit) {
-    // ⚡ МОДЕЛЬ СВЯЗИ (v13.018):
-    // Приказы выдаёт ТОЛЬКО штаб батальона — телефоном, рацией или посыльными.
+    // ⚡ МОДЕЛЬ СВЯЗИ (v13.018 + v13.133 п.2):
+    // Приказы выдаёт командующий штаб — штаб батальона, пока он в строю;
+    // после его гибели — штаб роты №1 → №2 → №3 (наследование командования).
     // 1. РАЦИЯ — мгновенно, если ПОЛУЧАТЕЛЬ имеет выданную игроком рацию
     //    и находится в радиусе 10 гексов от штаба батальона.
     //    Без рации (и телефона) у получателя — ТОЛЬКО посыльный (3 гекса/ход),
     //    даже если он рядом со штабом батальона.
     // 2. ТЕЛЕФОН — мгновенно, если есть целая линия связи штаб↔юнит.
+    //    После гибели штаба батальона телефоны бесполезны (линии вели к нему).
     // 3. ПОСЫЛЬНЫЙ — 3 гекса/ход. Если взвод приписан к штабу роты —
     //    посыльному штаба батальона достаточно дойти до штаба роты,
     //    дальше приказ несёт СВОЙ посыльный штаба роты (не мгновенно).
+    // ⚡ v13.133 (п.2): при передаче командования штабу роты приказы идут
+    //    ТОЛЬКО посыльными командующего штаба роты; по радио — только юнитам,
+    //    у которых есть своя рация (рация есть и у командующего штаба).
     const isBattalionHQ = (u) => u && (u.type === 'battalion_hq' || u.type === 'hq');
+    const cmdHQ = (typeof getCommandingHQUnit === 'function') ? getCommandingHQUnit() : null;
+    if (cmdHQ && !(cmdHQ.type === 'battalion_hq' || cmdHQ.type === 'hq')) {
+        // Командование у штаба роты: телефоны мертвы, рация — только при рациях
+        // у командующего штаба И у получателя (у обеих сторон), иначе — посыльный.
+        const other = (fromUnit === cmdHQ) ? toUnit : (toUnit === cmdHQ ? fromUnit : toUnit);
+        if (other && other !== cmdHQ && hasRadio(cmdHQ) && hasRadio(other) && isInRadioRange(cmdHQ, other)) {
+            return 'radio';
+        }
+        return 'messenger';
+    }
     if (isBattalionHQ(fromUnit) && hasRadio(toUnit) && isInRadioRange(fromUnit, toUnit)) {
         return 'radio';
     }
@@ -8385,20 +8549,28 @@ function dispatchQueuedOrders() {
             }
             if (!fromUnit) { hardMode.messengerQueue.splice(i, 1); continue; }
 
+            // ⚡ v13.133 (п.2): при передаче командования приказы из очереди несут
+            //    посыльные командующего штаба роты (его пул, путь от его позиции).
+            let sender = fromUnit;
+            if (typeof commandSuccessionActive === 'function' && commandSuccessionActive()) {
+                const cmd = (typeof getCommandingHQUnit === 'function') ? getCommandingHQUnit() : null;
+                if (cmd) { sender = cmd; order.fromUnitId = appData.campaign.opUnits.indexOf(cmd); }
+            }
+
             // Есть ли у отправителя свободный посыльный?
-            const fromId = appData.campaign.opUnits.indexOf(fromUnit);
-            const pool = (fromUnit.type === 'battalion_hq' || fromUnit.type === 'hq')
+            const fromId = appData.campaign.opUnits.indexOf(sender);
+            const pool = (sender.type === 'battalion_hq' || sender.type === 'hq')
                 ? hardMode.messengers.battalion
                 : hardMode.messengers.companies[fromId];
             if (!pool || pool.available <= 0) continue;
 
-            const messenger = assignMessenger(fromUnit);
+            const messenger = assignMessenger(sender);
             if (!messenger) continue;
 
             order.messengerId = messenger;
             order.status = 'delivering';
-            const hasCoords = fromUnit.col != null && fromUnit.row != null && toUnit.col != null && toUnit.row != null;
-            const distance = hasCoords ? getOpHexDistance(fromUnit.col, fromUnit.row, toUnit.col, toUnit.row) : 0;
+            const hasCoords = sender.col != null && sender.row != null && toUnit.col != null && toUnit.row != null;
+            const distance = hasCoords ? getOpHexDistance(sender.col, sender.row, toUnit.col, toUnit.row) : 0;
             order.deliveryTurnsNeeded = Math.ceil(distance / 3);
             order.deliveryTurnsPassed = 0;
 
@@ -8500,6 +8672,9 @@ function findParentCompany(platoonUnit) {
 function getRelayCompanyForOrder(hqUnit, targetUnit) {
     if (!hardMode || !hardMode.enabled) return null;
     if (!hqUnit || !targetUnit) return null;
+    // ⚡ v13.133 (п.2): при передаче командования штабу роты реле через штаб роты
+    //    не работает — приказы доставляются посыльными командующего штаба напрямую.
+    if (typeof commandSuccessionActive === 'function' && commandSuccessionActive()) return null;
     if (hqUnit.col === null || hqUnit.row === null || targetUnit.col === null || targetUnit.row === null) return null;
 
     // Приказы штабам не доставляются через штаб роты
@@ -8990,6 +9165,19 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
     const collectBattleSquads = (units, side) => {
         const out = [];
         units.forEach(u => {
+            // ⚡ v13.133 (п.3): физическое присутствие юнита на гексе боя.
+            //    Десант в БТР считается находящимся вместе со своей машиной.
+            const unitOnAnchorHex = !!(u && (u.embarkedInBtr ||
+                (Number(u.col) === Number(battleAnchor.col) && Number(u.row) === Number(battleAnchor.row))));
+            // ⚡ v13.133 (п.3): «дистанционные» отряды: юнит, вошедший в бой только
+            //    через закреплённый ДОТ (сам он стоит на другом гексе), привносит в
+            //    бой лишь отряды, закреплённые на гексе боя. Остальные его отряды
+            //    остаются на своих гексах — тактический бой не начинается «дистанционно».
+            const squadOnAnchorSquad = (s) => {
+                if (unitOnAnchorHex) return true;
+                const fixedHex = s && s.fixedTacticalPosition && s.fixedTacticalPosition.hexKey;
+                return String(fixedHex || '') === `${battleAnchor.col},${battleAnchor.row}`;
+            };
             // ⚡ v13.099 (п.12): взвод снабжения в бою — только охранники
             //    (все в одном отделении) плюс отдельное отделение обоза:
             //    носильщики, погонщики, возницы, ездовые и водители, кроме тех,
@@ -9014,6 +9202,7 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
             }
             // ⚡ Группа техники — каждая машина отдельно
             if (u.isGroup && u.vehicleList && u.vehicleList.length > 0) {
+                if (!unitOnAnchorHex) return;
                 u.vehicleList.forEach(v => {
                     if (v.isDestroyed || v.destroyed) return;
                     const bs = makeVehicleBattleSquad(v, u, side);
@@ -9027,6 +9216,7 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
                     // Проверяем, что у отряда есть живые бойцы
                     const hasAlive = s.fighters && s.fighters.some(f => f.hp > 0);
                     if (!hasAlive) return;
+                    if (!squadOnAnchorSquad(s)) return;
                     const battleSquad = normalizeSquadForBattle(JSON.parse(JSON.stringify(s)));
                     battleSquad.opUnitName = u.name;
                     battleSquad.opUnitType = u.type || null;
@@ -9076,6 +9266,14 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
 
     let playerSquads = collectBattleSquads(playerUnits, 'player');
     let enemySquads = collectBattleSquads(enemyUnits, 'enemy');
+    // ⚡ v13.133 (п.3): после отсечения «дистанционных» отрядов бой не должен
+    //    остаться без одной из сторон — иначе бой начинался бы «в пустоту».
+    if (!playerSquads.length || !enemySquads.length) {
+        (playerUnits || []).forEach(u => { if (u) u.isInBattle = false; });
+        (enemyUnits || []).forEach(u => { if (u) u.isInBattle = false; });
+        log(`⛔ Тактический бой не начат: на гексе (${battleAnchor.col},${battleAnchor.row}) нет боеспособных отрядов обеих сторон.`);
+        return false;
+    }
     const linkBtrPassengers = (squads, units, roster) => {
         const pool = roster || ((appData.campaign && appData.campaign.opUnits) || []);
         (units || []).forEach(u => {
@@ -9117,6 +9315,14 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
     enemySquads.forEach(s => { if (s && fixedFort(s)) s.detected = true; });
     playerSquads.forEach(s => { if (s && fixedFort(s)) s.detected = true; });
 
+    // ⚡ v13.133 (п.3): после всех фильтров гекса у стороны не осталось реальных
+    //    отрядов — бой «дистанционно» не начинается (вместо фиктивных отрядов).
+    if (playerSquads.length === 0 || enemySquads.length === 0) {
+        (playerUnits || []).forEach(u => { if (u) u.isInBattle = false; });
+        (enemyUnits || []).forEach(u => { if (u) u.isInBattle = false; });
+        log(`⛔ Тактический бой не начат: на гексе (${battleAnchor.col},${battleAnchor.row}) нет боеспособных отрядов ${playerSquads.length === 0 ? 'игрока' : 'противника'} — бой не может начаться «дистанционно».`);
+        return false;
+    }
     // ⚡ ПРОВЕРКА: если нет отрядов для боя - создаем минимальные
     if (playerSquads.length === 0) {
         console.warn('Нет отрядов игрока, создаем минимальный');
@@ -9484,6 +9690,8 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
     } catch (e) {}
     // Создаём объект боя
     const newBattle = {
+        // ⚡ v13.133 (п.4): журнал событий конкретного тактического боя
+        eventLog: [],
         id: Date.now(),
         playerUnitName: playerUnits.map(u => u.name).join(', '),
         enemyUnitName: enemyUnits.map(u => u.name).join(', '),
@@ -9515,6 +9723,11 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
     ensureBattleHQFlareSupply(newBattle);
     playerSquads = newBattle.playerSquads.map(s => deepCloneGameData(s));
     ensureBattleCardSelectionQueue(newBattle, newBattle.playerUnitNames);
+    // ⚡ v13.133 (п.4): первая запись журнала боя
+    try {
+        newBattle.eventLog = newBattle.eventLog || [];
+        newBattle.eventLog.push({ turn: (newBattle.currentTurn || 1), text: `⚔️ Тактический бой начат на гексе (${battleAnchor.col},${battleAnchor.row}) — ${newBattle.playerUnitNames.join(', ')} против ${(newBattle.enemyUnitNames || []).join(', ')}.` });
+    } catch (e) {}
     // ⚡ v13.055 (R39#3): фаза размещения — атакующий/обороняющийся, сторона входа
     if (battleEntry && typeof initBattlePlacement === 'function') {
         initBattlePlacement(newBattle, battleEntry.attackerSide, battleEntry.entryDir, battleEntry.source);
@@ -11493,6 +11706,23 @@ function tacticalNormalizeMoraleScale(squad) {
 }
 function tacticalMoraleScale(squad) {
   return tacticalNormalizeMoraleScale(squad);
+}
+// ⚡ v13.133 (п.1): карточные отряды (ампуломёты, бутылкомёты, снайперские
+//    звенья и т.п.) создаются вне тактбоя и не проходят боевую инициализацию
+//    морали — дух оставался на «малой» шкале (5/5, 6/6) вместо 0–100.
+//    Приводим к шкале 0–100 сразу при создании; в бою — как обычно.
+function tacticalNormalizeNewSquadMorale(squad, battle) {
+  if (!squad) return false;
+  try {
+    if (typeof tacticalEnsureSquadMoraleInitialized === 'function' && tacticalEnsureSquadMoraleInitialized(squad, battle)) return true;
+  } catch (e) {}
+  try {
+    if (typeof tacticalNormalizeMoraleScale === 'function') {
+      tacticalNormalizeMoraleScale(squad);
+      return true;
+    }
+  } catch (e) {}
+  return false;
 }
 function tacticalMoraleCurrent(squad) {
   tacticalMoraleScale(squad);
@@ -20806,9 +21036,8 @@ function appendCardAddedSquad(card, unit, battle, liveSquads) {
     squad.appliedCards = Array.from(new Set([...(squad.appliedCards || []), card.name]));
     if (squad.embarkedSquadIndex === undefined) squad.embarkedSquadIndex = null;
     if (squad.armor === undefined) squad.armor = null;
-    if (battle && (battle.playerUnitNames || []).includes(unit.name) && typeof tacticalEnsureSquadMoraleInitialized === 'function') {
-        tacticalEnsureSquadMoraleInitialized(squad, battle);
-    }
+    // ⚡ v13.133 (п.1): карточный отряд всегда получает шкалу духа 0–100
+    if (typeof tacticalNormalizeNewSquadMorale === 'function') tacticalNormalizeNewSquadMorale(squad, battle);
     unit.squads.push(deepCloneGameData(squad));
     if (Array.isArray(liveSquads) && !liveSquads.some(s => s && s.name === squad.name)) liveSquads.push(squad);
     if (battle && (battle.playerUnitNames || []).includes(unit.name)) {
@@ -21785,7 +22014,7 @@ case 'Оружие солидарности': {
           armor: null, embarkedSquadIndex: null, hidden: false
         };
         appData.squads.push(newSquad);
-        if (typeof tacticalEnsureSquadMoraleInitialized === 'function') tacticalEnsureSquadMoraleInitialized(newSquad);
+        if (typeof tacticalNormalizeNewSquadMorale === 'function') tacticalNormalizeNewSquadMorale(newSquad);
         if (!appData.factions['A.I.R.F.'].crewWeapons.find(w => w.name === 'Бутылкомет Цукермана')) {
           appData.factions['A.I.R.F.'].crewWeapons.push({
             type: 'mortar', name: 'Бутылкомет Цукермана', crewSize: 2,
@@ -21840,7 +22069,7 @@ case 'Оружие солидарности': {
           armor: null, embarkedSquadIndex: null, hidden: false, ampulometHits: {}
         };
         appData.squads.push(newSquad);
-        if (typeof tacticalEnsureSquadMoraleInitialized === 'function') tacticalEnsureSquadMoraleInitialized(newSquad);
+        if (typeof tacticalNormalizeNewSquadMorale === 'function') tacticalNormalizeNewSquadMorale(newSquad);
         if (!appData.factions['A.I.R.F.'].crewWeapons.find(w => w.name === 'Ампуломёт АМ-1')) {
           appData.factions['A.I.R.F.'].crewWeapons.push({
             type: 'mortar', name: 'Ампуломёт АМ-1', crewSize: 3,
@@ -25214,6 +25443,8 @@ function companyRelayDeliveryPending(companyId) {
 }
 
 function processOrders() {
+    // ⚡ v13.133 (п.2): проверить/объявить передачу командования (штаб роты)
+    try { if (typeof checkCommandSuccession === 'function') checkCommandSuccession(); } catch (e) {}
     // 0. Диагностика полов посыльных + страховочная выдача очереди
     //    приказов, ждущих посыльных (на конец хода)
     repairMessengerPools();
@@ -30808,31 +31039,36 @@ function submitOrder()   {
     }
 
     // Получаем HQ
-    let hqIndex = hardMode.hqUnitId;
-
-    // Если hqUnitId не установлен или юнит не найден — ищем штаб
-    if (hqIndex === null || hqIndex === undefined || !appData.campaign.opUnits[hqIndex]) {
-        // Ищем штаб батальона по типу ИЛИ по имени
-        hqIndex = (appData.campaign.opUnits || []).findIndex(u =>
-            u.type === 'battalion_hq' ||
-            u.type === 'hq' ||
-            (u.name && (u.name.includes('Штаб') && u.name.includes('Батальон')))
-        );
+    // ⚡ v13.133 (п.2): приказы отдаёт КОМАНДУЮЩИЙ штаб — штаб батальона,
+    //    пока он в строю; после его гибели — штаб роты №1 → №2 → №3.
+    let hqUnit = (typeof getCommandingHQUnit === 'function') ? getCommandingHQUnit() : null;
+    if (!hqUnit) {
+        let hqIndex = hardMode.hqUnitId;
+        // Если hqUnitId не установлен или юнит не найден — ищем штаб
+        if (hqIndex === null || hqIndex === undefined || !appData.campaign.opUnits[hqIndex]) {
+            // Ищем штаб батальона по типу ИЛИ по имени
+            hqIndex = (appData.campaign.opUnits || []).findIndex(u =>
+                u.type === 'battalion_hq' ||
+                u.type === 'hq' ||
+                (u.name && (u.name.includes('Штаб') && u.name.includes('Батальон')))
+            );
+        }
+        hqUnit = hqIndex !== -1 ? (appData.campaign.opUnits[hqIndex] || null) : null;
     }
 
-    if (hqIndex === -1) {
-        alert('❌ Штаб батальона не найден!');
-        return;
-    }
-
-    const hqUnit = appData.campaign.opUnits[hqIndex];
     if (!hqUnit) {
         alert('❌ Штаб батальона не найден!');
         return;
     }
 
-    // ⚡ УСТАНАВЛИВАЕМ hqUnitId
-    hardMode.hqUnitId = hqIndex;
+    const hqIndex = appData.campaign.opUnits.indexOf(hqUnit);
+    // ⚡ УСТАНАВЛИВАЕМ hqUnitId (штаб батальона — для системы связи;
+    //    при передаче командования НЕ переписываем на штаб роты)
+    const battalionHQIdx = (appData.campaign.opUnits || []).findIndex(u =>
+        u && (u.type === 'battalion_hq' || u.type === 'hq' ||
+            (u.name && u.name.includes('Штаб') && u.name.includes('Батальон')))
+    );
+    if (battalionHQIdx !== -1) hardMode.hqUnitId = battalionHQIdx;
 
     // Проверяем связь с HQ (для Hard Mode)
     // ⚡ Если целевой юнит — взвод с штабом роты, а доставка нужна посыльным,
@@ -31330,8 +31566,12 @@ function submitOrderQueue() {
         return;
     }
 
-    const hqIndex = hardMode.hqUnitId !== null ? hardMode.hqUnitId :
-                    (appData.campaign.opUnits || []).findIndex(u => u.type === 'battalion_hq' || u.type === 'hq');
+    // ⚡ v13.133 (п.2): серию приказов отдаёт командующий штаб (штаб батальона
+    //    или наследовавший командование штаб роты №1/№2/№3)
+    const commandingIdx = (typeof commandHQIndex === 'function') ? commandHQIndex() : -1;
+    const hqIndex = commandingIdx >= 0 ? commandingIdx
+                    : (hardMode.hqUnitId !== null ? hardMode.hqUnitId :
+                    (appData.campaign.opUnits || []).findIndex(u => u.type === 'battalion_hq' || u.type === 'hq'));
 
     if (hqIndex === -1) {
         alert('Штаб батальона не найден!');
@@ -31760,6 +32000,19 @@ function toggleOrderDetails(orderId) {
 function renderActiveOrders() {
     const container = document.getElementById('ordersContainer');
     if (!container) return;
+    // ⚡ v13.133 (п.2): в панели приказов видно, КТО командует (штаб батальона
+    //    или наследовавший командование штаб роты №1/№2/№3).
+    let commandLine = '';
+    try {
+        if (typeof checkCommandSuccession === 'function') checkCommandSuccession();
+        const info = (typeof commandHQInfo === 'function') ? commandHQInfo() : null;
+        if (info) {
+            const name = info.unit.name || (info.isBattalion ? 'Штаб батальона' : 'Штаб роты');
+            commandLine = info.isBattalion
+                ? `<div style="margin:2px 0 6px;color:#9f9;font-size:12px;">📻 Командует: ${name}</div>`
+                : `<div style="margin:2px 0 6px;color:#fc6;font-size:12px;">🏴 Командует: ${name} (штаб батальона уничтожен — телефоны не работают, рация только при рациях у штаба и получателя, иначе посыльные штаба)</div>`;
+        }
+    } catch (e) {}
 
     // ⚡ v13.023: счётчик арт. обстрелов
     // ⚡ v13.025: без артподдержки — обстрелы недоступны
@@ -31785,7 +32038,7 @@ function renderActiveOrders() {
     });
 
     if (visibleOrders.length === 0) {
-        container.innerHTML = '<span style="color:#aaa;">Нет активных приказов</span>';
+        container.innerHTML = commandLine + '<span style=\"color:#aaa;\">Нет активных приказов</span>';
         return;
     }
 
@@ -31926,7 +32179,7 @@ function renderActiveOrders() {
         Кнопка «ℹ️ приказ» показывает приказ целиком — маршрут, цель и получателей.
     </div>`;
 
-    container.innerHTML = html;
+    container.innerHTML = commandLine + html;
 }
 
 function updateOperationalTimeDisplay() {
@@ -37024,9 +37277,11 @@ function onOrderTargetUnitChange() {
         // Копия приказа для одного взвода.
         // ВАЖНО: тип — реальный приказ (orderType); массивы копируем,
         // чтобы исполнители (splice/shift) не ломали приказ соседей.
+        const senderIdx = (typeof commandSuccessionActive === 'function' && commandSuccessionActive() &&
+            typeof commandHQIndex === 'function' && commandHQIndex() >= 0) ? commandHQIndex() : companyIdx;
         const subOrder = {
             id: Date.now() + Math.random(),
-            fromUnitId: companyIdx,
+            fromUnitId: senderIdx,
             toUnitId: subUnitId,
             type: order.orderType || 'move',
             waypoints: (order.waypoints || []).map(wp => ({ ...wp })),
@@ -37069,8 +37324,11 @@ function onOrderTargetUnitChange() {
         };
 
         if (method === 'messenger') {
-            // Посыльный штаба роты идёт к взводу
-            const companyPool = hardMode.messengers ? hardMode.messengers.companies[companyIdx] : null;
+            // Посыльный штаба роты идёт к взводу.
+            // ⚡ v13.133 (п.2): при передаче командования приказы несут ТОЛЬКО
+            //    посыльные командующего штаба роты (его пул — senderIdx выше),
+            //    а не посыльные получающей штаб роты.
+            const companyPool = hardMode.messengers ? hardMode.messengers.companies[senderIdx] : null;
             if (!companyPool) {
                 // У штаба роты нет пула посыльных — передаём приказ напрямую
                 subOrder.turnReceived = currentTurnNum;
