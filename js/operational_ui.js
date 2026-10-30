@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.128 — tactical grenade-area fire, commissioner card limit, unified rules.
+// ⚡ BUILD-МАРКЕР: v13.135 — tactical grenade-area fire, commissioner card limit, unified rules.
 (function () {
   'use strict';
 
@@ -1189,8 +1189,16 @@
         ['disembark', (isBtrUnit(unit) && !unit.embarkedInBtr) ? '🚌 Высадить десант' : '🚶 Выйти из БТР'],
         ['dismount', '🚲 Спешиться'], ['remount', '🚴 Сесть на велосипеды'], ['pour_oil', '🛢️ Разлить нефть']
       ];
+      // ⚡ v13.135 (п.2): «Спешиться»/«Сесть на велосипеды» показываются ТОЛЬКО
+      //    подразделениям, которые можно спешить (велосипедисты и т.п.);
+      //    остальным юнитам опции не показываются вообще.
+      const visibleActions = actions.filter(([value]) =>
+        (value !== 'dismount' && value !== 'remount') || canIssueSpecial(unit, value));
+      if (visibleActions.length && visibleActions.every(([value]) => value !== draft.specialAction)) {
+        draft.specialAction = visibleActions[0][0];
+      }
       body += `<label class="op-cmd-field">Действие<select data-draft-field="specialAction">` +
-        actions.map(([value, label]) => `<option value="${value}"${draft.specialAction === value ? ' selected' : ''}${canIssueSpecial(unit, value) ? '' : ' disabled'}>${label}</option>`).join('') + `</select></label>`;
+        visibleActions.map(([value, label]) => `<option value="${value}"${draft.specialAction === value ? ' selected' : ''}${canIssueSpecial(unit, value) ? '' : ' disabled'}>${label}</option>`).join('') + `</select></label>`;
       if (unit.embarkedInBtr && draft.specialAction !== 'disembark') {
         body += `<div class="op-cmd-note">Отряд в БТР. Действие ждёт отдельной высадки: оно не высаживает десант автоматически и начнёт выполняться со следующего оперативного хода после высадки.</div>`;
       }

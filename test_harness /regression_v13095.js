@@ -43,8 +43,8 @@ test('1c: отдельное меню раздачи (оверлей) и пер�
 
 test('1d: лимиты карт с Комиссаром/Торговым духом и один дебафф', () => {
   const commit = sliceFunction(HTML, 'commitInitialCampaignCardAssignments');
-  includes(commit, 'choices.length > platoonLimit', 'нет условного лимита бонусных карт: 3 обычно, 4 с «Комиссаром» или «Торговым духом»');
-  includes(commit, 'bonusCount >= 3 && !hasTradeSpirit', 'для 3+ бонусов сохраняется ровно один дебафф, кроме «Торгового духа»');
+  includes(commit, 'choices.length > platoonLimit', 'лимит бонусных карт: 2 обычно, 3 с «Комиссаром», 4 с «Торговым духом» (v13.135)');
+  includes(commit, 'cardSelectionNeedsDebuff(bonusCount', 'случайная карта выдаётся за полный лимит бонусов, кроме «Торгового духа» (v13.135)');
   includes(commit, 'cardCopies + savedCopies > cardCopyLimit', 'нет лимита копий бонусных карт на батальон');
 });
 

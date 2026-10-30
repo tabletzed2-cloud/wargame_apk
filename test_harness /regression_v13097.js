@@ -159,7 +159,7 @@ test('карточки: при возврате на карту восстана
 });
 test('карточки: сохранённый выбор отмечается в меню без применения эффектов', () => {
   const s = createSandbox(freshAppData());
-  load(s, HTML, ['escapeCardHtml', 'initialCampaignCardUnitHtml']);
+  load(s, HTML, ['escapeCardHtml', 'cardDraftBonusLimit', 'initialCampaignCardUnitHtml']);
   s.run(`function getUnitCardFactionContext(){return {faction:'BeVe'};}
     function collectCardLibraryForContext(){return [{name:'Бонус',faction:'BeVe',type:'bonus'},
       {name:'Недоступный',faction:'BeVe',type:'bonus'}];}
@@ -168,7 +168,7 @@ test('карточки: сохранённый выбор отмечается �
     appData.campaign.initialCardDraft = [{unitName:'Взвод',cards:[{name:'Бонус',faction:'BeVe'},
       {name:'Недоступный',faction:'BeVe'}]}]; var menu = initialCampaignCardUnitHtml(unit,0);`);
   assert.match(s.evalCtx('menu'), /checked/);
-  assert.match(s.evalCtx('menu'), /Выбрано: 1\/3/);
+  assert.match(s.evalCtx('menu'), /Выбрано: 1\/2/); // лимит 2 — базовый (v13.135)
   assert.equal(s.evalCtx('unit.cardSelection'), undefined);
 });
 
