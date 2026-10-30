@@ -6197,62 +6197,66 @@ appData.templates.forEach(t => {
   });
 })();
 (function migrateSniperAndMortarMorale() {
-  // ⚡ v13.133 (п.1): раньше миграция принудительно держала снайперские звенья и
-  //    расчёты (миномёт/бутылкомёт/ампуломёт) на «малой» шкале духа 5/5 и при
-  //    каждой загрузке ОТКАТЫВАЛА шкалу 0–100 обратно (amпуломёты, бутылкомёты,
-  //    снайперы «не переформатировались» в 100/100). Теперь дух у них — на общей
-  //    шкале 0–100 (как у всех юнитов), а 5 остаётся только базой для старых
-  //    модификаторов морали (tacticalMoraleLegacyScale).
-  const isSniperOrMortar = s => s && !s.armor && !/ДОТ/i.test(s.name || '') &&
-    (/Снайперское звено|снайпер|Минометный расч[её]т|Миномётный расч[её]т|Расч[её]т мином[её]та|Расч[её]т бутылком[её]та|Расч[её]т ампулом[её]та/i.test(s.name || '') ||
-      (Array.isArray(s.crewInstances) && s.crewInstances.some(ci => ci && /мином[её]т|бутылком[её]т|ампулом[её]т/i.test(ci.weaponName || ''))));
-  const upgrade = s => {
-    if (!isSniperOrMortar(s)) return;
-    s.tacticalMoraleLegacyScale = 5;
-    if (Number(s.tacticalMoraleScaleVersion) !== 1) {
-      const prev = Number(s.currentMorale);
-      const oldScale = Math.max(1, Number(s.tacticalMoraleMax) || Number(s.baseMorale) || 5);
-      s.currentMorale = Number.isFinite(prev) ? Math.max(0, Math.min(100, Math.round(prev / oldScale * 100))) : 100;
-      s.baseMorale = 100;
-      s.tacticalMoraleMax = 100;
-      s.tacticalMoraleScaleVersion = 1;
+  try {
+    // ⚡ v13.133 (п.1): раньше миграция принудительно держала снайперские звенья и
+    //    расчёты (миномёт/бутылкомёт/ампуломёт) на «малой» шкале духа 5/5 и при
+    //    каждой загрузке ОТКАТЫВАЛА шкалу 0–100 обратно (amпуломёты, бутылкомёты,
+    //    снайперы «не переформатировались» в 100/100). Теперь дух у них — на общей
+    //    шкале 0–100 (как у всех юнитов), а 5 остаётся только базой для старых
+    //    модификаторов морали (tacticalMoraleLegacyScale).
+    const isSniperOrMortar = s => s && !s.armor && !/ДОТ/i.test(s.name || '') &&
+      (/Снайперское звено|снайпер|Минометный расч[её]т|Миномётный расч[её]т|Расч[её]т мином[её]та|Расч[её]т бутылком[её]та|Расч[её]т ампулом[её]та/i.test(s.name || '') ||
+        (Array.isArray(s.crewInstances) && s.crewInstances.some(ci => ci && /мином[её]т|бутылком[её]т|ампулом[её]т/i.test(ci.weaponName || ''))));
+    const upgrade = s => {
+      if (!isSniperOrMortar(s)) return;
+      s.tacticalMoraleLegacyScale = 5;
+      if (Number(s.tacticalMoraleScaleVersion) !== 1) {
+        const prev = Number(s.currentMorale);
+        const oldScale = Math.max(1, Number(s.tacticalMoraleMax) || Number(s.baseMorale) || 5);
+        s.currentMorale = Number.isFinite(prev) ? Math.max(0, Math.min(100, Math.round(prev / oldScale * 100))) : 100;
+        s.baseMorale = 100;
+        s.tacticalMoraleMax = 100;
+        s.tacticalMoraleScaleVersion = 1;
+      }
+    };
+    (appData.squads || []).forEach(upgrade);
+    if (appData.map && Array.isArray(appData.map.enemySquads)) appData.map.enemySquads.forEach(upgrade);
+    const camp = appData.campaign;
+    if (camp) {
+      (camp.opUnits || []).forEach(u => (u && u.squads || []).forEach(upgrade));
+      (camp.enemyOpUnits || []).forEach(u => (u && u.squads || []).forEach(upgrade));
+      (camp.activeBattles || []).forEach(b => {
+        if (!b) return;
+        (b.playerSquads || []).forEach(upgrade);
+        (b.enemySquads || []).forEach(upgrade);
+        if (b.tacticalMap) (b.tacticalMap.enemySquads || []).forEach(upgrade);
+      });
     }
-  };
-  (appData.squads || []).forEach(upgrade);
-  if (appData.map && Array.isArray(appData.map.enemySquads)) appData.map.enemySquads.forEach(upgrade);
-  const camp = appData.campaign;
-  if (camp) {
-    (camp.opUnits || []).forEach(u => (u && u.squads || []).forEach(upgrade));
-    (camp.enemyOpUnits || []).forEach(u => (u && u.squads || []).forEach(upgrade));
-    (camp.activeBattles || []).forEach(b => {
-      if (!b) return;
-      (b.playerSquads || []).forEach(upgrade);
-      (b.enemySquads || []).forEach(upgrade);
-      if (b.tacticalMap) (b.tacticalMap.enemySquads || []).forEach(upgrade);
-    });
-  }
+  } catch (e) { console.warn('migrateSniperAndMortarMorale:', e && e.message); }
 })();
 // ⚡ v13.133 (п.1): любой отряд, оставшийся на старой шкале духа (в т.ч. карточные
 //    расчёты, связисты и т.п.), приводится к шкале 0–100, как у всех юнитов.
 (function normalizeAllLegacyMoraleScales() {
-  const upgrade = s => {
-    if (!s || Number(s.tacticalMoraleScaleVersion) === 1) return;
-    if (typeof tacticalNormalizeMoraleScale === 'function') tacticalNormalizeMoraleScale(s);
-  };
-  (appData.squads || []).forEach(upgrade);
-  if (appData.map && Array.isArray(appData.map.enemySquads)) appData.map.enemySquads.forEach(upgrade);
-  (appData.templates || []).forEach(upgrade);
-  const camp = appData.campaign;
-  if (camp) {
-    (camp.opUnits || []).forEach(u => (u && u.squads || []).forEach(upgrade));
-    (camp.enemyOpUnits || []).forEach(u => (u && u.squads || []).forEach(upgrade));
-    (camp.activeBattles || []).forEach(b => {
-      if (!b) return;
-      (b.playerSquads || []).forEach(upgrade);
-      (b.enemySquads || []).forEach(upgrade);
-      if (b.tacticalMap) (b.tacticalMap.enemySquads || []).forEach(upgrade);
-    });
-  }
+  try {
+    const upgrade = s => {
+      if (!s || Number(s.tacticalMoraleScaleVersion) === 1) return;
+      if (typeof tacticalNormalizeMoraleScale === 'function') tacticalNormalizeMoraleScale(s);
+    };
+    (appData.squads || []).forEach(upgrade);
+    if (appData.map && Array.isArray(appData.map.enemySquads)) appData.map.enemySquads.forEach(upgrade);
+    (appData.templates || []).forEach(upgrade);
+    const camp = appData.campaign;
+    if (camp) {
+      (camp.opUnits || []).forEach(u => (u && u.squads || []).forEach(upgrade));
+      (camp.enemyOpUnits || []).forEach(u => (u && u.squads || []).forEach(upgrade));
+      (camp.activeBattles || []).forEach(b => {
+        if (!b) return;
+        (b.playerSquads || []).forEach(upgrade);
+        (b.enemySquads || []).forEach(upgrade);
+        if (b.tacticalMap) (b.tacticalMap.enemySquads || []).forEach(upgrade);
+      });
+    }
+  } catch (e) { console.warn('normalizeAllLegacyMoraleScales:', e && e.message); }
 })();
 
 // Миграция мобильности для шаблонов
@@ -11684,7 +11688,7 @@ function tacticalNormalizeMoraleScale(squad) {
   if (Number(squad.tacticalMoraleScaleVersion) === 1) {
     const current = Number(squad.currentMorale);
     squad.currentMorale = Number.isFinite(current) ? Math.max(0, Math.min(100, current)) : 100;
-    if (typeof currentSquad !== 'undefined' && currentSquad === squad) morale = squad.currentMorale;
+    try { if (currentSquad === squad) morale = squad.currentMorale; } catch (e) {}
     return 100;
   }
   const fighters = Array.isArray(squad.fighters) ? squad.fighters : [];
@@ -11701,7 +11705,7 @@ function tacticalNormalizeMoraleScale(squad) {
   squad.baseMorale = 100;
   squad.tacticalMoraleMax = 100;
   squad.tacticalMoraleScaleVersion = 1;
-  if (typeof currentSquad !== 'undefined' && currentSquad === squad) morale = squad.currentMorale;
+  try { if (currentSquad === squad) morale = squad.currentMorale; } catch (e) {}
   return 100;
 }
 function tacticalMoraleScale(squad) {
