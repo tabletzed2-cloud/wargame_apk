@@ -431,31 +431,40 @@ test('дым скрывает отряд, блокирует обнаружен�
   `);
   equal(s.evalCtx('smokeActionCenter'), '1,2', 'действие дымовых гранат создаёт облако с учётом сноса ветром на один гекс');
   equal(s.evalCtx('smokeThrower.smokeGrenades'), 0, 'за облако списываются три дымовые гранаты');
-  loadHtml(s, ['throwGrenades']);
+  loadHtml(s, ['throwPhosphorusGrenades']);
   s.run(`
     var phosphorusThrower = { name: 'Фосфорный отряд', fighters: [{hp:3},{hp:3},{hp:3},{hp:3}],
-      grenades: 7, effects: { phosphorusGrenades: true }, armor: null };
+      grenades: 0, phosphorusGrenades: 3, armor: null };
     appData.squads = [phosphorusThrower];
     appData.map.smokeClouds = [];
     appData.map.grid['0,2'].squadIds = [0];
-    appData.map.attackTargetEnemyIdx = null;
+    appData.map.grid['4,2'].enemySquadIds = [0];
+    appData.map.attackTargetEnemyIdx = 0;
     currentSquad = phosphorusThrower; currentSquadIndex = 0; currentTurn = 1;
     var phosRolls = [8,8,8,1], phosRollIndex = 0;
     function rollD10() { return phosRolls[phosRollIndex++]; }
     function getTacticalTargetDistance() { return 1; }
-    function getEffectiveMorale() { return 5; }
-    function getSuppressionThreshold() { return 2; }
     function getScopedActiveModifiersForSquad() { return []; }
     function getActionCost() { return 1; }
+    function tacticalActionAllowed() { return true; }
+    function spendAP() { return true; }
     function reportAttackOutcome() {}
-    throwGrenades();
-    var cloudAfterThreeHits = appData.map.smokeClouds.length;
-    phosRolls = [8,8,8,8]; phosRollIndex = 0; phosphorusThrower.grenades = 7;
-    throwGrenades();
-    var cloudAfterFourHits = appData.map.smokeClouds.length;
+    function tacticalAreaOccupantsAtTarget() { return []; }
+    function getBattleSquadHex(grid, idx, isEnemy) { return { key: '4,2' }; }
+    throwPhosphorusGrenades();
+    var cloudAfterThreeThrown = appData.map.smokeClouds.length;
+    phosRolls = [1,1,1,1]; phosRollIndex = 0; phosphorusThrower.phosphorusGrenades = 7;
+    throwPhosphorusGrenades();
+    var cloudAfterFourThrown = appData.map.smokeClouds.length;
+    var smokeHexCount = appData.map.smokeClouds[0] ? appData.map.smokeClouds[0].hexes.length : 0;
+    var phosLeftAfterThrows = phosphorusThrower.phosphorusGrenades;
+    var regularLeftAfterThrows = phosphorusThrower.grenades;
   `);
-  equal(s.evalCtx('cloudAfterThreeHits'), 0, 'фосфорный залп менее чем с четырьмя попаданиями не создаёт облако');
-  equal(s.evalCtx('cloudAfterFourHits'), 1, 'четыре попадания фосфорными гранатами создают дымовую завесу');
+  equal(s.evalCtx('cloudAfterThreeThrown'), 0, 'залп из трёх фосфорных гранат не создаёт облако');
+  equal(s.evalCtx('cloudAfterFourThrown'), 1, 'четыре фосфорных гранаты, брошенные в цель, создают дымовую завесу');
+  equal(s.evalCtx('smokeHexCount'), 1, 'завеса стелется только по гексу попадания (1 гекс)');
+  equal(s.evalCtx('phosLeftAfterThrows'), 3, 'каждый бросок тратит по одной фосфорной гранате на бойца');
+  equal(s.evalCtx('regularLeftAfterThrows'), 0, 'фосфорные гранаты — отдельный запас, обычные не трогаются');
 });
 
 // 5. 82-мм миномёт тратит боеприпасы типа ordnance.

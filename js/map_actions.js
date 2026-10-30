@@ -851,6 +851,8 @@ function mapSelectSquadOnMap(i, key) {
     if (!appData.squads[i].hexPos) appData.squads[i].hexPos = key.split(',').map(Number);
     if (typeof recalcReachable === 'function') { try { recalcReachable(appData.squads[i], key); } catch (e) {} }
     mapActionInfo(`Выбран отряд «${appData.squads[i].name}» (гекс ${key}). Кликните по гексу для перемещения или выберите действие под картой.`);
+    // ⚡ v13.132 (п.4): краткая сводка по юниту при клике на него на тактической карте
+    try { if (typeof showTacticalSquadSummary === 'function') showTacticalSquadSummary(appData.squads[i]); } catch (e) {}
     mapActionsOnSelect(i);
     if (typeof redrawMap === 'function') redrawMap();
 }
@@ -1149,6 +1151,11 @@ function applyDamagePointsToEnemy(enemy, points, res, options) {
         if (!f) break;
         f.hp = Math.max(0, (f.hp || 0) - 1);
         applied++;
+        // ⚡ v13.132 (п.7): фосфорные гранаты — горение у бойцов, получивших урон:
+        //    ещё 1 ед. урона ровно в следующем ходу (однократно).
+        if (f.hp > 0 && options.phosphorusBurn) {
+            f.phosphorusBurn = { dueTurn: ((typeof currentTurn !== 'undefined' && currentTurn) || 1) + 1 };
+        }
         if (f.hp === 0) {
             res.killed.push(f.name || 'боец');
             if (typeof tacticalApplyFighterMoraleLoss === 'function') {
@@ -1210,7 +1217,7 @@ function mapActionApplyAreaDamage(targetIndex, damage, res, options) {
         const victim = living[victimIndex];
         const concealed = victim.hidden === true;
         const one = { damage: 0, killed: [], wounded: [], notes: [] };
-        applyDamagePointsToEnemy(victim, 1, one, { silent: concealed });
+        applyDamagePointsToEnemy(victim, 1, one, { silent: concealed, phosphorusBurn: options && options.phosphorusBurn });
         if (!concealed) {
             res.damage += one.damage;
             res.killed.push(...one.killed);
@@ -1332,8 +1339,8 @@ function reportAttackOutcome(kind, data) {
         }
         case 'grenades': {
             const hexOccupants = mapActionAreaOccupantsAtTarget(idx).filter(u => mapActionEnemyAlive(u) > 0);
-            if (!((data.areaFire === true || hexOccupants.length > 1) && mapActionApplyAreaDamage(idx, data.damage, res))) {
-                applyDamagePointsToEnemy(enemy, data.damage || 0, res);
+            if (!((data.areaFire === true || hexOccupants.length > 1) && mapActionApplyAreaDamage(idx, data.damage, res, { mortar: false, phosphorusBurn: data.phosphorusBurn }))) {
+                applyDamagePointsToEnemy(enemy, data.damage || 0, res, { phosphorusBurn: data.phosphorusBurn });
             }
             break;
         }

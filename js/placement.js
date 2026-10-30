@@ -288,8 +288,9 @@ function placementSideAllowed(battle, side, key, squad) {
 
 // Проверка при размещении (режим «🏷️ Разместить» / «📌 Разместить врага»).
 // wasPlaced — отряд уже стоял на карте до этого клика (переставляем).
+// allowReposition — явное «перемещение» уже размещённого отряда (режим перемещения врага).
 // Возвращает текст запрета или null.
-function placementCheckPlace(side, key, wasPlaced, squad) {
+function placementCheckPlace(side, key, wasPlaced, squad, allowReposition) {
     if (squad && (squad.isDestroyed || squad.isRetreated || squad.status === 'retreated' || (squad.fighters || []).every(f => !f || f.hp <= 0))) return 'Уничтоженный или отступивший отряд нельзя размещать.';
     const battle = getCurrentBattleRecord();
     // ⚡ v13.066: закреплённый ДОТ нельзя переставлять, но только в СВОЁМ
@@ -302,6 +303,13 @@ function placementCheckPlace(side, key, wasPlaced, squad) {
     const p = battle && battle.placement;
     if (!p) return null;
     if (p.phase === 'done' && wasPlaced) return null; // после размещения — как раньше (свободная перестановка)
+    // ⚡ v13.132 (п.6): в фазе размещения можно ставить ТОЛЬКО ещё не выставленные
+    //    отряды; уже стоящий на карте отряд через размещение не переставляется.
+    //    Исключения: явное перемещение (allowReposition) и доп. размещение «Велоблиц».
+    if (p.phase !== 'done' && wasPlaced && !allowReposition) {
+        if (side === 'player' && p.bicycleBlitzReposition && placementBicycleBlitzEligible(battle, squad)) return null;
+        return '⛔ Уже размещён — в фазе размещения можно ставить только ещё не выставленные отряды.';
+    }
     if (p.phase !== 'done' && side === 'player' && p.playerReady) return '✅ Вы уже завершили размещение — переставлять отряды нельзя, ждём противника.';
     if (p.bicycleBlitzReposition && side === 'player' && !placementBicycleBlitzEligible(battle, squad)) {
         return '⛔ Дополнительное размещение «Велоблиц» доступно только атакующему велосипедному взводу.';
@@ -410,6 +418,87 @@ function placementSideStatus(battle, side) {
         } else unplaced.push(s.name);
     });
     return { placed, unplaced, violations, total: placed.length + unplaced.length };
+}
+
+// ⚡ v13.129 (п.5): НЕразмещённые отряды игрока для панели перетаскивания
+function placementTrayUnplacedSquads(battle) {
+    const grid = placementBattleGrid(battle) || {};
+    const placedIdx = new Set();
+    Object.keys(grid).forEach(k => {
+        const cell = grid[k];
+        if (cell && Array.isArray(cell.squadIds)) cell.squadIds.forEach(i => placedIdx.add(i));
+    });
+    return (appData.squads || []).map((s, i) => ({ s, i })).filter(x =>
+        x.s && !x.s.hidden && !x.s.isDestroyed &&
+        (x.s.fighters || []).some(f => f && f.hp > 0) &&
+        !placedIdx.has(x.i));
+}
+
+// ⚡ v13.129 (п.5): перетаскивание карточек отрядов из панели на тактическую карту
+function installBattlePlacementTray() {
+    if (typeof window === 'undefined' || window.__battlePlacementTrayBound) return;
+    if (typeof document === 'undefined') return;
+    window.__battlePlacementTrayBound = true;
+    let drag = null;
+    const moveGhost = (x, y) => {
+        const ghost = document.querySelector('[data-op-placement-ghost]');
+        if (!ghost) return;
+        ghost.style.left = `${Math.round(x + 12)}px`;
+        ghost.style.top = `${Math.round(y + 12)}px`;
+    };
+    const removeGhost = () => {
+        const ghost = document.querySelector('[data-op-placement-ghost]');
+        if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
+    };
+    document.addEventListener('pointerdown', event => {
+        const btn = event.target && event.target.closest ? event.target.closest('[data-battle-place-unit]') : null;
+        if (!btn || (event.button || 0) > 0) return;
+        const idx = Number(btn.getAttribute('data-battle-place-unit'));
+        if (!Number.isInteger(idx)) return;
+        drag = { idx, x: event.clientX, y: event.clientY, moved: false };
+        try { event.preventDefault(); } catch (e) {}
+    }, { passive: false });
+    document.addEventListener('pointermove', event => {
+        if (!drag) return;
+        if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) <= 7) return;
+        if (!drag.moved) {
+            drag.moved = true;
+            const ghost = document.createElement('div');
+            ghost.className = 'op-placement-ghost';
+            const s = (appData.squads || [])[drag.idx];
+            ghost.textContent = (s && s.name) || 'Отряд';
+            ghost.setAttribute('data-op-placement-ghost', '1');
+            document.body.appendChild(ghost);
+        }
+        moveGhost(event.clientX, event.clientY);
+    }, { passive: true });
+    document.addEventListener('pointerup', event => {
+        const d = drag;
+        drag = null;
+        removeGhost();
+        if (!d) return;
+        const select = document.getElementById('squadToPlace');
+        if (!d.moved) {
+            // короткий тап — просто выбираем отряд в списке «Отряд» (резервный способ)
+            if (select) select.value = String(d.idx);
+            try { if (typeof setMapMode === 'function') setMapMode('place'); } catch (e) {}
+            return;
+        }
+        const canvas = document.getElementById('gameMap');
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) return;
+        const key = (typeof tacticalCanvasHexAt === 'function')
+            ? tacticalCanvasHexAt(event.clientX, event.clientY, canvas) : null;
+        if (!key) return;
+        try { if (typeof setMapMode === 'function') setMapMode('place'); } catch (e) {}
+        if (select) select.value = String(d.idx);
+        try {
+            if (typeof handleHexAction === 'function') handleHexAction(key, null);
+        } catch (e) { console.warn('battle placement drop:', e && e.message); }
+        try { if (typeof renderPlacementPanel === 'function') renderPlacementPanel(); } catch (e) {}
+    }, { passive: true });
+    document.addEventListener('pointercancel', () => { drag = null; removeGhost(); }, { passive: true });
 }
 
 function placementInfo(text, color) {
@@ -555,7 +644,21 @@ function renderPlacementPanel() {
     const cardHtml = cardGroups.size
         ? `<div style="margin-top:5px;padding:5px;background:#15251b;border:1px solid #376244;border-radius:5px;"><b>🃏 Карточки по взводам:</b>${Array.from(cardGroups, ([owner,names]) => `<div>${escapeText(owner)}: ${Array.from(names).map(escapeText).join(', ')}</div>`).join('')}</div>`
         : '';
-    el.innerHTML = html + cardHtml;
+    // ⚡ v13.129 (п.5): панель отрядов с перетаскиванием на карту (как на
+    //    оперативной карте). Размещённые отряды из панели исчезают; старый
+    //    список «Отряд» остаётся резервным способом размещения.
+    let trayHtml = '';
+    const traySquads = (typeof placementTrayUnplacedSquads === 'function') ? placementTrayUnplacedSquads(battle) : [];
+    if (!p.playerReady && traySquads.length) {
+        trayHtml = `<div class="battle-placement-tray"><div class="battle-placement-tray-title">🗂 Перетащите отряд на карту (или выберите в списке «Отряд» и кликните гекс) — размещённые исчезают из панели</div><div class="battle-placement-tray-units">` +
+            traySquads.map(x =>
+                `<button type="button" class="battle-placement-chip" data-battle-place-unit="${x.i}" title="${escapeText(x.s.name)}">` +
+                (x.s.icon ? `<img src="${escapeText(x.s.icon)}" alt="">` : '') +
+                `<span>${escapeText(x.s.name)}</span></button>`
+            ).join('') + `</div></div>`;
+    }
+    el.innerHTML = html + cardHtml + trayHtml;
+    try { if (typeof installBattlePlacementTray === 'function') installBattlePlacementTray(); } catch (e) {}
     if (selectorWrap && selectorWrap.parentNode !== el && typeof el.insertBefore === 'function' && typeof document.createElement === 'function') {
         const selectorBox = document.createElement('div');
         selectorBox.style.cssText = 'margin:4px 0;padding:4px;background:#322b19;border:1px solid #8a773a;border-radius:5px;';
