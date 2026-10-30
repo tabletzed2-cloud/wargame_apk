@@ -1770,9 +1770,11 @@
     // The first step's time determines delivery; later steps wait individually.
     return existing;
   }
-  // ⚡ v13.100 (п.1): «окопаться» / «расчистка местности» открывают карту гекса
-  //    СРАЗУ после отдачи приказа (в т.ч. когда приказ добавлен шагом серии) —
-  //    отметки идут черновиком и попадут на карту после выполнения приказа.
+  // ⚡ v13.129 (п.1): «окопаться» / «расчистка местности» больше НЕ открывают
+  //    карту гекса сразу при отдаче приказа. Меню расстановки открывается,
+  //    когда юнит ДОШЁЛ до целевого гекса (openHexEditorOnFortificationArrival
+  //    в executeDigInOrder / executePrepPositionsOrder). Черновик создаём сразу,
+  //    чтобы игрок мог заранее отметить клетки через «🛠️ Карты гексов».
   function openHexEditorForIssuedOrder(type, options, receiver) {
     if (type !== 'dig_in' && type !== 'prep_positions') return false;
     const hexKey = (options && (options.targetHex || options.startHex)) || null;
@@ -1780,11 +1782,6 @@
     const kind = type === 'dig_in' ? 'trenches' : 'prep';
     const unitName = receiver.name || null;
     try { if (typeof beginPendingHexEditDraft === 'function') beginPendingHexEditDraft(hexKey, kind, unitName); } catch (e) { console.warn('beginPendingHexEditDraft:', e); }
-    try {
-      if (typeof openHexEditorForBattle === 'function') {
-        setTimeout(() => { try { openHexEditorForBattle(hexKey, kind, unitName); } catch (e) { console.warn('openHexEditorForBattle:', e); } }, 0);
-      }
-    } catch (e) { console.warn('hex editor on order issue:', e); }
     return true;
   }
   function issueOneOrder(targetId, type, options, mirrored) {

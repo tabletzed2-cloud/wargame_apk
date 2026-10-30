@@ -1642,15 +1642,18 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
         : '';
     banner.innerHTML = `
       <b style="color:#2ecc71;">${st.rule.title} — гекс (${st.hexKey})</b><br>
-      <span style="color:#ccc; font-size:0.85rem;">${st.rule.hint}</span><br>
       ${draftRow}
       <span style="color:#f1c40f; font-size:0.9rem;">Осталось правок: <b>${left}</b> (поставлено в этой сессии: ${st.placed})</span>
-      <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
+      <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
         <button onclick="hexEditUndo()" style="background:#8e44ad;">↩️ Отменить последнюю</button>
-        <button id="hexEditorRotateButton" onclick="rotateSelectedHex()" style="background:#8e44ad;">↻ ${st.kind === 'trenches' ? 'Повернуть текстуру окопа' : 'Повернуть выбранную клетку'} (60°)</button>
+        <button id="hexEditorRotateButton" onclick="rotateSelectedHex()" style="background:#8e44ad;">↻ ${st.kind === 'trenches' ? 'Повернуть окоп' : 'Повернуть выбранную клетку'} (60°)</button>
+        ${st.kind === 'trenches' ? '<button id="hexEditorTrenchTextureButton" onclick="hexEditCycleTrenchTexture()" style="background:#8e44ad;">🖼 Текстура окопа</button>' : ''}
         ${draftCancelBtn}
+        <button onclick="zoomMap(1.2)" style="background:#555;">➕</button>
+        <button onclick="zoomMap(0.8)" style="background:#555;">➖</button>
         <button onclick="closeHexEditor()" style="background:#27ae60;">✅ Готово — ${st.prevBattleId ? 'вернуться в бой' : 'на карту операции'}</button>
       </div>
+      <div style="margin-top:5px;"><span style="color:#ccc; font-size:0.85rem;">${st.rule.hint}</span></div>
       <div style="color:#888; font-size:0.8rem; margin-top:4px;">Это карта поля боя гекса (${st.hexKey}) оперативной карты. Правки сохраняются сразу и видны противнику в бою на этом гексе.</div>`;
 }
 
@@ -1764,6 +1767,54 @@ function pendingHexEditDraft(hexKey) {
     const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
     if (!camp || !camp.pendingHexEdits) return null;
     return camp.pendingHexEdits[String(hexKey || '')] || null;
+}
+// ⚡ v13.129 (п.1): меню расстановки окопов/расчистки открывается, когда юнит
+//    ДОШЁЛ до целевого гекса (а не сразу при отдаче приказа). Один раз на приказ:
+//    повторные ходы окапывания редактор заново не открывают.
+function openHexEditorOnFortificationArrival(order, unit, kind) {
+    if (!order || !unit) return false;
+    if (order.hexMenuOpened) return false;
+    try { if (typeof isEnemyOperationalUnit === 'function' && isEnemyOperationalUnit(unit)) return false; } catch (e) {}
+    try { if (typeof appData !== 'undefined' && appData.currentBattleId) return false; } catch (e) {}
+    if (hexEditorState) return false;
+    const hexKey = `${unit.col},${unit.row}`;
+    order.hexMenuOpened = true;
+    const draftKind = (kind === 'prep') ? 'prep' : 'trenches';
+    try {
+        if (!pendingHexEditDraftActive(hexKey)) beginPendingHexEditDraft(hexKey, draftKind, unit.name);
+    } catch (e) { console.warn('beginPendingHexEditDraft:', e && e.message); }
+    try {
+        if (typeof openHexEditorForBattle === 'function') {
+            setTimeout(() => {
+                try {
+                    if (!hexEditorState) openHexEditorForBattle(hexKey, draftKind, unit.name);
+                } catch (e) { console.warn('openHexEditorForBattle:', e && e.message); }
+            }, 0);
+        }
+    } catch (e) { console.warn('hex editor on arrival:', e && e.message); }
+    return true;
+}
+// ⚡ v13.129 (п.1): смена текстуры уже поставленного окопа (без расхода правок).
+//    Кнопка в панели редактора; работает и для черновика, и для готовых окопов.
+function hexEditCycleTrenchTexture() {
+    const st = hexEditorState;
+    if (!st) return;
+    const infoBox = document.getElementById('mapInfo');
+    const cellKey = appData.map ? appData.map.lastEditedHex : null;
+    if (!cellKey) {
+        if (infoBox) { infoBox.textContent = 'Сначала кликните по клетке с окопом.'; infoBox.style.color = '#f1c40f'; }
+        return;
+    }
+    const draft = pendingHexEditDraft(st.hexKey);
+    const inDraft = !!(draft && draft.cells && draft.cells[cellKey] === 'trenches');
+    const ov = getHexOverlay(st.hexKey, false) || {};
+    const placed = !!(ov.hexEdits && ov.hexEdits[cellKey] === 'trenches');
+    if (!inDraft && !placed) {
+        if (infoBox) { infoBox.textContent = 'На этой клетке нет окопа — сначала поставьте окоп кликом по «траве»/«дороге».'; infoBox.style.color = '#f1c40f'; }
+        return;
+    }
+    // повторный клик по окопу листает его текстуры (правки не тратятся)
+    hexEditClick(cellKey);
 }
 function pendingHexEditDraftActive(hexKey) { return !!pendingHexEditDraft(hexKey); }
 function clearPendingHexEditDraft(hexKey) {
@@ -2245,6 +2296,10 @@ function executePrepPositionsOrder(unit, order) {
         return;
     }
 
+    // ⚡ v13.129 (п.1): юнит дошёл до целевого гекса — открываем меню расчистки
+    if (!order.digProgress) {
+        try { if (typeof openHexEditorOnFortificationArrival === 'function') openHexEditorOnFortificationArrival(order, unit, 'prep'); } catch (e) {}
+    }
     if (!order.digProgress) order.digProgress = 0;
     unit.ap = 0;
     order.digProgress++;

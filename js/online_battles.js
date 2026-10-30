@@ -480,7 +480,18 @@ let __onlineMergeMineChanged = false;
 function onlineAcceptBattlePhase(battle, e, live) {
     const revision = Number(e.phaseRevision);
     const localRevision = Number(battle.phaseRevision || 0);
-    if (!Number.isInteger(revision) || revision <= localRevision) return false;
+    // ⚡ v13.132 (п.5): после реконнекта оппонента его phaseRevision мог откатиться
+    //    к сейву, и строгая проверка «revision > local» отклоняла бы передачу фазы
+    //    навсегда (обе стороны ждут «фазу противника»). Принимаем передачу, если
+    //    ревизия новее ИЛИ оппонент не отстаёт по счётчику завершённых фаз
+    //    (его счётчик подтягивается слиянием снимков, см. onlineMergeOppBattle).
+    //    Гварды localSide/nextSide ниже не дают ложных срабатываний от старых
+    //    снимков: «чужая» фаза отклоняется.
+    const revisionFresh = Number.isInteger(revision) && revision > localRevision;
+    const remoteDone = Number(e.tacticalPhasesCompleted);
+    const localDone = Math.max(0, Math.floor(Number(battle.tacticalPhasesCompleted || 0)));
+    const counterFresh = Number.isFinite(remoteDone) && localDone > 0 && remoteDone >= localDone;
+    if (!revisionFresh && !counterFresh) return false;
     const attackerIsPlayer = !battle.placement || battle.placement.attackerSide !== 'enemy';
     const localSide = battle.activeSide || (attackerIsPlayer ? 'player' : 'enemy');
     const nextSide = ((e.activeSide === 'attacker') === attackerIsPlayer) ? 'player' : 'enemy';
@@ -489,7 +500,8 @@ function onlineAcceptBattlePhase(battle, e, live) {
     // Оппонент завершил свою фазу: снимаем подавление только с его отрядов.
     // Подавление наших подразделений должно сохраниться на предстоящую фазу.
     if (typeof clearTacticalSuppressionForSide === 'function') clearTacticalSuppressionForSide('enemy', battle);
-    battle.phaseRevision = revision;
+    // Ревизия только растёт: откат оппонента не должен откатывать нашу.
+    battle.phaseRevision = Math.max(revision, localRevision + 1);
     battle.activeSide = nextSide;
     battle.currentTurn = (battle.currentTurn || 1) + 1;
     const completedPhases = (typeof registerCompletedTacticalPhase === 'function')
@@ -509,6 +521,8 @@ function onlineAcceptBattlePhase(battle, e, live) {
         appData.map.activeSide = nextSide;
         currentTurn = battle.currentTurn;
         appData.currentTurn = currentTurn;
+        // ⚡ v13.132 (п.7): горение от фосфорных гранат — 1 ед. урона ровно в следующем ходу
+        try { if (typeof applyPhosphorusBurnDamage === 'function') applyPhosphorusBurnDamage(); } catch (err) {}
         if (typeof resetAP === 'function') { try { resetAP(); } catch (err) {} }
         (appData.squads || []).forEach(s => { s.actionsThisTurn = {}; s.movedThisTurn = false; });
         if (typeof syncNightModifier === 'function') syncNightModifier();
@@ -516,6 +530,12 @@ function onlineAcceptBattlePhase(battle, e, live) {
     } else {
         battle.actionPoints = (battle.playerSquads || []).map(s => ({ ap: getMaxAP(s), maxAp: getMaxAP(s) }));
         (battle.playerSquads || []).forEach(s => { s.actionsThisTurn = {}; s.movedThisTurn = false; });
+        // ⚡ v13.132 (п.7): горение от фосфорных гранат (вне живого боя — по спискам боя)
+        try {
+            if (typeof applyPhosphorusBurnDamage === 'function') {
+                applyPhosphorusBurnDamage([battle.playerSquads, battle.enemySquads], battle.currentTurn);
+            }
+        } catch (err) {}
         if (battle.tacticalMap) battle.tacticalMap.activeSide = nextSide;
     }
     const phasesPerWindow = (typeof RPTX_PHASES_PER_WINDOW === 'function') ? RPTX_PHASES_PER_WINDOW() : 10;
@@ -527,6 +547,8 @@ function onlineAcceptBattlePhase(battle, e, live) {
         if (typeof showTacticalOrdersPauseNotice === 'function') showTacticalOrdersPauseNotice();
         if (typeof saveData === 'function') saveData();
     }
+    // ⚡ v13.129 (п.7): фаза противника завершена — уведомляем (если боёв несколько)
+    try { if (typeof notifyEnemyPhaseComplete === 'function') notifyEnemyPhaseComplete(battle, 'online'); } catch (err) {}
     return true;
 }
 function onlineMergeOppBattle(battle, e) {
@@ -644,7 +666,13 @@ function onlineMergeOppBattle(battle, e) {
         !(e.pausedForOrders && !battle.pausedForOrders && curRev >= 10 && Number(battle.tacticalPhasesCompleted) === 0)) {
         const phases = Math.max(0, Math.floor(Number(e.tacticalPhasesCompleted)));
         const curPhases = Math.max(0, Math.floor(Number(battle.tacticalPhasesCompleted || 0)));
-        const nextPhases = (Number.isFinite(oppRev) && oppRev > curRev) ? phases : Math.max(curPhases, phases);
+        const revisionAhead = Number.isFinite(oppRev) && oppRev > curRev;
+        // ⚡ v13.132 (п.5): после сброса счётчика (новый оперативный ход, см.
+        //    resumePausedCampaignBattlesAfterOrders) устаревший «високий» счётчик
+        //    оппонента с не-новой ревизией не должен воскрешать свой прогресс —
+        //    иначе пауза 5/5 зацикливается и оперативные ходы убегают.
+        const staleHighAfterReset = !revisionAhead && curPhases === 0 && phases > 1;
+        const nextPhases = revisionAhead ? phases : (staleHighAfterReset ? curPhases : Math.max(curPhases, phases));
         if (battle.tacticalPhasesCompleted !== nextPhases) {
             battle.tacticalPhasesCompleted = nextPhases;
             if (battle.tacticalMap) battle.tacticalMap.tacticalPhasesCompleted = nextPhases;

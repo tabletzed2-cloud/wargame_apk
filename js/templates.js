@@ -275,7 +275,7 @@ const SQUAD_TEMPLATES = [
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3}
           ],
           "crewInstances":[
-            {"weaponName":"Курсовой пулемет Hotchkiss Mle 1914","fighterIndices":[],"active":true}
+            {"weaponName":"Курсовой пулемет Hotchkiss Mle 1914","fighterIndices":[0],"active":true}
           ],
           "armor": { "front": 25, "side": 15, "rear": 10, "turret": null },
           "embarkedSquadIndex": null},
@@ -283,7 +283,7 @@ const SQUAD_TEMPLATES = [
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3}
           ],
           "crewInstances":[
-            {"weaponName":"Курсовой пулемет Hotchkiss Mle 1914","fighterIndices":[],"active":true}
+            {"weaponName":"Курсовой пулемет Hotchkiss Mle 1914","fighterIndices":[0],"active":true}
           ],
           "armor": { "front": 25, "side": 15, "rear": 10, "turret": null },
           "embarkedSquadIndex": null},
@@ -291,7 +291,7 @@ const SQUAD_TEMPLATES = [
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3}
           ],
           "crewInstances":[
-            {"weaponName":"Курсовой пулемет Hotchkiss Mle 1914","fighterIndices":[],"active":true}
+            {"weaponName":"Курсовой пулемет Hotchkiss Mle 1914","fighterIndices":[0],"active":true}
           ],
           "armor": { "front": 25, "side": 15, "rear": 10, "turret": null },
           "embarkedSquadIndex": null},
@@ -299,7 +299,7 @@ const SQUAD_TEMPLATES = [
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3}
           ],
           "crewInstances":[
-            {"weaponName":"Курсовой пулемет Hotchkiss Mle 1914","fighterIndices":[],"active":true}
+            {"weaponName":"Курсовой пулемет Hotchkiss Mle 1914","fighterIndices":[0],"active":true}
           ],
           "armor": { "front": 25, "side": 15, "rear": 10, "turret": null },
           "embarkedSquadIndex": null},
@@ -307,7 +307,7 @@ const SQUAD_TEMPLATES = [
             {"name":"Механик-водитель","weapon":"Пистолет Star M1914","hp":3,"maxHp":3}
           ],
           "crewInstances":[
-            {"weaponName":"Курсовой пулемет Hotchkiss Mle 1914","fighterIndices":[],"active":true}
+            {"weaponName":"Курсовой пулемет Hotchkiss Mle 1914","fighterIndices":[0],"active":true}
           ],
           "armor": { "front": 25, "side": 15, "rear": 10, "turret": null },
           "embarkedSquadIndex": null},

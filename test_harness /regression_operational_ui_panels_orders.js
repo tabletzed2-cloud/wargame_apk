@@ -9,7 +9,7 @@ assert(source.includes('getOpHexDistance(observer.col, observer.row, unit.col, u
 assert(source.includes("workspace.className = 'op-map-workspace'") && source.includes('op-right-open'), 'non-overlay side-panel workspace must be initialized');
 const operationalCss = fs.readFileSync(path.join(__dirname, '..', 'css', 'operational_ui.css'), 'utf8');
 assert(operationalCss.includes('.op-panel-tabs') && operationalCss.includes('position: fixed') && operationalCss.includes('width: calc(100% - 104px)'), 'side controls must stay fixed at screen edges while drawers reserve map space');
-assert(source.includes('unitName}</strong> — ${typeLabel}'), 'order row must lead with recipient before order type');
+assert(source.includes('entry.unitName}</strong> — ${entry.typeLabel}') || source.includes('unitName}</strong> — ${typeLabel}'), 'order row must lead with recipient before order type');
 assert(source.includes('через штаб роты'), 'company relay must be secondary information');
 assert(source.includes('Ожидаемое время выполнения: ${eta.text}') && source.includes('ожидается к ${formatOrderTime(etaTime)}'), 'order rows must prominently show an expected execution clock time');
 assert(source.includes('function toggleUxActionBar()') && source.includes('uxActionBarCollapsed ? \'none\' : \'flex\''), 'selected-unit action card must be collapsible');
