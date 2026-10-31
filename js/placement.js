@@ -60,7 +60,7 @@ function placementOppositeDir(dir) {
 function placementZoneKeys(entryDir, size) {
     const N = Math.max(4, parseInt(size, 10) || (typeof TACTICAL_MAP_SIZE !== 'undefined' ? TACTICAL_MAP_SIZE : 20) || 20);
     const D = PLACEMENT_STRIP_DEPTH;
-    const arm = Math.ceil(N / 2); // длина «рукавов» угла вдоль краёв
+    const arm = Math.ceil(N / 3); // длина «рукавов» угла вдоль краёв — на треть короче (было N/2)
     const keys = [];
     for (let row = 0; row < N; row++) {
         for (let col = 0; col < N; col++) {
