@@ -5710,7 +5710,14 @@ const OP_LEGEND_ITEMS = [
   ['bicyclePark', 'Велостоянка'],
   ['ammoPoint', 'Пункт боепитания'],
   ['fireField', 'Огненное поле'],
-  ['dot', 'ДОТ']
+  ['dot', 'ДОТ'],
+  ['detected', 'Обнаружен'],
+  ['noise', 'Шум'],
+  ['artillery', 'Артогонь'],
+  ['destroyedSquadFriendly', 'Наши потери'],
+  ['destroyedSquadEnemy', 'Потери врага'],
+  ['surrenderedFriendly', 'Пленные наши'],
+  ['surrenderedEnemy', 'Пленные врага']
 ];
 function initOpMapLegend() {
   if (typeof document === 'undefined') return;
@@ -18232,8 +18239,22 @@ function drawTacticalNoiseMarkers(ctx, size) {
 function autoDetectOneSquad(squad, label) {
   if (!squad || squad.camouflaged || squad.isDestroyed || squad.isRetreated || squad.status === 'retreated') return;
   if (typeof isArmoredTacticalSquad === 'function' && isArmoredTacticalSquad(squad)) squad.hidden = false;
-  // ⚡ v13.108 (п.8): в одном гексе с противником — обнаружены ОБЕ стороны, без броска.
+  // ⚡ v13.108 (п.8) + п.1гекса: в одном гексе или соседнем — обнаружены ОБЕ стороны без броска
   try { if (typeof tacticalSameHexContactDetect === 'function' && tacticalSameHexContactDetect(squad)) return; } catch (e) {}
+  try {
+    const dist1 = (typeof tacticalNearestObserverDistance === 'function') ? tacticalNearestObserverDistance(squad) : null;
+    if (dist1 !== null && dist1 <= 1) {
+      squad.detected = true; squad.noiseMarker = false;
+      // зеркально подсветить наблюдателей в 1-гексе
+      try {
+        const isPlayer = !!(appData && (appData.squads||[]).includes(squad));
+        const opp = isPlayer ? (appData.map && appData.map.enemySquads) || [] : (appData.squads || []);
+        opp.forEach(o => { if (o && !o.isDestroyed && tacticalSquadsDistance(squad,o) <= 1) { o.detected = true; o.noiseMarker = false; } });
+      } catch (e) {}
+      try { log('🔍 ' + (squad.name||label) + ': дистанция '+dist1+' — автоматически обнаружен (соседний гекс).'); } catch (e) {}
+      return;
+    }
+  } catch (e) {}
   if (typeof tacticalSmokeAllEnemyObserversBlocked === 'function' && tacticalSmokeAllEnemyObserversBlocked(squad)) {
     squad.detected = false;
     squad.noiseMarker = false;
@@ -23639,6 +23660,33 @@ if (appData.map.mode === 'move' && shouldShowTacticalReachability() && appData.m
       ctx.stroke();
       ctx.restore();
     }
+    // Постоянная стрелка курса техники — для всех машин обеих сторон
+    function drawTacticalVehicleFacingArrow(ctx, x, y, size, squad) {
+      if (!squad || !squad.armor || typeof TACTICAL_FIRE_SECTOR_OPTIONS === 'undefined') return;
+      const facing = vehicleFacingDir(squad);
+      const facingIndex = TACTICAL_FIRE_SECTOR_OPTIONS.findIndex(o => o.id === facing);
+      if (facingIndex < 0) return;
+      const angle = facingIndex * Math.PI / 3;
+      ctx.save();
+      ctx.strokeStyle = '#ffe066';
+      ctx.lineWidth = Math.max(1.8, size * 0.055);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(angle) * size * 0.68, y + Math.sin(angle) * size * 0.68);
+      ctx.stroke();
+      const ah = size * 0.16;
+      const ax = x + Math.cos(angle) * size * 0.68, ay = y + Math.sin(angle) * size * 0.68;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ax - Math.cos(angle - Math.PI/6) * ah, ay - Math.sin(angle - Math.PI/6) * ah);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ax - Math.cos(angle + Math.PI/6) * ah, ay - Math.sin(angle + Math.PI/6) * ah);
+      ctx.stroke();
+      ctx.restore();
+    }
     function drawTacticalSmokeOverlay(ctx, x, y, size, hexKey) {
       if (!hexKey || typeof tacticalHexIsSmoky !== 'function' || !tacticalHexIsSmoky(hexKey, appData.map)) return;
       ctx.save();
@@ -23947,7 +23995,11 @@ if (squadIds.length > 0) {
     const tacticalVehicleSelected = appData.map.selectedMoveSquadIdx === squadId ||
       (typeof currentSquadIndex !== 'undefined' && currentSquadIndex === squadId);
     if (tacticalVehicleSelected && typeof drawTacticalVehicleSectorLines === 'function') {
-      drawTacticalVehicleSectorLines(ctx, x, y, size, hexKey, squad);
+      drawTacticalVehicleSectorLines(ctx, drawX, drawY, size, hexKey, squad);
+    }
+    // Постоянная стрелка курса для всей бронетехники обеих сторон
+    if (squad && squad.armor && typeof drawTacticalVehicleFacingArrow === 'function') {
+      drawTacticalVehicleFacingArrow(ctx, drawX, drawY, size, squad);
     }
     if (appData.map.selectedMoveSquadIdx === squadId) {
       ctx.strokeStyle = '#ff0';
@@ -24056,6 +24108,10 @@ if (enemy.name) {
               ctx.textBaseline = 'middle';
               ctx.fillText('🏳️', drawX - iconSize/2, drawY - iconSize/2);
             }
+          }
+          // Постоянная стрелка курса для бронетехники противника
+          if (enemy && enemy.armor && typeof drawTacticalVehicleFacingArrow === 'function') {
+            drawTacticalVehicleFacingArrow(ctx, drawX, drawY, size, enemy);
           }
           // Подсветка выбранного врага
           if (appData.map.selectedEnemyMoveIdx === enemyId) {
@@ -24443,7 +24499,7 @@ if (mode === 'move') {
       return;
     }
     const placementWait = typeof placementPendingReason === 'function' ? placementPendingReason() : null;
-    if (!placementWait && getTacticalActiveSide() !== 'enemy') {
+    if (!placementWait && getTacticalActiveSide() !== 'enemy' && appData.campaign && appData.campaign.online) {
       infoBox.innerHTML = '⛔ Перемещать вражеский отряд можно только в фазу противника/обороняющегося.';
       infoBox.style.color = '#e74c3c';
       return;
@@ -24471,11 +24527,14 @@ if (mode === 'move') {
         redrawMap();
         return;
       }
-      // ⚡ v13.055 (R39#3): во время фазы размещения «перемещение врага» — это тоже размещение (зона)
-      // ⚡ v13.132 (п.6): это ЯВНОЕ перемещение уже размещённого врага — не «размещение»
+      // ⚡ v13.055 (R39#3): во время фазы размещения «перемещение врага» — это тоже размещение (зона) — в одиночке ручная установка вне зоны разрешена
       if (typeof placementCheckPlace === 'function') {
         const denyE = placementCheckPlace('enemy', key, true, enemy, true);
-        if (denyE) { infoBox.innerHTML = denyE; infoBox.style.color = '#e74c3c'; return; }
+        if (denyE) {
+          if (appData.campaign && appData.campaign.online) { infoBox.innerHTML = denyE; infoBox.style.color = '#e74c3c'; return; }
+          // одиночный бой: блокируем только велосипедный блицкриг
+          if (/велосипед|bicycle/i.test(String(denyE))) { infoBox.innerHTML = denyE; infoBox.style.color = '#e74c3c'; return; }
+        }
       }
       if (tacticalSquadIsSuppressed(enemy)) {
         infoBox.textContent = tacticalMoraleIsSuppressed(enemy)
@@ -29189,7 +29248,15 @@ function updateCampaignObjectives(advanceTime) {
     [...defs.primary, ...defs.additional].forEach(objective => {
         if (state.status[objective.id] !== 'pending') return;
         const key = Number.isFinite(objective.col) ? `${objective.col},${objective.row}` : null;
-        const control = key ? campaignObjectiveHexControl(objective.col, objective.row) : null;
+        let control = key ? campaignObjectiveHexControl(objective.col, objective.row) : null;
+        // Отрезанный гекс тыла (7,0 / 0,11) считается удерживаемым, даже если отрезавший
+        // стоит в соседнем гексе — снабжение перерезано, изоляция идёт
+        if (key && (key === '7,0' || key === '0,11') && control !== 'player' && control !== 'enemy') {
+            const isolatedByPlayer = (appData.campaign.opUnits || []).some(u => u && !u.isDestroyed && !u.isSurrendered && Number.isFinite(u.col) && Number.isFinite(u.row) && getOpHexDistance(u.col, u.row, objective.col, objective.row) <= 1);
+            const isolatedByEnemy = (appData.campaign.enemyOpUnits || []).some(u => u && !u.isDestroyed && !u.isSurrendered && Number.isFinite(u.col) && Number.isFinite(u.row) && getOpHexDistance(u.col, u.row, objective.col, objective.row) <= 1);
+            if (isolatedByPlayer && objective.kind === 'hold') control = 'player';
+            if (isolatedByEnemy && objective.kind === 'limit_enemy_hold') control = 'enemy';
+        }
         if (objective.kind === 'capture_by' && control === 'player' && state.elapsedMinutes <= deadline) {
             campaignObjectiveSetStatus(state, objective, 'completed');
         } else if (objective.kind === 'hold') {
@@ -29197,14 +29264,19 @@ function updateCampaignObjectives(advanceTime) {
             if (control === 'player') {
                 if (previous === 'player' && delta > 0) state.holdMinutes[objective.id] += delta;
                 if (state.holdMinutes[objective.id] >= objective.minutes) campaignObjectiveSetStatus(state, objective, 'completed');
-            } else state.holdMinutes[objective.id] = 0;
+            } else if (control === 'enemy') {
+                state.holdMinutes[objective.id] = 0;
+            }
+            // contested/neutral — сохраняем накопленные минуты, не сбрасываем
         } else if (objective.kind === 'limit_enemy_hold') {
             const previous = state.hexControl[key];
             if (control === 'enemy') {
                 if (previous === 'enemy' && delta > 0) state.enemyHoldMinutes[objective.id] += delta;
-                // Strictly more than one hour fails the primary objective.
                 if (state.enemyHoldMinutes[objective.id] > objective.minutes) campaignObjectiveSetStatus(state, objective, 'failed');
-            } else state.enemyHoldMinutes[objective.id] = 0;
+            } else if (control === 'player') {
+                state.enemyHoldMinutes[objective.id] = 0;
+            }
+            // contested/neutral — сохраняем, не сбрасываем
         } else if (objective.kind === 'destroy_dots' && campaignObjectiveRoadDotsDestroyed()) {
             campaignObjectiveSetStatus(state, objective, 'completed');
         }
@@ -33011,11 +33083,18 @@ function updateOpPlaceSelect() {
     }
 }
 function placeExistingEnemyOnHex(hex, enemyIdx, key) {
-  // ⚡ v13.055 (R39#3): зона размещения противника (по тем же правилам, зеркально)
-  if (typeof placementCheckPlace === 'function') {
+  // ⚡ v13.055 (R39#3): зона размещения противника (по тем же правилам, зеркально) — в одиночном бою ручная установка разрешена вне зоны
+  if (typeof placementCheckPlace === 'function' && appData.campaign && appData.campaign.online) {
     const wasPlaced = Object.keys(appData.map.grid).some(k => appData.map.grid[k] && Array.isArray(appData.map.grid[k].enemySquadIds) && appData.map.grid[k].enemySquadIds.includes(enemyIdx));
     const deny = placementCheckPlace('enemy', key, wasPlaced, appData.map.enemySquads[enemyIdx]);
     if (deny) { const miD = document.getElementById('mapInfo'); if (miD) { miD.innerHTML = deny; miD.style.color = '#e74c3c'; } return; }
+  }
+  if (typeof placementCheckPlace === 'function' && (!appData.campaign || !appData.campaign.online) && (appData.map.mode === 'placeEnemy' || appData.campaign.opMapMode === 'placeEnemy')) {
+    // в одиночке при ручной установке проверяем только «велосипедный блицкриг» и базовые запреты, но не зону
+    try {
+      const deny = placementCheckPlace('enemy', key, false, appData.map.enemySquads[enemyIdx]);
+      if (deny && /велосипед|bicycle/i.test(String(deny))) { const miD = document.getElementById('mapInfo'); if (miD) { miD.innerHTML = deny; miD.style.color = '#e74c3c'; } return; }
+    } catch (e) {}
   }
   if (!hex.enemySquadIds) hex.enemySquadIds = [];
   // Удаляем врага с предыдущего гекса (если был)
@@ -33644,6 +33723,11 @@ function retreatFromBattle(automatic, exitDir, allowEnemyOccupiedExit) {
     const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
     if (!battle) return;
     if (exitDir) battle.retreatExitDir = exitDir;
+    // Атакующий отступает туда, откуда пришёл, если игрок не выбрал зону вручную
+    if (!battle.retreatExitDir && battle.placement && battle.placement.entryDir && typeof placementOppositeDir === 'function') {
+        const rev = placementOppositeDir(battle.placement.entryDir);
+        if (rev) battle.retreatExitDir = rev;
+    }
     battle.retreatAllowEnemyOccupiedExit = !!(!automatic && allowEnemyOccupiedExit);
 
     if (typeof updateTacticalBattleRetreatButton === 'function') updateTacticalBattleRetreatButton();
@@ -39820,7 +39904,7 @@ function checkEnemyEncounter(unit, behavior, order) {
             return true;
         }
 
-        case 'skirmish': { // Не вступать в бой, удерживать рубеж около 2 гексов.
+        case 'skirmish': { // Не вступать в бой, удерживать рубеж около 2 гексов — приказ продолжается.
             if (dist < 2) {
                 const retreatHex = findRetreatHexFromEnemy(unit, closestEnemy);
                 if (retreatHex) {
@@ -39831,8 +39915,8 @@ function checkEnemyEncounter(unit, behavior, order) {
                     }
                 }
             }
-            log(`↪️ [${unit.name}] Обходит противника, сохраняя дистанцию около 2 гексов.`);
-            if (order) order.status = 'completed';
+            log(`↪️ [${unit.name}] Обходит противника, сохраняя дистанцию около 2 гексов — приказ остаётся активным, продолжит в следующем ходу.`);
+            // не завершаем приказ — юнит продолжает движение к цели, удерживая дистанцию
             return true;
         }
 

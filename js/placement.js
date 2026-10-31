@@ -303,12 +303,12 @@ function placementCheckPlace(side, key, wasPlaced, squad, allowReposition) {
     const p = battle && battle.placement;
     if (!p) return null;
     if (p.phase === 'done' && wasPlaced) return null; // после размещения — как раньше (свободная перестановка)
-    // ⚡ v13.132 (п.6): в фазе размещения можно ставить ТОЛЬКО ещё не выставленные
-    //    отряды; уже стоящий на карте отряд через размещение не переставляется.
-    //    Исключения: явное перемещение (allowReposition) и доп. размещение «Велоблиц».
+    // Разрешаем перестановку уже размещённых отрядов до нажатия Finish:
+    // кликнутый отряд снимается с прежнего гекса и ставится на новый
+    // (проверка зоны ниже всё равно не даст поставить вне своей зоны).
     if (p.phase !== 'done' && wasPlaced && !allowReposition) {
         if (side === 'player' && p.bicycleBlitzReposition && placementBicycleBlitzEligible(battle, squad)) return null;
-        return '⛔ Уже размещён — в фазе размещения можно ставить только ещё не выставленные отряды.';
+        // было: return '⛔ Уже размещён ...' — теперь разрешаем reposition
     }
     if (p.phase !== 'done' && side === 'player' && p.playerReady) return '✅ Вы уже завершили размещение — переставлять отряды нельзя, ждём противника.';
     if (p.bicycleBlitzReposition && side === 'player' && !placementBicycleBlitzEligible(battle, squad)) {
