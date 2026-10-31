@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.135
+// ⚡ BUILD-МАРКЕР: v13.136
 // v13.062: fixed DOT coordinates and no placement bypass for eliminated squads.
 // ⚡ v13.061: current release tactical deployment rules.
 // ============================================================
@@ -428,7 +428,12 @@ function placementTrayUnplacedSquads(battle) {
         const cell = grid[k];
         if (cell && Array.isArray(cell.squadIds)) cell.squadIds.forEach(i => placedIdx.add(i));
     });
-    return (appData.squads || []).map((s, i) => ({ s, i })).filter(x =>
+    // ⚡ v13.136 (п.4): источник отрядов — тот же, что у placementSideStatus;
+    //    в кампании это appData.squads, но на старых сейвах мог остаться только
+    //    battle.playerSquads — берём непустой список.
+    const source = (Array.isArray(appData.squads) && appData.squads.length)
+        ? appData.squads : ((battle && battle.playerSquads) || []);
+    return source.map((s, i) => ({ s, i })).filter(x =>
         x.s && !x.s.hidden && !x.s.isDestroyed &&
         (x.s.fighters || []).some(f => f && f.hp > 0) &&
         !placedIdx.has(x.i));
@@ -644,20 +649,30 @@ function renderPlacementPanel() {
     const cardHtml = cardGroups.size
         ? `<div style="margin-top:5px;padding:5px;background:#15251b;border:1px solid #376244;border-radius:5px;"><b>🃏 Карточки по взводам:</b>${Array.from(cardGroups, ([owner,names]) => `<div>${escapeText(owner)}: ${Array.from(names).map(escapeText).join(', ')}</div>`).join('')}</div>`
         : '';
-    // ⚡ v13.129 (п.5): панель отрядов с перетаскиванием на карту (как на
-    //    оперативной карте). Размещённые отряды из панели исчезают; старый
-    //    список «Отряд» остаётся резервным способом размещения.
-    let trayHtml = '';
-    const traySquads = (typeof placementTrayUnplacedSquads === 'function') ? placementTrayUnplacedSquads(battle) : [];
-    if (!p.playerReady && traySquads.length) {
-        trayHtml = `<div class="battle-placement-tray"><div class="battle-placement-tray-title">🗂 Перетащите отряд на карту (или выберите в списке «Отряд» и кликните гекс) — размещённые исчезают из панели</div><div class="battle-placement-tray-units">` +
-            traySquads.map(x =>
-                `<button type="button" class="battle-placement-chip" data-battle-place-unit="${x.i}" title="${escapeText(x.s.name)}">` +
-                (x.s.icon ? `<img src="${escapeText(x.s.icon)}" alt="">` : '') +
-                `<span>${escapeText(x.s.name)}</span></button>`
-            ).join('') + `</div></div>`;
+    // ⚡ v13.129 (п.5) + v13.136 (п.4): ОТДЕЛЬНОЕ меню отрядов с перетаскиванием
+    //    на карту боя (#battlePlacementTray над панелью размещения). Палитра:
+    //    перетащите фишку на гекс ИЛИ короткий тап — выбор в списке «Отряд».
+    //    Размещённые отряды исчезают из меню; список «Отряд» — резервный способ.
+    const trayEl = document.getElementById('battlePlacementTray');
+    if (trayEl) {
+        const traySquads = (typeof placementTrayUnplacedSquads === 'function') ? placementTrayUnplacedSquads(battle) : [];
+        const showTray = !p.playerReady && !p.bicycleBlitzReposition;
+        if (!showTray) {
+            trayEl.style.display = 'none';
+            trayEl.innerHTML = '';
+        } else {
+            trayEl.style.display = 'block';
+            trayEl.innerHTML = `<div class="battle-placement-tray-title">🗂 Отряды в резерве — перетащите на карту (или тап — выбор в списке «Отряд», затем клик по гексу)</div>` +
+                (traySquads.length
+                    ? `<div class="battle-placement-tray-units">` + traySquads.map(x =>
+                        `<button type="button" class="battle-placement-chip" data-battle-place-unit="${x.i}" title="${escapeText(x.s.name)}">` +
+                        (x.s.icon ? `<img src="${escapeText(x.s.icon)}" alt="">` : '') +
+                        `<span>${escapeText(x.s.name)}</span></button>`
+                    ).join('') + `</div>`
+                    : `<div style="color:#9ad3a8;">Все отряды размещены — нажмите «✅ Размещение завершено».</div>`);
+        }
     }
-    el.innerHTML = html + cardHtml + trayHtml;
+    el.innerHTML = html + cardHtml;
     try { if (typeof installBattlePlacementTray === 'function') installBattlePlacementTray(); } catch (e) {}
     if (selectorWrap && selectorWrap.parentNode !== el && typeof el.insertBefore === 'function' && typeof document.createElement === 'function') {
         const selectorBox = document.createElement('div');

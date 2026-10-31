@@ -26,8 +26,11 @@ test('операционная карточка юнита — выдвижна�
   assert(css.includes('.op-unit-drawer[hidden] { display: none !important; }'), 'drawer can be fully hidden');
 });
 test('размещение даёт спешивание только велосипедным подразделениям BeVe', () => {
-  assert(HTML.includes("unit.faction === 'BeVe' && (unit.mobility === 'bicycle' || unit.dismountedFromMobility === 'bicycle')"), 'placement gate is BeVe bicycle only');
-  assert(operationalUi.includes("unit.faction === 'BeVe' && (unit.mobility === 'bicycle' || unit.dismountedFromMobility === 'bicycle')"), 'order action gate matches placement');
+  // v13.136 (п.9): гейты переведены на строгую проверку велосипеда (без мотоциклов);
+  //  порядок проверок в unitDismountOptionAllowed: сначала unitCanExecuteOrderType.
+  assert(HTML.includes("unit.mobility === 'bicycle' && !unit.dismounted"), 'placement gate is bicycle only');
+  assert(operationalUi.includes("if (action === 'dismount') return unit.mobility === 'bicycle' && !unit.dismounted;"), 'order action gate matches placement');
+  assert(operationalUi.includes("if (action === 'remount') return !!unit.dismounted && (unit.dismountedFromMobility === 'bicycle' || unit.mobility === 'bicycle');"), 'remount gate matches');
 });
 
 test('снайперские звенья OIP BeVe получают бинокль; разведанный гекс подсвечивается', () => {

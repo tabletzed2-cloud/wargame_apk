@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.135 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.136 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.106: маркеры сборки синхронизированы (index.html APP_VERSION и
 //    4 модуля ядра теперь v13.106). Раньше verifyCachedBuild() отменяла
 //    установку — старый SW оставался активен и отдавал из кэша прежние
@@ -17,7 +17,7 @@
 // ⚡ v13.061: cache update for retreat, turn-order and initial fortification fixes.
 // v13.072: invalidate offline code cache after the reliable-update (cache: 'reload'
 //    precache + build-marker verification) and build self-check fixes.
-const CACHE_NAME = 'wargame-v13.135';
+const CACHE_NAME = 'wargame-v13.136';
 
 const ASSETS = [
     './images/AIRF/Взвод снабжения АИРФ №1.png',
