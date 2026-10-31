@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.135 — операция</title>
+  <title>Боевой модуль v13.136 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -128,7 +128,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.135</h1>
+    <h1>⚔️ Боевой модуль v13.136</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -193,7 +193,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.135 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.136 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -395,6 +395,8 @@
     <!-- ⚡ v13.053 (R38#3): правки карты ИМЕННО ЭТОГО гекса боя (если есть) — из боя можно
          расставить окопы и вернуться в бой кнопкой «✅ Готово — вернуться в бой» -->
     <!-- ⚡ v13.055 (R39#3): фаза размещения перед боем — роль (атакующий/обороняющийся), зона, готовность -->
+    <!-- ⚡ v13.136 (п.4): отдельное меню отрядов для перетаскивания на карту боя -->
+    <div id="battlePlacementTray" style="display:none; margin:6px 0; padding:8px; background:#1d2b1f; border:1px solid #376244; border-radius:8px;"></div>
     <div id="battlePlacementPanel" style="display:none; margin:6px 0; padding:8px; background:#2a2314; border:1px solid #f1c40f; border-radius:8px; font-size:0.92rem;"></div>
     <div id="battleHexEditsPanel" style="display:none; margin:6px 0; padding:8px; background:#12241a; border:1px solid #27ae60; border-radius:8px; font-size:0.9rem;"></div>
     <!-- ⚡ v13.066: миникарта кампании при открытом меню тактической карты
@@ -635,7 +637,7 @@ function safeLocalStorage(method, ...args) {
 //    без радиста и вне радиуса связи вызов недоступен); новое правило телефона:
 //    линия тянется за юнитом до 7 гексов кабеля от штаба (дальше приказ на
 //    движение не выдаётся), при смещении штаба связисты прокладывают линии заново.
-var APP_VERSION = 'v13.135';
+var APP_VERSION = 'v13.136';
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
 //    иначе при загрузке старого сохранения срабатывает TDZ.
@@ -4386,7 +4388,10 @@ function showOpUnitInfoPopup(unit) {
         const sAlive = (squad.fighters || []).filter(f => f && f.hp > 0).length;
         const sTotal = (squad.fighters || []).length;
         const mMax = Math.max(1, Number(squad.tacticalMoraleMax) || Number(squad.baseMorale) || 100);
-        const mNow = Number.isFinite(Number(squad.currentMorale)) ? Number(squad.currentMorale) : null;
+        // ⚡ v13.136 (п.5): Number(null)===0 — пустой дух показывался как «0/100».
+        const rawMorale = squad.currentMorale;
+        const mNow = (rawMorale !== undefined && rawMorale !== null && rawMorale !== '' && Number.isFinite(Number(rawMorale)))
+            ? Number(rawMorale) : null;
         const mPct = mNow === null ? null : Math.max(0, Math.min(100, Math.round(mNow / mMax * 100)));
         const sSmall = Math.max(0, Number(squad.ammoSmall) || 0);
         const sGren = Math.max(0, Number(squad.grenades) || 0);
@@ -6398,6 +6403,8 @@ appData.squads.forEach(s => assignUniqueCrewKeys(s));
     let currentSquadIndex = 0;
     let currentSquad = appData.squads.length > 0 ? appData.squads[0] : null;
     let morale = currentSquad ? (currentSquad.currentMorale ?? currentSquad.baseMorale) : 0;
+    // ⚡ v13.136 (п.5): индекс отряда, из которого загружена глобаль morale.
+    let moraleSourceIdx = currentSquad ? 0 : -1;
     let suppressed = false, routed = false;
     let currentTurn = 1;
     if (appData.currentTurn !== undefined) {
@@ -7862,7 +7869,9 @@ function unitCanExecuteOrderType(unit, type) {
         case 'dismount':        // спешиться могут только велосипедисты верхом
             return unit.mobility === 'bicycle' && !unit.dismounted;
         case 'remount':
-            return unit.mobility === 'bicycle' && !!unit.dismounted;
+            // ⚡ v13.136 (п.9): спешенный велосипедист имеет mobility='foot' —
+            //    ориентируемся на dismountedFromMobility.
+            return !!unit.dismounted && (unit.dismountedFromMobility === 'bicycle' || unit.mobility === 'bicycle');
         case 'dig_in':
         case 'prep_positions':  // окопаться/готовить позиции техника не может
             return isEscortCapableInfantry(unit);
@@ -9103,6 +9112,16 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
             s.tacticalMoraleMax = ARMOR_TACTICAL_MORALE;
             s.baseMorale = ARMOR_TACTICAL_MORALE;
             s.currentMorale = initialStrength > 0 ? ARMOR_TACTICAL_MORALE : 0;
+        } else if (Number(s.tacticalMoraleScaleVersion) === 1) {
+            // ⚡ v13.136 (п.5): отряд уже на шкале 0–100 — НЕ откатываем её в
+            //    «число бойцов» (12/12 с версией 1 давал дикие значения духа).
+            const prevMax = Math.max(1, Number(s.tacticalMoraleMax) || Number(s.baseMorale) || 100);
+            const prevNow = (s.currentMorale !== undefined && s.currentMorale !== null) ? Number(s.currentMorale) : NaN;
+            s.tacticalMoraleMax = 100;
+            s.baseMorale = 100;
+            s.currentMorale = Number.isFinite(prevNow)
+                ? Math.max(1, Math.min(100, Math.round(prevNow / prevMax * 100)))
+                : 100;
         } else {
             s.tacticalMoraleMax = Math.max(1, initialStrength);
             s.baseMorale = s.tacticalMoraleMax;
@@ -9784,7 +9803,7 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
     if (typeof onlineBattleCreated === 'function') { try { onlineBattleCreated(newBattle); } catch (e) { console.warn('onlineBattleCreated:', e.message); } }
 
     // ⚡ v13.091: на старте каждого тактического боя карты выбирают все подходящие взводы;
-    //    при полном выборе бонусов добавляется случайная карта игрока (v13.135: 2+случайная).
+    //    при полном выборе бонусов добавляется случайная карта игрока (v13.136: 2+случайная).
     //    Затем — кнопка «⚔️ В бой» (activateBattleTab).
     document.getElementById('campaignMapScreen').style.display = 'none';
     document.getElementById('campaignApp').style.display = 'none';
@@ -11698,7 +11717,9 @@ function tacticalNormalizeMoraleScale(squad) {
   const legacyScale = Number.isFinite(configured) && configured > 0
     ? configured
     : Math.max(1, Number(squad.tacticalOriginalRosterSize) || fighters.length || living || 1);
-  const previous = Number(squad.currentMorale);
+  // ⚡ v13.136 (п.5): null/'' — не число: Number(null)===0 сворачивал дух в 0.
+  const rawPrev = squad.currentMorale;
+  const previous = (rawPrev === undefined || rawPrev === null || rawPrev === '') ? NaN : Number(rawPrev);
   squad.tacticalMoraleLegacyScale = Math.max(1, legacyScale);
   squad.currentMorale = Number.isFinite(previous)
     ? Math.max(0, Math.min(100, Math.round(previous / legacyScale * 100)))
@@ -11731,7 +11752,10 @@ function tacticalNormalizeNewSquadMorale(squad, battle) {
 }
 function tacticalMoraleCurrent(squad) {
   tacticalMoraleScale(squad);
-  const current = Number(squad && squad.currentMorale);
+  // ⚡ v13.136 (п.5): Number(null) === 0 — пустое значение духа не должно
+  //    выглядеть как «0/100». null/undefined/'' — считаем неизвестным (100).
+  const raw = squad ? squad.currentMorale : undefined;
+  const current = (raw === undefined || raw === null || raw === '') ? NaN : Number(raw);
   return Number.isFinite(current) ? Math.max(0, Math.min(100, current)) : 100;
 }
 function tacticalMoraleDeltaPercent(squad, delta) {
@@ -11781,9 +11805,14 @@ function tacticalInitializeSquadMorale(squad, battleId) {
   const capacity = Math.max(Number(squad.tacticalOriginalRosterSize) || 0, fighters.length);
   squad.tacticalOriginalRosterSize = capacity;
   const owner = tacticalFindOperationalMoraleOwner(squad);
-  const inherited = owner && owner.operationalMorale !== undefined && owner.operationalMorale !== null &&
-      Number.isFinite(Number(owner.operationalMorale))
-    ? Math.max(0, Math.min(100, Number(owner.operationalMorale)))
+  // ⚡ v13.136 (п.5): наследование духа взвода — строго по числу; null/''/NaN
+  //    не дают «0/100» (Number(null)===0). Старт боя никогда не ниже 25/100:
+  //    разбитый взвод вступает в бой с минимальным, но не нулевым духом.
+  const rawInherited = owner ? owner.operationalMorale : undefined;
+  const inheritedValue = (rawInherited !== undefined && rawInherited !== null && rawInherited !== '')
+      ? Number(rawInherited) : NaN;
+  const inherited = Number.isFinite(inheritedValue)
+    ? Math.max(25, Math.min(100, inheritedValue))
     : 100;
   // All tactical squads and operational platoons now use the same 0–100 scale.
   // Existing per-class scales (fighter count, 5 for specialists, 14 for armor)
@@ -12103,6 +12132,21 @@ function tacticalMapEdgeHexKeys(map) {
       (col === 0 || row === 0 || col >= size - 1 || row >= size - 1);
   });
 }
+// ⚡ v13.136 (п.7): отряд по духу достиг своего штаба — НЕ исчезает с карты,
+//    остаётся в бою у штаба и приходит в себя (дух не ниже половины шкалы).
+function tacticalRoutRallyAtHQ(squad, side, idx) {
+  if (!squad) return;
+  squad.isRouting = false;
+  if (squad.retreatReason === 'morale') delete squad.retreatReason;
+  delete squad.tacticalRetreatDestination;
+  delete squad.tacticalRetreatDestinationHexKey;
+  const scale = (typeof tacticalMoraleScale === 'function') ? tacticalMoraleScale(squad)
+    : Math.max(1, Number(squad.tacticalMoraleMax) || Number(squad.baseMorale) || 100);
+  squad.currentMorale = Math.max(Number(squad.currentMorale) || 0, Math.ceil((Number(scale) || 100) / 2));
+  try { if (typeof currentSquad !== 'undefined' && currentSquad === squad) morale = squad.currentMorale; } catch (e) {}
+  squad.suppressed = false;
+  try { log(`🏳️ «${squad.name}» отошёл к штабу и остаётся в бою: дух восстановлен до ${squad.currentMorale}/${scale}.`); } catch (e) {}
+}
 function processTacticalRouts(side) {
   const map = appData.map;
   if (!map || !map.grid) return;
@@ -12129,6 +12173,11 @@ function processTacticalRouts(side) {
     if (!s) return;
     tacticalMaybeAutoRetreat(s, side, idx);
     if (!s.isRouting || !isAlive(s)) return;
+    // ⚡ v13.136 (п.6): ДОТ не покидает позицию из-за духа (только явный приказ).
+    if (typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(s) && s.retreatReason !== 'command') {
+      s.isRouting = false;
+      return;
+    }
     if (typeof tacticalMaraudingBlocksAction === 'function' && tacticalMaraudingBlocksAction(s)) return;
     if (tacticalIsHeadquartersSquad(s) && s.retreatReason !== 'command') { s.isRouting = false; return; }
     if (tacticalStubbornAtStartingHex(s)) {
@@ -12150,12 +12199,20 @@ function processTacticalRouts(side) {
       return;
     }
 
-    // Обычный отряд выбирает ближайший доступный штаб или край карты.
-    // «Упрямство» разрешает отход только к живому штабу.
+    // ⚡ v13.136 (п.7): отход по духу — ТОЛЬКО к своему штабу (отряд остаётся
+    //    там в бою и приходит в себя). Приказной отход — к краю карты, как раньше.
     const goals = new Map();
     const commandedWithdrawal = s.retreatReason === 'command';
-    // Приказ на отход направляет подразделение к краю карты, а не к штабу.
     if (!commandedWithdrawal) hqs.forEach(hq => { if (!goals.has(hq.key)) goals.set(hq.key, { key: hq.key, type: 'headquarters' }); });
+    if (!commandedWithdrawal && !goals.size) {
+      // Штаба своего взвода в бою нет — отходим к ближайшему живому штабу своей стороны.
+      squads.map((candidate, index) => ({ candidate, index }))
+        .filter(({ candidate }) => isAlive(candidate) && tacticalIsHeadquartersSquad(candidate) && candidate !== s && !candidate.isRouting &&
+          (s.faction ? candidate.faction === s.faction : true))
+        .map(entry => ({ ...entry, key: keyFor(squads, field, entry.index) }))
+        .filter(entry => !!entry.key)
+        .forEach(hq => { if (!goals.has(hq.key)) goals.set(hq.key, { key: hq.key, type: 'headquarters' }); });
+    }
     let retreatEdges = edgeKeys;
     if (commandedWithdrawal && s.tacticalRetreatDirection && typeof opDirectionBetween === 'function') {
       const mapSize = Number(map.mapSize) || (typeof TACTICAL_MAP_SIZE !== 'undefined' ? Number(TACTICAL_MAP_SIZE) || 20 : 20);
@@ -12166,9 +12223,11 @@ function processTacticalRouts(side) {
       });
       if (directional.length) retreatEdges = directional;
     }
-    if (!stubborn) retreatEdges.forEach(key => { if (!goals.has(key)) goals.set(key, { key, type: 'edge' }); });
+    if (commandedWithdrawal && !stubborn) retreatEdges.forEach(key => { if (!goals.has(key)) goals.set(key, { key, type: 'edge' }); });
     if (!goals.size) {
-      if (stubborn) {
+      // ⚡ v13.136 (п.7): отходить некуда (нет живого штаба) — отряд держит
+      //    позицию и НЕ исчезает с карты (ни сдача, ни уход волной).
+      if (stubborn || !commandedWithdrawal) {
         s.isRouting = false;
         if (s.retreatReason === 'morale') delete s.retreatReason;
         return;
@@ -12198,6 +12257,12 @@ function processTacticalRouts(side) {
       });
     }
     if (!destination) {
+      // ⚡ v13.136 (п.7): путь к штабу перекрыт — отряд НЕ сдаётся мгновенно:
+      //    остаётся на месте и продолжит отход, когда путь откроется.
+      if (s.retreatReason === 'morale') {
+        try { log(`🏃 «${s.name}» отходит к штабу: путь сейчас перекрыт — отряд остаётся на месте.`); } catch (e) {}
+        return;
+      }
       tacticalSurrenderUnit(s, side, idx, 'retreat_blocked');
       return;
     }
@@ -12206,7 +12271,11 @@ function processTacticalRouts(side) {
     s.tacticalRetreatDestinationHexKey = destination;
     let from = fromStart;
     if (from === destination) {
-      tacticalRetreatUnit(s, side, idx, s.retreatReason === 'command' ? 'command' : 'morale');
+      if (!commandedWithdrawal && destinationInfo && destinationInfo.type === 'headquarters') {
+        tacticalRoutRallyAtHQ(s, side, idx);
+      } else {
+        tacticalRetreatUnit(s, side, idx, s.retreatReason === 'command' ? 'command' : 'morale');
+      }
       return;
     }
     const path = [];
@@ -12241,7 +12310,13 @@ function processTacticalRouts(side) {
     }
     if (side === 'player' && actionPoints[idx]) actionPoints[idx].ap = ap;
     else s.tacticalAP = ap;
-    if (from === destination) tacticalRetreatUnit(s, side, idx, s.retreatReason === 'command' ? 'command' : 'morale');
+    if (from === destination) {
+      if (!commandedWithdrawal && destinationInfo && destinationInfo.type === 'headquarters') {
+        tacticalRoutRallyAtHQ(s, side, idx);
+      } else {
+        tacticalRetreatUnit(s, side, idx, s.retreatReason === 'command' ? 'command' : 'morale');
+      }
+    }
   });
 }
 
@@ -12566,6 +12641,12 @@ function tacticalOpUnitAllSquadsOut(squad) {
 function tacticalMaybeAutoRetreat(squad, side, index) {
   if (!squad || squad.isDestroyed || squad.isSurrendered || squad.status === 'destroyed' ||
       squad.status === 'surrendered' || squad.isRetreated || squad.status === 'retreated') return false;
+  // ⚡ v13.136 (п.6): ДОТ держится до конца — потеря духа не вызывает отход
+  //    или сдачу стационарного укрепления.
+  if (typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(squad)) {
+    squad.isRouting = false;
+    return false;
+  }
   if (tacticalIsHeadquartersSquad(squad) && squad.retreatReason !== 'command') { squad.isRouting = false; return false; }
   if (tacticalStubbornAtStartingHex(squad)) {
     squad.isRouting = false;
@@ -13834,7 +13915,12 @@ function skipSquad() {
 }
     // =================== ВЫБОР ОТРЯДА ===================
     function selectSquad(idx) {
-      if (currentSquad) currentSquad.currentMorale = morale;
+      // ⚡ v13.136 (п.5): глобаль morale пишем обратно в отряд ТОЛЬКО если она
+      //    была загружена именно из него; иначе устаревшее значение (например,
+      //    0 после загрузки страницы) затирало дух всех подряд перебранных отрядов.
+      if (currentSquad && Number.isFinite(Number(morale)) && currentSquadIndex === moraleSourceIdx) {
+        currentSquad.currentMorale = Math.max(0, Math.min(100, Number(morale)));
+      }
       if (idx >= 0 && idx < appData.squads.length) {
         currentSquadIndex = idx;
         currentSquad = appData.squads[idx];
@@ -13847,6 +13933,7 @@ function skipSquad() {
         } catch (e) {}
         if (typeof tacticalEnsureSquadMoraleInitialized === 'function') tacticalEnsureSquadMoraleInitialized(currentSquad);
         morale = currentSquad.currentMorale ?? currentSquad.baseMorale;
+        moraleSourceIdx = currentSquadIndex;
         ensureAP(currentSquadIndex);
         suppressed = false; routed = false;
         updateUI();
@@ -19364,7 +19451,7 @@ function throwGrenades() {
       totalHits++;
       let dmg;
       if (hasDynamic) {
-        dmg = rollD6() + 1;
+        dmg = rollD6();
         const d6 = rollD6();
         if (d6 === 1) {
           f.hp -= 3;
@@ -20517,11 +20604,12 @@ function toggleBattleCardSelection(element) {
     const container = document.getElementById('cardSelectionForBattle');
     const selected = container ? Array.from(container.querySelectorAll('.card-item.selected[data-pickable="1"][data-card-type="bonus"]')) : [];
     const selectedCount = selected.length;
-    const willHaveTradeSpirit = selected.some(item => item.dataset.name === 'Торговый дух') || element.dataset.name === 'Торговый дух';
-    const willHaveCommissioner = selected.some(item => item.dataset.name === 'Комиссар') || element.dataset.name === 'Комиссар';
-    const limit = (willHaveTradeSpirit || willHaveCommissioner) ? 4 : 3;
+    const selectedNames = selected.map(item => item.dataset.name).concat([element.dataset.name]);
+    // ⚡ v13.136 (п.1): базовый лимит — 2 выбранных бонусных; «Комиссар» +1;
+    //    «Торговый дух» +2 (всего 4). Раньше здесь стояли устаревшие 3/4.
+    const limit = cardDraftBonusLimit(selectedNames);
     if (selectedCount >= limit) {
-        try { alert(`На один взвод можно выбрать не более ${limit} бонусных карт${willHaveTradeSpirit ? ' с «Торговым духом»' : willHaveCommissioner ? ' с «Комиссаром»' : ''}.`); } catch (e) {}
+        try { alert(`На один взвод можно выбрать не более ${limit} бонусных карт (обычно — 2; «Комиссар» даёт +1, «Торговый дух» +2).`); } catch (e) {}
         return;
     }
     element.classList.add('selected');
@@ -21167,7 +21255,7 @@ function applyCardToPlatoon(card, faction, unit, squads, targetNames, options) {
             if (options.initial && s.cardDynamicBaseGrenades === undefined) s.cardDynamicBaseGrenades = Number(s.grenades) || 0;
             const baseGrenades = Number(s.cardDynamicBaseGrenades !== undefined ? s.cardDynamicBaseGrenades : s.grenades) || 0;
             s.grenades = baseGrenades + (s.fighters || []).filter(f => f.hp > 0).length * 2;
-            s.effects = s.effects || {}; s.effects.dynamic = { active: true, damageBonus: 1, selfDamage: true };
+            s.effects = s.effects || {}; s.effects.dynamic = { active: true, damageBonus: 0, selfDamage: true };
         });
     } else if (card.name === 'Бутылки с зажигательной смесью') {
         // ⚡ v13.108 (п.1): бутылки получают ВСЕ живые небронированные отряды взвода
@@ -21189,8 +21277,13 @@ function applyCardToPlatoon(card, faction, unit, squads, targetNames, options) {
             if (!s.effects.flamethrower) {
                 const candidates = s.fighters.map((f, i) => f.hp > 0 && !f.isCommander && !/Пулеметчик|Заместитель|Командир|Сержант/.test(f.name || '') && f.weapon !== 'РОКС-3' ? i : -1).filter(i => i >= 0);
                 if (candidates.length) s.fighters[candidates[Math.floor(Math.random() * candidates.length)]].weapon = 'РОКС-3';
+                // ⚡ v13.136 (п.8): объект зарядов создаётся СРАЗУ при выдаче —
+                //    раньше проверка `if (s.effects.flamethrower)` была ложной при
+                //    первом применении, и огнемёт писал «Нет зарядов» не использовавшись.
+                s.effects.flamethrower = { charges: 3 };
+            } else {
+                s.effects.flamethrower.charges = 3;
             }
-            if (s.effects.flamethrower) s.effects.flamethrower.charges = 3;
         });
     } else if (card.name === '¡Huelga!') {
         if (options.initial) living.filter(s => s.faction === 'A.I.R.F.').forEach(s => {
@@ -21461,7 +21554,7 @@ function renderCardSelectionForBattle() {
 function hasCardNamed(cards, name) {
     return (cards || []).some(item => (item && item.card ? item.card.name : item && item.name) === name);
 }
-// ⚡ v13.135 (п.3–5): базовый лимит выбора — 2 бонусные карты; при выборе обеих
+// ⚡ v13.136 (п.3–5): базовый лимит выбора — 2 бонусные карты; при выборе обеих
 //    выдаётся одна случайная карта (бонус или дебафф). «Комиссар» (АИРФ) даёт
 //    +1 третий выбор и ещё одну случайную карту; «Торговый дух» (BeVe) даёт
 //    +2 выбора (итого 4) и случайную карту отменяет.
@@ -21474,7 +21567,7 @@ function bonusCardSelectionLimit(cards) {
     return cardDraftBonusLimit((cards || []).map(c => (c && c.card ? c.card.name : c && c.name)));
 }
 function cardSelectionNeedsDebuff(bonusCount, cards) {
-    // ⚡ v13.135 (п.3–5): случайная карта выдаётся только при выборе полного
+    // ⚡ v13.136 (п.3–5): случайная карта выдаётся только при выборе полного
     //    лимита бонусов (2 обычных / 3 с «Комиссаром»). «Торговый дух» — без неё.
     return bonusCount >= bonusCardSelectionLimit(cards) && !hasCardNamed(cards, 'Торговый дух');
 }
@@ -21551,7 +21644,7 @@ async function activateSelectedCampaignCards() {
     const bonusCount = selectedCards.filter(item => (item.card.type || 'bonus') === 'bonus').length;
     const hasTradeSpirit = selectedCards.some(item => item.card.name === 'Торговый дух');
     const hasCommissioner = selectedCards.some(item => item.card.name === 'Комиссар');
-    // ⚡ v13.135 (п.3–5): базово 2 выбора; «Комиссар» +1, «Торговый дух» +2.
+    // ⚡ v13.136 (п.3–5): базово 2 выбора; «Комиссар» +1, «Торговый дух» +2.
     const bonusLimit = cardDraftBonusLimit(selectedCards.map(item => item.card.name));
     if (bonusCount > bonusLimit) {
         try { alert(`На один взвод можно выбрать не более ${bonusLimit} бонусных карт${hasTradeSpirit ? ' с «Торговым духом»' : hasCommissioner ? ' с «Комиссаром»' : ''}.`); } catch (e) {}
@@ -21585,7 +21678,7 @@ async function activateSelectedCampaignCards() {
     }
     const assigned = selectedCards.map(item => ({ name: item.card.name, faction: item.faction, type: item.card.type || 'bonus' }));
     let automaticFourthCard = null;
-    // ⚡ v13.135 (п.3–5): случайная карта выдаётся за полный лимит бонусов
+    // ⚡ v13.136 (п.3–5): случайная карта выдаётся за полный лимит бонусов
     //    (2 обычных / 3 с «Комиссаром»); «Торговый дух» случайную отменяет.
     if (cardSelectionNeedsDebuff(bonusCount, selectedCards)) {
         automaticFourthCard = getRandomFourthCardForUnit(unit, liveSquads, assigned.map(c => c.name));
@@ -21628,7 +21721,7 @@ function activateSelectedCards() {
     if (card) selectedCards.push({ card, faction });
   });
 
-  // ⚡ v13.135 (п.3–5): базово 2 выбранные бонуса, при полном лимите выдаётся
+  // ⚡ v13.136 (п.3–5): базово 2 выбранные бонуса, при полном лимите выдаётся
   //    одна случайная карта фракции (бонус или дебафф). «Комиссар» +1 выбор
   //    и ещё одна случайная; «Торговый дух» +2 выбора без случайной.
   const bonusCount = selectedCards.filter(item => item.card.type === 'bonus').length;
@@ -21993,7 +22086,7 @@ case 'Оружие солидарности': {
         const fighters = squad2.fighters.filter(f => f.hp > 0).length;
         squad2.grenades += fighters * 2;
         if (!squad2.effects) squad2.effects = {};
-        squad2.effects.dynamic = { active: true, damageBonus: 1, selfDamage: true };
+        squad2.effects.dynamic = { active: true, damageBonus: 0, selfDamage: true };
         if (!squad2.appliedCards) squad2.appliedCards = [];
         squad2.appliedCards.push(card.name);
         log(`Отряд "${squad2.name}" получил шахтерский динамит (+${fighters*2} гранат).`);
@@ -27029,7 +27122,7 @@ function executeMortarSalvo(unit, enemies, distance, rounds, dmgPerHit) {
             const victimTrench = !!victimCell && ((Array.isArray(victimCell.types) && victimCell.types.includes('trenches')) ||
                 (Array.isArray(victimCell.markers) && victimCell.markers.includes('trenches')));
             const dmgBase = victimTrench ? Math.max(1, Math.floor(rawDmg / 1.5)) : rawDmg;
-            // ⚡ v13.135 (п.1): штраф за скопление — урон попадания растёт с числом
+            // ⚡ v13.136 (п.1): штраф за скопление — урон попадания растёт с числом
             //    юнитов на гексе (+25% за каждого сверх первого).
             const clusterAlive = enemies.filter(e => e && !e.isDestroyed).length;
             const dmg = (typeof applyOpClusterDamageMultiplier === 'function')
@@ -27706,7 +27799,7 @@ function applyOperationalShellShock(unit, turn) {
 //    игрока по врагам на гексе; owner:'enemy' — залп вражеской артиллерии по
 //    обнаруженным отрядам игрока (п.2 решение игрока: «да»). Вражеский залп
 //    продолжается, пока цель обнаружена, но не дольше трёх залпов подряд.
-// ⚡ v13.135 (п.1): штраф за скопление юнитов на одном оперативном гексе.
+// ⚡ v13.136 (п.1): штраф за скопление юнитов на одном оперативном гексе.
 //    Снаряд артиллерии/миномёта/САУ бьёт одного случайного юнита, но урон
 //    попадания растёт с числом юнитов на гексе: +25% за каждого юнита сверх
 //    первого. Куча целей = каждый в ней получает больше персонального урона.
@@ -27805,7 +27898,7 @@ function resolveOperationalAreaFire() {
             const rawDamage = rollDamage();
             // ⚡ v13.106 (п.9): окоп на гексе гасит часть урона залпа
             const baseDamage = trench ? opTrenchReducedDamage(rawDamage) : rawDamage;
-            // ⚡ v13.135 (п.1): штраф за скопление — чем больше юнитов на гексе,
+            // ⚡ v13.136 (п.1): штраф за скопление — чем больше юнитов на гексе,
             //    тем выше урон каждого попадания (+25% за юнита сверх первого).
             const clusterAlive = victims.filter(v => v && !v.isDestroyed).length;
             const damage = (typeof applyOpClusterDamageMultiplier === 'function')
@@ -30620,7 +30713,7 @@ function showOrderPanel() {
         select.innerHTML = html;
         // при продолжении приказа выбранный отряд не сбрасываем
         if (restoreDraft && prevUnit && prevUnit !== '-1') select.value = prevUnit;
-        // ⚡ v13.135 (п.2): опции «Спешиться»/«Сесть на велосипеды» — по юниту
+        // ⚡ v13.136 (п.2): опции «Спешиться»/«Сесть на велосипеды» — по юниту
         try {
             const curId = parseInt(select.value);
             updateOrderTypeDismountOptions(Number.isInteger(curId) && curId >= 0 ? (appData.campaign.opUnits || [])[curId] : null);
@@ -33752,13 +33845,12 @@ function toggleDismount() {
         return;
     }
 
-    // Проверяем, что юнит - самокатчик/мотоциклист (по mobility или по состоянию dismounted)
-    const isBeVeBicycle = unit.faction === 'BeVe' && (unit.mobility === 'bicycle' || unit.dismountedFromMobility === 'bicycle');
-    const isBicycleUnit = isBeVeBicycle && unit.mobility === 'bicycle';
-    const isDismountedBicycle = isBeVeBicycle && unit.dismounted === true;
+    // ⚡ v13.136 (п.9): спешивание — только у велосипедистов (верхом или спешенных).
+    const isBicycleUnit = unit.mobility === 'bicycle' && !unit.dismounted;
+    const isDismountedBicycle = unit.dismounted === true && (unit.dismountedFromMobility === 'bicycle' || unit.mobility === 'bicycle');
 
     if (!isBicycleUnit && !isDismountedBicycle) {
-        document.getElementById('mapInfo').innerHTML = '❌ Этот юнит не является самокатчиком.';
+        document.getElementById('mapInfo').innerHTML = '❌ Спешивание доступно только велосипедистам.';
         return;
     }
 
@@ -37228,7 +37320,7 @@ function executeShootAtOrder(unit, order) {
     }
 }
 
-// ⚡ v13.135 (п.2): «Спешиться»/«Сесть на велосипеды» в списке приказов видны
+// ⚡ v13.136 (п.2): «Спешиться»/«Сесть на велосипеды» в списке приказов видны
 //    ТОЛЬКО подразделениям, которые можно спешить (велосипедисты и т.п.).
 //    Остальным юнитам опции не показываются вообще.
 function unitDismountOptionAllowed(unit, value) {
@@ -37236,8 +37328,9 @@ function unitDismountOptionAllowed(unit, value) {
     if (typeof unitCanExecuteOrderType === 'function') {
         try { return !!unitCanExecuteOrderType(unit, value); } catch (e) {}
     }
-    if (value === 'dismount') return (unit.mobility === 'bicycle' || unit.mobility === 'motorcycle') && !unit.dismounted;
-    if (value === 'remount') return !!unit.dismounted;
+    // ⚡ v13.136 (п.9): только велосипедисты; мотоциклы и прочие — без кнопок.
+    if (value === 'dismount') return unit.mobility === 'bicycle' && !unit.dismounted;
+    if (value === 'remount') return !!unit.dismounted && (unit.dismountedFromMobility === 'bicycle' || unit.mobility === 'bicycle');
     return true;
 }
 function updateOrderTypeDismountOptions(unit) {
@@ -37248,6 +37341,8 @@ function updateOrderTypeDismountOptions(unit) {
         const show = unitDismountOptionAllowed(unit, opt.value);
         opt.hidden = !show;
         opt.disabled = !show;
+        // ⚡ v13.136 (п.9): opt.hidden работает не везде — дублируем display:none.
+        if (opt.style) opt.style.display = show ? '' : 'none';
         if (!show && sel.value === opt.value) sel.value = '-1';
     });
 }
@@ -37268,7 +37363,7 @@ function onOrderTargetUnitChange() {
     const unitId = parseInt(unitSelect.value);
     if (isNaN(unitId) || unitId < 0) {
         subUnitsPanel.style.display = 'none';
-        // ⚡ v13.135 (п.2): без выбранного юнита опции спешивания не показываем
+        // ⚡ v13.136 (п.2): без выбранного юнита опции спешивания не показываем
         try { updateOrderTypeDismountOptions(null); } catch (e) {}
         try { updateOrderActionButtons(); } catch (e) {}
         return;
@@ -37281,7 +37376,7 @@ function onOrderTargetUnitChange() {
         try { updateOrderActionButtons(); } catch (e) {}
         return;
     }
-    // ⚡ v13.135 (п.2): «Спешиться»/«Сесть на велосипеды» — только спешиваемым
+    // ⚡ v13.136 (п.2): «Спешиться»/«Сесть на велосипеды» — только спешиваемым
     try { updateOrderTypeDismountOptions(unit); } catch (e) {}
     const orderTypeSelect = document.getElementById('orderType');
     if (orderTypeSelect && orderTypeSelect.value === 'fire_at_will') {
@@ -42008,7 +42103,8 @@ function uxIsVehicleUnit(u) {
   return n.includes('САУ') || n.includes('танк') || n.includes('Бронеавтомобиль') || n.includes('ДОТ');
 }
 function uxBikeLike(u) {
-  return !!u && (u.mobility === 'bicycle' || u.mobility === 'motorcycle');
+  // ⚡ v13.136 (п.9): кнопки спешивания — только у велосипедистов (не мотоциклистов).
+  return !!u && u.mobility === 'bicycle';
 }
 function uxHasBikePark(u) {
   const cell = appData.campaign.opMapGrid ? appData.campaign.opMapGrid[u.col + ',' + u.row] : null;

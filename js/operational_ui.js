@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.135 — tactical grenade-area fire, commissioner card limit, unified rules.
+// ⚡ BUILD-МАРКЕР: v13.136 — tactical grenade-area fire, commissioner card limit, unified rules.
 (function () {
   'use strict';
 
@@ -47,6 +47,9 @@
     c.opSetupStage = stage;
     if (typeof placementLocked !== 'undefined') placementLocked = stage === 'orders' || stage === 'cards';
     if (typeof placementUnlockCount !== 'undefined') placementUnlockCount = 0;
+    // ⚡ v13.136 (п.3): на этапе связи панель раскрывается автоматически —
+    //    иначе её можно случайно пропустить и не распределить рации/телефоны.
+    if (stage === 'communications') state.commCollapsed = false;
     try { saveData(); } catch (e) {}
     renderSetup();
     renderPinnedActions();
@@ -102,6 +105,8 @@
     if (c.initialPlatoonCardsAssigned) delete c.initialCardDraft;
     if (typeof placementLocked !== 'undefined') placementLocked = c.opSetupStage === 'orders' || c.opSetupStage === 'cards';
     if (['communications', 'cards', 'orders'].includes(c.opSetupStage)) ensureHardMode();
+    // ⚡ v13.136 (п.3): вернулись в игру на этапе связи — панель раскрыта.
+    if (c.opSetupStage === 'communications') state.commCollapsed = false;
   }
 
   function setDisplay(id, show, displayValue) {
@@ -1014,8 +1019,11 @@
     }
     if (action === 'recon') return !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
     if (action === 'dig_in' || action === 'prep_positions') return !(typeof isVehicleMobilityUnit === 'function' && isVehicleMobilityUnit(unit)) && !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
-    if (action === 'dismount') return unit.faction === 'BeVe' && (unit.mobility === 'bicycle' || unit.dismountedFromMobility === 'bicycle') && !unit.dismounted;
-    if (action === 'remount') return !!unit.dismounted;
+    // ⚡ v13.136 (п.9): спешивание/посадка — ТОЛЬКО велосипедисты (не мотоциклисты):
+    //    «Спешиться» — только сидящему верхом велосипедисту; «Сесть» — только
+    //    спешенному велосипедисту.
+    if (action === 'dismount') return unit.mobility === 'bicycle' && !unit.dismounted;
+    if (action === 'remount') return !!unit.dismounted && (unit.dismountedFromMobility === 'bicycle' || unit.mobility === 'bicycle');
     if (action === 'embark') return !unit.embarkedInBtr && !unit.hidden && unit.col != null &&
       !/БТР|танк|САУ|ДОТ|Бронеавтомобиль/i.test(String(unit.name || ''));
     if (action === 'disembark') {
@@ -1189,7 +1197,7 @@
         ['disembark', (isBtrUnit(unit) && !unit.embarkedInBtr) ? '🚌 Высадить десант' : '🚶 Выйти из БТР'],
         ['dismount', '🚲 Спешиться'], ['remount', '🚴 Сесть на велосипеды'], ['pour_oil', '🛢️ Разлить нефть']
       ];
-      // ⚡ v13.135 (п.2): «Спешиться»/«Сесть на велосипеды» показываются ТОЛЬКО
+      // ⚡ v13.136 (п.2): «Спешиться»/«Сесть на велосипеды» показываются ТОЛЬКО
       //    подразделениям, которые можно спешить (велосипедисты и т.п.);
       //    остальным юнитам опции не показываются вообще.
       const visibleActions = actions.filter(([value]) =>

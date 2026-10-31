@@ -137,8 +137,9 @@ test('п.2: unitDismountOptionAllowed — только спешиваемым ю
   assert.equal(s.evalCtx(`unitDismountOptionAllowed({ mobility: 'foot' }, 'remount')`), false);
   assert.equal(s.evalCtx(`unitDismountOptionAllowed({}, 'dismount')`), false);
   assert.equal(s.evalCtx(`unitDismountOptionAllowed(null, 'dismount')`), false);
-  // мотоциклист — спешиваем тоже
-  assert.equal(s.evalCtx(`unitDismountOptionAllowed({ mobility: 'motorcycle' }, 'dismount')`), true);
+  // v13.136 (п.9): мотоциклы НЕ спешиваются — только велосипедисты
+  assert.equal(s.evalCtx(`unitDismountOptionAllowed({ mobility: 'motorcycle' }, 'dismount')`), false);
+  assert.equal(s.evalCtx(`unitDismountOptionAllowed({ mobility: 'motorcycle', dismounted: true }, 'remount')`), false);
 });
 
 test('п.2: updateOrderTypeDismountOptions прячет опции и сбрасывает выбранную', () => {
@@ -270,10 +271,10 @@ test('тексты правил обновлены под новую схему 
   assert.ok(!HTML.includes('Лимит бонусных карт: 3'), 'старый лимит 3 удалён');
 });
 
-test('APP_VERSION поднят до v13.135', () => {
+test('APP_VERSION поднят до v13.136', () => {
   const m = /var APP_VERSION = '([^']+)'/.exec(HTML);
   assert.ok(m, 'APP_VERSION найден');
-  assert.equal(m[1], 'v13.135');
+  assert.equal(m[1], 'v13.136');
 });
 
 // ───────────────────────── итог ─────────────────────────
