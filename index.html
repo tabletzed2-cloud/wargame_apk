@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.137 — операция</title>
+  <title>Боевой модуль v13.138 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -48,8 +48,11 @@
        старые WebView его не понимают и весь блок правил отбрасывался. */
     #battleApp.hex-editor-mode > :not(#mapTab) { display:none !important; }
     #battleApp.hex-editor-mode #mapTab > * { display:none !important; }
-    #battleApp.hex-editor-mode #mapTab > #hexEditorBanner { display:block !important; position:sticky; top:0; z-index:120; }
-    #battleApp.hex-editor-mode #mapTab > #mapContainer { display:block !important; }
+    /* ⚡ v13.138 (playtest): меню расстановки ДОТов НЕ должно перекрывать карту —
+       шапка редактора ограничена 42vh с собственной прокруткой, карта остаётся
+       видимой (52vh) для клика по клетке даже на телефоне. */
+    #battleApp.hex-editor-mode #mapTab > #hexEditorBanner { display:block !important; position:sticky; top:0; z-index:120; max-height:42vh; overflow-y:auto; }
+    #battleApp.hex-editor-mode #mapTab > #mapContainer { display:block !important; height:52vh !important; }
     #battleApp.hex-editor-mode #mapTab > #battleMapInfoSlot { display:block !important; }
     #battleApp.hex-editor-mode #mapTab > #campaignMiniMapPanel { display:block !important; }
     /* Панель перетаскивания отрядов при размещении на тактической карте */
@@ -128,7 +131,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.137</h1>
+    <h1>⚔️ Боевой модуль v13.138</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -193,7 +196,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.137 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.138 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -637,7 +640,7 @@ function safeLocalStorage(method, ...args) {
 //    без радиста и вне радиуса связи вызов недоступен); новое правило телефона:
 //    линия тянется за юнитом до 7 гексов кабеля от штаба (дальше приказ на
 //    движение не выдаётся), при смещении штаба связисты прокладывают линии заново.
-var APP_VERSION = 'v13.137';
+var APP_VERSION = 'v13.138';
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
 //    иначе при загрузке старого сохранения срабатывает TDZ.
@@ -30126,15 +30129,15 @@ function advanceSupplyDeliveries() {
 }
 
 // ── панель снабжения ──
-function showSupplyPanel() {
+function showSupplyPanel(force) {
     const panel = document.getElementById('supplyPanel');
     if (!panel) return;
     if (typeof openOperationalSidePanel === 'function') {
-        openOperationalSidePanel('supply');
+        openOperationalSidePanel('supply', force);
         renderSupplyPanel();
         return;
     }
-    panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+    panel.style.display = force ? 'block' : (panel.style.display === 'block' ? 'none' : 'block');
     renderSupplyPanel();
 }
 
@@ -30285,12 +30288,12 @@ function supplyAmmoBarHtml(unit) {
 
 // ==================== СИСТЕМА СВЯЗИ ====================
 // ==================== СИСТЕМА СВЯЗИ ====================
-function showCommunicationPanel() {
+function showCommunicationPanel(force) {
     const panel = document.getElementById('communicationPanel');
     if (!hardMode.enabled) { alert('Hard Mode не включен!'); return; }
     if (panel) {
-        if (typeof openOperationalSidePanel === 'function') openOperationalSidePanel('communication');
-        else panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+        if (typeof openOperationalSidePanel === 'function') openOperationalSidePanel('communication', force);
+        else panel.style.display = force ? 'block' : (panel.style.display === 'block' ? 'none' : 'block');
         renderCommunicationPanel();
     }
 }
@@ -42583,7 +42586,7 @@ window.uxGatesRefresh = function () { uxApplyGates(); uxRenderActionBar(); };
       if (campaignApp) window.__opDockObserver.observe(campaignApp, { attributes: true, subtree: true, attributeFilter: ['style', 'class'] });
     }
   }
-  window.openOperationalSidePanel = function (kind) {
+  window.openOperationalSidePanel = function (kind, force) {
     initOperationalSidePanels();
     const workspace = document.getElementById('opMapWorkspace');
     const comm = document.getElementById('communicationPanel');
@@ -42591,7 +42594,9 @@ window.uxGatesRefresh = function () { uxApplyGates(); uxRenderActionBar(); };
     const left = document.getElementById('opLeftSidePanel');
     const title = document.getElementById('opLeftPanelTitle');
     if (!workspace || !left) return;
-    if (activeOperationalSidePanel === kind && workspace.classList.contains('op-left-open')) {
+    // ⚡ v13.138: force=true — только открыть (автооткрытие на этапе связи);
+    // без force клик по вкладке по-прежнему переключает панель.
+    if (!force && activeOperationalSidePanel === kind && workspace.classList.contains('op-left-open')) {
       closeOperationalSidePanels();
       return;
     }

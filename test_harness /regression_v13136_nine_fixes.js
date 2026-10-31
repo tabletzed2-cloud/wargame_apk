@@ -56,9 +56,11 @@ ok('п.2 динамит — type negative, без +1 к урону', () => {
 // ---------- п.3: панель связи открывается автоматически ----------
 ok('п.3 вход на этап связи раскрывает панель связи', () => {
   const ui = fs.readFileSync(path.join(ROOT, 'js/operational_ui.js'), 'utf8');
-  assert.ok(/if \(stage === 'communications'\) state\.commCollapsed = false;/.test(ui),
+  // ⚡ v13.138: панель связи раскрывается физически (showCommunicationPanel(true) с
+  //    force — без toggle-закрытия); правило v13.136 (commCollapsed) сохранено.
+  assert.ok(/if \(stage === 'communications'\) \{[\s\S]{0,400}?state\.commCollapsed = false;[\s\S]{0,200}?showCommunicationPanel\(true\)/.test(ui),
     'setStage должен раскрывать панель на этапе communications');
-  assert.ok(/if \(c\.opSetupStage === 'communications'\) state\.commCollapsed = false;/.test(ui),
+  assert.ok(/if \(c\.opSetupStage === 'communications'\) \{[\s\S]{0,400}?state\.commCollapsed = false;[\s\S]{0,200}?showCommunicationPanel\(true\)/.test(ui),
     'setInitialStage тоже раскрывает панель при восстановлении сейва');
 });
 
@@ -244,7 +246,7 @@ ok('п.9 toggleDismount: отказ только не-спешиваемым (п
 });
 
 // ---------- маркеры версии ----------
-ok('маркеры версии синхронизированы на v13.137', () => {
+ok('маркеры версии синхронизированы на v13.138', () => {
   const files = [ROOT + '/index.html', ROOT + '/js/cards.js', ROOT + '/js/data.js', ROOT + '/js/hexmaps.js',
     ROOT + '/js/map_actions.js', ROOT + '/js/online_battles.js', ROOT + '/js/operational_ui.js',
     ROOT + '/js/placement.js', ROOT + '/js/templates.js', ROOT + '/js/weapons.js',
@@ -252,7 +254,7 @@ ok('маркеры версии синхронизированы на v13.137', 
   files.forEach(f => {
     const txt = fs.readFileSync(f, 'utf8');
     assert.ok(!/v13\.135/.test(txt), path.basename(f) + ' не должен содержать v13.135');
-    assert.ok(/v13\.137/.test(txt), path.basename(f) + ' должен содержать v13.137');
+    assert.ok(/v13\.138/.test(txt), path.basename(f) + ' должен содержать v13.138');
   });
 });
 

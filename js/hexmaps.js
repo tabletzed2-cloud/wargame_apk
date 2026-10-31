@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.137 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.138 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1356,7 +1356,7 @@ function hexEditRuleFor(kind) {
     if (kind === 'initialFortification') {
         return {
             title: '🪖 Расстановка ДОТов',
-            hint: 'Выберите ДОТ в списке и кликните по клетке — на карте появится ИКОНКА юнита этого ДОТа, и он будет стоять здесь в тактическом бою на этом гексе. Окопы на старте не расставляются: они уже нарисованы на картах. Кнопка «Готово» откроет следующую карту.',
+            hint: 'Выберите ДОТ в списке и кликните по клетке — на этом гексе встанет иконка ДОТа. Кнопка «Готово» откроет следующую карту.',
             allowed: () => true,
             targetType: null,
             pointsField: null
@@ -2714,7 +2714,7 @@ function initialDotSectorControls(st) {
             return `<label style="color:#ddd; font-size:.82rem; border-left:4px solid ${color}; padding-left:6px;">${label} — ${String(weapon.name || crew.weaponName)} (сектор ${widthDeg >= 360 ? '360° — круговой' : widthDeg + '°'}): ` +
                 `<select onchange="setInitialDotWeaponSector(${index},this.value)">${options}</select> ` +
                 `<button type="button" onclick="setInitialDotSectorPick(${index})" style="${picking ? 'background:#e67e22;' : 'background:#2980b9;'} font-size:.78rem;">${picking ? '🎯 Кликните клетку направления…' : '🎯 Указать на карте'}</button></label>`;
-        }).join('') + '</div><div style="color:#888; font-size:.78rem;">У каждого расчёта свой сектор: Van Hees — ПТ-орудие 360° (круговой), пулемёт 90°; Bosh — пулемёты по 60°, орудие 90°. Цвет каждой амбразуры совпадает с подсветкой на карте; выбранная амбразура выделяется ярче. Подсветка показывает направление и ширину сектора в радиусе обстрела ДОТа — 3 гекса (дальше ДОТ не стреляет). Секторы могут перекрываться. Цель вне сектора для этого оружия недоступна — и в тактическом бою, и на оперативной карте. «🎯 Указать на карте» — затем кликните клетку, куда смотрит амбразура: линии сектора появятся на карте от клетки ДОТа.</div>';
+        }).join('') + '</div><details style="margin:4px 0;"><summary style="color:#aaa; font-size:.78rem; cursor:pointer;">ℹ️ Секторы амбразур — как настроить</summary><div style="color:#888; font-size:.78rem;">У каждого расчёта свой сектор: Van Hees — ПТ-орудие 360° (круговой), пулемёт 90°; Bosh — пулемёты по 60°, орудие 90°. Цвет каждой амбразуры совпадает с подсветкой на карте; выбранная амбразура выделяется ярче. Подсветка показывает направление и ширину сектора в радиусе обстрела ДОТа — 3 гекса (дальше ДОТ не стреляет). Секторы могут перекрываться. Цель вне сектора для этого оружия недоступна — и в тактическом бою, и на оперативной карте. «🎯 Указать на карте» — затем кликните клетку, куда смотрит амбразура: линии сектора появятся на карте от клетки ДОТа.</div></details>';
 }
 function initialDotSelector(st) {
     const escape = text => String(text).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
