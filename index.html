@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.136 — операция</title>
+  <title>Боевой модуль v13.137 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -128,7 +128,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.136</h1>
+    <h1>⚔️ Боевой модуль v13.137</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -193,7 +193,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.136 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.137 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -637,7 +637,7 @@ function safeLocalStorage(method, ...args) {
 //    без радиста и вне радиуса связи вызов недоступен); новое правило телефона:
 //    линия тянется за юнитом до 7 гексов кабеля от штаба (дальше приказ на
 //    движение не выдаётся), при смещении штаба связисты прокладывают линии заново.
-var APP_VERSION = 'v13.136';
+var APP_VERSION = 'v13.137';
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
 //    иначе при загрузке старого сохранения срабатывает TDZ.
@@ -7866,12 +7866,12 @@ function unitCanExecuteOrderType(unit, type) {
             return false;
         case 'disembark':       // выйти может только тот, кто сидит в машине
             return !!unit.embarkedInBtr;
-        case 'dismount':        // спешиться могут только велосипедисты верхом
-            return unit.mobility === 'bicycle' && !unit.dismounted;
+        case 'dismount':        // ⚡ v13.137 (п.1): спешиться могут велосипедисты и мотоциклы верхом
+            return (unit.mobility === 'bicycle' || unit.mobility === 'motorcycle') && !unit.dismounted;
         case 'remount':
-            // ⚡ v13.136 (п.9): спешенный велосипедист имеет mobility='foot' —
+            // ⚡ v13.136 (п.9): спешенный юнит имеет mobility='foot' —
             //    ориентируемся на dismountedFromMobility.
-            return !!unit.dismounted && (unit.dismountedFromMobility === 'bicycle' || unit.mobility === 'bicycle');
+            return !!unit.dismounted && (unit.dismountedFromMobility === 'bicycle' || unit.dismountedFromMobility === 'motorcycle' || unit.mobility === 'bicycle' || unit.mobility === 'motorcycle');
         case 'dig_in':
         case 'prep_positions':  // окопаться/готовить позиции техника не может
             return isEscortCapableInfantry(unit);
@@ -8782,6 +8782,10 @@ function tacticalApplyOperationalMobilityToBattleSquad(battleSquad, opUnit) {
   if (!battleSquad || !opUnit) return battleSquad;
   if (opUnit.type === 'bicycle_platoon' || opUnit.mobility === 'bicycle' || isBicycleTacticalSquad(battleSquad)) {
     battleSquad.mobilityType = 'bicycle';
+    battleSquad.dismounted = !!opUnit.dismounted;
+  } else if (opUnit.type === 'motorcycle_platoon' || opUnit.mobility === 'motorcycle' || isMotorcycleTacticalSquad(battleSquad)) {
+    // ⚡ v13.137 (п.1): мотоциклы переносят спешивание в тактический бой так же, как велосипеды.
+    battleSquad.mobilityType = 'motorcycle';
     battleSquad.dismounted = !!opUnit.dismounted;
   }
   return battleSquad;
@@ -12134,7 +12138,7 @@ function tacticalMapEdgeHexKeys(map) {
 }
 // ⚡ v13.136 (п.7): отряд по духу достиг своего штаба — НЕ исчезает с карты,
 //    остаётся в бою у штаба и приходит в себя (дух не ниже половины шкалы).
-function tacticalRoutRallyAtHQ(squad, side, idx) {
+function tacticalRoutRallyAtHQ(squad, side, idx, place) {
   if (!squad) return;
   squad.isRouting = false;
   if (squad.retreatReason === 'morale') delete squad.retreatReason;
@@ -12145,7 +12149,8 @@ function tacticalRoutRallyAtHQ(squad, side, idx) {
   squad.currentMorale = Math.max(Number(squad.currentMorale) || 0, Math.ceil((Number(scale) || 100) / 2));
   try { if (typeof currentSquad !== 'undefined' && currentSquad === squad) morale = squad.currentMorale; } catch (e) {}
   squad.suppressed = false;
-  try { log(`🏳️ «${squad.name}» отошёл к штабу и остаётся в бою: дух восстановлен до ${squad.currentMorale}/${scale}.`); } catch (e) {}
+  const placeLabel = place === 'edge' ? 'к краю карты' : 'к штабу';
+  try { log(`🏳️ «${squad.name}» отошёл ${placeLabel} и остаётся в бою: дух восстановлен до ${squad.currentMorale}/${scale}.`); } catch (e) {}
 }
 function processTacticalRouts(side) {
   const map = appData.map;
@@ -12213,6 +12218,7 @@ function processTacticalRouts(side) {
         .filter(entry => !!entry.key)
         .forEach(hq => { if (!goals.has(hq.key)) goals.set(hq.key, { key: hq.key, type: 'headquarters' }); });
     }
+    // ⚡ v13.137 (п.2): путь к отходу — к штабу ИЛИ к краю карты (для духа и приказа).
     let retreatEdges = edgeKeys;
     if (commandedWithdrawal && s.tacticalRetreatDirection && typeof opDirectionBetween === 'function') {
       const mapSize = Number(map.mapSize) || (typeof TACTICAL_MAP_SIZE !== 'undefined' ? Number(TACTICAL_MAP_SIZE) || 20 : 20);
@@ -12223,11 +12229,11 @@ function processTacticalRouts(side) {
       });
       if (directional.length) retreatEdges = directional;
     }
-    if (commandedWithdrawal && !stubborn) retreatEdges.forEach(key => { if (!goals.has(key)) goals.set(key, { key, type: 'edge' }); });
+    if (!stubborn) retreatEdges.forEach(key => { if (!goals.has(key)) goals.set(key, { key, type: 'edge' }); });
     if (!goals.size) {
-      // ⚡ v13.136 (п.7): отходить некуда (нет живого штаба) — отряд держит
-      //    позицию и НЕ исчезает с карты (ни сдача, ни уход волной).
-      if (stubborn || !commandedWithdrawal) {
+      // ⚡ v13.137 (п.2): отходить некуда (ни штаба, ни края карты) — отряд
+      //    сдаётся с маркером и остаётся на карте. «Упрямство» — держит позицию.
+      if (stubborn) {
         s.isRouting = false;
         if (s.retreatReason === 'morale') delete s.retreatReason;
         return;
@@ -12257,12 +12263,8 @@ function processTacticalRouts(side) {
       });
     }
     if (!destination) {
-      // ⚡ v13.136 (п.7): путь к штабу перекрыт — отряд НЕ сдаётся мгновенно:
-      //    остаётся на месте и продолжит отход, когда путь откроется.
-      if (s.retreatReason === 'morale') {
-        try { log(`🏃 «${s.name}» отходит к штабу: путь сейчас перекрыт — отряд остаётся на месте.`); } catch (e) {}
-        return;
-      }
+      // ⚡ v13.137 (п.2): путь к отходу (штаб/край карты) перекрыт — отряд
+      //    сдаётся: появляется маркер сдачи, но сам отряд НЕ исчезает с карты.
       tacticalSurrenderUnit(s, side, idx, 'retreat_blocked');
       return;
     }
@@ -12271,8 +12273,9 @@ function processTacticalRouts(side) {
     s.tacticalRetreatDestinationHexKey = destination;
     let from = fromStart;
     if (from === destination) {
-      if (!commandedWithdrawal && destinationInfo && destinationInfo.type === 'headquarters') {
-        tacticalRoutRallyAtHQ(s, side, idx);
+      // ⚡ v13.137 (п.2): отряд по духу дошёл до штаба ИЛИ края карты — остаётся в бою.
+      if (!commandedWithdrawal && destinationInfo && (destinationInfo.type === 'headquarters' || destinationInfo.type === 'edge')) {
+        tacticalRoutRallyAtHQ(s, side, idx, destinationInfo.type);
       } else {
         tacticalRetreatUnit(s, side, idx, s.retreatReason === 'command' ? 'command' : 'morale');
       }
@@ -12311,8 +12314,9 @@ function processTacticalRouts(side) {
     if (side === 'player' && actionPoints[idx]) actionPoints[idx].ap = ap;
     else s.tacticalAP = ap;
     if (from === destination) {
-      if (!commandedWithdrawal && destinationInfo && destinationInfo.type === 'headquarters') {
-        tacticalRoutRallyAtHQ(s, side, idx);
+      // ⚡ v13.137 (п.2): отряд по духу дошёл до штаба ИЛИ края карты — остаётся в бою.
+      if (!commandedWithdrawal && destinationInfo && (destinationInfo.type === 'headquarters' || destinationInfo.type === 'edge')) {
+        tacticalRoutRallyAtHQ(s, side, idx, destinationInfo.type);
       } else {
         tacticalRetreatUnit(s, side, idx, s.retreatReason === 'command' ? 'command' : 'morale');
       }
@@ -12595,6 +12599,32 @@ function tacticalRetreatUnit(squad, side, index, reason) {
   try { redrawMap(); } catch (e) {}
   return true;
 }
+// ⚡ v13.137 (п.2): маркер сдачи на гексе сдавшегося отряда — отряд остаётся
+//    на карте (не удаляется), а рядом с ним появляется метка «🏳️».
+function tacticalPlaceSurrenderMarker(squad, side) {
+  const map = (typeof appData !== 'undefined') && appData.map;
+  if (!map || !map.grid || !squad) return null;
+  const sideCalc = side || (((map.enemySquads || []).indexOf(squad) >= 0) ? 'enemy' : 'player');
+  const marker = sideCalc === 'enemy' ? 'surrenderedEnemy' : 'surrenderedFriendly';
+  const field = sideCalc === 'enemy' ? 'enemySquadIds' : 'squadIds';
+  const list = sideCalc === 'enemy' ? (map.enemySquads || []) : ((appData.squads || []));
+  const index = list.indexOf(squad);
+  let key = null;
+  if (index >= 0) {
+    key = Object.keys(map.grid).find(k => map.grid[k] && Array.isArray(map.grid[k][field]) && map.grid[k][field].includes(index)) || null;
+  }
+  if (!key && Array.isArray(squad.hexPos)) key = squad.hexPos.join(',');
+  if (!key || !map.grid[key]) return null;
+  const cell = map.grid[key];
+  if (!Array.isArray(cell.markers)) {
+    const old = cell.markers || {};
+    cell.markers = [];
+    if (old.detected) cell.markers.push('detected');
+    if (old.noise) cell.markers.push('noise');
+  }
+  if (!cell.markers.includes(marker)) cell.markers.push(marker);
+  return key;
+}
 function tacticalSurrenderUnit(squad, side, index, reason) {
   if (!squad || squad.isDestroyed || squad.isSurrendered || squad.isRetreated || squad.status === 'retreated' || squad.status === 'surrendered') return false;
   if (reason === 'retreat_blocked' && tacticalSquadHasStubbornCard(squad) &&
@@ -12617,8 +12647,11 @@ function tacticalSurrenderUnit(squad, side, index, reason) {
        (squad.lastAwardAttackerSquadName && player.name === squad.lastAwardAttackerSquadName)));
     if (attacker) recordTacticalAwardEnemyDefeat(attacker, squad, index);
   }
-  tacticalRemoveUnitFromMap(squad, side, index);
   tacticalClearMeleeEngagement(squad);
+  // ⚡ v13.137 (п.2): сдавшийся отряд НЕ исчезает с карты — остаётся на месте
+  //    с маркером сдачи (🏳️ «surrenderedFriendly/Enemy»), дальше недействоспособен.
+  if (side === 'enemy') { squad.detected = true; squad.hidden = false; }
+  tacticalPlaceSurrenderMarker(squad, side);
   try { log(`🏳️‍⚧️ Отряд «${squad.name || 'без названия'}» сдался${reason === 'numerical_superiority' ? ' из-за численного превосходства противника' : ' — путь к отступлению перекрыт'}.`); } catch (e) {}
   try { saveData(); } catch (e) {}
   try { updateTacticalTurnUI(); } catch (e) {}
@@ -15248,7 +15281,7 @@ function renderActiveCardButtons() {
     }
     shootHtml += `<button id="satchelCharge" onclick="satchelCharge()">🧨 Связка гранат</button> `;
     if (currentSquad && currentSquad.fighters.some(f => { const w = getFactionWeapons(currentSquad.faction).find(w => w.name === f.weapon); return w && w.sniper; })) {
-      shootHtml += `<button id="sniperShot" onclick="openTargetModal('sniper')">🎯 Снайперский выстрел</button> `;
+      shootHtml += `<button id=\"sniperShot\" onclick=\"openTargetModal(\'sniper\')\" ${Number(currentSquad.ammoSmall) > 0 ? '' : 'disabled title=\"Нет патронов — ОД не будут потрачены\"'}>🎯 Снайперский выстрел</button> `;
     }
     shootHtml += `<button id="meleeAttack" onclick="openTargetModal('melee')">⚔️ Рукопашная</button> `;
   }
@@ -15298,16 +15331,16 @@ function renderActiveCardButtons() {
     moveHtml += `<button onclick="moveSquad('crouch')">🐍 Переползание</button> `;
 
     // Спешиться (если самокатчик не спешен)
-    if (currentSquad.mobilityType === 'bicycle' && !currentSquad.dismounted) {
+    if ((currentSquad.mobilityType === 'bicycle' || currentSquad.mobilityType === 'motorcycle') && !currentSquad.dismounted) {
       moveHtml += `<button onclick="dismountBicycle()">🚲 Спешиться (оставить стоянку)</button> `;
     }
 
     // Сесть на велосипед (если спешен и есть стоянка)
-    if (currentSquad.mobilityType === 'bicycle' && currentSquad.dismounted) {
+    if ((currentSquad.mobilityType === 'bicycle' || currentSquad.mobilityType === 'motorcycle') && currentSquad.dismounted) {
       const hex = appData.map.grid[currentSquad.hexPos ? currentSquad.hexPos.join(',') : ''];
       const hasBikePark = hex && hex.markers && hex.markers.includes('bicyclePark');
       if (hasBikePark) {
-        moveHtml += `<button onclick="remountBicycle()">🚲 Сесть на велосипед</button> `;
+        moveHtml += `<button onclick="remountBicycle()">🚲 Сесть на велосипед/мотоцикл</button> `;
       }
     }
   }
@@ -19863,7 +19896,7 @@ function addAwardToFighter(fighterIndex) {
 }
 
  function dismountBicycle() {
-  if (!currentSquad || !tacticalActionAllowed(currentSquad, 'utility') || !isBicycleTacticalSquad(currentSquad) || currentSquad.dismounted) return;
+  if (!currentSquad || !tacticalActionAllowed(currentSquad, 'utility') || !(isBicycleTacticalSquad(currentSquad) || isMotorcycleTacticalSquad(currentSquad)) || currentSquad.dismounted) return;
   currentSquad.dismounted = true;
   refreshTacticalAPForSquad(currentSquad);
   // Если отряд стоит на карте, ставим маркер велосипедной стоянки
@@ -19885,10 +19918,10 @@ function addAwardToFighter(fighterIndex) {
   saveData();
   updateUI();
   redrawMap();
-  log('Отряд спешился, оставлена велосипедная стоянка.');
+  log('Отряд спешился, оставлена стоянка (велосипеды/мотоциклы).');
 }
 function remountBicycle() {
-  if (!currentSquad || !tacticalActionAllowed(currentSquad, 'utility') || !isBicycleTacticalSquad(currentSquad) || !currentSquad.dismounted) return;
+  if (!currentSquad || !tacticalActionAllowed(currentSquad, 'utility') || !(isBicycleTacticalSquad(currentSquad) || isMotorcycleTacticalSquad(currentSquad)) || !currentSquad.dismounted) return;
   if (!currentSquad.hexPos) return;
   const key = currentSquad.hexPos.join(',');
   const hex = appData.map.grid[key];
@@ -19902,7 +19935,7 @@ function remountBicycle() {
   saveData();
   updateUI();
   redrawMap();
-  log('Отряд снова сел на велосипеды.');
+  log('Отряд снова сел на велосипеды/мотоциклы.');
 }
 
 function attackSmallArms() {
@@ -23008,6 +23041,7 @@ const TACTICAL_STATUS_ICONS = {
   suppressed: 'images/status/suppressed.png',
   routing: 'images/status/routing.png',
   destroyed: 'images/status/destroyed.png',
+  surrendered: 'images/status/surrendered.png',
   moon_full: 'images/status/moon_full.png',
   moon_half: 'images/status/moon_half.png'
 };
@@ -23870,6 +23904,7 @@ if (squadIds.length > 0) {
       const statusNames = [(squad.detected ? 'detected' : 'hidden')];
       if (tacticalSquadIsSuppressed(squad)) statusNames.push('suppressed');
       if (squad.isRouting || squad.isRetreated || squad.status === 'retreated') statusNames.push('routing');
+      if (squad.isSurrendered || squad.status === 'surrendered') statusNames.push('surrendered');
       const badgesReady = typeof tacticalStatusIconReady === 'function' && statusNames.every(n => tacticalStatusIconReady(n));
       if (badgesReady) {
         let badgeX = drawX + iconSize / 2 + badgeSize / 2;
@@ -23880,7 +23915,8 @@ if (squadIds.length > 0) {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         const statusBadges = (tacticalSquadIsSuppressed(squad) ? '💫' : '') +
-          ((squad.isRouting || squad.isRetreated || squad.status === 'retreated') ? '🏃' : '');
+          ((squad.isRouting || squad.isRetreated || squad.status === 'retreated') ? '🏃' : '') +
+          ((squad.isSurrendered || squad.status === 'surrendered') ? '🏳️' : '');
         ctx.fillText((squad.detected ? '👁️' : '🥷') + statusBadges, drawX + iconSize/2, drawY - iconSize/2);
       }
     }
@@ -24006,6 +24042,16 @@ if (enemy.name) {
               ctx.textAlign = 'center';
               ctx.textBaseline = 'middle';
               ctx.fillText('💫', drawX + iconSize/2, drawY - iconSize/2);
+            }
+          }
+          // ⚡ v13.137 (п.2): сдавшийся отряд врага — маркер «🏳️» (PNG, эмодзи fallback)
+          if (enemy.isSurrendered || enemy.status === 'surrendered') {
+            if (!(typeof drawTacticalStatusIcon === 'function' && drawTacticalStatusIcon(ctx, 'surrendered', drawX - iconSize/2, drawY - iconSize/2, Math.max(12, size * 0.3), '🏳️', (size * 0.3) + 'px Arial'))) {
+              ctx.fillStyle = '#dfe6e9';
+              ctx.font = (size * 0.3) + 'px Arial';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText('🏳️', drawX - iconSize/2, drawY - iconSize/2);
             }
           }
           // Подсветка выбранного врага
@@ -33845,12 +33891,12 @@ function toggleDismount() {
         return;
     }
 
-    // ⚡ v13.136 (п.9): спешивание — только у велосипедистов (верхом или спешенных).
-    const isBicycleUnit = unit.mobility === 'bicycle' && !unit.dismounted;
-    const isDismountedBicycle = unit.dismounted === true && (unit.dismountedFromMobility === 'bicycle' || unit.mobility === 'bicycle');
+    // ⚡ v13.137 (п.1): спешивание — у велосипедистов и мотоциклов (верхом или спешенных).
+    const isBicycleUnit = (unit.mobility === 'bicycle' || unit.mobility === 'motorcycle') && !unit.dismounted;
+    const isDismountedBicycle = unit.dismounted === true && (unit.dismountedFromMobility === 'bicycle' || unit.dismountedFromMobility === 'motorcycle' || unit.mobility === 'bicycle' || unit.mobility === 'motorcycle');
 
     if (!isBicycleUnit && !isDismountedBicycle) {
-        document.getElementById('mapInfo').innerHTML = '❌ Спешивание доступно только велосипедистам.';
+        document.getElementById('mapInfo').innerHTML = '❌ Спешивание доступно только велосипедистам и мотоциклистам.';
         return;
     }
 
@@ -33899,8 +33945,10 @@ function updateDismountPanel() {
 
     // Проверяем: юнит является самокатчиком/мотоциклистом ПО ИЗНАЧАЛЬНОМУ ТИПУ
     // или у него mobility = bicycle/motorcycle, или он спешен (dismounted = true)
-    const isBeVeBicycle = unit.faction === 'BeVe' && (unit.mobility === 'bicycle' || unit.dismountedFromMobility === 'bicycle');
-    const isBicycleUnit = isBeVeBicycle && unit.mobility === 'bicycle';
+    // ⚡ v13.137 (п.1): мотоциклы получают кнопку спешивания наравне с велосипедами;
+    //    обычной пехоте без такой функции панель не показывается.
+    const isBeVeBicycle = (unit.mobility === 'bicycle' || unit.mobility === 'motorcycle' || unit.dismountedFromMobility === 'bicycle' || unit.dismountedFromMobility === 'motorcycle');
+    const isBicycleUnit = isBeVeBicycle && (unit.mobility === 'bicycle' || unit.mobility === 'motorcycle');
     const isDismountedBicycle = isBeVeBicycle && unit.dismounted === true;
 
     // Если юнит вообще не связан с велосипедами/мотоциклами - скрываем
@@ -37328,9 +37376,9 @@ function unitDismountOptionAllowed(unit, value) {
     if (typeof unitCanExecuteOrderType === 'function') {
         try { return !!unitCanExecuteOrderType(unit, value); } catch (e) {}
     }
-    // ⚡ v13.136 (п.9): только велосипедисты; мотоциклы и прочие — без кнопок.
-    if (value === 'dismount') return unit.mobility === 'bicycle' && !unit.dismounted;
-    if (value === 'remount') return !!unit.dismounted && (unit.dismountedFromMobility === 'bicycle' || unit.mobility === 'bicycle');
+    // ⚡ v13.137 (п.1): велосипедисты И мотоциклы; обычной пехоте — без кнопок.
+    if (value === 'dismount') return (unit.mobility === 'bicycle' || unit.mobility === 'motorcycle') && !unit.dismounted;
+    if (value === 'remount') return !!unit.dismounted && (unit.dismountedFromMobility === 'bicycle' || unit.dismountedFromMobility === 'motorcycle' || unit.mobility === 'bicycle' || unit.mobility === 'motorcycle');
     return true;
 }
 function updateOrderTypeDismountOptions(unit) {
@@ -42103,8 +42151,9 @@ function uxIsVehicleUnit(u) {
   return n.includes('САУ') || n.includes('танк') || n.includes('Бронеавтомобиль') || n.includes('ДОТ');
 }
 function uxBikeLike(u) {
-  // ⚡ v13.136 (п.9): кнопки спешивания — только у велосипедистов (не мотоциклистов).
-  return !!u && u.mobility === 'bicycle';
+  // ⚡ v13.137 (п.1): кнопки спешивания — у велосипедистов И мотоциклов верхом;
+  //    обычной пехоте без такой функции кнопки не показываются.
+  return !!u && (u.mobility === 'bicycle' || u.mobility === 'motorcycle');
 }
 function uxHasBikePark(u) {
   const cell = appData.campaign.opMapGrid ? appData.campaign.opMapGrid[u.col + ',' + u.row] : null;

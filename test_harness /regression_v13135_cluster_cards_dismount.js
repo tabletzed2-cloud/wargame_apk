@@ -137,9 +137,10 @@ test('п.2: unitDismountOptionAllowed — только спешиваемым ю
   assert.equal(s.evalCtx(`unitDismountOptionAllowed({ mobility: 'foot' }, 'remount')`), false);
   assert.equal(s.evalCtx(`unitDismountOptionAllowed({}, 'dismount')`), false);
   assert.equal(s.evalCtx(`unitDismountOptionAllowed(null, 'dismount')`), false);
-  // v13.136 (п.9): мотоциклы НЕ спешиваются — только велосипедисты
-  assert.equal(s.evalCtx(`unitDismountOptionAllowed({ mobility: 'motorcycle' }, 'dismount')`), false);
-  assert.equal(s.evalCtx(`unitDismountOptionAllowed({ mobility: 'motorcycle', dismounted: true }, 'remount')`), false);
+  // v13.137 (п.1): мотоциклы спешиваются наравне с велосипедистами
+  //  (переопределяет v13.136 (п.9) «мотоциклы НЕ спешиваются»)
+  assert.equal(s.evalCtx(`unitDismountOptionAllowed({ mobility: 'motorcycle' }, 'dismount')`), true);
+  assert.equal(s.evalCtx(`unitDismountOptionAllowed({ mobility: 'motorcycle', dismounted: true }, 'remount')`), true);
 });
 
 test('п.2: updateOrderTypeDismountOptions прячет опции и сбрасывает выбранную', () => {
@@ -179,11 +180,12 @@ test('п.2: композер спецприказов скрывает опци�
     'старый рендер без фильтра заменён');
 });
 
-test('п.2: на тактической карте кнопка остаётся только велосипедистам', () => {
-  assert.ok(/isBicycleTacticalSquad\(squad\) && !squad\.dismounted/.test(HTML),
-    'map-панель: спешивание только неспешенным велосипедистам');
-  assert.ok(/currentSquad\.mobilityType === 'bicycle' && !currentSquad\.dismounted/.test(HTML),
-    'панель движения: спешивание только велосипедистам');
+test('п.2: на тактической карте кнопка — велосипедистам и мотоциклам (v13.137 п.1)', () => {
+  assert.ok(/isBicycleTacticalSquad\(squad\) \|\| \(typeof isMotorcycleTacticalSquad === 'function' && isMotorcycleTacticalSquad\(squad\)\)/.test(HTML) ||
+    /isBicycleTacticalSquad\(squad\) \|\| \(typeof isMotorcycleTacticalSquad === 'function' && isMotorcycleTacticalSquad\(squad\)\)/.test(fs.readFileSync(path.join(ROOT, 'js/map_actions.js'), 'utf8')),
+    'map-панель: спешивание велосипедистам и мотоциклам');
+  assert.ok(/\(currentSquad\.mobilityType === 'bicycle' \|\| currentSquad\.mobilityType === 'motorcycle'\) && !currentSquad\.dismounted/.test(HTML),
+    'панель движения: спешивание велосипедистам и мотоциклам');
 });
 
 // ───────────────────────── П.3–5: карточный драфт ─────────────────────────
@@ -271,10 +273,10 @@ test('тексты правил обновлены под новую схему 
   assert.ok(!HTML.includes('Лимит бонусных карт: 3'), 'старый лимит 3 удалён');
 });
 
-test('APP_VERSION поднят до v13.136', () => {
+test('APP_VERSION поднят до v13.137', () => {
   const m = /var APP_VERSION = '([^']+)'/.exec(HTML);
   assert.ok(m, 'APP_VERSION найден');
-  assert.equal(m[1], 'v13.136');
+  assert.equal(m[1], 'v13.137');
 });
 
 // ───────────────────────── итог ─────────────────────────

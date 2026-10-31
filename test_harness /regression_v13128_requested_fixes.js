@@ -25,12 +25,14 @@ test('операционная карточка юнита — выдвижна�
   assert(s.evalCtx("rendered.includes('Взвод') && rendered.includes('1/2') && rendered.includes('60') && rendered.includes('9') && rendered.includes('icon.png')"), 'icon, living/full headcount, morale and ammo are rendered');
   assert(css.includes('.op-unit-drawer[hidden] { display: none !important; }'), 'drawer can be fully hidden');
 });
-test('размещение даёт спешивание только велосипедным подразделениям BeVe', () => {
-  // v13.136 (п.9): гейты переведены на строгую проверку велосипеда (без мотоциклов);
-  //  порядок проверок в unitDismountOptionAllowed: сначала unitCanExecuteOrderType.
-  assert(HTML.includes("unit.mobility === 'bicycle' && !unit.dismounted"), 'placement gate is bicycle only');
-  assert(operationalUi.includes("if (action === 'dismount') return unit.mobility === 'bicycle' && !unit.dismounted;"), 'order action gate matches placement');
-  assert(operationalUi.includes("if (action === 'remount') return !!unit.dismounted && (unit.dismountedFromMobility === 'bicycle' || unit.mobility === 'bicycle');"), 'remount gate matches');
+test('размещение даёт спешивание велосипедистам и мотоциклам (не обычной пехоте)', () => {
+  // v13.137 (п.1): гейты — велосипед И мотоцикл верхом; обычной пехоте опций нет.
+  //  (переопределяет v13.136 (п.9) «только велосипедисты»); порядок проверок в
+  //  unitDismountOptionAllowed: сначала unitCanExecuteOrderType.
+  assert(HTML.includes("unit.mobility === 'bicycle' || unit.mobility === 'motorcycle'"), 'placement gate covers bicycles and motorcycles');
+  assert(operationalUi.includes("if (action === 'dismount') return (unit.mobility === 'bicycle' || unit.mobility === 'motorcycle') && !unit.dismounted;"), 'order action gate matches placement');
+  assert(operationalUi.includes("if (action === 'remount') return !!unit.dismounted && (unit.dismountedFromMobility === 'bicycle' || unit.dismountedFromMobility === 'motorcycle' || unit.mobility === 'bicycle' || unit.mobility === 'motorcycle');"), 'remount gate matches');
+  assert(!operationalUi.includes("action === 'dismount') return unit.mobility === 'bicycle' && !unit.dismounted"), 'старый велосипед-only гейт удалён');
 });
 
 test('снайперские звенья OIP BeVe получают бинокль; разведанный гекс подсвечивается', () => {
