@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.137 — tactical grenade-area fire, commissioner card limit, unified rules.
+// ⚡ BUILD-МАРКЕР: v13.138 — tactical grenade-area fire, commissioner card limit, unified rules.
 (function () {
   'use strict';
 
@@ -49,7 +49,13 @@
     if (typeof placementUnlockCount !== 'undefined') placementUnlockCount = 0;
     // ⚡ v13.136 (п.3): на этапе связи панель раскрывается автоматически —
     //    иначе её можно случайно пропустить и не распределить рации/телефоны.
-    if (stage === 'communications') state.commCollapsed = false;
+    if (stage === 'communications') {
+      // ⚡ v13.138 (playtest): «на стадии распределения связи так и не открывается меню связи» —
+      //    v13.136 раскрывал только тело панели (commCollapsed), а боковая панель оставалась
+      //    скрытой; теперь меню связи раскрывается САМО (force=true — без toggle-закрытия).
+      state.commCollapsed = false;
+      try { if (typeof showCommunicationPanel === 'function') showCommunicationPanel(true); } catch (e) {}
+    }
     try { saveData(); } catch (e) {}
     renderSetup();
     renderPinnedActions();
@@ -106,7 +112,12 @@
     if (typeof placementLocked !== 'undefined') placementLocked = c.opSetupStage === 'orders' || c.opSetupStage === 'cards';
     if (['communications', 'cards', 'orders'].includes(c.opSetupStage)) ensureHardMode();
     // ⚡ v13.136 (п.3): вернулись в игру на этапе связи — панель раскрыта.
-    if (c.opSetupStage === 'communications') state.commCollapsed = false;
+    // ⚡ v13.138 (playtest): раскрытой должна быть и САМА боковая панель меню связи —
+    //    v13.136 раскрывал только тело панели внутри скрытого контейнера (no-op).
+    if (c.opSetupStage === 'communications') {
+      state.commCollapsed = false;
+      try { if (typeof showCommunicationPanel === 'function') showCommunicationPanel(true); } catch (e) {}
+    }
   }
 
   function setDisplay(id, show, displayValue) {
@@ -173,7 +184,7 @@
       copy = 'Связь настроена. Теперь отдельным меню распределите бонусные карты между пехотными, сапёрными и разведывательными взводами: третья бонусная карта добавит случайную четвёртую карту (бонус или дебафф), не более 3 копий одной бонусной карты на батальон.';
       detail = c.initialPlatoonCardsAssigned ? 'Карты уже закреплены за взводами.' : 'Нажмите «Распределить карты», чтобы открыть меню раздачи.';
     } else {
-      copy = 'Hard Mode включён автоматически. Нажмите закреплённую кнопку «Связь», чтобы при необходимости распределить рации и телефоны. После этого подтвердите готовность перейти к картам.';
+      copy = 'Hard Mode включён автоматически, меню связи раскрыто само — распределите в нём рации и телефоны. Если меню скрыто, нажмите кнопку «📡 Меню связи». После этого подтвердите готовность перейти к картам.';
       detail = 'Связь штаба уже настроена; дополнительные рации/телефоны можно распределить сейчас или позже.';
     }
     const progress = STAGES.indexOf(stage) + 1;
@@ -184,6 +195,7 @@
     host.innerHTML = `<div class="op-setup-title">${stageTitle}</div>` +
       `<div class="op-setup-copy">${copy}</div>` +
       `<div class="op-setup-actions"><span class="op-setup-note">${detail}</span>` +
+      (stage === 'communications' ? `<button type="button" id="btnOpenCommMenu" onclick="showCommunicationPanel(true)" style="padding:4px 8px;">📡 Меню связи</button>` : '') +
       `<button type="button" onclick="showCampaignTutorialStage('${stage}', true)" style="padding:4px 8px;">❔ Подсказка</button>` +
       `<span class="op-setup-progress">${progress}/${STAGES.length}</span></div>`;
 
@@ -704,7 +716,7 @@
       }
       ensureHardMode();
       setStage('communications');
-      setMapMessage('📡 Этап связи. Hard Mode включён автоматически; настройте связь через закреплённую кнопку.', '#3498db');
+      setMapMessage('📡 Этап связи. Hard Mode включён автоматически; меню связи раскрыто само — распределите рации и телефоны (кнопка «📡 Меню связи» — в панели этапа).', '#3498db');
       return;
     }
     if (stage === 'communications') {

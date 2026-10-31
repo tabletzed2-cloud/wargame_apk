@@ -273,10 +273,10 @@ test('тексты правил обновлены под новую схему 
   assert.ok(!HTML.includes('Лимит бонусных карт: 3'), 'старый лимит 3 удалён');
 });
 
-test('APP_VERSION поднят до v13.137', () => {
+test('APP_VERSION поднят до v13.138', () => {
   const m = /var APP_VERSION = '([^']+)'/.exec(HTML);
   assert.ok(m, 'APP_VERSION найден');
-  assert.equal(m[1], 'v13.137');
+  assert.equal(m[1], 'v13.138');
 });
 
 // ───────────────────────── итог ─────────────────────────
