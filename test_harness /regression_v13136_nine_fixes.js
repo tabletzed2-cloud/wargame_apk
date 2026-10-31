@@ -182,14 +182,16 @@ ok('п.7 tacticalRoutRallyAtHQ: отряд остаётся в бою и при�
   assert.ok(s.evalCtx('sq.currentMorale') >= 50, 'дух восстановлен минимум до половины');
 });
 
-ok('п.7 processTacticalRouts: цели по духу — только штаб; перекрытый путь — не сдача', () => {
+ok('п.7 processTacticalRouts: отход к штабу сохранён; v13.137 (п.2) — цель и край карты', () => {
   assert.ok(/tacticalRoutRallyAtHQ/.test(HTML), 'механика ралли у штаба используется');
-  assert.ok(/if \(commandedWithdrawal && !stubborn\) retreatEdges\.forEach/.test(HTML),
-    'край карты — только для приказного отхода');
+  assert.ok(/if \(!stubborn\) retreatEdges\.forEach/.test(HTML),
+    'край карты — цель отхода и по духу (v13.137 п.2)');
   assert.ok(/Штаба своего взвода в бою нет — отходим к ближайшему живому штабу/.test(HTML),
     'фоллбэк на любой живой штаб');
-  assert.ok(/путь сейчас перекрыт — отряд остаётся на месте/.test(HTML),
-    'перекрытый путь не приводит к мгновенной сдаче');
+  assert.ok(!/путь сейчас перекрыт — отряд остаётся на месте/.test(HTML),
+    'правило «ждать при перекрытом пути» заменено сдачей с маркером (v13.137 п.2)');
+  assert.ok(/if \(!destination\) \{[\s\S]{0,240}?tacticalSurrenderUnit\(s, side, idx, 'retreat_blocked'\)/.test(HTML),
+    'перекрытый путь к отходу -> отряд сдаётся (v13.137 п.2)');
 });
 
 // ---------- п.8: РОКС ----------
@@ -203,43 +205,46 @@ ok('п.8 РОКС-3: заряды создаются при выдаче огн�
     'оба пути (новый/повторный) выдают заряды');
 });
 
-// ---------- п.9: только велосипедисты ----------
-ok('п.9 uxBikeLike: только велосипед (не мотоцикл)', () => {
+// ---------- п.9: спешивание (v13.137 (п.1): велосипед И мотоцикл; не пехота) ----------
+ok('п.9 uxBikeLike: велосипед и мотоцикл (не пехота/техника)', () => {
   const s = createSandbox(freshAppData());
   s.run(sliceFunction(HTML, 'uxBikeLike'));
   assert.strictEqual(s.evalCtx('uxBikeLike({ mobility: "bicycle" })'), true);
-  assert.strictEqual(s.evalCtx('uxBikeLike({ mobility: "motorcycle" })'), false, 'мотоциклы исключены');
+  assert.strictEqual(s.evalCtx('uxBikeLike({ mobility: "motorcycle" })'), true, 'мотоциклы спешиваются (v13.137)');
   assert.strictEqual(s.evalCtx('uxBikeLike({ mobility: "foot" })'), false);
   assert.strictEqual(s.evalCtx('uxBikeLike({ mobility: "vehicle" })'), false);
 });
 
-ok('п.9 canIssueSpecial: dismount/remount только велосипедистам', () => {
+ok('п.9 canIssueSpecial: dismount/remount велосипедистам и мотоциклам', () => {
   const ui = fs.readFileSync(path.join(ROOT, 'js/operational_ui.js'), 'utf8');
-  assert.ok(/if \(action === 'dismount'\) return unit\.mobility === 'bicycle' && !unit\.dismounted;/.test(ui),
-    'dismount — только велосипедист верхом');
-  assert.ok(/if \(action === 'remount'\) return !!unit\.dismounted && \(unit\.dismountedFromMobility === 'bicycle' \|\| unit\.mobility === 'bicycle'\);/.test(ui),
-    'remount — только спешенный велосипедист');
+  assert.ok(/if \(action === 'dismount'\) return \(unit\.mobility === 'bicycle' \|\| unit\.mobility === 'motorcycle'\) && !unit\.dismounted;/.test(ui),
+    'dismount — велосипедист/мотоциклист верхом');
+  assert.ok(/if \(action === 'remount'\) return !!unit\.dismounted && \(unit\.dismountedFromMobility === 'bicycle' \|\| unit\.dismountedFromMobility === 'motorcycle' \|\| unit\.mobility === 'bicycle' \|\| unit\.mobility === 'motorcycle'\);/.test(ui),
+    'remount — спешенный велосипедист/мотоциклист');
 });
 
-ok('п.9 unitCanExecuteOrderType: remount для спешенного велосипедиста (mobility=foot)', () => {
+ok('п.9 unitCanExecuteOrderType: dismount/remount для велосипеда и мотоцикла', () => {
   const s = createSandbox(freshAppData());
   s.run(sliceFunction(HTML, 'unitCanExecuteOrderType'));
   s.run(`var uBike = { mobility: 'bicycle', dismounted: false };
          var uDism = { mobility: 'foot', dismounted: true, dismountedFromMobility: 'bicycle' };
          var uMoto = { mobility: 'motorcycle', dismounted: false };
+         var uMotoDism = { mobility: 'foot', dismounted: true, dismountedFromMobility: 'motorcycle' };
          var uFoot = { mobility: 'foot', dismounted: false };`);
   assert.strictEqual(s.evalCtx("unitCanExecuteOrderType(uBike, 'dismount')"), true);
-  assert.strictEqual(s.evalCtx("unitCanExecuteOrderType(uMoto, 'dismount')"), false, 'мотоцикл без спешивания');
+  assert.strictEqual(s.evalCtx("unitCanExecuteOrderType(uMoto, 'dismount')"), true, 'мотоцикл спешивается (v13.137)');
   assert.strictEqual(s.evalCtx("unitCanExecuteOrderType(uDism, 'remount')"), true, 'спешенный велосипедист может сесть');
+  assert.strictEqual(s.evalCtx("unitCanExecuteOrderType(uMotoDism, 'remount')"), true, 'спешенный мотоциклист может сесть');
+  assert.strictEqual(s.evalCtx("unitCanExecuteOrderType(uFoot, 'dismount')"), false, 'пехота не спешивается');
   assert.strictEqual(s.evalCtx("unitCanExecuteOrderType(uFoot, 'remount')"), false);
 });
 
-ok('п.9 toggleDismount отказывает не-велосипедистам', () => {
-  assert.ok(/Спешивание доступно только велосипедистам/.test(HTML), 'сообщение об отказе есть');
+ok('п.9 toggleDismount: отказ только не-спешиваемым (пехота)', () => {
+  assert.ok(/Спешивание доступно только велосипедистам и мотоциклистам/.test(HTML), 'сообщение об отказе есть');
 });
 
 // ---------- маркеры версии ----------
-ok('маркеры версии синхронизированы на v13.136', () => {
+ok('маркеры версии синхронизированы на v13.137', () => {
   const files = [ROOT + '/index.html', ROOT + '/js/cards.js', ROOT + '/js/data.js', ROOT + '/js/hexmaps.js',
     ROOT + '/js/map_actions.js', ROOT + '/js/online_battles.js', ROOT + '/js/operational_ui.js',
     ROOT + '/js/placement.js', ROOT + '/js/templates.js', ROOT + '/js/weapons.js',
@@ -247,7 +252,7 @@ ok('маркеры версии синхронизированы на v13.136', 
   files.forEach(f => {
     const txt = fs.readFileSync(f, 'utf8');
     assert.ok(!/v13\.135/.test(txt), path.basename(f) + ' не должен содержать v13.135');
-    assert.ok(/v13\.136/.test(txt), path.basename(f) + ' должен содержать v13.136');
+    assert.ok(/v13\.137/.test(txt), path.basename(f) + ' должен содержать v13.137');
   });
 });
 

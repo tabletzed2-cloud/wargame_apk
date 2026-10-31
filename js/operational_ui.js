@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.136 — tactical grenade-area fire, commissioner card limit, unified rules.
+// ⚡ BUILD-МАРКЕР: v13.137 — tactical grenade-area fire, commissioner card limit, unified rules.
 (function () {
   'use strict';
 
@@ -1019,11 +1019,11 @@
     }
     if (action === 'recon') return !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
     if (action === 'dig_in' || action === 'prep_positions') return !(typeof isVehicleMobilityUnit === 'function' && isVehicleMobilityUnit(unit)) && !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
-    // ⚡ v13.136 (п.9): спешивание/посадка — ТОЛЬКО велосипедисты (не мотоциклисты):
-    //    «Спешиться» — только сидящему верхом велосипедисту; «Сесть» — только
-    //    спешенному велосипедисту.
-    if (action === 'dismount') return unit.mobility === 'bicycle' && !unit.dismounted;
-    if (action === 'remount') return !!unit.dismounted && (unit.dismountedFromMobility === 'bicycle' || unit.mobility === 'bicycle');
+    // ⚡ v13.137 (п.1): спешивание/посадка — велосипедисты И мотоциклы верхом:
+    //    «Спешиться» — только сидящему верхом; «Сесть» — только спешенному.
+    //    Обычной пехоте без такой функции опции не показываются.
+    if (action === 'dismount') return (unit.mobility === 'bicycle' || unit.mobility === 'motorcycle') && !unit.dismounted;
+    if (action === 'remount') return !!unit.dismounted && (unit.dismountedFromMobility === 'bicycle' || unit.dismountedFromMobility === 'motorcycle' || unit.mobility === 'bicycle' || unit.mobility === 'motorcycle');
     if (action === 'embark') return !unit.embarkedInBtr && !unit.hidden && unit.col != null &&
       !/БТР|танк|САУ|ДОТ|Бронеавтомобиль/i.test(String(unit.name || ''));
     if (action === 'disembark') {

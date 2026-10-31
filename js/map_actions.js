@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.136
+// ⚡ BUILD-МАРКЕР: v13.137
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -29,13 +29,15 @@ var MAP_ACTION_LOC_KEYS = ['ricochet', 'hull', 'suspension', 'turret', 'engine',
 // Описание действий: какие цели допустимы и при каких условиях кнопка видна
 var MAP_ACTION_DEFS = [
     { id: 'smallArms',       label: '🔫 Стрелковое / пулемёты', targets: 'any',      small: true,
-      show: s => !(s.name || '').includes('ДОТ') },
+      // ⚡ v13.137 (п.3): без патронов кнопка стрельбы недоступна.
+      show: s => !(s.name || '').includes('ДОТ') && (s.ammoSmall || 0) > 0 },
     { id: 'ordnance',        label: '💥 Орудия / миномёты',     targets: 'any',
       show: s => mapActionHasCrewType(s, ['at_gun', 'mortar', 'tank_gun']) },
     { id: 'vehicle',         label: '🚀 ПТО по технике',        targets: 'vehicle',
       show: s => mapActionHasCrewType(s, ['at_gun', 'tank_gun']) },
     { id: 'sniper',          label: '🎯 Снайперский выстрел',   targets: 'infantry', small: true,
-      show: s => mapActionHasSniper(s) },
+      // ⚡ v13.137 (п.3): снайперский выстрел без патронов тоже недоступен.
+      show: s => mapActionHasSniper(s) && (s.ammoSmall || 0) > 0 },
     { id: 'suppressiveFire', label: '💫 Подавить (2,5 ОД)',     targets: 'infantry', small: true,
       show: s => !s.armor && !(s.name || '').includes('ДОТ') && (s.ammoSmall || 0) > 0 },
     { id: 'grenades',        label: '💣 Гранаты (до 1 гекса)', targets: 'infantry', maxDist: 1,
@@ -419,7 +421,7 @@ function renderMapActionPanel() {
         html += `<div style="display:flex; flex-wrap:wrap; gap:4px;">`;
         const routed = !!squad.isRouting;
         const phaseLocked = typeof getTacticalActiveSide === 'function' && getTacticalActiveSide() !== 'player';
-        if (typeof isBicycleTacticalSquad === 'function' && isBicycleTacticalSquad(squad) && !squad.dismounted) {
+        if (typeof isBicycleTacticalSquad === 'function' && (isBicycleTacticalSquad(squad) || (typeof isMotorcycleTacticalSquad === 'function' && isMotorcycleTacticalSquad(squad))) && !squad.dismounted) {
             html += `<button onclick="selectSquad(${idx}); dismountBicycle(); renderMapActionPanel();" ${tacticalActionAllowed(squad, 'utility', true) ? '' : 'disabled'}>🚲 Спешиться</button>`;
         }
         if (typeof tacticalIsMeleeEngaged === 'function' && tacticalIsMeleeEngaged(squad)) {
@@ -589,7 +591,7 @@ function mapShowQuickActionMenu(idx, hexKey, clientX, clientY) {
         html += button(`attack:${def.id}`, mapActionFormatActionLabel(def, squad), disabled);
         actionCount++;
     });
-    if (typeof isBicycleTacticalSquad === 'function' && isBicycleTacticalSquad(squad) && !squad.dismounted) {
+    if (typeof isBicycleTacticalSquad === 'function' && (isBicycleTacticalSquad(squad) || (typeof isMotorcycleTacticalSquad === 'function' && isMotorcycleTacticalSquad(squad))) && !squad.dismounted) {
         html += button('dismount', '🚲 Спешиться', disableBase || meleeEngaged || !utilityAllowed);
         actionCount++;
     }

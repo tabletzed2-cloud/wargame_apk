@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.136 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.137 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -2353,7 +2353,7 @@ function fillModalTargets(attackType) {
     const isHexAreaAttack = attackType === 'grenades' || attackType === 'ordnance' || attackType === 'suppressiveFire';
     const items = [];
     enemies.forEach((e, idx) => {
-        if (!e || e.hidden || e.isDestroyed || !(e.fighters || []).some(f => f && f.hp > 0)) return;
+        if (!e || e.hidden || e.isDestroyed || e.isSurrendered || e.status === 'surrendered' || !(e.fighters || []).some(f => f && f.hp > 0)) return;
         if (attackType === 'suppressiveFire' && (/ДОТ/i.test(String(e.name || '')) || (typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(e)) || e.armor || e.isVehicle)) return;
         const pos = getBattleSquadHex(appData.map.grid, idx, true);
         if (!pos) return;
