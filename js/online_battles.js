@@ -181,6 +181,10 @@ function onlineBattleSnapshot(battle, status) {
             icon: s.icon || s.vehicleIcon || null,
             isVehicle: !!s.isVehicle,
             armor: s.armor || null,
+            isImmobilized: !!s.isImmobilized,
+            modules: s.modules ? JSON.parse(JSON.stringify(s.modules)) : null,
+            destroyed: !!s.destroyed,
+            facing: s.facing || null,
             pos: myPlaced ? (pos[i] || null) : null,
             hidden: !!s.hidden,
             camouflaged: !!s.camouflaged,
@@ -718,6 +722,7 @@ function onlineMergeOppBattle(battle, e) {
                 appliedCards: Array.isArray(cs.appliedCards) ? cs.appliedCards.slice() : [],
                 effects: cs.effects && typeof cs.effects === 'object' ? JSON.parse(JSON.stringify(cs.effects)) : {},
                 isVehicle: !!cs.isVehicle, armor: cs.armor || null, isRetreated: !!cs.isRetreated,
+                isImmobilized: !!cs.isImmobilized, modules: cs.modules ? JSON.parse(JSON.stringify(cs.modules)) : null, facing: cs.facing || null, destroyed: !!cs.destroyed,
                 status: cs.status || null, retreatReason: cs.retreatReason || null, retreatTurn: cs.retreatTurn || null,
                 currentMorale: (cs.currentMorale !== null && cs.currentMorale !== undefined) ? cs.currentMorale : 5,
                 baseMorale: Number.isFinite(Number(cs.baseMorale)) ? Number(cs.baseMorale) : 5,
@@ -748,10 +753,20 @@ function onlineMergeOppBattle(battle, e) {
             if (f.hp !== expected) { f.hp = expected; changed = true; }
             seen[i] = f.hp;
         });
-        ['hidden', 'camouflaged', 'isDestroyed', 'isSurrendered', 'isRetreated', 'isRouting', 'dismounted', 'suppressed'].forEach(k => {
+        ['hidden', 'camouflaged', 'isDestroyed', 'isSurrendered', 'isRetreated', 'isRouting', 'dismounted', 'suppressed', 'isImmobilized', 'destroyed'].forEach(k => {
             const v = !!cs[k];
             if (!!s[k] !== v) { s[k] = v; changed = true; }
         });
+        if (cs.facing && s.facing !== cs.facing) { s.facing = cs.facing; changed = true; }
+        if (cs.modules && typeof cs.modules === 'object') {
+            if (JSON.stringify(s.modules || {}) !== JSON.stringify(cs.modules)) {
+                s.modules = JSON.parse(JSON.stringify(cs.modules));
+                changed = true;
+            }
+            // башня/ходовая уничтожены => также isImmobilized/isDestroyed липкие
+            if (cs.modules.turret && cs.modules.turret.status === 'destroyed' && s.modules.turret.status !== 'destroyed') { s.modules.turret.status = 'destroyed'; changed = true; }
+            if (cs.modules.suspension && cs.modules.suspension.status === 'destroyed' && s.modules.suspension.status !== 'destroyed') { s.modules.suspension.status = 'destroyed'; changed = true; }
+        }
         if (cs.suppressed && cs.suppressedTurn !== null && cs.suppressedTurn !== undefined && Number.isFinite(Number(cs.suppressedTurn))) s.suppressedTurn = Number(cs.suppressedTurn);
         else if (!cs.suppressed) { delete s.suppressedTurn; delete s.suppressedBySide; }
         ['status', 'retreatReason', 'retreatTurn'].forEach(k => {

@@ -116,16 +116,23 @@ test('8: отряды в одном гексе обнаруживают друг
 });
 
 // ─── 9. Обнаружение на дистанции ───
-test('9: дистанция до наблюдателя даёт плюс к обнаружению (2 гекса — +2)', () => {
+test('9: близость наблюдателя повышает вероятность, но соседний гекс — не автообнаружение', () => {
     const mod = sliceFunction(HTML, 'autoTacticalDetectionMod');
-    assert.ok(/tacticalNearestObserverDistance/.test(mod), 'учёт дистанции до наблюдателя');
-    assert.ok(/dist === 2\) mod \+= 2/.test(mod), 'на дистанции 2 гекса — +2 к обнаружению');
+    assert.ok(/tacticalObserverProximity/.test(mod), 'учёт дистанции и линии видимости');
+    assert.ok(/tacticalProximityModifier/.test(mod), 'бонус за близость');
+    const prox = sliceFunction(HTML, 'tacticalProximityModifier');
+    assert.ok(/if \(d <= 1\) return 3;/.test(prox), 'соседний гекс — +3');
+    assert.ok(/if \(d === 2\) return 2;/.test(prox), 'дистанция 2 гекса — +2');
+    assert.ok(/if \(d <= 5\) return 0;/.test(prox), 'дистанция 4–5 гексов — 0');
+    const detect = sliceFunction(HTML, 'autoDetectOneSquad');
+    assert.ok(!/dist1 <= 1/.test(detect), 'соседний гекс больше не даёт автобнаружения');
+    assert.ok(/tacticalSameHexContactDetect/.test(detect), 'контакт в ОДНОМ гексе остаётся автобнаружением');
 });
 
 // ─── 10. Осветительная ракета ───
 test('10: ракета снимает ночной штраф ровно на один ход', () => {
     const mod = sliceFunction(HTML, 'autoTacticalDetectionMod');
-    assert.ok(/flareTurn ===/.test(mod), 'проверяется номер хода запуска ракеты');
+    assert.ok(/tacticalIlluminationActive\(/.test(mod), 'проверяется номер хода запуска ракеты');
     assert.ok(/flareUp/.test(mod) && /!flareUp/.test(mod), 'ночной штраф отключается, пока ракета горит');
 });
 

@@ -60,7 +60,7 @@ function placementOppositeDir(dir) {
 function placementZoneKeys(entryDir, size) {
     const N = Math.max(4, parseInt(size, 10) || (typeof TACTICAL_MAP_SIZE !== 'undefined' ? TACTICAL_MAP_SIZE : 20) || 20);
     const D = PLACEMENT_STRIP_DEPTH;
-    const arm = Math.ceil(N / 2); // длина «рукавов» угла вдоль краёв
+    const arm = Math.ceil(N / 3); // длина «рукавов» угла вдоль краёв — на треть короче (было N/2)
     const keys = [];
     for (let row = 0; row < N; row++) {
         for (let col = 0; col < N; col++) {
@@ -303,12 +303,12 @@ function placementCheckPlace(side, key, wasPlaced, squad, allowReposition) {
     const p = battle && battle.placement;
     if (!p) return null;
     if (p.phase === 'done' && wasPlaced) return null; // после размещения — как раньше (свободная перестановка)
-    // ⚡ v13.132 (п.6): в фазе размещения можно ставить ТОЛЬКО ещё не выставленные
-    //    отряды; уже стоящий на карте отряд через размещение не переставляется.
-    //    Исключения: явное перемещение (allowReposition) и доп. размещение «Велоблиц».
+    // Разрешаем перестановку уже размещённых отрядов до нажатия Finish:
+    // кликнутый отряд снимается с прежнего гекса и ставится на новый
+    // (проверка зоны ниже всё равно не даст поставить вне своей зоны).
     if (p.phase !== 'done' && wasPlaced && !allowReposition) {
         if (side === 'player' && p.bicycleBlitzReposition && placementBicycleBlitzEligible(battle, squad)) return null;
-        return '⛔ Уже размещён — в фазе размещения можно ставить только ещё не выставленные отряды.';
+        // было: return '⛔ Уже размещён ...' — теперь разрешаем reposition
     }
     if (p.phase !== 'done' && side === 'player' && p.playerReady) return '✅ Вы уже завершили размещение — переставлять отряды нельзя, ждём противника.';
     if (p.bicycleBlitzReposition && side === 'player' && !placementBicycleBlitzEligible(battle, squad)) {

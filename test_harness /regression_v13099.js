@@ -162,9 +162,14 @@ console.log('== v13.099: пункты 1–27 ==');
 
 // ─────────────────────────── п.8: обнаружение ───────────────────────────
 {
-  const hits = (HTML.match(/result >= 9/g) || []).length;
-  ok(hits >= 2, 'п.8: обнаружение — только на 9+ (найдено мест: ' + hits + ')');
-  ok(/if \(isNightTime\(\)\) bestMod -= 2;/.test(HTML), 'п.8: ночью скрытность выше (модификатор −2)');
+  ok(/result >= TACTICAL_DETECT_THRESHOLD/.test(HTML) || /result >= DETECT/.test(HTML),
+     'п.8: тактика — обнаружение на 8+');
+  ok(/result >= OP_DETECT_THRESHOLD/.test(HTML) || /result >= DETECT/.test(HTML),
+     'п.8: оперативная карта — обнаружение на 8+');
+  ok(/const OP_NOISE_THRESHOLD = 6;/.test(HTML) && /const TACTICAL_NOISE_THRESHOLD = 6;/.test(HTML),
+     'п.8: маркер «шум» — 6–7 на обеих картах');
+  ok(/mod -= closeRange \? 1 : 2;/.test(HTML), 'п.8: тактика — ночь −2, в упор −1');
+  ok(/nearestLos <= 1\) \? 1 : 2/.test(HTML), 'п.8: оперативная карта — ночь −2, в упор −1');
   ok((HTML.match(/не двигался и не стрелял — скрыт/g) || []).length >= 2, 'п.8: неподвижный и не стрелявший скрыт');
   ok(/ambushStealthBonus/.test(HTML) && /isDefending/.test(HTML), 'п.8: засада и оборона улучшают скрытность');
 }
