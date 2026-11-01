@@ -18198,24 +18198,26 @@ function autoTacticalDetectionMod(squad) {
   if (squad.armor) mod += 3;
   const armored = typeof isArmoredTacticalSquad === 'function' && isArmoredTacticalSquad(squad);
   const crouchMove = !armored && !!(appData.map && appData.map.isCrouchMode);
-  if (squad.movedThisTurn && !crouchMove && !(squad.crouchMoved && !armored)) mod += 1;
-  if (!armored && (squad.crouchMoved || (crouchMove && squad.movedThisTurn))) mod -= 1;
-  // ⚡ v13.099 (п.8): не двигался и не стрелял — обнаружить почти невозможно
-  if (!squad.movedThisTurn && !fired && !squad.firedThisTurn) mod -= 2;
   // Осветительная ракета действует на две последовательные фазы; проверяем
   // номер запуска и конца действия, чтобы старое событие не светило весь бой.
   const flareUp = !!(tacticalIlluminationActive(typeof currentTurn !== 'undefined' ? currentTurn : null));
-  // ⚡ v13.140: близость считается с учётом ЛВ и дальности обзора. Соседний
-  //    гекс — не автообнаружение, но вероятность там высокая (см. отчёт).
+  // ⚡ v13.142: близость считаем ДО штрафов за движение — от дистанции зависит,
+  //    насколько сильно мешает неподвижность (см. ниже).
   let proximity = null;
   try {
     proximity = tacticalObserverProximity(squad);
     mod += tacticalProximityModifier(proximity);
   } catch (e) {}
+  const closeRange = !!(proximity && proximity.losDist !== null && proximity.losDist <= 1);
+  // ⚡ v13.142: движение выдаёт отряд сильнее (+2 вместо +1).
+  if (squad.movedThisTurn && !crouchMove && !(squad.crouchMoved && !armored)) mod += 2;
+  if (!armored && (squad.crouchMoved || (crouchMove && squad.movedThisTurn))) mod -= 1;
+  // ⚡ v13.142: в упор неподвижность помогает слабее (−1), иначе в окопах ночью
+  //    соседний отряд не обнаруживался вообще (0 %).
+  if (!squad.movedThisTurn && !fired && !squad.firedThisTurn) mod -= closeRange ? 1 : 2;
   // ⚡ v13.099 (п.8): ночь снижает вероятность обнаружения (осветительная ракета
   //    отменяет). ⚡ v13.140: в упор (≤1 гекс, есть ЛВ) ночь мешает слабее (−1),
   //    иначе короткая дистанция полностью «съедалась» ночным штрафом.
-  const closeRange = !!(proximity && proximity.losDist !== null && proximity.losDist <= 1);
   try {
     const globalNight = (appData.modifiers || []).find(m => m && m.name === 'Ночь' && m.active);
     const nightCard = typeof getScopedActiveCardsForSquad === 'function' && getScopedActiveCardsForSquad(squad).find(c => c.name === 'Ночь');
@@ -33487,10 +33489,14 @@ function opDetectionModifier(unit) {
   const info = opNearestFoeInfo(unit);
   mod += opDetectionProximityModifier(info.nearestLos, info.nearest);
 
-  if (unit.movedThisTurn) mod += 1;
+  const closeContact = info.nearestLos !== null && info.nearestLos !== undefined && info.nearestLos <= 1;
+  // ⚡ v13.142: движение выдаёт отряд сильнее (+2 вместо +1).
+  if (unit.movedThisTurn) mod += 2;
   // Штраф за технику уже включён в getOpDetectionModifier.
   if (unit.suppressed) mod += 1;
-  if (!unit.movedThisTurn && !unit.firedThisTurn) mod -= 2;
+  // ⚡ v13.142: в упор неподвижность помогает слабее (−1), иначе в окопах ночью
+  //    соседний отряд не обнаруживался вообще.
+  if (!unit.movedThisTurn && !unit.firedThisTurn) mod -= closeContact ? 1 : 2;
   // Бонус скрытного движения доступен только пехоте; бронетехника не может
   // применять его и не получает скрытного бонуса из старых сохранений.
   if (unit.stealthMove && !opDetectionIsArmored(unit)) mod -= 1;

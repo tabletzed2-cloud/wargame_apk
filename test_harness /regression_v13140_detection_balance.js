@@ -89,26 +89,27 @@ function opDetectionHarness({ night = true, terrain = ['grass'], dist = 1, los =
 test('оперативная карта: близость — главный фактор (соседний гекс ночью в траве)', () => {
   const s = opDetectionHarness({ night: true, terrain: ['grass'], dist: 1, roll: 5 });
   const mod = s.evalCtx('opDetectionModifier(appData.campaign.opUnits[0])');
-  assertEqual(mod, 1, 'трава +1, близость +3, неподвижность −2, ночь в упор −1');
+  // трава +1, близость +3, неподвижность в упор −1, ночь в упор −1 → +2 = 50 %
+  assertEqual(mod, 2, 'трава +1, близость +3, неподвижность −1, ночь в упор −1');
   s.run("var out = opCheckUnitDetection(appData.campaign.opUnits[0], {log:false});");
-  assertEqual(s.evalCtx('out.result'), 'noise', 'd10=5 + мод 1 = 6 → шум');
+  assertEqual(s.evalCtx('out.result'), 'noise', 'd10=5 + мод 2 = 7 → шум');
 });
 
 test('оперативная карта: в упор ночью в лесу — шанс, а не гарантия', () => {
   const s = opDetectionHarness({ night: true, terrain: ['forest'], dist: 1, roll: 3 });
-  assertEqual(s.evalCtx('opDetectionModifier(appData.campaign.opUnits[0])'), -2, 'лес −2, близость +3, −2, ночь −1');
+  assertEqual(s.evalCtx('opDetectionModifier(appData.campaign.opUnits[0])'), -1, 'лес −2, близость +3, неподвижность −1, ночь −1');
   s.run("var out = opCheckUnitDetection(appData.campaign.opUnits[0], {log:false});");
-  assertEqual(s.evalCtx('out.result'), 'hidden', 'd10=3 + мод −2 = 1 → скрыт');
+  assertEqual(s.evalCtx('out.result'), 'hidden', 'd10=3 + мод −1 = 2 → скрыт');
 });
 
 test('оперативная карта: шум 6–7, ниже 6 — скрыт', () => {
-  const noise = opDetectionHarness({ night: true, terrain: ['grass'], dist: 1, roll: 6 });
+  const noise = opDetectionHarness({ night: true, terrain: ['grass'], dist: 1, roll: 5 });
   noise.run("var out = opCheckUnitDetection(appData.campaign.opUnits[0], {log:false});");
-  assertEqual(noise.evalCtx('out.result'), 'noise', 'd10=6 + мод 1 = 7 → шум');
+  assertEqual(noise.evalCtx('out.result'), 'noise', 'd10=5 + мод 2 = 7 → шум');
 
-  const hidden = opDetectionHarness({ night: true, terrain: ['grass'], dist: 1, roll: 4 });
+  const hidden = opDetectionHarness({ night: true, terrain: ['grass'], dist: 1, roll: 3 });
   hidden.run("var out = opCheckUnitDetection(appData.campaign.opUnits[0], {log:false});");
-  assertEqual(hidden.evalCtx('out.result'), 'hidden', 'd10=4 + мод 1 = 5 → скрыт');
+  assertEqual(hidden.evalCtx('out.result'), 'hidden', 'd10=3 + мод 2 = 5 → скрыт');
 });
 
 test('оперативная карта: один гекс — обнаружение без броска', () => {
@@ -175,8 +176,8 @@ test('тактика: соседний гекс не даёт автообнар
 test('тактика: соседний гекс повышает вероятность (+3)', () => {
   const s = tacticalHarness({ distance: 1, los: true, roll: 1 });
   const mod = s.evalCtx('autoTacticalDetectionMod(appData.map.enemySquads[0])');
-  // близость +3, неподвижность −2, ночь в упор −1
-  assertEqual(mod, 0, 'мод за близость с ЛВ');
+  // близость +3, неподвижность в упор −1, ночь в упор −1
+  assertEqual(mod, 1, 'мод за близость с ЛВ');
   const prox = s.evalCtx('tacticalProximityModifier({nearestDist:1, losDist:1})');
   assertEqual(prox, 3, 'таблица близости');
 });
@@ -202,7 +203,7 @@ test('тактика: в лесу ночью обнаружение в упор 
   const s = tacticalHarness({ distance: 1, los: true, roll: 10 });
   s.run("appData.map.grid['0,0'].type = 'forest'; appData.map.grid['1,0'].type = 'forest';");
   s.run("autoDetectOneSquad(appData.map.enemySquads[0], 'враг');");
-  // лес −1, близость +3, неподвижность −2, ночь −1 → −1; d10=10 → 9 → обнаружен
+  // лес −1, близость +3, неподвижность −1, ночь −1 → 0; d10=10 → 10 → обнаружен
   assert(s.evalCtx('appData.map.enemySquads[0].detected === true'), 'на высоком броске в упор в лесу обнаруживается');
 
   const low = tacticalHarness({ distance: 1, los: true, roll: 5 });
