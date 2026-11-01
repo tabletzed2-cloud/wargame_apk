@@ -16431,6 +16431,8 @@ function fireFlare() {
   currentSquad.flares--;
   createTacticalFlareEvent('player');
   log('🚀 Осветительная ракета запущена: видимость повышена на две фазы — вашу и фазу противника.');
+  // ⚡ v13.141: сразу проверяем, кого мы теперь видим в свете ракеты.
+  try { tacticalFlareRecheckDetection('player'); } catch (e) {}
   try { if (typeof redrawMap === 'function') redrawMap(); } catch (e) {}
   try { if (appData.campaign && appData.campaign.online && typeof onlinePushBattles === 'function') onlinePushBattles(true); } catch (e) {}
   saveData();
@@ -16441,6 +16443,8 @@ function enemyFlare() {
   createTacticalFlareEvent('enemy');
   appData.enemyFlareAvailable = false; // однократно
   log('🚀 Противником пущена осветительная ракета: видимость повышена на две фазы — фазу противника и вашу.');
+  // ⚡ v13.141: и противник тоже сразу перепроверяет обнаружение своих целей.
+  try { tacticalFlareRecheckDetection('enemy'); } catch (e) {}
   try { if (typeof redrawMap === 'function') redrawMap(); } catch (e) {}
   saveData();
   updateUI();
@@ -18131,12 +18135,14 @@ function tacticalObserverProximity(squad) {
 //    но вероятность там высокая; сквозь лес/высоту начисляется только звук.
 function tacticalProximityModifier(info) {
   if (!info) return 0;
+  // ⚡ v13.141: та же шкала, что и на оперативной карте — 1 гекс +3,
+  //    2 гекса +2, 3 гекса +1, 4–5 гексов 0, 6+ −2.
   const table = d => {
     if (d === null || d === undefined) return null;
-    if (d <= 1) return 7;
-    if (d === 2) return 3;
+    if (d <= 1) return 3;
+    if (d === 2) return 2;
     if (d === 3) return 1;
-    if (d === 4) return 0;
+    if (d <= 5) return 0;
     return -2;
   };
   const losMod = table(info.losDist);
@@ -18144,7 +18150,7 @@ function tacticalProximityModifier(info) {
   const out = [];
   if (losMod !== null) out.push(losMod);
   if (soundMod !== null) out.push(soundMod - 3); // звук слабее визуального контакта
-  return out.length ? Math.max(...out, -2) : 0;
+  return out.length ? Math.max(...out, -5) : 0;
 }
 // ⚡ v13.108 (п.8): отряды, стоящие в ОДНОМ гексе, видят друг друга всегда —
 //    и игрок, и противник получают отметку «обнаружен» (контакт в упор).
@@ -18392,6 +18398,66 @@ function autoTacticalDetectionForTurn(side) {
   if (side === 'enemy' || !side) {
     (appData.map && appData.map.enemySquads || []).forEach(s => autoDetectOneSquad(s, 'враг'));
   }
+}
+// ⚡ v13.141: кого из отрядов БРОСИВШАЯ ракету сторона реально видит в свете
+//    ракеты. Освещение возвращает дневную дальность обзора, поэтому ночное
+//    сокращение вдвое здесь не применяется, но линия видимости обязательна.
+function tacticalIlluminationObserversFor(flareSide) {
+  const map = appData && appData.map;
+  const list = flareSide === 'enemy' ? (map && map.enemySquads || []) : (appData && appData.squads || []);
+  return (list || []).filter(o => o && !o.isDestroyed && !o.isRetreated &&
+    o.status !== 'retreated' && o.status !== 'surrendered' && !o.isSurrendered &&
+    (o.fighters || []).some(f => f && Number(f.hp) > 0));
+}
+function tacticalSquadVisibleInIllumination(squad, observers) {
+  const map = appData && appData.map;
+  if (!squad || !map || !map.grid || !Array.isArray(observers) || !observers.length) return false;
+  const targetPos = tacticalSquadHexPosition(squad);
+  if (!targetPos) return false;
+  const sightFn = typeof tacticalHasLineOfSight === 'function' ? tacticalHasLineOfSight
+    : (typeof window !== 'undefined' ? window.tacticalHasLineOfSight : null);
+  return observers.some(observer => {
+    const observerPos = tacticalSquadHexPosition(observer);
+    if (!observerPos) return false;
+    const distance = (typeof hexGridDistance === 'function')
+      ? hexGridDistance(observerPos.col, observerPos.row, targetPos.col, targetPos.row)
+      : Math.max(Math.abs(observerPos.col - targetPos.col), Math.abs(observerPos.row - targetPos.row));
+    if (distance > Math.max(1, Number(observer.visionRange) || 6)) return false;
+    if (distance <= 1) return true;
+    if (typeof sightFn !== 'function') return true;
+    return !!sightFn({ col: observerPos.col, row: observerPos.row }, { col: targetPos.col, row: targetPos.row });
+  });
+}
+// ⚡ v13.141: немедленная повторная проверка обнаружения после пуска ракеты.
+//    Раньше ракета «включалась» только к концу фазы: игрок тратил ОД и ракету,
+//    но в свою же фазу не получал ничего, а противник в следующей фазе видел
+//    наши отряды уже без ночного штрафа. Теперь освещённые цели проверяются
+//    сразу в момент пуска.
+function tacticalFlareRecheckDetection(flareSide) {
+  const map = appData && appData.map;
+  if (!map || !map.grid) return [];
+  const side = flareSide === 'enemy' ? 'enemy' : 'player';
+  const observers = tacticalIlluminationObserversFor(side);
+  const targets = side === 'enemy' ? (appData.squads || []) : (map.enemySquads || []);
+  const label = side === 'enemy' ? 'свой' : 'враг';
+  const revealed = [];
+  targets.forEach(squad => {
+    if (!squad || squad.isDestroyed || squad.isRetreated || squad.isSurrendered ||
+        squad.status === 'retreated' || squad.status === 'surrendered') return;
+    if (!(squad.fighters || []).some(f => f && Number(f.hp) > 0)) return;
+    if (!tacticalSquadVisibleInIllumination(squad, observers)) return;
+    // Уже известные цели не перепроверяем: ракета не должна «прятать» их обратно.
+    if (squad.detected) { revealed.push(squad); return; }
+    autoDetectOneSquad(squad, label);
+    if (squad.detected) revealed.push(squad);
+  });
+  if (revealed.length) {
+    const names = revealed.map(s => `«${s.name || 'без названия'}»`).join(', ');
+    try { log(`🔍 Осветительная ракета: повторная проверка обнаружения — в свете замечены ${names}.`); } catch (e) {}
+  } else {
+    try { log('🔍 Осветительная ракета: освещённые цели повторно проверены — новых отрядов не обнаружено.'); } catch (e) {}
+  }
+  return revealed;
 }
 
 function resolveTacticalMeleesForTurn(side) {
@@ -33399,21 +33465,22 @@ function opNearestFoeInfo(unit) {
 //    максимум +2, а лес/окопы/ночь легко уводили итог в минус, поэтому отряд
 //    не обнаруживался даже в упор. Теперь соседний гекс даёт +7, двойка +4 и т.д.
 function opDetectionProximityModifier(nearestLos, nearestAny) {
+  // ⚡ v13.141: сглаженная шкала — 1 гекс +3, 2 гекса +2, 3 гекса +1,
+  //    4–5 гексов 0, 6+ −2 (было +7/+4/+2/0/−2/−4).
   const table = d => {
     if (d === null || d === undefined) return null;
-    if (d <= 1) return 7;
-    if (d === 2) return 4;
-    if (d === 3) return 2;
-    if (d === 4) return 0;
-    if (d === 5) return -2;
-    return -4;
+    if (d <= 1) return 3;
+    if (d === 2) return 2;
+    if (d === 3) return 1;
+    if (d <= 5) return 0;
+    return -2;
   };
   const losMod = table(nearestLos);
   const soundMod = table(nearestAny);
   const out = [];
   if (losMod !== null) out.push(losMod);
   if (soundMod !== null) out.push(soundMod - 3); // без ЛВ остаётся только звук
-  return out.length ? Math.max(...out, -4) : 0;
+  return out.length ? Math.max(...out, -5) : 0;
 }
 function opDetectionModifier(unit) {
   let mod = getOpDetectionModifier(unit);

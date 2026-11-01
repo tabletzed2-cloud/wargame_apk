@@ -121,8 +121,9 @@ test('9: близость наблюдателя повышает вероятн
     assert.ok(/tacticalObserverProximity/.test(mod), 'учёт дистанции и линии видимости');
     assert.ok(/tacticalProximityModifier/.test(mod), 'бонус за близость');
     const prox = sliceFunction(HTML, 'tacticalProximityModifier');
-    assert.ok(/if \(d <= 1\) return 7;/.test(prox), 'соседний гекс — +7 (высокая вероятность)');
-    assert.ok(/if \(d === 2\) return 3;/.test(prox), 'дистанция 2 гекса — +3');
+    assert.ok(/if \(d <= 1\) return 3;/.test(prox), 'соседний гекс — +3');
+    assert.ok(/if \(d === 2\) return 2;/.test(prox), 'дистанция 2 гекса — +2');
+    assert.ok(/if \(d <= 5\) return 0;/.test(prox), 'дистанция 4–5 гексов — 0');
     const detect = sliceFunction(HTML, 'autoDetectOneSquad');
     assert.ok(!/dist1 <= 1/.test(detect), 'соседний гекс больше не даёт автобнаружения');
     assert.ok(/tacticalSameHexContactDetect/.test(detect), 'контакт в ОДНОМ гексе остаётся автобнаружением');
