@@ -131,23 +131,32 @@ ok('баг1 initialDotSectorControls: секторы настраиваются,
 
 // ================= версия =================
 
-ok('APP_VERSION поднят до v13.138', () => {
+// ⚡ v13.142: проверка больше не привязана к номеру — сверяем маркеры
+//    с текущим APP_VERSION (иначе каждый релиз ломал бы этот тест).
+const CURRENT_VERSION = (function () {
   const m = /var APP_VERSION = '([^']+)'/.exec(HTML);
-  assert.ok(m, 'APP_VERSION найден');
-  assert.strictEqual(m[1], 'v13.138');
+  return m ? m[1] : null;
+})();
+const versionNumber = v => parseInt(String(v || '').replace(/^v/, '').replace('.', ''), 10) || 0;
+
+ok('APP_VERSION не ниже v13.138', () => {
+  assert.ok(CURRENT_VERSION, 'APP_VERSION найден');
+  assert.ok(versionNumber(CURRENT_VERSION) >= versionNumber('v13.138'),
+    'ожидалась версия не ниже v13.138, найдено ' + CURRENT_VERSION);
 });
 
-ok('маркеры версии синхронизированы на v13.138', () => {
+ok('маркеры версии синхронизированы с APP_VERSION', () => {
   const files = [ROOT + '/index.html', ROOT + '/js/cards.js', ROOT + '/js/data.js', ROOT + '/js/hexmaps.js',
     ROOT + '/js/map_actions.js', ROOT + '/js/online_battles.js', ROOT + '/js/operational_ui.js',
     ROOT + '/js/placement.js', ROOT + '/js/templates.js', ROOT + '/js/weapons.js',
     ROOT + '/service-worker.js', ROOT + '/manifest.json'];
   files.forEach(f => {
     const txt = fs.readFileSync(f, 'utf8');
-    assert.ok(/v13\.138/.test(txt), path.basename(f) + ' должен содержать v13.138');
+    assert.ok(txt.indexOf(CURRENT_VERSION) >= 0, path.basename(f) + ' должен содержать ' + CURRENT_VERSION);
   });
   const sw = fs.readFileSync(ROOT + '/service-worker.js', 'utf8');
-  assert.ok(/CACHE_NAME = 'wargame-v13\.138'/.test(sw), 'CACHE_NAME service-worker обновлён');
+  assert.ok(sw.indexOf("CACHE_NAME = 'wargame-" + CURRENT_VERSION + "'") >= 0,
+    'CACHE_NAME service-worker обновлён до ' + CURRENT_VERSION);
 });
 
 if (!process.exitCode) console.log('v13.138 (playtest fixes) regression: PASS (' + passed + ')');
