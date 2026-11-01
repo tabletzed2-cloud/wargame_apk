@@ -156,7 +156,7 @@ test('v13.084: ambush has stealth, recon immunity, and clears only on a valid mo
   s.run(`function isStaticOpUnit(){ return false; } function isNightTime(){ return false; }
     var detectionRolls = 0; function rollD10(){ detectionRolls++; return 10; }
     function getOpHexTypes(){ return ['grass']; }`);
-  for (const name of ['getOpDetectionModifier', 'executeAmbushOrder', 'checkOpDetection', 'executeMoveOrder']) {
+  for (const name of ['getOpDetectionModifier', 'opDetectionIsArmored', 'opCheckUnitDetection', 'executeAmbushOrder', 'checkOpDetection', 'executeMoveOrder']) {
     s.run(sliceFunction(HTML, name));
   }
   s.run(`var ambusher = {name:'Scout', type:'infantry_platoon', col:2, row:2, ap:4, canMove:true, detected:true, noiseMarker:true};
@@ -167,7 +167,8 @@ test('v13.084: ambush has stealth, recon immunity, and clears only on a valid mo
   assert.equal(s.evalCtx('ambusher.ambushStealthBonus'), 2);
   assert.equal(s.evalCtx('ambusher.ambushReconImmune'), true);
   assert.equal(s.evalCtx('ambusher.canMove'), false);
-  assert.equal(s.evalCtx("getOpDetectionModifier(ambusher)"), -2); // ambush stealth penalty
+  // открытая трава теперь +1 (раньше положительные моды местности не применялись), засада −2 → итог −1
+  assert.equal(s.evalCtx("getOpDetectionModifier(ambusher)"), -1);
   s.run('checkOpDetection();');
   assert.equal(s.evalCtx('detectionRolls'), 0, 'recon cannot roll against an immune ambush');
   s.run(`var invalidMove = {status:'active'}; executeMoveOrder(ambusher, invalidMove);`);
