@@ -137,8 +137,10 @@ test('Anarchists perform a random visible infantry shot and old saves get morale
   equal(s.evalCtx('shots[0].target'), 0, 'выбирается доступная видимая пехотная цель');
   const cards = fs.readFileSync(path.join(ROOT, 'js/cards.js'), 'utf8');
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-  assert(/name": "Анархисты"[^\\n]*moraleMod": 2/.test(cards), 'каталог обещает моральный бонус +2');
-  assert(html.includes("if (sc.name === 'Анархисты') { sc.desc = dc.desc; sc.effect = dc.effect; sc.moraleMod = Number(dc.moraleMod) || 2; }"), 'старое сохранённое значение moraleMod=0 обновляется до +2');
+  // ⚡ v13.144: шкала духа карточек переведена на 0–100 (+1 → +10), поэтому
+  //    «Анархисты» обещают +20, а старые сейвы подтягиваются к этому значению.
+  assert(/name\": \"Анархисты\"[^\\n]*moraleMod\": 20/.test(cards), 'каталог обещает моральный бонус +20');
+  assert(html.includes("if (sc.name === 'Анархисты') { sc.desc = dc.desc; sc.effect = dc.effect; sc.moraleMod = Number(dc.moraleMod) || 20; }"), 'старое сохранённое значение moraleMod=0 обновляется до +20');
 });
 
 // The updated canonical card text is copied over old saved card definitions.

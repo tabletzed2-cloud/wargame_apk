@@ -99,7 +99,8 @@ test('новые тактические отряды наследуют опер
 
 test('бонус духа карты «Geen Duibreed» одинаков в UI и боевых проверках', () => {
   const s = createSandbox(freshAppData());
-  for (const fn of ['tacticalNormalizeMoraleScale','tacticalMoraleScale','tacticalMoraleCurrent','tacticalMoraleDeltaPercent','getEffectiveMorale']) s.run(sliceFunction(HTML, fn));
+  // ⚡ v13.144 (п.11): бонусы карточек духа считаются в cardMoraleTotalForSquad — тянем и её.
+  for (const fn of ['tacticalNormalizeMoraleScale','tacticalMoraleScale','tacticalMoraleCurrent','tacticalMoraleDeltaPercent','cardMoraleTotalForSquad','getEffectiveMorale']) s.run(sliceFunction(HTML, fn));
   s.run(`var currentSquad={name:'Отряд',currentMorale:50,baseMorale:100,tacticalMoraleScaleVersion:1,tacticalMoraleLegacyScale:10,
       effects:{geenDuibreed:true},fighters:[{isCommander:true,hp:3}]};
     var morale=50; appData.squads=[currentSquad]; function getScopedActiveModifiersForSquad(){return [];}`);

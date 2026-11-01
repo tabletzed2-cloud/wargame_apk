@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.143 — tactical grenade-area fire, commissioner card limit, unified rules.
+// ⚡ BUILD-МАРКЕР: v13.145 — tactical grenade-area fire, commissioner card limit, unified rules.
 (function () {
   'use strict';
 
@@ -622,9 +622,10 @@
       target: 'Кликните по целевому гексу на карте.',
       ambush: 'Кликните по гексу, где отряд устроит засаду.',
       prep: 'Кликните по гексу, который нужно расчистить.',
-      special: 'Кликните по гексу, где отряд выполнит действие.'
+      special: 'Кликните по гексу, где отряд выполнит действие.',
+      cutpaths: 'Три смежных гекса цепочкой: крайний → средний → крайний.'
     };
-    const multi = state.mapPick === 'route' || state.mapPick === 'sector';
+    const multi = state.mapPick === 'route' || state.mapPick === 'sector' || state.mapPick === 'cutpaths';
     const count = state.draft ? ((state.draft.waypoints || []).length || (state.draft.targetHexes || []).length) : 0;
     bar.innerHTML = `<span class="op-pick-text">🗺️ ${esc(hints[state.mapPick] || 'Выберите гекс на карте.')}${multi ? ` Выбрано: ${count}.` : ''}</span>` +
       (multi ? '<button type="button" data-pick-action="done" class="op-pick-done">✅ Готово</button>' : '') +
@@ -936,7 +937,8 @@
     const map = { route: 'Кликайте по гексам по порядку; повторный клик по последней точке снимает её.',
       target: 'Кликните по целевому гексу на карте.', sector: 'Кликайте по гексам, которые нужно контролировать; повторный клик удаляет точку.',
       ambush: 'Кликните по гексу, где отряд должен устроить засаду.', prep: 'Кликните по гексу, который нужно расчистить.',
-      special: 'Кликните по гексу, где отряд выполнит действие.' };
+      special: 'Кликните по гексу, где отряд выполнит действие.',
+      cutpaths: 'Выберите 3 смежных гекса цепочкой: крайний → средний → крайний. Повторный клик снимает гекс.' };
     return `<div class="op-cmd-note">🗺️ ${map[state.mapPick] || 'Выберите гекс на карте.'}</div>`;
   }
   function enemyOptions(selectedId) {
@@ -1029,6 +1031,12 @@
       });
       return !pending;
     }
+    // ⚡ v13.145: «Перерезать пути» — отдельный приказ только пехоте.
+    if (action === 'cut_paths') {
+      if (typeof unitCanExecuteOrderType === 'function') return unitCanExecuteOrderType(unit, 'cut_paths');
+      return !(typeof isVehicleMobilityUnit === 'function' && isVehicleMobilityUnit(unit)) &&
+        !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
+    }
     if (action === 'recon') return !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
     if (action === 'dig_in' || action === 'prep_positions') return !(typeof isVehicleMobilityUnit === 'function' && isVehicleMobilityUnit(unit)) && !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
     // ⚡ v13.137 (п.1): спешивание/посадка — велосипедисты И мотоциклы верхом:
@@ -1112,7 +1120,7 @@
   function beginDraft(category, mode) {
     const picked = selectedUnit();
     if (!picked.unit || picked.id < 0) return;
-    const specialActions = ['dig_in', 'prep_positions', 'embark', 'disembark', 'dismount', 'remount', 'pour_oil'];
+    const specialActions = ['dig_in', 'prep_positions', 'cut_paths', 'embark', 'disembark', 'dismount', 'remount', 'pour_oil'];
     const firstSpecial = category === 'special'
       ? (specialActions.find(action => canIssueSpecial(picked.unit, action)) || 'dig_in') : '';
     state.draft = {
@@ -1212,6 +1220,8 @@
     } else if (draft.category === 'special') {
       const actions = [
         ['dig_in', '🕳️ Окопаться'], ['recon', '🔍 Разведка'], ['prep_positions', '🪓 Расчистка местности'],
+        // ⚡ v13.145: приказ «Перерезать пути» — 3 смежных гекса, взвод в середине
+        ['cut_paths', '✂️ Перерезать пути'],
         ['embark', '🚌 Сесть в БТР'],
         // ⚡ v13.089 (пункт 3): машине — «высадить десант», десанту — «выйти из БТР»
         ['disembark', (isBtrUnit(unit) && !unit.embarkedInBtr) ? '🚌 Высадить десант' : '🚶 Выйти из БТР'],
@@ -1248,6 +1258,18 @@
         body += `<div class="op-cmd-note">Приказ получит БТР: доедет до гекса, выпустит отряд и продолжит свои приказы. ` +
           `Высаженный отряд дальше выполняет свою серию приказов.</div>`;
         if (state.mapPick === 'special') body += mapPickHint();
+      }
+      if (draft.specialAction === 'cut_paths') {
+        // ⚡ v13.145: три смежных гекса цепочкой; взвод встаёт на средний.
+        const chosen = opDraftCutHexKeys(draft);
+        body += `<div class=\"op-cmd-note\">Выберите <b>3 смежных гекса</b> подряд (крайний → средний → крайний). ` +
+          `Взвод выдвинется на <b>средний</b> гекс, а все три станут контролируемыми противником: пройти через них нельзя. ` +
+          `Замкнутое кольцо из таких гексов вокруг врага = окружение.</div>` +
+          `<div class=\"op-cmd-note\">Выбрано: <b>${chosen.length} из 3</b>${chosen.length ? ' · ' + esc(chosen.join(' → ')) : ''}` +
+          `${chosen.length === 3 ? ` · взвод встанет на (${esc(chosen[1])})` : ''}</div>` +
+          pointPicker(chosen.length ? 'Уточнить гексы на карте' : 'Выбрать 3 гекса на карте', 'cutpaths') +
+          (chosen.length ? `<button type=\"button\" class=\"op-cmd-wide\" data-cmd=\"clear-cut-paths\">Очистить выбор</button>` : '');
+        if (state.mapPick === 'cutpaths') body += mapPickHint();
       }
       if (draft.specialAction === 'pour_oil') {
         body += `<div class="op-cmd-note">После выполнения приказа откройте редактор местности и отметьте любые три клетки тактической карты. До срабатывания метки видны только вашему игроку; противник может свободно пройти по ним.</div>`;
@@ -1438,6 +1460,50 @@
     else if (field === 'shellMinutes') draft.shellMinutes = (typeof normalizeShellMinutes === 'function') ? normalizeShellMinutes(value) : 10;
     else if (field === 'duration') draft.duration = Math.max(20, Math.min(50, Math.ceil((Number(value) || 20) / 10) * 10));
   }
+  // ⚡ v13.145: «Перерезать пути» — выбранные гексы черновика в виде ключей.
+  function opDraftCutHexKeys(draft) {
+    if (!draft) return [];
+    return (Array.isArray(draft.targetHexes) ? draft.targetHexes : []).map(entry => {
+      if (entry && typeof entry === 'object') return `${Number(entry.col)},${Number(entry.row)}`;
+      return String(entry || '');
+    }).filter(key => /^-?\d+,-?\d+$/.test(key));
+  }
+  function opDraftCutSetHexes(draft, keys) {
+    if (!draft) return;
+    draft.targetHexes = keys.map(key => {
+      const [col, row] = String(key).split(',').map(Number);
+      return { col, row };
+    });
+    draft.cutPathHexes = draft.targetHexes.map(entry => `${entry.col},${entry.row}`);
+  }
+  // Цепочка должна быть смежной: новый гекс примыкает к краю цепочки
+  // (крайний → средний → крайний), повторный клик по гексу убирает его.
+  function opDraftCutToggleHex(draft, hex) {
+    const keys = opDraftCutHexKeys(draft);
+    const key = `${hex.col},${hex.row}`;
+    const at = keys.indexOf(key);
+    if (at >= 0) { keys.splice(at, 1); opDraftCutSetHexes(draft, keys); return { ok: true, removed: true, keys }; }
+    if (keys.length >= 3) return { ok: false, reason: 'Выбрано уже три гекса — сначала снимите один из них.', keys };
+    if (!keys.length) { keys.push(key); opDraftCutSetHexes(draft, keys); return { ok: true, keys }; }
+    const adjacent = (a, b) => {
+      const [ac, ar] = a.split(',').map(Number), [bc, br] = b.split(',').map(Number);
+      return (typeof getOpHexDistance === 'function')
+        ? getOpHexDistance(ac, ar, bc, br) === 1
+        : (Math.abs(ac - bc) + Math.abs(ar - br) === 1);
+    };
+    const edge = keys.length === 1 ? [keys[0]] : [keys[0], keys[keys.length - 1]];
+    if (!edge.some(item => adjacent(item, key))) {
+      return { ok: false, reason: 'Гекс должен примыкать к краю цепочки (крайний → средний → крайний).', keys };
+    }
+    keys.push(key);
+    // Средний гекс цепочки должен быть смежным к обоим крайним.
+    if (keys.length === 3 && !(adjacent(keys[0], keys[1]) && adjacent(keys[1], keys[2]))) {
+      return { ok: false, reason: 'Тройка не складывается в цепочку — взвод должен стоять между крайними гексами.', keys: opDraftCutHexKeys(draft) };
+    }
+    opDraftCutSetHexes(draft, keys);
+    return { ok: true, keys };
+  }
+
   function startMapPick(kind) {
     if (!state.draft) return;
     state.mapPick = kind;
@@ -1449,6 +1515,11 @@
       if (typeof isPlanningRoute !== 'undefined') isPlanningRoute = true;
     }
     if (kind === 'sector') state.draft.targetHexes = state.draft.targetHexes || [];
+    // ⚡ v13.145: приказ «Перерезать пути» — ровно 3 смежных гекса
+    if (kind === 'cutpaths') {
+      state.draft.targetHexes = state.draft.targetHexes || [];
+      setMapMessage('✂️ Выберите 3 смежных гекса: крайний → средний → крайний.', '#f1c40f');
+    }
     renderCommandMenu();
     setMapMessage(kind === 'route' ? '🗺️ Добавляйте маршрутные гексы кликами по карте.' : '🗺️ Выберите целевой гекс на карте.', '#f1c40f');
   }
@@ -1494,6 +1565,21 @@
       const at = hexes.findIndex(p => p.col === hex.col && p.row === hex.row);
       if (at >= 0) hexes.splice(at, 1); else hexes.push(hex);
       setMapMessage(`🧭 Гексов под контролем: ${hexes.length}.`, '#f1c40f');
+    } else if (state.mapPick === 'cutpaths') {
+      // ⚡ v13.145: три смежных гекса; взвод встанет на средний
+      const result = opDraftCutToggleHex(draft, hex);
+      const keys = result.keys || [];
+      if (!result.ok) {
+        state.error = result.reason || 'Этот гекс не подходит.';
+        setMapMessage(`✂️ ${state.error}`, '#e67e22');
+      } else if (keys.length === 3) {
+        draft.targetHex = keys[1];
+        state.mapPick = null;
+        setMapMessage(`✂️ Готово: ${keys.join(' → ')}. Взвод встанет на (${keys[1]}).`, '#27ae60');
+      } else {
+        state.error = '';
+        setMapMessage(`✂️ Выбрано гексов: ${keys.length} из 3${keys.length ? ' · ' + keys.join(' → ') : ''}.`, '#f1c40f');
+      }
     } else {
       draft.targetHex = key;
       state.mapPick = null;
@@ -1621,6 +1707,29 @@
         // ⚡ v13.087: гекс выполнения выбирается на карте; по умолчанию — текущий
         options.targetHex = draft.targetHex || unitHexKey(unit) || null;
         if (!options.targetHex) throw new Error('Не удалось определить гекс для действия.');
+      }
+      if (type === 'cut_paths') {
+        // ⚡ v13.145: ровно три смежных гекса, взвод — на среднем
+        const keys = opDraftCutHexKeys(draft);
+        if (keys.length !== 3) throw new Error('Выберите три смежных гекса для перерезания путей.');
+        if (new Set(keys).size !== 3) throw new Error('Гексы не должны повторяться.');
+        const adjacent = (a, b) => {
+          const [ac, ar] = a.split(',').map(Number), [bc, br] = b.split(',').map(Number);
+          return (typeof getOpHexDistance === 'function')
+            ? getOpHexDistance(ac, ar, bc, br) === 1
+            : (Math.abs(ac - bc) + Math.abs(ar - br) === 1);
+        };
+        if (!(adjacent(keys[0], keys[1]) && adjacent(keys[1], keys[2]))) {
+          throw new Error('Гексы должны идти цепочкой: средний примыкает к обоим крайним.');
+        }
+        if (typeof isHexInPlayableArea === 'function' && keys.some(key => {
+          const [col, row] = key.split(',').map(Number);
+          return !isHexInPlayableArea(campaign() && campaign().scenario, col, row);
+        })) throw new Error('Один из гексов вне игрового поля.');
+        options.targetHexes = keys.slice();
+        options.cutPathsMiddle = keys[1];
+        options.targetHex = keys[1];
+        type = 'cut_paths';
       }
       if (type === 'disembark') {
         // ⚡ v13.088 (пункт 3): гекс высадки; по умолчанию — гекс машины
@@ -1938,6 +2047,10 @@
   function appendToPendingEmbark(unit, type, options) {
     const order = pendingEmbarkOrder(unit);
     if (!order) return null;
+    // ⚡ v13.145 (п.2): серия собирается только из приказов ОДНОГО хода.
+    //    Приказ, отданный в следующем ходу, идёт отдельным посыльным и
+    //    исполняется после предыдущего (барьер operationalOrderWaitsForPredecessor).
+    if (Number(order.turnIssued) !== Number(campaign().currentTurn || 1)) return null;
     if (!Array.isArray(order.series) || !order.series.length) {
       const firstType = order.type === 'company_order' ? order.orderType : order.type;
       order.series = [seriesStep(firstType, { ...order })];
@@ -2064,6 +2177,14 @@
       return;
     }
     if (action === 'pick-map') { startMapPick(button.getAttribute('data-pick')); return; }
+    // ⚡ v13.145: сброс выбранных гексов для «Перерезать пути»
+    if (action === 'clear-cut-paths') {
+      if (state.draft) { state.draft.targetHexes = []; state.draft.targetHex = ''; state.draft.cutPathHexes = []; }
+      state.error = '';
+      renderCommandMenu();
+      try { if (typeof redrawOperationalMap === 'function') redrawOperationalMap(); } catch (e) {}
+      return;
+    }
     if (action === 'select-passenger') {
       const pid = Number(button.getAttribute('data-id'));
       const passenger = units()[pid];

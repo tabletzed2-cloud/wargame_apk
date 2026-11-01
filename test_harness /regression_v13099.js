@@ -600,8 +600,12 @@ console.log('== v13.099: пункты 1–27 ==');
      'п.30: разворот выставляет курс и списывает 1 ОД');
   ok(/action === 'turn'\)[\s\S]{0,160}return 2;/.test(sliceOf('getActionCost')),
      'п.30: getActionCost для разворота — 2 полу-ОД');
-  ok(/vehicleIsArmored\(squad\)[\s\S]{0,200}vehicleSetFacing\(squad, moveDir\)/.test(sliceOf('tacticalMoveAlongPath')),
-     'п.30: движение задаёт курс бесплатно');
+  // ⚡ v13.144 (п.5): доворот вынесен в tacticalUpdateVehicleFacingOnMove — её и
+  //    проверяем: вызов на каждом шаге движения и бесплатный поворот внутри.
+  ok(/tacticalUpdateVehicleFacingOnMove\(squad, fromKey, nextKey\)/.test(sliceOf('tacticalMoveAlongPath')),
+     'п.30: движение задаёт курс бесплатно (вызов доворота на каждом шаге)');
+  ok(/vehicleIsArmored\(squad\)[\s\S]{0,400}vehicleSetFacing\(squad, moveDir\)/.test(sliceOf('tacticalUpdateVehicleFacingOnMove')),
+     'п.30: доворот по курсу — без затрат ОД');
   ok(/drawTacticalVehicleSectorLines/.test(HTML) && /selectedMoveSquadIdx === squadId/.test(HTML),
      'п.30: сектора рисуются только у выбранной машины');
   ok(/tacticalVehicleWeaponCanTarget\(currentSquad, cw\.name, cw\.type, sectorTargetKey\)/.test(sliceOf('attackSmallArms')),
