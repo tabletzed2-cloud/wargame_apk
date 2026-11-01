@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.142 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.143 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1451,7 +1451,8 @@ function openHexEditorForBattle(hexKey, kind, ownerUnitName) {
             prevEnemySquads: null,
             baseGrid: md ? JSON.parse(JSON.stringify(md.grid)) : {},
             undo: [],
-            placed: 0
+            placed: 0,
+            lastCell: null   // ⚡ v13.143 (п.1): клетка для поворота/текстуры окопа
         };
         // ⚡ v13.099 (п.6/23): черновик подготовки (пока приказ не выполнен) и
         //    запись открытого гекса для подсветки на миникарте кампании
@@ -1640,14 +1641,33 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
     const draftCancelBtn = (pendingHexEditDraftActive(st.hexKey) && draftCells.length)
         ? `<button onclick="cancelPendingHexEditDraftUI()" style="background:#c0392b;">❌ Снять все отметки черновика</button>`
         : '';
+    // ⚡ v13.143 (п.1): поворот текстуры окопа — отдельный, всегда видимый блок
+    //    с подписью выбранной клетки и текущего угла. Раньше кнопка терялась
+    //    среди прочих действий, а вне режима 'hexEdit' поворот вообще не
+    //    сохранялся в overlay (клетка «крутилась» только на экране).
+    const trenchCell = (st.kind === 'trenches' && typeof hexEditSelectedTrenchCell === 'function')
+        ? hexEditSelectedTrenchCell() : null;
+    const trenchAngle = trenchCell && appData.map && appData.map.grid && appData.map.grid[trenchCell]
+        ? (Number(appData.map.grid[trenchCell].rotation) || 0) : null;
+    const rotateBlock = (st.kind === 'trenches')
+        ? `<div id="hexEditorRotateRow" style="margin-top:6px; padding:6px; background:#241a33; border:1px solid #8e44ad; border-radius:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center;">` +
+            `<b style="color:#d7a4ff;">🔄 Поворот окопа</b>` +
+            (trenchCell
+                ? `<span style="color:#f1c40f;">клетка <b>${trenchCell}</b> · угол <b>${trenchAngle}°</b></span>`
+                : `<span style="color:#bbb;">кликните по окопу, затем поверните</span>`) +
+            `<button id="hexEditorRotateLeftButton" onclick="rotateSelectedHex(-60)" ${trenchCell ? '' : 'disabled'} style="background:#8e44ad; padding:6px 12px; font-weight:700;">↺ −60°</button>` +
+            `<button id="hexEditorRotateButton" onclick="rotateSelectedHex(60)" ${trenchCell ? '' : 'disabled'} style="background:#8e44ad; padding:6px 12px; font-weight:700;">↻ +60°</button>` +
+            `<button id="hexEditorRotateResetButton" onclick="rotateSelectedHex(-999)" ${trenchCell ? '' : 'disabled'} style="background:#555;">⟲ Исходный вид</button>` +
+          `</div>`
+        : '';
     banner.innerHTML = `
       <b style="color:#2ecc71;">${st.rule.title} — гекс (${st.hexKey})</b><br>
       ${draftRow}
       <span style="color:#f1c40f; font-size:0.9rem;">Осталось правок: <b>${left}</b> (поставлено в этой сессии: ${st.placed})</span>
+      ${rotateBlock}
       <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
         <button onclick="hexEditUndo()" style="background:#8e44ad;">↩️ Отменить последнюю</button>
-        <button id="hexEditorRotateButton" onclick="rotateSelectedHex()" style="background:#8e44ad;">↻ ${st.kind === 'trenches' ? 'Повернуть окоп' : 'Повернуть выбранную клетку'} (60°)</button>
-        ${st.kind === 'trenches' ? '<button id="hexEditorTrenchTextureButton" onclick="hexEditCycleTrenchTexture()" style="background:#8e44ad;">🖼 Текстура окопа</button>' : ''}
+        ${st.kind === 'trenches' ? '<button id="hexEditorTrenchTextureButton" onclick="hexEditCycleTrenchTexture()" style="background:#8e44ad;">🖼 Сменить текстуру окопа</button>' : '<button id="hexEditorRotateButton" onclick="rotateSelectedHex()" style="background:#8e44ad;">↻ Повернуть выбранную клетку (60°)</button>'}
         ${draftCancelBtn}
         <button onclick="zoomMap(1.2)" style="background:#555;">➕</button>
         <button onclick="zoomMap(0.8)" style="background:#555;">➖</button>
@@ -1796,11 +1816,29 @@ function openHexEditorOnFortificationArrival(order, unit, kind) {
 }
 // ⚡ v13.129 (п.1): смена текстуры уже поставленного окопа (без расхода правок).
 //    Кнопка в панели редактора; работает и для черновика, и для готовых окопов.
+// ⚡ v13.143 (п.1): какая клетка редактора выбрана для текстуры/поворота.
+//    Последний клик хранится в самом редакторе (hexEditorState.lastCell), поэтому
+//    кнопки работают даже если режим карты переключили или клик пришёл в черновик.
+function hexEditSelectedTrenchCell() {
+    const st = (typeof hexEditorState !== 'undefined') ? hexEditorState : null;
+    if (!st) return null;
+    const candidates = [];
+    if (st.lastCell) candidates.push(String(st.lastCell));
+    if (appData && appData.map && appData.map.lastEditedHex) candidates.push(String(appData.map.lastEditedHex));
+    const ov = (typeof getHexOverlay === 'function') ? (getHexOverlay(st.hexKey, false) || null) : null;
+    const draft = (typeof pendingHexEditDraft === 'function') ? pendingHexEditDraft(st.hexKey) : null;
+    for (const cell of candidates) {
+        if (ov && ov.hexEdits && ov.hexEdits[cell] === 'trenches') return cell;
+        if (draft && draft.cells && draft.cells[cell] === 'trenches') return cell;
+    }
+    return null;
+}
 function hexEditCycleTrenchTexture() {
     const st = hexEditorState;
     if (!st) return;
     const infoBox = document.getElementById('mapInfo');
-    const cellKey = appData.map ? appData.map.lastEditedHex : null;
+    const cellKey = (typeof hexEditSelectedTrenchCell === 'function' ? hexEditSelectedTrenchCell() : null) ||
+        (appData.map ? appData.map.lastEditedHex : null);
     if (!cellKey) {
         if (infoBox) { infoBox.textContent = 'Сначала кликните по клетке с окопом.'; infoBox.style.color = '#f1c40f'; }
         return;
@@ -1981,6 +2019,7 @@ function hexEditClick(hexKeyCell) {
     // Запоминаем кликнутую клетку и для черновика: кнопка поворота текстуры
     // должна работать до исполнения приказа «Окопаться» так же, как после него.
     if (appData.map) appData.map.lastEditedHex = hexKeyCell;
+    st.lastCell = hexKeyCell;
     // ⚡ v13.099 (п.6): правки приказа, который ещё не выполнен, идут в черновик
     if (st.draftMode) return recordPendingHexEditClick(st, hexKeyCell);
     const ov = getHexOverlay(st.hexKey, true);

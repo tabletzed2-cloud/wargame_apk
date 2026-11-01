@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.142 — tactical grenade-area fire, commissioner card limit, unified rules.
+// ⚡ BUILD-МАРКЕР: v13.143 — tactical grenade-area fire, commissioner card limit, unified rules.
 (function () {
   'use strict';
 
@@ -1120,6 +1120,7 @@
       time: '', waypoints: [], targetHex: '', targetHexes: [],
       targetEnemyId: '', targetDistance: category === 'fire_at_will' ? operationalWeaponRange(picked.unit) : 3, escortInfantryId: '', btrUnitId: '',
       shellMinutes: 10,
+      fireOnMove: category === 'moving_fire',
       specialAction: firstSpecial
     };
     state.menuPage = 'details';
@@ -1152,7 +1153,7 @@
   }
   function renderDetails(unit, draft) {
     const head = `<div class="op-cmd-head"><div><div class="op-cmd-title">${esc(unit.name)}</div>` +
-      `<div class="op-cmd-subtitle">${draft.category === 'move' ? 'Движение' : ['specific','hex_fire','fire_at_will','armor_priority','sector_fire','ambush','artillery'].includes(draft.category) ? 'Обстрел' : 'Специальное действие'}</div></div>` +
+      `<div class="op-cmd-subtitle">${draft.category === 'move' ? 'Движение' : ['specific','hex_fire','fire_at_will','armor_priority','sector_fire','ambush','artillery','moving_fire'].includes(draft.category) ? 'Обстрел' : 'Специальное действие'}</div></div>` +
       `<button type="button" data-cmd="close" aria-label="Закрыть">×</button></div>`;
     const back = `<button type="button" data-cmd="back" class="op-cmd-back">← Назад к типам приказа</button>`;
     let body = '';
@@ -1196,6 +1197,13 @@
         [1, 2, 3, 4, 5].map(n => `<option value="${n}"${Number(draft.targetDistance) === n ? ' selected' : ''}>${n} гекс.</option>`).join('') + `</select></label>` +
         contactField(draft.behavior) + timeField(draft.time);
       if (state.mapPick === 'sector') body += mapPickHint();
+    } else if (draft.category === 'moving_fire') {
+      // ⚡ v13.143 (п.2): огонь на ходу — разрешение стрелять после движения
+      body += `<div class="op-cmd-note">Машина едет своим маршрутом (отдельный приказ «Движение») и после каждого перехода открывает огонь по <b>обнаруженным</b> целям в радиусе <b>3 гексов</b>. Точность снижена (×0.35). Приказ действует один оперативный ход.</div>` +
+        `<div class="op-cmd-note">Приоритетная цель (необязательно): <b>${esc(draft.targetHex || 'нет — ближайший обнаруженный враг')}</b></div>` +
+        pointPicker('Выбрать приоритетный гекс', 'target') +
+        contactField(draft.behavior) + timeField(draft.time);
+      if (state.mapPick === 'target') body += mapPickHint();
     } else if (draft.category === 'ambush') {
       body += `<div class="op-cmd-note">Засада даёт бонус скрытности и не раскрывается обычной разведкой; при контакте — «Игнорировать».</div>` +
         `<div class="op-cmd-note">Гекс засады: ${esc(draft.targetHex || 'не выбран')}</div>` +
@@ -1388,6 +1396,8 @@
     const hasAntiTank = typeof hasAtGunWeapons === 'function' && hasAtGunWeapons(unit);
     const canFireAtHex = (typeof isMediumArtillery === 'function' && isMediumArtillery(unit)) ||
       hasAntiTank || unit.type === 'tank_platoon' || /танк/i.test(String(unit.name || ''));
+    const canMovingFire = (typeof opUnitCanReceiveMovingFireOrder === 'function')
+      ? opUnitCanReceiveMovingFireOrder(unit) : (!!unit.armor || !!unit.isVehicle);
     host.innerHTML = `<div class="op-cmd-head"><div><div class="op-cmd-title">${esc(unit.name)}</div><div class="op-cmd-subtitle">Выберите вид огня</div></div><button type="button" data-cmd="close" aria-label="Закрыть">×</button></div>` +
       `<div class="op-cmd-buttons">` +
       `<button type="button" data-cmd="fire-kind" data-kind="specific">🎯 Конкретная цель</button>` +
@@ -1395,6 +1405,8 @@
       `<button type="button" data-cmd="fire-kind" data-kind="fire_at_will">🔥 Огонь по готовности</button>` +
       `<button type="button" data-cmd="fire-kind" data-kind="armor_priority"${hasAntiTank ? '' : ' disabled title="Доступно только отрядам с ПТО"'}>🛡️ Приоритет бронетехники для ПТ</button>` +
       `<button type="button" data-cmd="fire-kind" data-kind="sector_fire">🧭 Контролировать выбранные гексы</button>` +
+      // ⚡ v13.143 (п.2): «огонь на ходу» — только бронетехнике (танки, САУ, БТР, БА)
+      (canMovingFire ? `<button type="button" data-cmd="fire-kind" data-kind="moving_fire">🔫 Огонь на ходу (после движения)</button>` : '') +
       `<button type="button" data-cmd="fire-kind" data-kind="ambush">🥷 Засада в гексе</button>` +
       (hq ? `<button type="button" class="op-cmd-wide" data-cmd="artillery">💣 Арт. обстрел</button>` : '') +
       `</div><button type="button" class="op-cmd-back" data-cmd="back">← Назад</button>`;
@@ -1404,7 +1416,9 @@
   function startFireKind(kind) {
     const mapping = {
       specific: 'specific', hex_fire: 'hex_fire', fire_at_will: 'fire_at_will', armor_priority: 'armor_priority',
-      sector_fire: 'sector_fire', ambush: 'ambush'
+      sector_fire: 'sector_fire', ambush: 'ambush',
+      // ⚡ v13.143 (п.2): огонь на ходу
+      moving_fire: 'moving_fire'
     };
     if (!mapping[kind]) return;
     beginDraft(mapping[kind], kind);
@@ -1579,6 +1593,20 @@
       type = 'sector_fire';
       options.targetHexes = hexes.map(p => `${p.col},${p.row}`);
       options.targetHex = options.targetHexes[0];
+    } else if (draft.category === 'moving_fire') {
+      // ⚡ v13.143 (п.2): только бронетехника; приоритетный гекс необязателен
+      if (typeof opUnitCanReceiveMovingFireOrder === 'function' && !opUnitCanReceiveMovingFireOrder(unit)) {
+        throw new Error('«Огонь на ходу» доступен только бронетехнике (танки, САУ, БТР, бронеавтомобили).');
+      }
+      if (typeof canUnitShoot === 'function' && !canUnitShoot(unit)) {
+        throw new Error('У подразделения нет исправного вооружения для огня на ходу.');
+      }
+      if (draft.targetHex && !/^\d+,\d+$/.test(String(draft.targetHex))) {
+        throw new Error('Приоритетный гекс задан неверно.');
+      }
+      type = 'moving_fire';
+      options.fireOnMove = true;
+      options.targetHex = draft.targetHex ? String(draft.targetHex) : null;
     } else if (draft.category === 'ambush') {
       if (!draft.targetHex) throw new Error('Выберите гекс для засады.');
       type = 'ambush';
