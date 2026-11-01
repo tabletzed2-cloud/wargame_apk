@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.142
+// ⚡ BUILD-МАРКЕР: v13.143
 // v13.062: monotonic turn handoff; synchronize routing and melee without stale phase rollback.
 // ⚡ v13.061: sync retreat state and attacker/defender phase in online battle snapshots.
 // ============================================================
@@ -131,9 +131,12 @@ function onlineBattleSnapshot(battle, status) {
     const squads = onlineBattleMySquads(battle);
     const pos = onlineSquadPositions(onlineBattleGrid(battle), 'squadIds');
     const tacticalMap = live ? ((typeof appData !== 'undefined' && appData.map) || {}) : (battle.tacticalMap || {});
-    const snapshotTurn = live
-        ? ((typeof currentTurn !== 'undefined' && currentTurn) || battle.currentTurn || 1)
-        : (battle.currentTurn || 1);
+    // ⚡ v13.143 (п.3): номер хода в снимке не может быть меньше сохранённого в
+    //    записи боя — иначе после перезагрузки страницы оппонент получал
+    //    «откат» хода и фазы расходились.
+    const snapshotTurn = Math.max(1,
+        Number(live ? ((typeof currentTurn !== 'undefined' && currentTurn) || 0) : 0) || 0,
+        Number(battle.currentTurn) || 0);
     onlineAccumulateDmgOut(battle);
     // ⚡ v13.055 (R39#3): фаза размещения — позиции своих отрядов уходят оппоненту
     //    только после «✅ Размещение завершено» (расстановка скрыта до готовности обоих)
@@ -494,7 +497,14 @@ function onlineAcceptBattlePhase(battle, e, live) {
     const revisionFresh = Number.isInteger(revision) && revision > localRevision;
     const remoteDone = Number(e.tacticalPhasesCompleted);
     const localDone = Math.max(0, Math.floor(Number(battle.tacticalPhasesCompleted || 0)));
-    const counterFresh = Number.isFinite(remoteDone) && localDone > 0 && remoteDone >= localDone;
+    // ⚡ v13.143 (п.3): запасное условие «счётчик не меньше нашего» (>=) срабатывало
+    //    на ПОВТОРНОМ снимке той же фазы — после перезагрузки страницы клиент
+    //    заново принимал уже отыгранную фазу оппонента и ход менялся сам.
+    //    Теперь счётчик должен быть строго больше, а одна и та же фаза
+    //    (ревизия + счётчик) не принимается дважды.
+    const counterFresh = Number.isFinite(remoteDone) && remoteDone > localDone;
+    const phaseSignature = `${Number.isFinite(revision) ? revision : 'x'}:${Number.isFinite(remoteDone) ? remoteDone : 'x'}`;
+    if (battle.lastAcceptedOppPhase === phaseSignature) return false;
     if (!revisionFresh && !counterFresh) return false;
     const attackerIsPlayer = !battle.placement || battle.placement.attackerSide !== 'enemy';
     const localSide = battle.activeSide || (attackerIsPlayer ? 'player' : 'enemy');
@@ -505,6 +515,7 @@ function onlineAcceptBattlePhase(battle, e, live) {
     // Подавление наших подразделений должно сохраниться на предстоящую фазу.
     if (typeof clearTacticalSuppressionForSide === 'function') clearTacticalSuppressionForSide('enemy', battle);
     // Ревизия только растёт: откат оппонента не должен откатывать нашу.
+    battle.lastAcceptedOppPhase = phaseSignature;
     battle.phaseRevision = Math.max(revision, localRevision + 1);
     battle.activeSide = nextSide;
     battle.currentTurn = (battle.currentTurn || 1) + 1;
@@ -525,6 +536,8 @@ function onlineAcceptBattlePhase(battle, e, live) {
         appData.map.activeSide = nextSide;
         currentTurn = battle.currentTurn;
         appData.currentTurn = currentTurn;
+        // ⚡ v13.143 (п.3): в новой фазе «скрытный темп» выбирается заново
+        try { if (typeof resetTacticalMovePaceForNewPhase === 'function') resetTacticalMovePaceForNewPhase(); } catch (err) {}
         // ⚡ v13.132 (п.7): горение от фосфорных гранат — 1 ед. урона ровно в следующем ходу
         try { if (typeof applyPhosphorusBurnDamage === 'function') applyPhosphorusBurnDamage(); } catch (err) {}
         if (typeof resetAP === 'function') { try { resetAP(); } catch (err) {} }

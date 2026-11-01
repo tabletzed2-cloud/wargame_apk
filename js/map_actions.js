@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.142
+// ⚡ BUILD-МАРКЕР: v13.143
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -344,7 +344,14 @@ function renderMapActionPanel() {
 
     const pa = appData.map.pendingMapAttack;
     const binocularsPending = appData.map.pendingMapBinoculars;
-    if (binocularsPending) {
+    // ⚡ v13.143 (п.5): огнемёт — ждём клик по гексу (ввод координат убран)
+    const flamethrowerPending = appData.map.pendingFlamethrower;
+    if (flamethrowerPending) {
+        const charges = Number(squad.effects && squad.effects.flamethrower && squad.effects.flamethrower.charges) || 0;
+        html += `<div style="background:#3a1a12; border:1px solid #e67e22; border-radius:6px; padding:6px; margin-bottom:6px;">` +
+            `<b style="color:#e67e22;">🔥 Огнемёт РОКС-3</b>: кликните по гексу карты — струя накроет всех в нём (d6 2–6, урон 2). Зарядов: ${charges}.` +
+            `<div style="margin-top:6px;"><button onclick="mapCancelAction()" style="background:#555;">✖ Отмена</button></div></div>`;
+    } else if (binocularsPending) {
         html += `<div style="background:#152c38; border:1px solid #3498db; border-radius:6px; padding:6px; margin-bottom:6px;">` +
             `<b style="color:#5dade2;">🔭 Бинокль</b>: выберите гекс на карте для проверки скрытых противников.` +
             `<div style="margin-top:6px;"><button onclick="mapCancelAction()" style="background:#555;">✖ Отмена</button></div></div>`;
@@ -464,7 +471,8 @@ function renderMapActionPanel() {
             html += `<button onclick="selectSquad(${idx}); deploySmokeScreen(); renderMapActionPanel();" ${utilityDisabled} title="Карточка «Дымовые гранаты»: завеса на своём гексе (3 гранаты)">🌫️ Дымовая завеса (${Number(squad.smokeGrenades)} гр.)</button>`;
         }
         if (!squad.armor && (squad.fighters || []).some(f => f && f.hp > 0 && f.weapon === 'РОКС-3')) {
-            html += `<button onclick="selectSquad(${idx}); useFlamethrower(); renderMapActionPanel();" ${utilityDisabled} title="Карточка «Ранцевый огнемёт РОКС-3»">🔥 Огнемёт РОКС-3</button>`;
+            const flameCharges = Number(squad.effects && squad.effects.flamethrower && squad.effects.flamethrower.charges) || 0;
+            html += `<button onclick="selectSquad(${idx}); useFlamethrower(); renderMapActionPanel();" ${utilityDisabled} title="Карточка «Ранцевый огнемёт РОКС-3»: выберите гекс кликом по карте — струя накрывает всех в гексе (d6 2–6, урон 2)">🔥 Огнемёт РОКС-3 (${flameCharges})</button>`;
         }
         // Отмена всегда видна в панели боя; неактивна, пока в этой фазе нет снимка.
         html += mapUndoButtonMarkup();
@@ -770,6 +778,7 @@ function mapDeselectSquad() {
     if (!appData || !appData.map) return;
     appData.map.pendingMapAttack = null;
     appData.map.pendingMapBinoculars = null;
+    appData.map.pendingFlamethrower = null;   // ⚡ v13.143 (п.5)
     appData.map.selectedMoveSquadIdx = null;
     appData.map.reachableHexes = [];
     appData.map.reachableCosts = null;

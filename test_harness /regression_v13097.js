@@ -256,7 +256,9 @@ test('тактика: раунды 1–5 видны на общей панели
     // ⚡ v13.099 (п.9): раунд закрывается ДВУМЯ фазами, поэтому фаз = (round-1)*2
     s.run(`currentTurn=1; battle.currentTurn=currentTurn; battle.tacticalPhasesCompleted=${(round - 1) * 2}; updateTacticalRoundUI();`);
     assert.equal(s.elements.tacticalRoundLabel.textContent, `Раунд ${round}/5`);
-    assert.match(s.elements.tacticalRoundProgress.textContent, new RegExp(`${round}/5`));
+    // ⚡ v13.143 (п.7): рядом с раундом показываем, сколько раундов уже сыграно
+    //    (0/5 … 5/5), чтобы «Раунд 5/5» не читалось как «всё уже сыграно».
+    assert.match(s.elements.tacticalRoundProgress.textContent, new RegExp(`Сыграно ${round - 1}/5 раундов`));
     assert.notEqual(s.elements.tacticalRoundBar.style.display, 'none');
   }
 });
