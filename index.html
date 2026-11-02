@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.147 — операция</title>
+  <title>Боевой модуль v13.148 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -131,7 +131,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.147</h1>
+    <h1>⚔️ Боевой модуль v13.148</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -144,7 +144,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.147</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.148</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -196,7 +196,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.147 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.148 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -651,7 +651,7 @@ function safeLocalStorage(method, ...args) {
 //    без радиста и вне радиуса связи вызов недоступен); новое правило телефона:
 //    линия тянется за юнитом до 7 гексов кабеля от штаба (дальше приказ на
 //    движение не выдаётся), при смещении штаба связисты прокладывают линии заново.
-var APP_VERSION = 'v13.147';
+var APP_VERSION = 'v13.148';
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
 //    иначе при загрузке старого сохранения срабатывает TDZ.
@@ -6104,6 +6104,41 @@ function syncFactionCatalogs() {
             syncWeaponList(sf.weapons, df.weapons);
             syncWeaponList(sf.crewWeapons, df.crewWeapons);
         });
+        // ⚡ v13.148 (п.1): в общем каталоге сейва лежали КОПИИ всех карточек BeVe,
+        //    поэтому в разделе «Общие» они показывались рядом с фракционными.
+        //    Убираем копии — карточка принадлежит либо фракции, либо общему списку.
+        try {
+            const globalLib = appData.factions && appData.factions._global && appData.factions._global.cardLibrary;
+            const factionCardNames = new Set();
+            ['BeVe', 'A.I.R.F.'].forEach(faction => {
+                ((appData.factions[faction] && appData.factions[faction].cardLibrary) || []).forEach(card => {
+                    if (card && card.name) factionCardNames.add(card.name);
+                });
+            });
+            if (Array.isArray(globalLib) && factionCardNames.size > 0) {
+                appData.factions._global.cardLibrary = globalLib.filter(card => card && card.name && !factionCardNames.has(card.name));
+            }
+        } catch (e) { console.warn('prune global card dupes:', e.message); }
+        // ⚡ v13.148 (п.3–5): переработанные карточки обновляют описание и эффект
+        //    в уже существующих сейвах (текст старых карт говорит о прежних правилах).
+        try {
+            const reworkedNames = ['Geen Duibreed Terug!', 'Скоординированный заградительный огонь', 'Санитар', 'Небоевая потеря', 'Адреналин'];
+            const templates = new Map();
+            Object.keys(d.factions).forEach(faction => ((d.factions[faction] && d.factions[faction].cardLibrary) || [])
+                .forEach(card => { if (card && card.name) templates.set(card.name, card); }));
+            Object.keys(appData.factions).forEach(faction => ((appData.factions[faction] && appData.factions[faction].cardLibrary) || [])
+                .forEach(card => {
+                    if (!card || !reworkedNames.includes(card.name)) return;
+                    const fresh = templates.get(card.name);
+                    if (!fresh) return;
+                    card.desc = fresh.desc;
+                    card.effect = fresh.effect;
+                    if (fresh.moraleMod !== undefined) card.moraleMod = fresh.moraleMod;
+                    if (!card.icon && fresh.icon) card.icon = fresh.icon;
+                    if (fresh.type) card.type = fresh.type;
+                    if (fresh.informational !== undefined) card.informational = fresh.informational;
+                }));
+        } catch (e) { console.warn('refresh reworked cards:', e.message); }
         if (Array.isArray(appData.activeCards)) {
             appData.activeCards = appData.activeCards.filter(card => card && card.name !== 'Велостоянка');
             appData.activeCards.forEach(repairCardType);
@@ -12296,6 +12331,8 @@ function syncBattleLossesToCampaign(battleId) {
                 'appliedCards', 'effects', 'panzerblindeCharges', 'atRifleGrenades', 'flemishFury',
                 'flemishFuryUsed', 'crewInstances', 'thermiteCharges', 'smokeGrenades', 'flares',
                 'canCallMortar', 'adrenalineUsed', 'ammoRegenCounter', 'attackCounter',
+                // ⚡ v13.148 (п.2/п.3): рывок «Адреналина» и способность штаба — состояние боя
+                'adrenalineUsedBattleKey', 'adrenalineApPenaltyPending', 'geenDuibreedUsedBattleKey',
                 'ampulometSmoke', // ⚡ v13.109 (п.1): остаток дымовых снарядов ампуломёта
                 'solidarityWeaponIssued', 'calvinistAmmoLedger', 'operationalAmmoSavingLedger', 'dismounted', 'fixedTacticalPosition', 'cardDynamicBaseGrenades', 'embrasuresDisabled', 'cardAddedBy', 'hasInterbrigadeCard', 'canMove',
                 'facing', 'modules', 'isImmobilized', 'turnedThisTurn', // ⚡ v13.147 (п.5): курс и состояние машины
@@ -13391,11 +13428,8 @@ function tacticalEffectiveMoraleForSquad(squad) {
   }
   // penalty for destroyed squad mates in same platoon (opUnitName)
   try { if (squad && squad.opUnitName) { const platoon = (appData && appData.squads ? appData.squads : []).concat((appData && appData.map && appData.map.enemySquads ? appData.map.enemySquads : [])); const mates = platoon.filter(s=>s && s.opUnitName===squad.opUnitName && s!==squad); const destroyedMates = mates.filter(s=> s.isDestroyed || (s.fighters||[]).every(f=>!f||Number(f.hp)<=0)).length; if (destroyedMates>0) effective += tacticalMoraleDeltaPercent(squad, -destroyedMates); } } catch(e){}
-  if (squad.effects && squad.effects.geenDuibreed && (squad.fighters || []).some(f => f && f.isCommander && Number(f.hp) > 0)) {
-    const loyalty = isPlayerSquad && (appData.squads || []).some(s => (s && s.fighters || []).some(f => f && f.awards && f.awards.includes('loyalty')));
-    if (loyalty) effective -= tacticalMoraleDeltaPercent(squad, 1);
-    effective += tacticalMoraleDeltaPercent(squad, 2);
-  }
+  // ⚡ v13.148 (п.3): «Geen Duibreed Terug!» больше НЕ даёт пассивный дух — это
+  //    активная способность штаба (+20 духа всем живым отрядам, 1 раз за бой).
   return effective;
 }
 function tacticalMoraleIsSuppressed(squad) {
@@ -15273,6 +15307,8 @@ function nextTurn() {
       appData.map.pendingMapBinoculars = null;
       appData.map.pendingAmpulometSmoke = null;
       appData.map.pendingArtilleryCall = null;
+      // ⚡ v13.148 (п.2): незавершённый выбор гекса для рывка не переносится в фазу противника
+      appData.map.pendingAdrenalineDash = null;
     }
   } catch (e) {}
     // сброс флагов лечения
@@ -15295,27 +15331,11 @@ function nextTurn() {
   }
 checkNightTime();
   try { if (typeof updateOperationalTimeDisplay === 'function') updateOperationalTimeDisplay(); } catch (e) {}
-  // === Санитар (лечит случайного раненого из любого отряда) ===
-  const medics = appData.squads.flatMap(s => s.fighters.filter(f => f.isMedic && f.hp > 0));
-  if (medics.length > 0) {
-    // собираем всех раненых (hp>0 и hp<maxHp) из всех отрядов, исключая санитаров
-    const allWounded = [];
-    appData.squads.forEach(s => {
-      s.fighters.forEach(f => {
-        if (f.hp > 0 && f.hp < f.maxHp && !f.isMedic) {
-          allWounded.push({ squadName: s.name, fighter: f });
-        }
-      });
-    });
-    if (allWounded.length > 0) {
-      const target = allWounded[Math.floor(Math.random() * allWounded.length)];
-      target.fighter.hp = target.fighter.maxHp;
-      target.fighter.healedThisTurn = true;
-      // отмечаем первого живого санитара как лечившего
-      const medic = medics[0];
-      medic.healedThisTurn = true;
-      log(`Санитар вылечил ${target.fighter.name} из отряда "${target.squadName}" до полного здоровья.`);
-    }
+  // ⚡ v13.148 (п.5): санитар карточки «Санитар» лечит ОДНОГО раненого за фазу
+  //    игрока (убитых не оживляет). Раньше лечение происходило на каждой границе
+  //    хода, в том числе в фазу противника.
+  if (completedSide !== 'player') {
+    try { if (typeof tacticalMedicHealPhase === 'function') tacticalMedicHealPhase(); } catch (e) { console.warn('medic phase heal:', e); }
   }
   // Обработка возвращения бойцов
   appData.squads.forEach(s => {
@@ -15346,6 +15366,7 @@ checkNightTime();
   });
 
     // Обработка эффекта "Por la revolución!" – штраф ОД на этот ход
+  const playerPhaseStartsNow = completedSide !== 'player';
   appData.squads.forEach(s => {
     // сбрасываем предыдущее временное уменьшение
     s._tempAPReduction = 0;
@@ -15354,6 +15375,13 @@ checkNightTime();
       s.effects.porLaRevolucion.used = true;
       log(`Отряд "${s.name}" теряет 1 ОД в этом ходу (Por la revolución!)`);
       }
+    // ⚡ v13.148 (п.2): «Адреналин» — рывок был в прошлой фазе игрока, значит
+    //    теперь отряд начинает свою фазу с −2 ОД (однократно).
+    if (s.adrenalineApPenaltyPending && playerPhaseStartsNow) {
+      s._tempAPReduction = (Number(s._tempAPReduction) || 0) + (typeof ADRENALINE_AP_PENALTY !== 'undefined' ? ADRENALINE_AP_PENALTY : 4);
+      s.adrenalineApPenaltyPending = false;
+      log(`💉 «${s.name}»: последствия рывка — −2 ОД в этой фазе.`);
+    }
   });
   resetAP();
   // Эффекты «Анархистов» применяются после переключения на фазу игрока
@@ -16011,10 +16039,7 @@ currentSquad.fighters.forEach((f, index) => {
       const mod = cardMoraleTotalForSquad(currentSquad);
       const hasLoyalty = appData.squads.some(s => s.fighters.some(f => f.awards?.includes('loyalty')));
       let extraMorale = hasLoyalty ? 1 : 0;
-      if (currentSquad.effects?.geenDuibreed && currentSquad.fighters.some(f => f.isCommander && f.hp > 0)) {
-        if (hasLoyalty) extraMorale -= 1;
-        extraMorale += 2;
-      }
+      // ⚡ v13.148 (п.3): пассивного бонуса от «Geen Duibreed Terug!» больше нет.
       const eff = current + mod + tacticalMoraleDeltaPercent(currentSquad, extraMorale);
       const pct = Math.max(0, eff / base * 100);
       document.getElementById('moraleContainer').innerHTML = `<div>Дух: ${current}/${base} ${mod !== 0 ? `(эфф. ${eff.toFixed(1)})` : ''}</div><div class="morale-bar" style="width:${pct}%; background:${eff <= 0 ? '#c0392b' : eff <= base/2 ? '#f39c12' : '#27ae60'}"></div>`;
@@ -16920,10 +16945,12 @@ function renderActiveCardButtons() {
   // Подавление (⚡ v13.108 п.2: недоступно для ДОТа)
   const isDotCurrent = (typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(currentSquad)) || currentSquad.name.includes('ДОТ');
   if (!currentSquad.armor && !isDotCurrent && currentSquad.ammoSmall > 0) {
-    const suppCost = 5;
+    const suppCost = (typeof tacticalSuppressiveFireCost === 'function') ? tacticalSuppressiveFireCost(currentSquad) : 5;
     const ap = getAP(currentSquadIndex);
     const disabled = !(ap >= suppCost && !currentSquad.isRouting && !currentSquad.suppressed);
-    shootHtml += `<button id="btnSuppressiveFire" onclick="openTargetModal('suppressiveFire')" ${disabled ? 'disabled' : ''}>💫 Подавить (2,5 ОД, патр. x2)</button> `;
+    const suppLabel = (typeof tacticalOdLabel === 'function') ? tacticalOdLabel(suppCost) : '2,5 ОД';
+    const suppTitle = suppCost < 5 ? '«Скоординированный заградительный огонь»: цена снижена до 1,5 ОД' : '';
+    shootHtml += `<button id="btnSuppressiveFire" onclick="openTargetModal('suppressiveFire')" ${disabled ? 'disabled' : ''}${suppTitle ? ` title="${suppTitle}"` : ''}>💫 Подавить (${suppLabel}, патр. x2)</button> `;
   }
   // Подавление от огня остаётся ручным/временным; низкий дух считается отдельно.
   if (!isDotCurrent) {
@@ -17074,8 +17101,26 @@ function renderActiveCardButtons() {
   if (appData.fireFieldHex) {
     specialHtml += `<button onclick="useFireField()">🔥 Поджечь огненное поле (${appData.fireFieldHex})</button> `;
   }
-  if (currentSquad.adrenalineUsed !== undefined && !currentSquad.adrenalineUsed) {
-    specialHtml += `<button onclick="useAdrenaline()">💉 Адреналин (+1 ОД)</button> `;
+  // ⚡ v13.148 (п.2): «Адреналин» — рывок на 1 гекс, один раз за бой на отряд.
+  {
+    const dashPending = !!(appData.map && appData.map.pendingAdrenalineDash);
+    if (dashPending) {
+      specialHtml += `<button onclick="tacticalAdrenalineCancel('Рывок отменён.')" style="background:#555;">✖ Отменить рывок</button> `;
+    } else if (typeof tacticalAdrenalineAvailable === 'function' && tacticalAdrenalineAvailable(currentSquad)) {
+      specialHtml += `<button onclick="tacticalAdrenalineArm()" style="background:#c0392b;" title="Один раз за бой: отряд проходит на 1 гекс больше (любая проходимая местность) без затрат ОД. В следующей вашей фазе у отряда −2 ОД.">💉 Рывок (+1 гекс, затем −2 ОД)</button> `;
+    } else if (typeof tacticalAdrenalineCardActive === 'function' && tacticalAdrenalineCardActive(currentSquad) &&
+               typeof tacticalAdrenalineUsedThisBattle === 'function' && tacticalAdrenalineUsedThisBattle(currentSquad)) {
+      specialHtml += `<span style="display:inline-block; color:#8f8; font-size:0.85rem; margin-right:6px;">💉 Рывок использован в этом бою</span> `;
+    }
+  }
+  // ⚡ v13.148 (п.3): способность штаба «Geen Duibreed Terug!» — +20 духа, 1 раз за бой.
+  {
+    const geenStatus = (typeof tacticalGeenDuibreedStatus === 'function') ? tacticalGeenDuibreedStatus(currentSquad) : { ok: false };
+    if (geenStatus.ok) {
+      specialHtml += `<button onclick="tacticalGeenDuibreedUse()" style="background:#8e44ad;" title="+20 боевого духа всем живым отрядам. Один раз за бой, нужен живой командир.">🇧🇪 Geen Duibreed Terug! (+20 духа)</button> `;
+    } else if (currentSquad && currentSquad.effects && currentSquad.effects.geenDuibreed && /Штаб/i.test(String(currentSquad.name || '')) && geenStatus.reason) {
+      specialHtml += `<span style="display:inline-block; color:#e67e22; font-size:0.85rem; margin-right:6px;">🇧🇪 Geen Duibreed Terug!: ${escapeCardHtml(geenStatus.reason)}</span> `;
+    }
   }
   // Миномётный обстрел (только для штаба, если ещё не вызывался)
   if (currentSquad.canCallMortar && !currentSquad.mortarStrike && !appData.squads.some(s => s.mortarStrike)) {
@@ -17546,17 +17591,10 @@ function resolveTacticalArtilleryCalls() {
 }
 
 
+// ⚡ v13.148 (п.2): старый «Адреналин» (+1 ОД) заменён рывком на 1 гекс с
+//    последующей платой (−2 ОД в следующей фазе). См. tacticalAdrenalineArm().
 function useAdrenaline() {
-  if (!tacticalActionAllowed(currentSquad, 'utility')) return;
-  if (!currentSquad || currentSquad.adrenalineUsed) return;
-  currentSquad.adrenalineUsed = true;
-  if (!actionPoints[currentSquadIndex]) ensureAP(currentSquadIndex);
-  actionPoints[currentSquadIndex].ap = Math.min(
-    actionPoints[currentSquadIndex].maxAp,
-    actionPoints[currentSquadIndex].ap + 2
-  );
-  log('Адреналин! +1 ОД.');
-  updateUI();
+  return tacticalAdrenalineArm();
 }
 
 function toggleCrewDeploy(ciIndex) {
@@ -18108,8 +18146,12 @@ function suppressiveFire() {
   if (currentSquad.armor) { log('Техника не ведёт огонь на подавление.'); return; }
   if (currentSquad.ammoSmall <= 0) { log('Нет патронов!'); return; }
 
-  if (!spendAP(currentSquadIndex, 5)) {
-    log('Недостаточно ОД (нужно 2,5 ОД).');
+  // ⚡ v13.148 (п.4): «Скоординированный заградительный огонь» снижает цену
+  //    подавления с 2,5 ОД до 1,5 ОД у отрядов взвода.
+  const suppressiveCost = (typeof tacticalSuppressiveFireCost === 'function')
+    ? tacticalSuppressiveFireCost(currentSquad) : 5;
+  if (!spendAP(currentSquadIndex, suppressiveCost)) {
+    log(`Недостаточно ОД (нужно ${tacticalOdLabel(suppressiveCost)}).`);
     return;
   }
 
@@ -18385,11 +18427,7 @@ function resupply(type) {
   const mod = cardMoraleTotalForSquad(currentSquad);
   const hasLoyalty = appData.squads.some(s => s.fighters.some(f => f.awards?.includes('loyalty')));
   let extraMorale = hasLoyalty ? 1 : 0;
-  if (currentSquad.effects && currentSquad.effects.geenDuibreed &&
-      (currentSquad.fighters || []).some(f => f && f.isCommander && Number(f.hp) > 0)) {
-    if (hasLoyalty) extraMorale -= 1;
-    extraMorale += 2;
-  }
+  // ⚡ v13.148 (п.3): пассивного бонуса от «Geen Duibreed Terug!» больше нет.
   return base + mod + tacticalMoraleDeltaPercent(currentSquad, extraMorale);
 }
     function isInfantrySquad(s) { return s.name.includes('Пехотное отделение'); }
@@ -18867,6 +18905,9 @@ function tacticalMoveAlongPath(squadIndex, path, targetKey) {
   if (!map || !map.grid || !squad || !Array.isArray(path) || !path.length || __tacticalMovement) return false;
   const route = path.map(String);
   const freeStepKey = path.freeStepKey ? String(path.freeStepKey) : null;
+  // ⚡ v13.148 (п.2): бесплатный шаг бывает не только «собачьей упряжкой», но и
+  //    рывком по «Адреналину» — источник шага важен для учёта расходов.
+  const freeStepSource = path.freeStepSource ? String(path.freeStepSource) : 'dogSled';
   let usedFreeDogStep = false;
   const token = ++__tacticalMovementToken;
   let moved = 0;
@@ -18914,14 +18955,20 @@ function tacticalMoveAlongPath(squadIndex, path, targetKey) {
     const toHex = nextKey && map.grid[nextKey];
     if (!fromHex || !toHex || !getHexNeighbors(fromKey).includes(nextKey)) { finish(); return; }
 
-    const isFreeDogStep = !usedFreeDogStep && freeStepKey === nextKey && tacticalDogSledEligible(squad) &&
+    const isFreeAdrenalineStep = !usedFreeDogStep && freeStepKey === nextKey && freeStepSource === 'adrenaline';
+    const isFreeDogStep = !isFreeAdrenalineStep && !usedFreeDogStep && freeStepKey === nextKey &&
+      freeStepSource !== 'adrenaline' && tacticalDogSledEligible(squad) &&
       Number(squad.dogSledFreeStepUsedTurn) !== Number(currentTurn);
     const apNow = getAP(squadIndex);
-    const cost = isFreeDogStep
+    const cost = (isFreeDogStep || isFreeAdrenalineStep)
       ? getMovementCost(squad, fromKey, nextKey, !!map.isCrouchMode, Math.max(1, apNow))
       : getMovementCost(squad, fromKey, nextKey, !!map.isCrouchMode, apNow);
     let spent = false;
-    if (isFreeDogStep && Number.isFinite(cost)) {
+    if (isFreeAdrenalineStep && Number.isFinite(cost)) {
+      // рывок: шаг не стоит ОД (непроходимый гекс отсекается проверкой cost)
+      usedFreeDogStep = true;
+      spent = true;
+    } else if (isFreeDogStep && Number.isFinite(cost)) {
       usedFreeDogStep = true;
       squad.dogSledFreeStepUsedTurn = Number(currentTurn) || 1;
       spent = true;
@@ -21751,18 +21798,10 @@ function renderAwardsOverview() {
   updateUI();
 }
 
+// ⚡ v13.148 (п.2): старый «Адреналин» (+1 ОД) заменён рывком на 1 гекс с
+//    последующей платой (−2 ОД в следующей фазе). См. tacticalAdrenalineArm().
 function useAdrenaline() {
-  if (!tacticalActionAllowed(currentSquad, 'utility')) return;
-  if (!currentSquad || currentSquad.adrenalineUsed) return;
-  currentSquad.adrenalineUsed = true;
-  // добавляем 2 полу-ОД (1 ОД)
-  if (!actionPoints[currentSquadIndex]) ensureAP(currentSquadIndex);
-  actionPoints[currentSquadIndex].ap = Math.min(
-    actionPoints[currentSquadIndex].maxAp,
-    actionPoints[currentSquadIndex].ap + 2
-  );
-  log('Адреналин! +1 ОД.');
-  updateUI();
+  return tacticalAdrenalineArm();
 }
 
 function addAwardToFighter(fighterIndex) {
@@ -23065,6 +23104,253 @@ function applyBicycleBlitzToSquad(squad) {
     addAppliedCardName(squad, 'Велоблиц');
     return true;
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.148 (п.2–5): новые и переработанные карточки.
+//    • «Небоевая потеря» — один случайный отряд взвода теряет одного бойца;
+//    • «Адреналин» — рывок на 1 гекс сверх обычного (1 раз за бой на отряд),
+//      в следующей фазе игрока отряд получает −2 ОД;
+//    • «Geen Duibreed Terug!» — активная способность штаба: +20 духа всем живым
+//      отрядам своей стороны, 1 раз за бой (нужен живой командир);
+//    • «Скоординированный заградительный огонь» — «Подавить» стоит 1,5 ОД
+//      вместо 2,5 ОД;
+//    • «Санитар» — боец-медик в штабе взвода с пистолетом: лечит одного
+//      раненого в каждую фазу игрока, вне боя — до 5 раненых за оперход.
+// ═══════════════════════════════════════════════════════════════════════════
+const TACTICAL_SUPPRESSIVE_COST = 5;          // 2,5 ОД (полу-ОД)
+const TACTICAL_COORDINATED_BARRAGE_COST = 3;  // 1,5 ОД
+const ADRENALINE_AP_PENALTY = 4;              // −2 ОД в следующей фазе игрока
+const MEDIC_OPERATIONAL_HEALS = 5;            // раненых за оперативный ход
+
+// ── «Скоординированный заградительный огонь»: дешёвое подавление ──
+function tacticalHasCoordinatedBarrage(squad) {
+    if (!squad) return false;
+    if (squad.effects && squad.effects.coordinatedBarrage) return true;
+    try { return !!(typeof tacticalSquadHasCard === 'function' && tacticalSquadHasCard(squad, 'Скоординированный заградительный огонь')); }
+    catch (e) { return false; }
+}
+function tacticalSuppressiveFireCost(squad) {
+    return tacticalHasCoordinatedBarrage(squad) ? TACTICAL_COORDINATED_BARRAGE_COST : TACTICAL_SUPPRESSIVE_COST;
+}
+function tacticalOdLabel(halfAp) {
+    const value = Math.max(0, Number(halfAp) || 0) / 2;
+    return String(value).replace('.', ',') + ' ОД';
+}
+
+// ── «Адреналин»: рывок на 1 гекс ──
+function tacticalAdrenalineBattleKey() {
+    return (typeof tacticalMoraleBattleKey === 'function') ? tacticalMoraleBattleKey() : 'battle';
+}
+function tacticalAdrenalineCardActive(squad) {
+    return !!(squad && squad.effects && squad.effects.adrenaline && squad.effects.adrenaline.active !== false);
+}
+function tacticalAdrenalineUsedThisBattle(squad) {
+    return !!(squad && String(squad.adrenalineUsedBattleKey || '') === tacticalAdrenalineBattleKey());
+}
+function tacticalAdrenalineAvailable(squad) {
+    if (!squad || squad.armor) return false;
+    if ((typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(squad)) || /ДОТ|САУ/i.test(String(squad.name || ''))) return false;
+    if (!tacticalAdrenalineCardActive(squad)) return false;
+    if (tacticalAdrenalineUsedThisBattle(squad)) return false;
+    if (squad.isDestroyed || squad.isSurrendered || squad.isRetreated) return false;
+    return (squad.fighters || []).some(f => f && Number(f.hp) > 0);
+}
+function tacticalAdrenalineArm() {
+    if (!currentSquad || !tacticalAdrenalineAvailable(currentSquad)) return;
+    if (typeof tacticalActionAllowed === 'function' && !tacticalActionAllowed(currentSquad, 'move')) return;
+    appData.map.pendingAdrenalineDash = { squadIdx: currentSquadIndex };
+    const msg = '💉 Рывок: кликните соседний гекс — отряд пройдёт его без затрат ОД (непроходимый гекс не пройти). В следующей вашей фазе у отряда −2 ОД.';
+    try { log(msg); } catch (e) {}
+    try { if (typeof mapActionInfo === 'function') mapActionInfo(msg, '#e67e22'); } catch (e) {}
+    try { renderActiveCardButtons(); } catch (e) {}
+    try { redrawMap(); } catch (e) {}
+}
+function tacticalAdrenalineCancel(message) {
+    if (appData && appData.map) appData.map.pendingAdrenalineDash = null;
+    if (message) { try { if (typeof mapActionInfo === 'function') mapActionInfo(message, '#e74c3c'); } catch (e) {} }
+    try { renderActiveCardButtons(); } catch (e) {}
+    try { redrawMap(); } catch (e) {}
+    return true;
+}
+// Клик по гексу в режиме рывка. Возвращает true — клик обработан.
+function tacticalAdrenalineDashClick(hexKey) {
+    const pending = appData && appData.map ? appData.map.pendingAdrenalineDash : null;
+    if (!pending) return false;
+    const key = String(hexKey || '');
+    const idx = Number(pending.squadIdx);
+    const squad = (appData.squads || [])[idx];
+    const info = (text, color) => {
+        const box = document.getElementById('mapInfo');
+        if (box) { box.innerHTML = text; box.style.color = color || '#f1c40f'; }
+    };
+    appData.map.pendingAdrenalineDash = null;
+    if (!squad || !tacticalAdrenalineAvailable(squad)) {
+        info('💉 Рывок отменён: отряд больше не может совершить рывок.', '#e74c3c');
+        try { redrawMap(); } catch (e) {}
+        return true;
+    }
+    if (typeof tacticalActionAllowed === 'function' && !tacticalActionAllowed(squad, 'move')) {
+        info('💉 Рывок невозможен: сейчас не ваша фаза.', '#e74c3c');
+        try { redrawMap(); } catch (e) {}
+        return true;
+    }
+    const fromKey = Array.isArray(squad.hexPos) ? squad.hexPos.join(',') : null;
+    if (!fromKey) { info('💉 Отряд не размещён на тактической карте.', '#e74c3c'); return true; }
+    if (key === fromKey) { info('💉 Выберите соседний гекс для рывка.', '#f1c40f'); return true; }
+    const neighbours = (typeof getHexNeighbors === 'function') ? (getHexNeighbors(fromKey) || []) : [];
+    if (!neighbours.includes(key)) { info('💉 Рывок — только на соседний гекс.', '#f1c40f'); return true; }
+    const passCost = (typeof getMovementCost === 'function')
+        ? getMovementCost(squad, fromKey, key, !!(appData.map && appData.map.isCrouchMode), 1)
+        : 1;
+    if (!Number.isFinite(passCost)) {
+        info('💉 Рывок невозможен: этот гекс непроходим.', '#e74c3c');
+        try { redrawMap(); } catch (e) {}
+        return true;
+    }
+    squad.adrenalineUsedBattleKey = tacticalAdrenalineBattleKey();
+    squad.adrenalineApPenaltyPending = true;
+    const path = [key];
+    path.freeStepKey = key;
+    path.freeStepSource = 'adrenaline';
+    try { log(`💉 «${squad.name}»: рывок на гекс ${key} без затрат ОД. В следующей вашей фазе отряд получит −2 ОД.`); } catch (e) {}
+    if (!tacticalMoveAlongPath(idx, path, key)) {
+        squad.adrenalineApPenaltyPending = false;
+        squad.adrenalineUsedBattleKey = '';
+        info('💉 Рывок не удался — попробуйте ещё раз.', '#e74c3c');
+    }
+    try { renderActiveCardButtons(); } catch (e) {}
+    try { redrawMap(); } catch (e) {}
+    return true;
+}
+
+// ── «Geen Duibreed Terug!»: способность штаба, 1 раз за бой ──
+function tacticalGeenDuibreedStatus(squad) {
+    if (!squad) return { ok: false };
+    if (!(squad.effects && squad.effects.geenDuibreed)) return { ok: false };
+    if (!/Штаб/i.test(String(squad.name || ''))) return { ok: false, reason: 'способность доступна только штабу взвода' };
+    if (!(squad.fighters || []).some(f => f && f.isCommander && Number(f.hp) > 0)) return { ok: false, reason: 'командир выбыл' };
+    if (String(squad.geenDuibreedUsedBattleKey || '') === tacticalAdrenalineBattleKey()) return { ok: false, reason: 'уже использовано в этом бою' };
+    return { ok: true };
+}
+function tacticalGeenDuibreedUse() {
+    if (!currentSquad) return;
+    const status = typeof tacticalGeenDuibreedStatus === 'function' ? tacticalGeenDuibreedStatus(currentSquad) : { ok: false };
+    if (!status.ok) {
+        const text = `⛔ «Geen Duibreed Terug!» недоступно: ${status.reason || 'нет условий'}.`;
+        try { log(text); } catch (e) {}
+        try { if (typeof mapActionInfo === 'function') mapActionInfo(text, '#e74c3c'); } catch (e) {}
+        return;
+    }
+    currentSquad.geenDuibreedUsedBattleKey = tacticalAdrenalineBattleKey();
+    let raised = 0;
+    (appData.squads || []).forEach(squad => {
+        if (!squad || squad.isDestroyed || squad.isSurrendered || squad.isRetreated || squad.hidden) return;
+        if (!(squad.fighters || []).some(f => f && Number(f.hp) > 0)) return;
+        const scale = (typeof tacticalMoraleScale === 'function') ? (tacticalMoraleScale(squad) || 100) : 100;
+        const now = (typeof tacticalMoraleCurrent === 'function') ? tacticalMoraleCurrent(squad) : (Number(squad.currentMorale) || 0);
+        squad.currentMorale = Math.max(0, Math.min(scale, now + 20));
+        if (typeof currentSquad !== 'undefined' && currentSquad === squad) morale = squad.currentMorale;
+        raised++;
+    });
+    try { log(`🇧🇪 «Geen Duibreed Terug!»: +20 боевого духа ${raised} отряд(ам) — один раз за бой.`); } catch (e) {}
+    try { if (typeof mapActionInfo === 'function') mapActionInfo(`🇧🇪 Geen Duibreed Terug!: +20 духа всем живым отрядам (${raised}).`, '#27ae60'); } catch (e) {}
+    try { saveData(); } catch (e) {}
+    try { updateUI(); } catch (e) {}
+    try { redrawMap(); } catch (e) {}
+}
+
+// ── «Санитар»: боец-медик в штабе взвода ──
+function cardMedicPistolName(faction) {
+    let list = [];
+    try { list = (typeof getFactionWeapons === 'function') ? (getFactionWeapons(faction) || []) : []; } catch (e) { list = []; }
+    const pistol = list.find(w => w && /Пистолет|pistol/i.test(String(w.name || '')));
+    return pistol ? pistol.name : '';
+}
+function squadHasMedicFighter(squad) {
+    return !!(squad && (squad.fighters || []).some(f => f && f.isMedic));
+}
+function addCardMedicToSquad(squad, cardName) {
+    if (!squad) return false;
+    if (squadHasMedicFighter(squad)) return false;
+    if (!Array.isArray(squad.fighters)) squad.fighters = [];
+    squad.fighters.push({
+        name: 'Санитар',
+        weapon: cardMedicPistolName(squad.faction),
+        hp: 3, maxHp: 3,
+        isCommander: false,
+        isMedic: true,
+        isCardMedic: true
+    });
+    if (cardName && typeof addAppliedCardName === 'function') addAppliedCardName(squad, cardName);
+    return true;
+}
+// Один раненый боец за фазу игрока (убитых не оживляет).
+function tacticalMedicHealPhase() {
+    const squads = (appData && appData.squads) || [];
+    let healed = 0;
+    squads.forEach(squad => {
+        if (!squad || squad.isDestroyed || squad.isSurrendered || squad.isRetreated) return;
+        const medic = (squad.fighters || []).find(f => f && f.isMedic && Number(f.hp) > 0);
+        if (!medic) return;
+        const own = squad.opUnitName ? squads.filter(s => s && s.opUnitName === squad.opUnitName) : squads;
+        const pool = [];
+        (own.length ? own : squads).forEach(mate => (mate.fighters || []).forEach(fighter => {
+            if (!fighter || fighter.isMedic) return;
+            const hp = Number(fighter.hp) || 0;
+            const maxHp = Number(fighter.maxHp) || hp;
+            if (hp <= 0 || hp >= maxHp) return;
+            pool.push({ squad: mate, fighter });
+        }));
+        if (!pool.length) return;
+        const pick = pool[Math.floor(Math.random() * pool.length)];
+        const maxHp = Number(pick.fighter.maxHp) || Number(pick.fighter.hp) || 1;
+        pick.fighter.hp = Math.max(Number(pick.fighter.hp) || 0, maxHp);
+        pick.fighter.healedThisTurn = true;
+        medic.healedThisTurn = true;
+        healed++;
+        try {
+            log(`🚑 Санитар «${squad.name}» перевязал ${pick.fighter.name} («${pick.squad.name}»): ${pick.fighter.hp}/${maxHp} HP.`);
+        } catch (e) {}
+    });
+    return healed;
+}
+// Вне тактического боя: до 5 раненых на взвод за оперативный ход.
+function operationalMedicHeal() {
+    const camp = appData && appData.campaign;
+    if (!camp) return 0;
+    let healed = 0;
+    (camp.opUnits || []).forEach(unit => {
+        if (!unit || unit.isDestroyed || unit.isSurrendered) return;
+        const squads = unit.squads || [];
+        const hasMedic = squads.some(s => s && (s.fighters || []).some(f => f && f.isMedic && Number(f.hp) > 0));
+        if (!hasMedic) return;
+        if (unit.isInBattle) return; // в бою действует фазовое правило
+        const wounded = [];
+        squads.forEach(sq => (sq.fighters || []).forEach(fighter => {
+            if (!fighter || fighter.isMedic) return;
+            const hp = Number(fighter.hp) || 0;
+            const maxHp = Number(fighter.maxHp) || hp;
+            if (hp <= 0 || hp >= maxHp) return;
+            wounded.push(fighter);
+        }));
+        if (!wounded.length) return;
+        for (let i = wounded.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [wounded[i], wounded[j]] = [wounded[j], wounded[i]];
+        }
+        const take = wounded.slice(0, MEDIC_OPERATIONAL_HEALS);
+        take.forEach(fighter => {
+            const maxHp = Number(fighter.maxHp) || Number(fighter.hp) || 1;
+            fighter.hp = Math.max(Number(fighter.hp) || 0, maxHp);
+            healed++;
+        });
+        try {
+            log(`🚑 Санитар взвода «${unit.name}»: перевязано ${take.length} раненых за оперативный ход.`);
+        } catch (e) {}
+    });
+    if (healed) { try { saveData(); } catch (e) {} }
+    return healed;
+}
+
 function applyCardToPlatoon(card, faction, unit, squads, targetNames, options) {
     if (!card || !unit) return;
     options = options || {};
@@ -23117,8 +23403,27 @@ function applyCardToPlatoon(card, faction, unit, squads, targetNames, options) {
     } else if (card.name === 'Кальвинистская бережливость') {
         living.filter(s => s.faction === 'BeVe' && (s.subfaction === 'dutch' || !s.subfaction)).forEach(s => { s.effects = s.effects || {}; s.effects.calvinistAmmoSaving = true; addAppliedCardName(s, card.name); });
     } else if (card.name === 'Geen Duibreed Terug!') {
-        living.filter(s => s.faction === 'BeVe').forEach(s => { s.effects = s.effects || {}; s.effects.geenDuibreed = true; s.canMove = false; });
+        // ⚡ v13.148 (п.3): карточка больше не даёт пассивный дух и НЕ запрещает
+        //    движение. Она включает активную способность штаба взвода: «+20 духа
+        //    всем живым отрядам, один раз за бой» (кнопка у штаба).
+        living.filter(s => s.faction === 'BeVe').forEach(s => {
+            s.effects = s.effects || {};
+            s.effects.geenDuibreed = true;
+            delete s.canMove;
+            if (/Штаб/i.test(String(s.name || ''))) delete s.geenDuibreedUsedBattleKey;
+        });
         living.forEach(s => assignUniqueCrewKeys(s));
+        log('🇧🇪 «Geen Duibreed Terug!»: у штаба взвода появилась способность «+20 духа всем живым отрядам, 1 раз за бой».');
+    } else if (card.name === 'Санитар') {
+        // ⚡ v13.148 (п.5): санитар придаётся штабу взвода и остаётся с ним.
+        const hq = (hasExplicitTargets ? targeted : living).find(s => /Штаб/i.test(String(s.name || ''))) || null;
+        if (hq && addCardMedicToSquad(hq, card.name)) {
+            const recordEq = (unit.squads || []).find(s => s && s.name === hq.name);
+            if (recordEq) addCardMedicToSquad(recordEq, card.name);
+            log(`🚑 «${hq.name}»: в штаб взвода придан санитар с пистолетом.`);
+        } else if (!hq) {
+            log(`⚠️ Карта «${card.name}»: в составе взвода «${unit.name}» нет штаба — санитару некуда встать.`);
+        }
     } else if (card.name === 'Por la revolución!') {
         living.filter(s => s.faction === 'A.I.R.F.' && /Стрелковое|Штурмовое|Саперное|Штаб/.test(s.name || '')).forEach(s => {
             s.effects = s.effects || {}; s.effects.porLaRevolucion = { active: true, used: false };
@@ -23150,6 +23455,7 @@ function applyCardToPlatoon(card, faction, unit, squads, targetNames, options) {
         log(`Пачамама: +1 укрытие для ${targets.map(s=>s.name).join(', ')} на 1 бой`);
     } else if (card.name === 'Скоординированный заградительный огонь') {
         living.forEach(s => { s.effects = s.effects || {}; s.effects.coordinatedBarrage = true; });
+        log('💫 «Скоординированный заградительный огонь»: «Подавить» стоит 1,5 ОД вместо 2,5 ОД у всех отрядов взвода.');
     } else if (card.name === 'Упрямство') {
         targeted.forEach(s => {
             s.effects = s.effects || {};
@@ -23253,21 +23559,29 @@ function applyCardToPlatoon(card, faction, unit, squads, targetNames, options) {
     } else if (card.name === 'Ящик с патронами') {
         if (options.initial) living.forEach(s => { s.ammoSmall = (Number(s.ammoSmall) || 0) + 40; });
     } else if (card.name === 'Небоевая потеря') {
+        // ⚡ v13.148 (п.2): ровно один случайный отряд взвода теряет одного бойца.
         if (options.initial) {
-            const pool = living.slice().sort(() => Math.random() - 0.5);
-            const count = pool.length <= 6 ? 1 : 2;
-            pool.slice(0, count).forEach(s => {
-                const alive = s.fighters.filter(f => f.hp > 0);
-                if (!alive.length) return;
-                const victim = alive[Math.floor(Math.random() * alive.length)];
-                victim.hp = Math.max(0, victim.hp - 3);
-                if (victim.hp === 0) handleFighterDeath(s);
-            });
+            const pool = living.filter(s => (s.fighters || []).some(f => f && Number(f.hp) > 0));
+            if (pool.length) {
+                const squad = pool[Math.floor(Math.random() * pool.length)];
+                const alive = (squad.fighters || []).filter(f => f && Number(f.hp) > 0);
+                if (alive.length) {
+                    const victim = alive[Math.floor(Math.random() * alive.length)];
+                    victim.hp = 0;
+                    log(`⚰️ Небоевая потеря: ${victim.name} («${squad.name}») выбыл из строя вне боя.`);
+                    try { if (typeof handleFighterDeath === 'function') handleFighterDeath(squad); } catch (e) {}
+                }
+            }
         }
     } else if (card.name === 'Фламандская Фурия') {
         living.forEach(s => { s.flemishFury = true; s.flemishFuryUsed = false; });
     } else if (card.name === 'Адреналин') {
-        living.forEach(s => { s.adrenalineUsed = false; });
+        // ⚡ v13.148 (п.2): рывок на 1 гекс, 1 раз за бой на отряд.
+        living.forEach(s => {
+            s.effects = s.effects || {};
+            s.effects.adrenaline = { active: true };
+        });
+        log('💉 «Адреналин»: у каждого отряда взвода есть один рывок на 1 гекс за бой (в следующей фазе −2 ОД).');
     } else if (card.name === 'Огненное поле' || card.name === 'Талреп-якорь' || card.name === 'Собачья упряжка' || card.name === 'Велоблиц' || card.name === 'Скоординированный заградительный огонь' || card.name === 'Упрямство' || card.name === 'Бюрократия' || card.name === 'Taalkwetie (Языковой вопрос)' || card.name === 'Торговый дух' || card.name === 'Горное пончо' || card.name === 'Мародёрство' || card.name === 'Длинное дыхание') {
         // Информационные/условные эффекты отмечаются в карточном ряду и остаются у взвода.
     }
@@ -23836,7 +24150,10 @@ function activateSelectedCards() {
       saveData(); updateUI(); return;
     }
     // v13.062: identical scope in standalone and campaign card entry points.
-    if (['Индивидуальный перевязочный пакет', 'Интербригада', 'Оружие солидарности'].includes(card.name)) {
+    // ⚡ v13.148: «Адреналин», «Небоевая потеря» и «Санитар» используют тот же
+    //    механизм выдачи взводу, что и остальные карточки с эффектом на отряды.
+    if (['Индивидуальный перевязочный пакет', 'Интербригада', 'Оружие солидарности',
+         'Адреналин', 'Небоевая потеря', 'Санитар', 'Скоординированный заградительный огонь'].includes(card.name)) {
       const owner = currentSquad && currentSquad.opUnitName;
       const squads = appData.squads.filter(s => !s.hidden && (!owner || s.opUnitName === owner));
       const unit = owner ? getOpUnitByName(owner) : (appData.standaloneCardUnit || (appData.standaloneCardUnit = { name: 'Одиночный бой' }));
@@ -23979,13 +24296,14 @@ function activateSelectedCards() {
           if (s.faction === 'BeVe') {
             if (!s.effects) s.effects = {};
             s.effects.geenDuibreed = true;
-            s.canMove = false;
+            delete s.canMove;
+            if (/Штаб/i.test(String(s.name || ''))) delete s.geenDuibreedUsedBattleKey;
             if (!s.appliedCards) s.appliedCards = [];
             s.appliedCards.push(card.name);
           }
         });
         appData.squads.forEach(s => assignUniqueCrewKeys(s));
-        log('Все отряды BeVe получают +2 духу и не могут перемещаться до конца боя.');
+        log('«Geen Duibreed Terug!»: у штаба взвода появилась способность «+20 духа всем живым отрядам, 1 раз за бой».');
         break;
       }
 
@@ -24341,39 +24659,29 @@ case 'Оружие солидарности': {
       }
 
       case 'Небоевая потеря': {
-        const targets = appData.squads.filter(s => !s.hidden).sort(() => Math.random() - 0.5);
+        // ⚡ v13.148 (п.2): ровно один случайный отряд взвода теряет одного бойца.
+        const targets = appData.squads.filter(s => !s.hidden && (s.fighters || []).some(f => f && Number(f.hp) > 0));
         if (targets.length === 0) break;
-        if (targets.length <= 6) {
-          const sq = targets[0];
-          const alive = sq.fighters.filter(f => f.hp > 0);
-          if (alive.length > 0) {
-            const victim = alive[Math.floor(Math.random() * alive.length)];
-            victim.hp = Math.max(0, victim.hp - 3);
-            log(`${victim.name} из отряда "${sq.name}" получил 3 урона (небоевая потеря).`);
-            if (victim.hp === 0) handleFighterDeath(sq);
-          }
-        } else {
-          for (let i = 0; i < 2; i++) {
-            const sq = targets[i];
-            const alive = sq.fighters.filter(f => f.hp > 0);
-            if (alive.length > 0) {
-              const victim = alive[Math.floor(Math.random() * alive.length)];
-              victim.hp = Math.max(0, victim.hp - 3);
-              log(`${victim.name} из отряда "${sq.name}" получил 3 урона (небоевая потеря).`);
-              if (victim.hp === 0) handleFighterDeath(sq);
-            }
-          }
+        const sq = targets[Math.floor(Math.random() * targets.length)];
+        const alive = (sq.fighters || []).filter(f => f && Number(f.hp) > 0);
+        if (alive.length) {
+          const victim = alive[Math.floor(Math.random() * alive.length)];
+          victim.hp = 0;
+          log(`⚰️ Небоевая потеря: ${victim.name} («${sq.name}») выбыл из строя вне боя.`);
+          if (typeof handleFighterDeath === 'function') handleFighterDeath(sq);
         }
         break;
       }
 
       case 'Адреналин':
+        // ⚡ v13.148 (п.2): рывок на 1 гекс, один раз за бой на отряд.
         appData.squads.filter(s => !s.hidden).forEach(s => {
-          s.adrenalineUsed = false;
+          s.effects = s.effects || {};
+          s.effects.adrenaline = { active: true };
           if (!s.appliedCards) s.appliedCards = [];
           s.appliedCards.push(card.name);
         });
-        log('Все отряды получили возможность использовать «Адреналин» (одноразово +1 ОД).');
+        log('Все отряды получили «Адреналин»: один рывок на 1 гекс за бой (в следующей фазе −2 ОД).');
         break;
 
       case 'Плохой порох':
@@ -24418,24 +24726,22 @@ case 'Оружие солидарности': {
         break;
 
       case 'Санитар': {
-        const hqs = appData.squads.filter(s => s.name.includes('Штаб') && !s.hidden);
+        // ⚡ v13.148 (п.5): санитар вооружён пистолетом и лечит по правилам карточки.
+        const hqs = appData.squads.filter(s => /Штаб/i.test(s.name || '') && !s.hidden);
         if (hqs.length === 0) { alert('Нет штаба в бою!'); return; }
-        let targetHQ;
-        if (hqs.length === 1) targetHQ = hqs[0];
-        else {
+        let targetHQ = hqs[0];
+        if (hqs.length > 1) {
           const choice = prompt('Выберите штаб для санитара:\n' + hqs.map((s,i) => `${i}: ${s.name}`).join('\n'));
-          if (!choice) return;
+          if (choice === null) return;
           const idx = parseInt(choice);
           if (isNaN(idx) || idx < 0 || idx >= hqs.length) return;
           targetHQ = hqs[idx];
         }
-        targetHQ.fighters.push({
-          name: 'Санитар', weapon: '', hp: 3, maxHp: 3,
-          isCommander: false, isMedic: true
-        });
-        if (!targetHQ.appliedCards) targetHQ.appliedCards = [];
-        targetHQ.appliedCards.push(card.name);
-        log(`В отряд "${targetHQ.name}" добавлен санитар.`);
+        if (addCardMedicToSquad(targetHQ, card.name)) {
+          log(`🚑 В отряд «${targetHQ.name}» добавлен санитар с пистолетом.`);
+        } else {
+          log('🚑 В этом штабе санитар уже есть.');
+        }
         break;
       }
 
@@ -26326,6 +26632,11 @@ function handleHexAction(key, point) {
     if (mapHexClickDuringBinoculars(key)) return;
   }
 
+  // ⚡ v13.148 (п.2): рывок по «Адреналину» — ждём клик по соседнему гексу
+  if (appData.map.pendingAdrenalineDash && typeof tacticalAdrenalineDashClick === 'function') {
+    if (tacticalAdrenalineDashClick(key)) return;
+  }
+
   // ======== ⚡ v13.054 (R39#4): ждём выбор цели для действия с карты ========
   if (appData.map.pendingMapAttack && typeof mapHexClickDuringAttack === 'function') {
     if (mapHexClickDuringAttack(key)) return;
@@ -27693,6 +28004,9 @@ function endOperationalTurn() {
     try { advanceSupplyDeliveries(); } catch (e) { console.warn('supply deliveries:', e.message); }
     try { syncSupplyRearConnection(); } catch (e) { console.warn('rear connection:', e.message); }
     try { pruneExpiredCompletedOrders(); } catch (e) { console.warn('completed order cleanup:', e.message); }
+    // ⚡ v13.148 (п.5): вне тактического боя санитар взвода лечит до 5 раненых
+    //    бойцов за один оперативный ход (убитых не оживляет).
+    try { if (typeof operationalMedicHeal === 'function') operationalMedicHeal(); } catch (e) { console.warn('medic operational heal:', e.message); }
     try { updateCampaignObjectives(true); } catch (e) { console.warn('campaign objectives:', e.message); }
     if (resumePausedCampaignBattlesAfterOrders(appData.campaign.currentTurn, true)) {
         log('▶️ Оперативные приказы выполнены — приостановленные тактические бои снова доступны.');

@@ -147,7 +147,8 @@ test('Anarchists perform a random visible infantry shot and old saves get morale
 test('Veloblitz description is updated in both catalogs and old saved copies synchronize', () => {
   const cards = fs.readFileSync(path.join(ROOT, 'js/cards.js'), 'utf8');
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-  assert((cards.match(/name": "Велоблиц"/g) || []).length >= 2, 'both shared catalog copies exist');
+  // ⚡ v13.148 (п.1): карточка BeVe больше не копируется в общий каталог
+  assert((cards.match(/name\": \"Велоблиц\"/g) || []).length === 1, 'the card lives only in the BeVe catalog');
   assert(cards.includes('только на клетках уровня высоты 0'), 'the card explains the level-zero restriction');
   assert(cards.includes('выбрать любой фланг'), 'the card explains free flank choice');
   assert(html.includes("if (sc.name === 'Велоблиц') { sc.desc = dc.desc; sc.effect = dc.effect;"), 'old saved card descriptions are synchronized');
