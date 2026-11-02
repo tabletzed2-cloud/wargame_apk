@@ -28,6 +28,8 @@ const FNS = [
   // снабжение (v13.068) + надстройки v13.069
   'supplyAssetIds', 'ensureSupplyState', 'getSupplyUnit', 'supplyAssetCounts',
   'syncSupplyAssetsFromPlatoon', 'getSupplyDepotHex', 'supplyCargoOf', 'supplyAssetsMobility',
+  // ⚡ v13.149: класс подвижности колонны (пешие / машина / горный вездеход TG-41)
+  'supplyAssetMobilityClass', 'supplyMobilityIsMotorized',
   'supplyOrdnanceFull', 'unitAmmoStatus', 'supplyAmmoPercent', 'supplyDistributeCargo',
   'supplyPendingCargoForUnit', 'supplyUnitAmmoDeficits', 'supplyUnitHasIncompleteAmmo',
   'supplyRearConnectionStatus', 'syncSupplyRearConnection', 'supplyRearConnectionIsLost', 'getOpHexDistance',
@@ -58,8 +60,9 @@ const BEVE_SQUADS = [
   ['Мул с бойцом №2', 'Мул с бойцом №2 (Бельгийцы)'],
   ['Мул с бойцом №3', 'Мул с бойцом №3 (Бельгийцы)'],
   ['Конная повозка', 'Конная повозка (Бельгийцы)'],
-  ['Грузовик снабжения', 'Грузовик снабжения (Бельгийцы)'],
-  ['Легковой автомобиль', 'Легковой автомобиль (Бельгийцы)'],
+  // ⚡ v13.150: техника BeVe переименована (DAF Trado II / DAF MC-V)
+  ['Грузовик DAF Trado II', 'Грузовик DAF Trado II (Бельгийцы)'],
+  ['Автомобиль DAF MC-V', 'Автомобиль DAF MC-V (Бельгийцы)'],
   ['Стрелок охранник №1', 'Стрелок охранник №1 (Бельгийцы)'],
   ['Стрелок охранник №2', 'Стрелок охранник №2 (Бельгийцы)']
 ];
