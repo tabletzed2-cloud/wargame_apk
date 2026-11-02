@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.149 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.150 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.061: current release data and terrain definitions; absent texture variants no longer referenced.
 // ==================== КОНСТАНТЫ И ДАННЫЕ ==================== 
 // Типы местности
@@ -232,8 +232,9 @@ const BATTALION_PRESETS = {
               { name: "Мул с бойцом №2", templateName: "Мул с бойцом №2 (Бельгийцы)" },
               { name: "Мул с бойцом №3", templateName: "Мул с бойцом №3 (Бельгийцы)" },
               { name: "Конная повозка", templateName: "Конная повозка (Бельгийцы)" },
-              { name: "Грузовик снабжения", templateName: "Грузовик снабжения (Бельгийцы)" },
-              { name: "Легковой автомобиль", templateName: "Легковой автомобиль (Бельгийцы)" },
+              // ⚡ v13.150: техника взвода снабжения BeVe получила имена
+              { name: "Грузовик DAF Trado II", templateName: "Грузовик DAF Trado II (Бельгийцы)" },
+              { name: "Автомобиль DAF MC-V", templateName: "Автомобиль DAF MC-V (Бельгийцы)" },
               { name: "Стрелок охранник №1", templateName: "Стрелок охранник №1 (Бельгийцы)" },
               { name: "Стрелок охранник №2", templateName: "Стрелок охранник №2 (Бельгийцы)" }
              ]
