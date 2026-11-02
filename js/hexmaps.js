@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.146 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.147 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1771,7 +1771,7 @@ function beginPendingHexEditDraft(hexKey, kind, unitName) {
         variants: {},
         rotations: {},
         // ⚡ v13.105 (п.2): окопов в черновике не больше, чем может выкопать юнит по приказу
-        // ⚡ v13.146 (п.3): у «расчистки местности» тот же лимит — по одной клетке
+        // ⚡ v13.147 (п.3): у «расчистки местности» тот же лимит — по одной клетке
         //    на каждый живой отряд взвода. Раньше в черновике можно было отметок
         //    сколько угодно, и правок на гексе оказывалось больше, чем отрядов.
         limit: draftLimitForUnit(draftKind, unitName)
@@ -1779,7 +1779,7 @@ function beginPendingHexEditDraft(hexKey, kind, unitName) {
     log(`📝 Черновик подготовки гекса (${hexKey}): изменения появятся на карте только после выполнения приказа.`);
     return camp.pendingHexEdits[String(hexKey)];
 }
-// ⚡ v13.146 (п.3): лимит правок одного гекса — по одной клетке на каждый живой
+// ⚡ v13.147 (п.3): лимит правок одного гекса — по одной клетке на каждый живой
 //    отряд взвода, одинаково для окопов и для расчистки местности.
 function draftLimitForUnit(kind, unitName) {
     const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
@@ -1953,7 +1953,7 @@ function recordPendingHexEditClick(st, cell) {
             (st.kind === 'trenches' ? ' Окоп ставится только на «траву» и «дорогу».' : ' Менять можно только «лес» и «кусты».'), '#e74c3c');
         return true;
     }
-    // ⚡ v13.146 (п.3): лимит правок действует и для окопов, и для расчистки местности
+    // ⚡ v13.147 (п.3): лимит правок действует и для окопов, и для расчистки местности
     {
         const limit = draft.limit || draftLimitForUnit(st.kind, draft.unitName).limit;
         const used = Object.keys(draft.cells).length;
@@ -2887,7 +2887,7 @@ function syncSupplyPointsOnGrid(mapLike, squads, field, side) {
     });
     const fallbackOriginsKey = side === 'enemy' ? 'supplyFallbackOriginsEnemy' : 'supplyFallbackOriginsPlayer';
     const fallbackOrigins = mapLike[fallbackOriginsKey] && typeof mapLike[fallbackOriginsKey] === 'object' ? mapLike[fallbackOriginsKey] : {};
-    // ⚡ v13.146 (п.6): у бронетехники нет пункта боепитания — машины заправляются
+    // ⚡ v13.147 (п.6): у бронетехники нет пункта боепитания — машины заправляются
     //    и пополняют БК не на пехотном пункте 📦, а в тылу. Раньше взвод без
     //    штабного отделения (танки, БА, САУ) получал «запасной» пункт в гексе
     //    первой машины.
@@ -2898,7 +2898,7 @@ function syncSupplyPointsOnGrid(mapLike, squads, field, side) {
     });
     platoonGroups.forEach((members, groupName) => {
         if (members.some(entry => isPlatoonHQBattleSquad(entry.squad))) return;
-        if (platoonIsArmored(members)) return;   // ⚡ v13.146 (п.6): бронетехнике 📦 не нужен
+        if (platoonIsArmored(members)) return;   // ⚡ v13.147 (п.6): бронетехнике 📦 не нужен
         const fallbackId = groupName;
         if (!fallbackOrigins[fallbackId]) {
             const firstPlaced = members.find(entry => pos[entry.index]);
