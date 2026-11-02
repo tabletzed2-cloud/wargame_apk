@@ -11,7 +11,9 @@ function test(name, fn) {
 // Exact operational ammunition accounting, including cross-squad stock and the saving ledger.
 test('оперативный боекомплект списывается по фактическому числу выстрелов', () => {
   const s = createSandbox(freshAppData());
-  for (const name of ['operationalAmmoField', 'operationalAmmoSquads', 'unitOperationalAmmoTotal', 'operationalAmmoShotsAvailable', 'consumeOperationalAmmo']) {
+  s.run(sliceConst(HTML, 'PLATOON_AMMO_RESERVE_RATIO'));
+  s.run(sliceConst(HTML, 'PLATOON_AMMO_LOW_RATIO'));
+  for (const name of ['operationalAmmoField', 'operationalAmmoSquads', 'unitOperationalAmmoTotalSquads', 'unitOperationalAmmoTotal', 'operationalAmmoShotsAvailable', 'platoonAmmoKindField', 'platoonAmmoReserveInit', 'platoonAmmoReserveAmount', 'platoonAmmoTopUpFromReserve', 'platoonAmmoGrandTotal', 'platoonAmmoLowNotice', 'consumeOperationalAmmo']) {
     s.run(sliceFunction(HTML, name));
   }
   s.run(`
@@ -23,25 +25,34 @@ test('оперативный боекомплект списывается по 
     var consumedLimited=consumeOperationalAmmo(unit,'ordnance',limited);
     var left2=unit.squads[0].ammoOrdnance+unit.squads[1].ammoOrdnance;
   `);
-  assert.strictEqual(s.evalCtx('available'), 7);
+  // ⚡ v13.147 (п.13): к выкладке отделений добавился общий запас взвода
+  //    (7 + 4 патрона, 3 + 2 снаряда), поэтому доступно больше выстрелов.
+  assert.strictEqual(s.evalCtx('available'), 8);
   assert.strictEqual(s.evalCtx('consumed'), 6);
   assert.strictEqual(s.evalCtx('left1'), 1);
-  assert.strictEqual(s.evalCtx('limited'), 3);
-  assert.strictEqual(s.evalCtx('consumedLimited'), 3);
+  assert.strictEqual(s.evalCtx('limited'), 5);
+  assert.strictEqual(s.evalCtx('consumedLimited'), 5);
   assert.strictEqual(s.evalCtx('left2'), 0);
 });
 
 test('карта экономии учитывает ровно оплачиваемые выстрелы по накопительному ledger', () => {
   const s = createSandbox(freshAppData());
-  for (const name of ['operationalAmmoField', 'operationalAmmoSquads', 'unitOperationalAmmoTotal', 'consumeOperationalAmmo']) s.run(sliceFunction(HTML, name));
+  s.run(sliceConst(HTML, 'PLATOON_AMMO_RESERVE_RATIO'));
+  s.run(sliceConst(HTML, 'PLATOON_AMMO_LOW_RATIO'));
+  for (const name of ['operationalAmmoField', 'operationalAmmoSquads', 'unitOperationalAmmoTotalSquads', 'unitOperationalAmmoTotal', 'platoonAmmoKindField', 'platoonAmmoReserveInit', 'platoonAmmoReserveAmount', 'platoonAmmoTopUpFromReserve', 'platoonAmmoGrandTotal', 'platoonAmmoLowNotice', 'consumeOperationalAmmo']) s.run(sliceFunction(HTML, name));
   s.run(`var unit={squads:[{ammoSmall:12,effects:{calvinistAmmoSaving:true}}]};
     var first=consumeOperationalAmmo(unit,'small',5); var ammo1=unit.squads[0].ammoSmall;
     var second=consumeOperationalAmmo(unit,'small',5); var ammo2=unit.squads[0].ammoSmall;
-    var ledger=unit.squads[0].operationalAmmoSavingLedger.small;`);
+    var ledger=unit.squads[0].operationalAmmoSavingLedger.small;
+    var platoonLeft=unitOperationalAmmoTotal(unit,'small');`);
   assert.strictEqual(s.evalCtx('first'), 5);
   assert.strictEqual(s.evalCtx('ammo1'), 8);
   assert.strictEqual(s.evalCtx('second'), 5);
-  assert.strictEqual(s.evalCtx('ammo2'), 4);
+  // ⚡ v13.147 (п.13): после первого залпа отделение добрало патроны из общего
+  //    запаса (8 + 4 = 12), второй залп снова оплачен по ledger.
+  assert.strictEqual(s.evalCtx('ammo2'), 8);
+  // 18 (12 в отделении + 6 в запасе) − 8 оплаченных выстрелов = 10
+  assert.strictEqual(s.evalCtx('platoonLeft'), 10);
   assert.strictEqual(s.evalCtx('ledger.raw'), 10);
   assert.strictEqual(s.evalCtx('ledger.paid'), 8);
   const directAt = sliceFunction(HTML, 'executeOpShootAt');
@@ -99,7 +110,8 @@ test('новые тактические отряды наследуют опер
 
 test('бонус духа карты «Geen Duibreed» одинаков в UI и боевых проверках', () => {
   const s = createSandbox(freshAppData());
-  for (const fn of ['tacticalNormalizeMoraleScale','tacticalMoraleScale','tacticalMoraleCurrent','tacticalMoraleDeltaPercent','getEffectiveMorale']) s.run(sliceFunction(HTML, fn));
+  // ⚡ v13.144 (п.11): бонусы карточек духа считаются в cardMoraleTotalForSquad — тянем и её.
+  for (const fn of ['tacticalNormalizeMoraleScale','tacticalMoraleScale','tacticalMoraleCurrent','tacticalMoraleDeltaPercent','cardMoraleTotalForSquad','getEffectiveMorale']) s.run(sliceFunction(HTML, fn));
   s.run(`var currentSquad={name:'Отряд',currentMorale:50,baseMorale:100,tacticalMoraleScaleVersion:1,tacticalMoraleLegacyScale:10,
       effects:{geenDuibreed:true},fighters:[{isCommander:true,hp:3}]};
     var morale=50; appData.squads=[currentSquad]; function getScopedActiveModifiersForSquad(){return [];}`);

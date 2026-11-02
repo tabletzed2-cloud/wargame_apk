@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.143 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.147 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1771,10 +1771,22 @@ function beginPendingHexEditDraft(hexKey, kind, unitName) {
         variants: {},
         rotations: {},
         // ⚡ v13.105 (п.2): окопов в черновике не больше, чем может выкопать юнит по приказу
-        limit: draftKind === 'trenches' ? trenchLimitForDraftUnit(unitName) : null
+        // ⚡ v13.147 (п.3): у «расчистки местности» тот же лимит — по одной клетке
+        //    на каждый живой отряд взвода. Раньше в черновике можно было отметок
+        //    сколько угодно, и правок на гексе оказывалось больше, чем отрядов.
+        limit: draftLimitForUnit(draftKind, unitName)
     };
     log(`📝 Черновик подготовки гекса (${hexKey}): изменения появятся на карте только после выполнения приказа.`);
     return camp.pendingHexEdits[String(hexKey)];
+}
+// ⚡ v13.147 (п.3): лимит правок одного гекса — по одной клетке на каждый живой
+//    отряд взвода, одинаково для окопов и для расчистки местности.
+function draftLimitForUnit(kind, unitName) {
+    const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
+    const units = (camp && camp.opUnits) || [];
+    const unit = unitName ? units.find(u => u && u.name === unitName && !u.isDestroyed) : null;
+    const alive = unit ? Math.max(1, countSquadsForHexEdit(unit)) : 1;
+    return { kind: kind === 'prep' ? 'prep' : 'trenches', limit: alive, unitName: unitName || null };
 }
 // Сколько окопов может выкопать юнит по приказу: по одному на каждый живой отряд.
 function trenchLimitForDraftUnit(unitName) {
@@ -1941,10 +1953,13 @@ function recordPendingHexEditClick(st, cell) {
             (st.kind === 'trenches' ? ' Окоп ставится только на «траву» и «дорогу».' : ' Менять можно только «лес» и «кусты».'), '#e74c3c');
         return true;
     }
-    if (st.kind === 'trenches') {
-        const limit = draft.limit || trenchLimitForDraftUnit(draft.unitName);
-        if (trenchCount() >= limit) {
-            showInfo(`⛔ Лимит окопов по приказу: ${limit} (по одному на каждый отряд, который окапывается). Снимите лишний окоп, чтобы поставить новый.`, '#e74c3c');
+    // ⚡ v13.147 (п.3): лимит правок действует и для окопов, и для расчистки местности
+    {
+        const limit = draft.limit || draftLimitForUnit(st.kind, draft.unitName).limit;
+        const used = Object.keys(draft.cells).length;
+        if (used >= limit) {
+            const what = st.kind === 'trenches' ? 'окопов' : 'клеток расчистки';
+            showInfo(`⛔ Лимит правок по приказу: ${limit} ${what} (по одной клетке на каждый отряд взвода). Снимите лишнюю отметку, чтобы поставить новую.`, '#e74c3c');
             return true;
         }
     }
@@ -2872,8 +2887,18 @@ function syncSupplyPointsOnGrid(mapLike, squads, field, side) {
     });
     const fallbackOriginsKey = side === 'enemy' ? 'supplyFallbackOriginsEnemy' : 'supplyFallbackOriginsPlayer';
     const fallbackOrigins = mapLike[fallbackOriginsKey] && typeof mapLike[fallbackOriginsKey] === 'object' ? mapLike[fallbackOriginsKey] : {};
+    // ⚡ v13.147 (п.6): у бронетехники нет пункта боепитания — машины заправляются
+    //    и пополняют БК не на пехотном пункте 📦, а в тылу. Раньше взвод без
+    //    штабного отделения (танки, БА, САУ) получал «запасной» пункт в гексе
+    //    первой машины.
+    const platoonIsArmored = members => members.length > 0 && members.every(entry => {
+        const squad = entry.squad;
+        return !!(squad && (squad.armor || squad.isVehicle ||
+            /танк|БА |бронеавтомоб|САУ|БТР|Landsverk|Brugge|CL\/39|Llanero/i.test(String(squad.name || ''))));
+    });
     platoonGroups.forEach((members, groupName) => {
         if (members.some(entry => isPlatoonHQBattleSquad(entry.squad))) return;
+        if (platoonIsArmored(members)) return;   // ⚡ v13.147 (п.6): бронетехнике 📦 не нужен
         const fallbackId = groupName;
         if (!fallbackOrigins[fallbackId]) {
             const firstPlaced = members.find(entry => pos[entry.index]);

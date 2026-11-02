@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.143
+// ⚡ BUILD-МАРКЕР: v13.147
 // v13.062: monotonic turn handoff; synchronize routing and melee without stale phase rollback.
 // ⚡ v13.061: sync retreat state and attacker/defender phase in online battle snapshots.
 // ============================================================
@@ -377,6 +377,45 @@ function onlineBattleFinished(battle) {
     }
 }
 
+// ⚡ v13.147 (п.10): тот же бой мог быть закреплён у меня на другом гексе —
+//    ищем его по составу участников, чтобы зеркало не «потерялось».
+function onlineBattleNames(battle, side) {
+    if (!battle) return [];
+    const plural = side === 'enemy' ? battle.enemyUnitNames : battle.playerUnitNames;
+    const singular = side === 'enemy' ? battle.enemyUnitName : battle.playerUnitName;
+    const names = Array.isArray(plural) ? plural : (singular ? String(singular).split(', ') : []);
+    return names.filter(Boolean);
+}
+
+function onlineFindLocalBattleByParticipants(e) {
+    const oppNames = Array.isArray(e.oppUnitNames) ? e.oppUnitNames : [];
+    const mineSnapshot = Array.isArray(e.myUnitNames) ? e.myUnitNames : [];
+    if (!oppNames.length && !mineSnapshot.length) return null;
+    return (appData.campaign.activeBattles || []).find(b => {
+        if (!b || b.onlineFinished) return false;
+        // у меня «мои» — playerUnitNames, «оппонента» — enemyUnitNames
+        const mine = onlineBattleNames(b, 'player');
+        const opp = onlineBattleNames(b, 'enemy');
+        // оппонент в своём снапшоте называет МОИ взводы oppUnitNames
+        const mineMatch = mineSnapshot.length ? mineSnapshot.some(n => mine.includes(n)) : false;
+        const oppMatch = oppNames.length ? oppNames.some(n => opp.includes(n)) : false;
+        return mineMatch && oppMatch;
+    }) || null;
+}
+
+function onlineReanchorBattleToHex(battle, hexKey) {
+    if (!battle || !hexKey) return false;
+    if (String(battle.hexKey) === String(hexKey)) return false;
+    const old = String(battle.hexKey || '');
+    battle.hexKey = String(hexKey);
+    if (battle.tacticalMap && typeof battle.tacticalMap === 'object') battle.tacticalMap.hexKey = String(hexKey);
+    if (battle.placement && typeof battle.placement === 'object') battle.placement.hexKey = String(hexKey);
+    if (appData.currentBattleId === battle.id && appData.map) appData.map.hexKey = String(hexKey);
+    if (appData.campaign) appData.campaign.lastOpenedHexKey = String(hexKey);
+    try { log(`🧭 Бой согласован с оппонентом: гекс (${hexKey}) вместо «${old || '?'}».`); } catch (err) {}
+    return true;
+}
+
 // ---------- ПРИЁМ ----------
 function onlineApplyCloudBattles(state) {
     if (!onlineBattlesEnabled()) return;
@@ -390,6 +429,15 @@ function onlineApplyCloudBattles(state) {
         const e = oppBattles[k];
         if (!e || !e.hexKey) return;
         let battle = (appData.campaign.activeBattles || []).find(b => b && b.hexKey === e.hexKey);
+        if (!battle) {
+            // ⚡ v13.147 (п.10): у меня тот же бой может висеть на другом гексе.
+            const sameClash = onlineFindLocalBattleByParticipants(e);
+            if (sameClash && onlineReanchorBattleToHex(sameClash, e.hexKey)) {
+                battle = sameClash;
+                changedAny = true;
+                mineChanged = true;
+            }
+        }
         if (!battle) {
             if (e.status !== 'active') return;
             const fin = (appData.campaign.onlineFinishedBattles || {})[onlineBattleKey(e.hexKey)];
@@ -407,6 +455,8 @@ function onlineApplyCloudBattles(state) {
         if (__onlineMergeMineChanged) mineChanged = true;
     });
     if (changedAny) {
+        // ⚡ v13.147 (п.10/12): после приёма — сверка гекса боя и состава отрядов.
+        try { if (typeof repairAllBattleHexAnchors === 'function') repairAllBattleHexAnchors({ silentSave: true }); } catch (e) {}
         try { saveData(); } catch (e) {}
         if (typeof renderActiveBattlesList === 'function') { try { renderActiveBattlesList(); } catch (e) {} }
         if (appData.currentBattleId) {
@@ -458,16 +508,43 @@ function onlineCreateMirrorBattle(e) {
         }];
     }
     if (oppUnits.length === 0) return null;
+    // ⚡ v13.147 (п.10): зеркало ставим на гекс, где стороны реально сошлись.
+    //    Снимок оппонента может нести гекс, на котором моих юнитов уже нет
+    //    (они отошли/были перенесены) — тогда бой «не отображается» у меня.
+    //    Ищем гекс, где стоят и мои юниты, и подразделения оппонента.
+    let mirrorHexKey = String(e.hexKey || '');
+    const onHex = (u, key) => u && Number(u.col) === Number(String(key).split(',')[0]) &&
+        Number(u.row) === Number(String(key).split(',')[1]);
+    const sidesMeetOnHex = (key) => {
+        if (!/^-?\d+,-?\d+$/.test(String(key))) return false;
+        const mine = myUnits.some(u => onHex(u, key) ||
+            (u.squads || []).some(sq => sq && sq.fixedTacticalPosition && sq.fixedTacticalPosition.hexKey === key));
+        const theirs = oppUnits.some(u => onHex(u, key) ||
+            (u.squads || []).some(sq => sq && sq.fixedTacticalPosition && sq.fixedTacticalPosition.hexKey === key));
+        return mine && theirs;
+    };
+    if (!sidesMeetOnHex(mirrorHexKey)) {
+        const candidate = myUnits.concat(oppUnits)
+            .filter(u => u && Number.isFinite(Number(u.col)) && Number.isFinite(Number(u.row)))
+            .map(u => `${Number(u.col)},${Number(u.row)}`)
+            .find(sidesMeetOnHex);
+        if (candidate && candidate !== mirrorHexKey) {
+            try { log(`🧭 Зеркальный бой перенесён на гекс (${candidate}): оппонент указал (${mirrorHexKey}), но стороны стоят вместе там.`); } catch (err) {}
+            mirrorHexKey = candidate;
+        }
+    }
     // юниты оппонента, вошедшие в бой, — известны (бой не спрячешь)
     oppUnits.forEach(u => { if (typeof onlineRevealEnemy === 'function') onlineRevealEnemy(u, ((appData.campaign.currentTurn || 1) + 1)); });
     let battle = null;
     try {
-        battle = startTacticalBattle(myUnits, oppUnits, { silent: true, mirrorOf: e });
+        // ⚡ v13.147 (п.10): явный battleHexKey — чтобы зеркало встало ровно на
+        //    согласованный гекс, а не пересчитывалось из позиций по-своему.
+        battle = startTacticalBattle(myUnits, oppUnits, { silent: true, mirrorOf: e, battleHexKey: mirrorHexKey });
     } catch (err) {
         console.warn('onlineCreateMirrorBattle:', err.message);
         return null;
     }
-    if (!battle) battle = (appData.campaign.activeBattles || []).find(b => b && b.hexKey === e.hexKey) || null;
+    if (!battle) battle = (appData.campaign.activeBattles || []).find(b => b && b.hexKey === mirrorHexKey) || null;
     if (!battle) return null;
     battle.onlineMirror = true;
     battle.onlineOppBattleId = e.id;
