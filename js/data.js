@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.148 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.149 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.061: current release data and terrain definitions; absent texture variants no longer referenced.
 // ==================== КОНСТАНТЫ И ДАННЫЕ ==================== 
 // Типы местности
@@ -386,7 +386,9 @@ const BATTALION_PRESETS = {
               { name: "Ламы с бойцами №1", templateName: "Ламы с бойцами №1 (A.I.R.F.)" },
               { name: "Ламы с бойцами №2", templateName: "Ламы с бойцами №2 (A.I.R.F.)" },
               { name: "Конная повозка", templateName: "Конная повозка (A.I.R.F.)" },
-              { name: "Лёгкий грузовик", templateName: "Лёгкий грузовик (A.I.R.F.)" },
+              // ⚡ v13.149: горный транспортёр-вездеход и «Викунья» вместо безликого «лёгкого грузовика»
+              { name: "Горный транспортёр TG-41 «Лама»", templateName: "Горный транспортёр TG-41 «Лама» (A.I.R.F.)" },
+              { name: "Легкий грузовик CLg-37 «Викунья»", templateName: "Легкий грузовик CLg-37 «Викунья» (A.I.R.F.)" },
               { name: "Стрелок охранник №1", templateName: "Стрелок охранник №1 (A.I.R.F.)" },
               { name: "Стрелок охранник №2", templateName: "Стрелок охранник №2 (A.I.R.F.)" }
              ]

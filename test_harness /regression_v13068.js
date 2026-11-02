@@ -27,6 +27,8 @@ const CONSTS = [
 const FNS = [
   'supplyAssetIds', 'ensureSupplyState', 'getSupplyUnit', 'supplyAssetCounts',
   'syncSupplyAssetsFromPlatoon', 'getSupplyDepotHex', 'supplyCargoOf', 'supplyAssetsMobility',
+  // ⚡ v13.149: класс подвижности колонны (пешие / машина / горный вездеход TG-41)
+  'supplyAssetMobilityClass', 'supplyMobilityIsMotorized',
   'supplyOrdnanceFull', 'unitAmmoStatus', 'supplyAmmoPercent', 'supplyDistributeCargo',
   'supplyPendingCargoForUnit', 'supplyUnitAmmoDeficits', 'supplyUnitHasIncompleteAmmo',
   'supplyRearConnectionStatus', 'syncSupplyRearConnection', 'supplyRearConnectionIsLost', 'getOpHexDistance',
@@ -62,7 +64,9 @@ const AIRF_SQUADS = [
   ['Ламы с бойцами №1', 'Ламы с бойцами №1 (A.I.R.F.)'],
   ['Ламы с бойцами №2', 'Ламы с бойцами №2 (A.I.R.F.)'],
   ['Конная повозка', 'Конная повозка (A.I.R.F.)'],
-  ['Лёгкий грузовик', 'Лёгкий грузовик (A.I.R.F.)'],
+  // ⚡ v13.149: горный транспортёр TG-41 «Лама» + «Викунья» вместо «лёгкого грузовика»
+  ['Горный транспортёр TG-41 «Лама»', 'Горный транспортёр TG-41 «Лама» (A.I.R.F.)'],
+  ['Легкий грузовик CLg-37 «Викунья»', 'Легкий грузовик CLg-37 «Викунья» (A.I.R.F.)'],
   ['Стрелок охранник №1', 'Стрелок охранник №1 (A.I.R.F.)'],
   ['Стрелок охранник №2', 'Стрелок охранник №2 (A.I.R.F.)']
 ];
@@ -116,7 +120,8 @@ test('R47: взвод снабжения есть в батальоне обеи
     const u = (presets[fac].standard || []).find(x => x && x.name === 'Взвод снабжения');
     assert.ok(u, `${fac}: взвод снабжения в стандартном составе`);
     // ⚡ v13.069: у BeVe добавлены 2 стрелка-охранника склада (9 → 11)
-    assert.equal(u.squads.length, fac === 'BeVe' ? 11 : 9, `${fac}: состав взвода снабжения`);
+    // ⚡ v13.149: у A.I.R.F. добавлен горный транспортёр TG-41 (9 → 10 отделений)
+    assert.equal(u.squads.length, fac === 'BeVe' ? 11 : 10, `${fac}: состав взвода снабжения`);
   });
   const beve = presets['BeVe'].standard.find(x => x.name === 'Взвод снабжения').squads.map(q => q.name);
   ['Носильщики №1', 'Носильщики №2', 'Мул с бойцом №1', 'Мул с бойцом №2', 'Мул с бойцом №3',
@@ -124,7 +129,8 @@ test('R47: взвод снабжения есть в батальоне обеи
     assert.ok(beve.includes(n), `BeVe: нет отделения «${n}»`));
   const airf = presets['A.I.R.F.'].standard.find(x => x.name === 'Взвод снабжения').squads.map(q => q.name);
   ['Носильщики №1', 'Носильщики №2', 'Ламы с бойцами №1', 'Ламы с бойцами №2', 'Конная повозка',
-   'Лёгкий грузовик', 'Стрелок охранник №1', 'Стрелок охранник №2'].forEach(n =>
+   'Горный транспортёр TG-41 «Лама»', 'Легкий грузовик CLg-37 «Викунья»',
+   'Стрелок охранник №1', 'Стрелок охранник №2'].forEach(n =>
     assert.ok(airf.includes(n), `A.I.R.F.: нет отделения «${n}»`));
 });
 
@@ -139,6 +145,11 @@ test('R47: шаблоны взвода снабжения — люди, живо
   assert.equal(find('Мул с бойцом №1 (Бельгийцы)').fighters.length, 1, 'мул — один погонщик');
   assert.equal(find('Грузовик снабжения (Бельгийцы)').fighters.length, 2, 'грузовик — водитель и помощник');
   assert.match(find('Мул с бойцом №1 (Бельгийцы)').fighters[0].weapon, /Винтовка/, 'погонщик вооружён винтовкой');
+  // ⚡ v13.149: горный транспортёр — расчёт 2 бойца
+  const tg41 = find('Горный транспортёр TG-41 «Лама» (A.I.R.F.)');
+  assert.ok(tg41, 'нет шаблона TG-41 «Лама»');
+  assert.equal(tg41.fighters.length, 2, 'TG-41 — расчёт из двух бойцов');
+  assert.ok(tg41.fighters.every(f => /Пистолет|Винтовка/.test(f.weapon || '')), 'экипаж TG-41 вооружён');
 });
 
 // ───────────────────────── 2. Склад и пул средств ─────────────────────────
@@ -179,6 +190,8 @@ test('R47: грузоподъёмность — носильщик < лама < 
   assert.ok(cap('porter') < cap('llama'), 'носильщик меньше ламы');
   assert.ok(cap('llama') < cap('mule'), 'лама меньше мула');
   assert.ok(cap('mule') < cap('cart'), 'мул меньше повозки');
+  // ⚡ v13.149: транспортёр везёт в 1,5 раза больше ламы
+  assert.equal(cap('tg41'), cap('llama') * 1.5, 'TG-41 везёт в 1,5 раза больше ламы');
   assert.ok(cap('car') < cap('truck'), 'легковой меньше грузовика');
   assert.ok(cap('car') > cap('mule'), 'легковой больше мула');
 });

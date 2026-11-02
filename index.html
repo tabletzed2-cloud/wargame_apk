@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.148 — операция</title>
+  <title>Боевой модуль v13.149 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -131,7 +131,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.148</h1>
+    <h1>⚔️ Боевой модуль v13.149</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -144,7 +144,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.148</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.149</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -196,7 +196,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.148 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.149 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -651,7 +651,7 @@ function safeLocalStorage(method, ...args) {
 //    без радиста и вне радиуса связи вызов недоступен); новое правило телефона:
 //    линия тянется за юнитом до 7 гексов кабеля от штаба (дальше приказ на
 //    движение не выдаётся), при смещении штаба связисты прокладывают линии заново.
-var APP_VERSION = 'v13.148';
+var APP_VERSION = 'v13.149';
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
 //    иначе при загрузке старого сохранения срабатывает TDZ.
@@ -1062,6 +1062,68 @@ function getPresetSignature(faction) {
     o.id + ((o.templates || []).length ? ':' + o.templates.map(t => t.name).join('+') : '')
   ).join(',');
   return `${faction}::${std}::${sup}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.149: ВЗВОД СНАБЖЕНИЯ A.I.R.F. — ГОРНЫЙ ТРАНСПОРТЁР TG-41 «ЛАМА».
+//
+//    Новое отделение взвода снабжения (полугусеничный мотоцикл-вездеход,
+//    расчёт 2 бойца) и переименованный «Лёгкий грузовик» → «Легкий грузовик
+//    CLg-37 «Викунья»». В старых сейвах этих шаблонов нет, поэтому:
+//      • шаблоны новых отделений добавляются из data.js (SQUAD_TEMPLATES);
+//      • сохранённые отделения переименовываются, а их состояние (экипаж,
+//        боезапас) переносится на новое имя при пересборке батальона.
+// ═══════════════════════════════════════════════════════════════════════════
+const SUPPLY_SQUAD_RENAMES = {
+    'Лёгкий грузовик': 'Легкий грузовик CLg-37 «Викунья»',
+    'Легкий грузовик': 'Легкий грузовик CLg-37 «Викунья»',
+    'Лёгкий грузовик (A.I.R.F.)': 'Легкий грузовик CLg-37 «Викунья» (A.I.R.F.)',
+    'Легкий грузовик (A.I.R.F.)': 'Легкий грузовик CLg-37 «Викунья» (A.I.R.F.)'
+};
+function supplySquadRenamed(name) {
+    const key = String(name || '');
+    return SUPPLY_SQUAD_RENAMES[key] || key;
+}
+// Шаблоны отделений снабжения A.I.R.F. (TG-41 и «Викунья») из data.js.
+function syncSupplySquadTemplates() {
+    if (typeof appData === 'undefined' || !appData) return 0;
+    if (!Array.isArray(appData.templates)) appData.templates = [];
+    let added = 0;
+    const wanted = (typeof SQUAD_TEMPLATES !== 'undefined' && Array.isArray(SQUAD_TEMPLATES) ? SQUAD_TEMPLATES : [])
+        .filter(t => t && t.faction === 'A.I.R.F.' && /TG-41|Горный транспорт[её]р|Викунья/i.test(String(t.name || '')));
+    wanted.forEach(t => {
+        if (appData.templates.some(x => x && x.name === t.name && x.faction === t.faction)) return;
+        try { appData.templates.push(JSON.parse(JSON.stringify(t))); added++; } catch (e) {}
+    });
+    return added;
+}
+// Переименование сохранённых отделений (взводы, бои, шаблоны).
+function migrateSupplySquadNames() {
+    if (typeof appData === 'undefined' || !appData) return 0;
+    let touched = 0;
+    const renameSquad = sq => {
+        if (!sq || !sq.name) return;
+        const target = supplySquadRenamed(sq.name);
+        if (target && target !== sq.name) { sq.name = target; touched++; }
+    };
+    const renameList = list => { if (Array.isArray(list)) list.forEach(renameSquad); };
+    renameList(appData.templates);
+    renameList(appData.squads);
+    const camp = appData.campaign || null;
+    if (camp) {
+        [camp.opUnits, camp.enemyOpUnits].forEach(list => (list || []).forEach(u => {
+            if (!u) return;
+            renameList(u.squads);
+            (u.vehicleList || []).forEach(v => { if (v) renameList(v.squads); });
+        }));
+        (camp.activeBattles || []).forEach(b => {
+            if (!b) return;
+            renameList(b.playerSquads);
+            renameList(b.enemySquads);
+            if (b.tacticalMap) renameList(b.tacticalMap.enemySquads);
+        });
+    }
+    return touched;
 }
 
 function generateBattalion(faction, supportIds) {
@@ -2088,6 +2150,9 @@ function getBattalionSignature(battalion) {
 function buildOperationalUnits() {
     let battalion = appData.campaign.battalions.player;
     if (!battalion) return;
+    // ⚡ v13.149: в старых сейвах нет шаблонов новых отделений снабжения —
+    //    добираем их из data.js, иначе пересборка батальона теряет TG-41 и «Викунью».
+    try { syncSupplySquadTemplates(); } catch (e) { console.warn('syncSupplySquadTemplates:', e.message); }
 
     // ⚡ v13.020: ПЕРЕСБОРКА БАТАЛЬОНА ИЗ data.js, ЕСЛИ ПРЕСЕТ МЕНЯЛСЯ.
     //    Если сигнатура пресета в сейве не совпадает с текущей (или её нет в
@@ -2347,7 +2412,14 @@ function buildOperationalUnits() {
                 // ⚡ v13.056 (R39#1): переносим в новый состав состояния отделений и
                 // прикреплённые карточками расчёты/звенья, чтобы выбор пережил пересборку.
                 if (Array.isArray(old.squads) && Array.isArray(u.squads)) {
-                    const oldByName = new Map(old.squads.filter(s => s && s.name).map(s => [s.name, s]));
+                    // ⚡ v13.149: состояние «лёгкого грузовика» переносится и на его
+                    //    новое имя «Легкий грузовик CLg-37 «Викунья»» (см. supplySquadRenamed).
+                    const oldByName = new Map();
+                    old.squads.filter(s => s && s.name).forEach(s => {
+                        oldByName.set(s.name, s);
+                        const alias = supplySquadRenamed(s.name);
+                        if (alias && alias !== s.name) oldByName.set(alias, s);
+                    });
                     u.squads = u.squads.map(fresh => {
                         const saved = oldByName.get(fresh && fresh.name);
                         return saved ? { ...fresh, ...JSON.parse(JSON.stringify(saved)) } : fresh;
@@ -6256,7 +6328,7 @@ try {
     appData.templates = appData.templates || [];
       // Добавляем поля боезапаса, если их нет
 appData.squads.forEach(s => {
-  if (/Штаб взвода снабжения|Носильщики|Мул с бойцом|Ламы с бойцами|Конная повозка|Грузовик снабжения|Легковой автомобиль|Лёгкий грузовик|Стрелок охранник/i.test(s.name || '')) {
+  if (/Штаб взвода снабжения|Носильщики|Мул с бойцом|Ламы с бойцами|Конная повозка|Грузовик снабжения|Легковой автомобиль|Л[её]гкий грузовик|Викунья|TG-41|Горный транспорт[её]р|Стрелок охранник/i.test(s.name || '')) {
     s.icon = s.faction === 'A.I.R.F.' ? 'images/AIRF/Взвод снабжения АИРФ №1.png' : 'images/BeVe/Взвод снабжения BeVe №1.png';
   }
   if (s.ammoSmall === undefined) s.ammoSmall = 200;
@@ -6272,7 +6344,7 @@ appData.squads.forEach(s => {
     });
 appData.templates.forEach(t => {
   if (t.faction === 'A.I.R.F.' && /Штаб развед/i.test(t.name || '')) t.icon = 'images/AIRF/штаб развед взвода АИРФ №1.png';
-  if (/Штаб взвода снабжения|Носильщики|Мул с бойцом|Ламы с бойцами|Конная повозка|Грузовик снабжения|Легковой автомобиль|Лёгкий грузовик|Стрелок охранник/i.test(t.name || '')) {
+  if (/Штаб взвода снабжения|Носильщики|Мул с бойцом|Ламы с бойцами|Конная повозка|Грузовик снабжения|Легковой автомобиль|Л[её]гкий грузовик|Викунья|TG-41|Горный транспорт[её]р|Стрелок охранник/i.test(t.name || '')) {
     t.icon = t.faction === 'A.I.R.F.' ? 'images/AIRF/Взвод снабжения АИРФ №1.png' : 'images/BeVe/Взвод снабжения BeVe №1.png';
   }
   if (/Снайперское звено|Минометный расч[её]т|Миномётный расч[её]т|Расч[её]т мином[её]та|Расч[её]т бутылком[её]та|Расч[её]т ампулом[её]та/i.test(t.name || '')) {
@@ -7648,6 +7720,9 @@ function migrateHQPersonnelOnLoad() {
     try { ensureSignalPlatoonState(); } catch (e) {}
     try { touched += ensureHQStaffComposition(); } catch (e) { console.warn('ensureHQStaffComposition:', e.message); }
     try { ensureSupplyState(); syncSupplyAssetsFromPlatoon(); } catch (e) { console.warn('supply:', e.message); }
+    // ⚡ v13.149: переименование отделения снабжения и шаблоны TG-41/«Викунья»
+    try { touched += migrateSupplySquadNames(); } catch (e) { console.warn('migrateSupplySquadNames:', e.message); }
+    try { syncSupplySquadTemplates(); } catch (e) { console.warn('syncSupplySquadTemplates:', e.message); }
     try { touched += migrateSignalReserve(); } catch (e) { console.warn('migrateSignalReserve:', e.message); }
     try { touched += migrateSignalStaffSquads(); } catch (e) { console.warn('migrateSignalStaffSquads:', e.message); }
     if (touched) { try { saveData(); } catch (e) {} }
@@ -9513,7 +9588,7 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
         delete s.retreatTurn;
         if (s.suppressed) { s.suppressed = false; delete s.suppressedTurn; delete s.suppressedRound; delete s.suppressedPhases; }
         if (s.faction === 'A.I.R.F.' && /Штаб развед/i.test(s.name || '')) s.icon = 'images/AIRF/штаб развед взвода АИРФ №1.png';
-        if (/Штаб взвода снабжения|Носильщики|Мул с бойцом|Ламы с бойцами|Конная повозка|Грузовик снабжения|Легковой автомобиль|Лёгкий грузовик|Стрелок охранник/i.test(s.name || '')) {
+        if (/Штаб взвода снабжения|Носильщики|Мул с бойцом|Ламы с бойцами|Конная повозка|Грузовик снабжения|Легковой автомобиль|Л[её]гкий грузовик|Викунья|TG-41|Горный транспорт[её]р|Стрелок охранник/i.test(s.name || '')) {
             s.icon = s.faction === 'A.I.R.F.' ? 'images/AIRF/Взвод снабжения АИРФ №1.png' : 'images/BeVe/Взвод снабжения BeVe №1.png';
         }
         (s.fighters || []).forEach(f => { if (f.hasIPP === undefined) f.hasIPP = false; });
@@ -31601,16 +31676,21 @@ const SUPPLY_ASSET_TYPES = {
               cargo: { ammoSmall: 40,  grenades: 8,  ammoOrdnance: 0 } },
     llama:  { name: 'Лама',               icon: '🦙', mobility: 'foot',    mode: 'men',    squadMatch: /Ламы с бойцами/i,
               cargo: { ammoSmall: 60,  grenades: 12, ammoOrdnance: 0 } },
+    // ⚡ v13.149: полугусеничный мотоцикл-вездеход A.I.R.F. — заезжает на холмы и
+    //    камни, идёт быстрее пеших и везёт в 1,5 раза больше ламы.
+    tg41:   { name: 'Горный транспортёр TG-41 «Лама»', icon: '🏍️', mobility: 'halftrack', mode: 'squads',
+              squadMatch: /TG-41|Горный транспорт[её]р/i,
+              cargo: { ammoSmall: 90,  grenades: 18, ammoOrdnance: 0 } },
     mule:   { name: 'Мул/лошадь',         icon: '🐴', mobility: 'foot',    mode: 'squads', squadMatch: /Мул с бойцом/i,
               cargo: { ammoSmall: 100, grenades: 20, ammoOrdnance: 2 } },
     cart:   { name: 'Конная повозка',     icon: '🛒', mobility: 'foot',    mode: 'squads', squadMatch: /Конная повозка/i,
               cargo: { ammoSmall: 200, grenades: 40, ammoOrdnance: 6 } },
     car:    { name: 'Легковой автомобиль', icon: '🚙', mobility: 'vehicle', mode: 'squads', squadMatch: /Легковой автомобиль/i,
               cargo: { ammoSmall: 160, grenades: 30, ammoOrdnance: 4 } },
-    truck:  { name: 'Грузовик',           icon: '🚚', mobility: 'vehicle', mode: 'squads', squadMatch: /(Грузовик|Лёгкий грузовик)/i,
+    truck:  { name: 'Грузовик',           icon: '🚚', mobility: 'vehicle', mode: 'squads', squadMatch: /(Грузовик|Л[её]гкий грузовик)/i,
               cargo: { ammoSmall: 400, grenades: 80, ammoOrdnance: 12 } }
 };
-const SUPPLY_ORDER = ['porter', 'llama', 'mule', 'cart', 'car', 'truck'];
+const SUPPLY_ORDER = ['porter', 'llama', 'tg41', 'mule', 'cart', 'car', 'truck'];
 // ⚡ v13.068: средняя ёмкость склада (по заявке)
 const SUPPLY_DEPOT_MAX = { ammoSmall: 1200, grenades: 300, ammoOrdnance: 80 };
 // ⚡ v13.069 (R48#1): точка эвакуации (дорога в тыл к полковому складу) задана
@@ -32329,11 +32409,25 @@ function supplyCargoOf(assets) {
     return cargo;
 }
 
+// ⚡ v13.149: классы подвижности колонны — 'foot' (пешие/вьючные), 'vehicle'
+//    (только дороги и трава), 'halftrack' (горный вездеход: дороги, трава, горы,
+//    холмы, лес — и быстрее пеших).
+function supplyAssetMobilityClass(id) {
+    const t = SUPPLY_ASSET_TYPES[id];
+    return t ? (t.mobility || 'foot') : 'foot';
+}
+// Моторизованное средство (машина или вездеход): в засаде теряется целиком,
+// в подсказках панели — своя строка проходимости.
+function supplyMobilityIsMotorized(mobility) {
+    return mobility === 'vehicle' || mobility === 'halftrack';
+}
 function supplyAssetsMobility(assets) {
-    const hasVehicle = (assets || []).some(a => SUPPLY_ASSET_TYPES[a.id] && SUPPLY_ASSET_TYPES[a.id].mobility === 'vehicle');
-    const allVehicle = (assets || []).every(a => SUPPLY_ASSET_TYPES[a.id] && SUPPLY_ASSET_TYPES[a.id].mobility === 'vehicle');
-    if (!hasVehicle || !allVehicle) return 'foot';   // смешанная колонна идёт пешим темпом
-    return 'vehicle';
+    const classes = new Set((assets || []).filter(a => a && SUPPLY_ASSET_TYPES[a.id])
+        .map(a => supplyAssetMobilityClass(a.id)));
+    if (classes.size > 1) return 'foot';            // смешанная колонна идёт пешим темпом
+    if (!classes.size) return 'foot';
+    const only = classes.values().next().value;
+    return only || 'foot';
 }
 
 // ── боезапас юнита: сколько есть и сколько «полный комплект» ──
@@ -32540,6 +32634,22 @@ function supplyMoveCost(mobility, toCol, toRow) {
     if (mobility === 'vehicle') {
         return (terrain === 'road' || terrain === 'grass') ? 1 : Infinity;
     }
+    // ⚡ v13.149: горный транспортёр TG-41 «Лама» — полугусеничный вездеход.
+    //    По дорогам и траве идёт вдвое быстрее пеших (0,5 «ОД» за гекс), лес и
+    //    кусты проходит как пехота, а на холмы и камни заезжает (пешим темпом).
+    if (mobility === 'halftrack') {
+        switch (terrain) {
+            case 'road': return 0.5;
+            case 'grass': return 0.5;
+            case 'bushes': return 1;
+            case 'hill': return 1;
+            case 'rocks': return 1;
+            case 'forest': return 1.5;
+            case 'trenches': return 1.5;
+            case 'swamp_passable': return 2;
+            default: return Infinity;
+        }
+    }
     return 1;   // пешие и вьючные — по любой проходимой местности, как пехота
 }
 
@@ -32655,7 +32765,9 @@ function supplyAmbushCheck(delivery) {
     (delivery.assets || []).forEach(a => {
         const t = SUPPLY_ASSET_TYPES[a.id];
         if (!t) return;
-        const per = t.mobility === 'vehicle' ? a.count : Math.max(1, Math.floor(a.count / 2));
+        const motorized = (typeof supplyMobilityIsMotorized === 'function')
+            ? supplyMobilityIsMotorized(t.mobility) : (t.mobility === 'vehicle');
+        const per = motorized ? a.count : Math.max(1, Math.floor(a.count / 2));
         if (per <= 0) return;
         lost.push({ id: a.id, count: per });
         const share = per / Math.max(1, a.count);
@@ -33032,7 +33144,7 @@ function renderSupplyPanel() {
         if (!pool || pool.total <= 0) return;
         html += `<div style="margin-top:2px;"><label style="font-size:0.85rem;">${t.icon} ${t.name} — свободно ${pool.available} из ${pool.total}` +
             ` <input type="number" id="supply_asset_${id}" value="0" min="0" max="${pool.available}" style="width:56px; background:#333; color:#fff; border:1px solid #555;">` +
-            `<span style="color:#888; font-size:0.75rem;"> (несёт ${t.cargo.ammoSmall} патр. / ${t.cargo.grenades} гр.${t.cargo.ammoOrdnance ? ' / ' + t.cargo.ammoOrdnance + ' снаряд.' : ''}${t.mobility === 'vehicle' ? ', только дороги и трава' : ''})</span></label></div>`;
+            `<span style="color:#888; font-size:0.75rem;"> (несёт ${t.cargo.ammoSmall} патр. / ${t.cargo.grenades} гр.${t.cargo.ammoOrdnance ? ' / ' + t.cargo.ammoOrdnance + ' снаряд.' : ''}${t.mobility === 'vehicle' ? ', только дороги и трава' : (t.mobility === 'halftrack' ? ', горы и холмы, по дорогам и траве вдвое быстрее' : '')})</span></label></div>`;
     });
 
     // получатели
@@ -33096,7 +33208,8 @@ function renderSupplyPanel() {
         const units = appData.campaign.opUnits || [];
         const who = d.kind === 'rear' ? 'полковой склад (тыл)' : ((units[d.targetUnitId] || {}).name || 'юнит');
         const dir = d.status === 'returning' ? '↩️ возвращается' : '➡️ идёт';
-        const amb = d.mobility === 'vehicle' ? '🚙 только дороги/трава' : '🚶 пеший темп';
+        const amb = d.mobility === 'vehicle' ? '🚙 только дороги/трава'
+            : (d.mobility === 'halftrack' ? '🏍️ горный вездеход: холмы, камни, быстрее' : '🚶 пеший темп');
         const delay = d.delayTurns > 0 ? ` · 📄 бюрократия: ещё ${d.delayTurns} ход(а)` : '';
         const eta = supplyEtaLabel(d);
         html += `<div style="font-size:0.85rem; color:#f1c40f;">${dir} к «${who}» — ${supplyAssetsLabel(d.assets)} (${amb}), текущий гекс (${d.col},${d.row}) · ${eta}${delay}</div>`;

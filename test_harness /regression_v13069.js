@@ -28,6 +28,8 @@ const FNS = [
   // снабжение (v13.068) + надстройки v13.069
   'supplyAssetIds', 'ensureSupplyState', 'getSupplyUnit', 'supplyAssetCounts',
   'syncSupplyAssetsFromPlatoon', 'getSupplyDepotHex', 'supplyCargoOf', 'supplyAssetsMobility',
+  // ⚡ v13.149: класс подвижности колонны (пешие / машина / горный вездеход TG-41)
+  'supplyAssetMobilityClass', 'supplyMobilityIsMotorized',
   'supplyOrdnanceFull', 'unitAmmoStatus', 'supplyAmmoPercent', 'supplyDistributeCargo',
   'supplyPendingCargoForUnit', 'supplyUnitAmmoDeficits', 'supplyUnitHasIncompleteAmmo',
   'supplyRearConnectionStatus', 'syncSupplyRearConnection', 'supplyRearConnectionIsLost', 'getOpHexDistance',
