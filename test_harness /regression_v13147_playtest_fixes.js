@@ -188,6 +188,13 @@ const AMMO_HELPERS = [
         'онлайн: гекс боя согласуется с оппонентом');
     ok(/repairAllBattleHexAnchors\(\{ silentSave: true \}\)/.test(UI_ONLINE),
         'онлайн: после приёма снимков гекс боя и состав сверяются');
+    // ⚡ v13.147 (п.10): зеркальный бой ставим на гекс, где стороны реально сошлись
+    ok(/sidesMeetOnHex/.test(UI_ONLINE) && /mirrorHexKey/.test(UI_ONLINE),
+        'онлайн: зеркальный бой ищет гекс, где стоят обе стороны');
+    ok(/startTacticalBattle\(myUnits, oppUnits, \{ silent: true, mirrorOf: e, battleHexKey: mirrorHexKey \}\)/.test(UI_ONLINE),
+        'онлайн: зеркалу передаётся явный battleHexKey');
+    ok(/b\.hexKey === mirrorHexKey/.test(UI_ONLINE),
+        'онлайн: найденный бой сверяется с согласованным гексом');
 }
 
 // ───────────────────────── п.13: подключение к движку ─────────────────────────
@@ -198,6 +205,14 @@ const AMMO_HELPERS = [
     ok(/platoonAmmoLowNotice\(unit, kind\)/.test(HTML), 'уведомление о низком запасе вызывается после залпа');
     ok(/const PLATOON_AMMO_LOW_RATIO = 0.2;/.test(HTML), 'порог уведомления — 20 % исходного запаса');
     ok(/в запасе\)/.test(HTML), 'в карточке взвода видно общий запас патронов');
+}
+
+// ───────────────────────── огнемёт: подсказка не врёт ─────────────────────────
+{
+    ok(/поражается 50–90 % бойцов, каждому 2–3 урона, дух −20/.test(HTML),
+        'подсказка огнемёта описывает новую модель струи');
+    ok(!/d6 2–6, урон 2/.test(fs.readFileSync(path.join(ROOT, 'js/map_actions.js'), 'utf8')),
+        'в панели действий нет старого описания огнемёта');
 }
 
 try { fs.unlinkSync('/tmp/wg_part.js'); } catch (e) {}
