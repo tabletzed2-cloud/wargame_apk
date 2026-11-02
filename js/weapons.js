@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.145
+// ⚡ BUILD-МАРКЕР: v13.146
 // v13.091: both factions use a four-hex effective range for 82-mm mortars.
 // ⚡ v13.059: current release weapons and awards.
 // ==================== ОРУЖИЕ И НАГРАДЫ ====================

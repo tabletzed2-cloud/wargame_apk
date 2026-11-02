@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.145 — tactical grenade-area fire, commissioner card limit, unified rules.
+// ⚡ BUILD-МАРКЕР: v13.146 — tactical grenade-area fire, commissioner card limit, unified rules.
 (function () {
   'use strict';
 
@@ -1031,7 +1031,7 @@
       });
       return !pending;
     }
-    // ⚡ v13.145: «Перерезать пути» — отдельный приказ только пехоте.
+    // ⚡ v13.146: «Перерезать пути» — отдельный приказ только пехоте.
     if (action === 'cut_paths') {
       if (typeof unitCanExecuteOrderType === 'function') return unitCanExecuteOrderType(unit, 'cut_paths');
       return !(typeof isVehicleMobilityUnit === 'function' && isVehicleMobilityUnit(unit)) &&
@@ -1136,6 +1136,16 @@
     renderCommandMenu();
   }
 
+  // ⚡ v13.146: напоминание о перерезанных путях в меню приказов.
+  function cutPathsMenuNote(unit) {
+    const keys = Array.isArray(unit && unit.cutPathHexes) ? unit.cutPathHexes.filter(Boolean) : [];
+    if (!keys.length) return '';
+    return `<div class="op-cmd-note">✂️ Взвод перерезал пути: <b>${esc(keys.join(' / '))}</b>. ` +
+      `Внутри этих гексов он может ходить, окапываться, расчищать местность и вести разведку — перерезание сохраняется. ` +
+      `Любой приказ за их пределами (или отступление/уничтожение) перерезание прекращает. ` +
+      `Враг, вошедший на подконтрольный гекс, вступает в бой прямо в нём.</div>`;
+  }
+
   function renderMain(unit, id) {
     const passenger = !!unit.embarkedInBtr;
     const artillery = !passenger && unit && (unit.type === 'battalion_hq' || unit.type === 'hq') &&
@@ -1155,7 +1165,7 @@
       `<button type="button" data-cmd="category" data-category="special">⚙️ Специальное</button>` +
       (artillery ? `<button type="button" class="op-cmd-wide" data-cmd="artillery">💣 Арт. обстрел · осталось ${Math.max(0, artilleryLeft)}</button>` : '') +
       (carried ? `<button type="button" class="op-cmd-wide" data-cmd="select-passenger" data-id="${carried.id}">👥 Приказы десанту: ${esc(carried.unit.name)}</button>` : '') +
-      `</div><div class="op-cmd-note">${passenger
+      `</div>${cutPathsMenuNote(unit)}<div class="op-cmd-note">${passenger
         ? 'Отряд в БТР: приказ сохранится и будет ждать отдельной высадки. Приказ высадки отдайте БТР; десант начнёт действовать со следующего оперативного хода после неё. Стрельба с борта недоступна.'
         : 'Время по умолчанию — текущее время операции. Приказ поступит по штатной связи штаба батальона.'}</div>`;
   }
@@ -1220,7 +1230,7 @@
     } else if (draft.category === 'special') {
       const actions = [
         ['dig_in', '🕳️ Окопаться'], ['recon', '🔍 Разведка'], ['prep_positions', '🪓 Расчистка местности'],
-        // ⚡ v13.145: приказ «Перерезать пути» — 3 смежных гекса, взвод в середине
+        // ⚡ v13.146: приказ «Перерезать пути» — 3 смежных гекса, взвод в середине
         ['cut_paths', '✂️ Перерезать пути'],
         ['embark', '🚌 Сесть в БТР'],
         // ⚡ v13.089 (пункт 3): машине — «высадить десант», десанту — «выйти из БТР»
@@ -1260,7 +1270,7 @@
         if (state.mapPick === 'special') body += mapPickHint();
       }
       if (draft.specialAction === 'cut_paths') {
-        // ⚡ v13.145: три смежных гекса цепочкой; взвод встаёт на средний.
+        // ⚡ v13.146: три смежных гекса цепочкой; взвод встаёт на средний.
         const chosen = opDraftCutHexKeys(draft);
         body += `<div class=\"op-cmd-note\">Выберите <b>3 смежных гекса</b> подряд (крайний → средний → крайний). ` +
           `Взвод выдвинется на <b>средний</b> гекс, а все три станут контролируемыми противником: пройти через них нельзя. ` +
@@ -1460,7 +1470,7 @@
     else if (field === 'shellMinutes') draft.shellMinutes = (typeof normalizeShellMinutes === 'function') ? normalizeShellMinutes(value) : 10;
     else if (field === 'duration') draft.duration = Math.max(20, Math.min(50, Math.ceil((Number(value) || 20) / 10) * 10));
   }
-  // ⚡ v13.145: «Перерезать пути» — выбранные гексы черновика в виде ключей.
+  // ⚡ v13.146: «Перерезать пути» — выбранные гексы черновика в виде ключей.
   function opDraftCutHexKeys(draft) {
     if (!draft) return [];
     return (Array.isArray(draft.targetHexes) ? draft.targetHexes : []).map(entry => {
@@ -1515,7 +1525,7 @@
       if (typeof isPlanningRoute !== 'undefined') isPlanningRoute = true;
     }
     if (kind === 'sector') state.draft.targetHexes = state.draft.targetHexes || [];
-    // ⚡ v13.145: приказ «Перерезать пути» — ровно 3 смежных гекса
+    // ⚡ v13.146: приказ «Перерезать пути» — ровно 3 смежных гекса
     if (kind === 'cutpaths') {
       state.draft.targetHexes = state.draft.targetHexes || [];
       setMapMessage('✂️ Выберите 3 смежных гекса: крайний → средний → крайний.', '#f1c40f');
@@ -1566,7 +1576,7 @@
       if (at >= 0) hexes.splice(at, 1); else hexes.push(hex);
       setMapMessage(`🧭 Гексов под контролем: ${hexes.length}.`, '#f1c40f');
     } else if (state.mapPick === 'cutpaths') {
-      // ⚡ v13.145: три смежных гекса; взвод встанет на средний
+      // ⚡ v13.146: три смежных гекса; взвод встанет на средний
       const result = opDraftCutToggleHex(draft, hex);
       const keys = result.keys || [];
       if (!result.ok) {
@@ -1709,7 +1719,7 @@
         if (!options.targetHex) throw new Error('Не удалось определить гекс для действия.');
       }
       if (type === 'cut_paths') {
-        // ⚡ v13.145: ровно три смежных гекса, взвод — на среднем
+        // ⚡ v13.146: ровно три смежных гекса, взвод — на среднем
         const keys = opDraftCutHexKeys(draft);
         if (keys.length !== 3) throw new Error('Выберите три смежных гекса для перерезания путей.');
         if (new Set(keys).size !== 3) throw new Error('Гексы не должны повторяться.');
@@ -2047,7 +2057,7 @@
   function appendToPendingEmbark(unit, type, options) {
     const order = pendingEmbarkOrder(unit);
     if (!order) return null;
-    // ⚡ v13.145 (п.2): серия собирается только из приказов ОДНОГО хода.
+    // ⚡ v13.146 (п.2): серия собирается только из приказов ОДНОГО хода.
     //    Приказ, отданный в следующем ходу, идёт отдельным посыльным и
     //    исполняется после предыдущего (барьер operationalOrderWaitsForPredecessor).
     if (Number(order.turnIssued) !== Number(campaign().currentTurn || 1)) return null;
@@ -2177,7 +2187,7 @@
       return;
     }
     if (action === 'pick-map') { startMapPick(button.getAttribute('data-pick')); return; }
-    // ⚡ v13.145: сброс выбранных гексов для «Перерезать пути»
+    // ⚡ v13.146: сброс выбранных гексов для «Перерезать пути»
     if (action === 'clear-cut-paths') {
       if (state.draft) { state.draft.targetHexes = []; state.draft.targetHex = ''; state.draft.cutPathHexes = []; }
       state.error = '';

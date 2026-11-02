@@ -17,6 +17,9 @@ function ok(condition, label, detail) {
 const UI = fs.readFileSync(path.join(ROOT, 'js/operational_ui.js'), 'utf8');
 
 const HELPERS = [
+    'opCampaignSideUnits', 'opUnitCampaignSide', 'opCutPathsReleaseReason', 'opCutPathsRelease',
+    'opCutPathsHeldByUnit', 'opCutPathHexList', 'opEnemyCutPathHexes', 'opHexIsCutByEnemy',
+    'opCutPathsOwnersOfHex', 'opResolveCutPathsContacts',
     'opHexKeyOf', 'opNormalizeHexKeys', 'opPlayerCutPathHexes', 'opHexIsCutByPlayer',
     'opHexChainIsAdjacent', 'opCutPathRings', 'opHexInsideRing', 'opRefreshCutPathsEncirclement',
     'executeCutPathsOrder',
@@ -35,6 +38,10 @@ function changeOperationalMorale(unit, delta) {
     return unit.operationalMorale;
 }
 var moraleChanges = [];
+var opCutPathsReleasingFlag = false;
+function opTryCutPathsInterception() { return false; }
+function startTacticalBattle() { return true; }
+function opRecordPrevPos() {}
 var stepCalls = [];
 function stepUnitTowardTarget(unit, targetCol, targetRow) {
     stepCalls.push({ name: unit.name, col: targetCol, row: targetRow });
@@ -162,7 +169,7 @@ function stepUnitTowardTarget(unit, targetCol, targetRow) {
     ok(/opRefreshCutPathsEncirclement\(\{ applyMorale: true \}\)/.test(HTML),
         'давление на дух окружённых путями подключено к ходу');
     ok(/drawOperationalCutPaths\(ctx, size\)/.test(HTML), 'перерезанные пути рисуются на оперативной карте');
-    ok(/opHexIsCutByPlayer\(Number\(toCol\), Number\(toRow\)\)/.test(HTML),
+    ok(/typeof opHexIsCutByPlayer === 'function'/.test(HTML) && /cutting\(Number\(toCol\), Number\(toRow\)\)/.test(HTML),
         'перерезанные пути непроходимы для противника');
     ok(/'cut_paths': '✂️ Перерезать пути'/.test(HTML) && /cutPathsMiddle/.test(HTML),
         'средний гекс цепочки сохраняется в приказе');
@@ -186,4 +193,6 @@ function stepUnitTowardTarget(unit, targetCol, targetRow) {
 }
 
 console.log(`\n== итог v13.145 (перерезать пути): ${pass} ok, ${fail} fail ==`);
+// Песочница других регрессий читает /tmp/wg_part.js — не оставляем мусор.
+try { fs.unlinkSync('/tmp/wg_part.js'); } catch (e) {}
 process.exit(fail ? 1 : 0);
