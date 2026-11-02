@@ -1,7 +1,9 @@
 'use strict';
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const { createSandbox, freshAppData } = require('./sandbox');
-const { sliceFunction, sliceConst, HTML } = require('./extract');
+const { sliceFunction, sliceConst, HTML, ROOT } = require('./extract');
 let pass = 0, fail = 0;
 function test(name, fn) {
   try { fn(); pass++; console.log('✓ ' + name); }
@@ -108,16 +110,41 @@ test('новые тактические отряды наследуют опер
   assert(HTML.includes("executeMortarSalvo(shooter, targetUnits, distance, 7 * Math.max(1, vehicles), '1d10')"), 'manual target selection uses the same long-range artillery route');
 });
 
-test('бонус духа карты «Geen Duibreed» одинаков в UI и боевых проверках', () => {
+test('«Geen Duibreed Terug!» — активная способность штаба, пассивного духа больше нет', () => {
+  // v13.148 (п.3): карточка больше не даёт пассивный дух и не запрещает движение.
+  //   Она открывает кнопку штаба: +20 духа всем живым отрядам, 1 раз за бой.
+  const cardsSrc = fs.readFileSync(path.join(ROOT, 'js/cards.js'), 'utf8');
+  const line = cardsSrc.split('\n').find(row => row.includes('Geen Duibreed Terug!'));
+  const geen = JSON.parse(line.trim().replace(/,$/, ''));
+  assert.strictEqual(geen.moraleMod, 0, 'пассивного бонуса духа у карточки нет');
   const s = createSandbox(freshAppData());
-  // ⚡ v13.144 (п.11): бонусы карточек духа считаются в cardMoraleTotalForSquad — тянем и её.
   for (const fn of ['tacticalNormalizeMoraleScale','tacticalMoraleScale','tacticalMoraleCurrent','tacticalMoraleDeltaPercent','cardMoraleTotalForSquad','getEffectiveMorale']) s.run(sliceFunction(HTML, fn));
-  s.run(`var currentSquad={name:'Отряд',currentMorale:50,baseMorale:100,tacticalMoraleScaleVersion:1,tacticalMoraleLegacyScale:10,
+  s.run(`var currentSquad={name:'Штаб взвода',currentMorale:50,baseMorale:100,tacticalMoraleScaleVersion:1,tacticalMoraleLegacyScale:10,
       effects:{geenDuibreed:true},fighters:[{isCommander:true,hp:3}]};
     var morale=50; appData.squads=[currentSquad]; function getScopedActiveModifiersForSquad(){return [];}`);
-  assert.strictEqual(s.evalCtx('getEffectiveMorale()'), 70, 'commander effect adds +2 legacy morale points on a 10-point scale');
-  s.run(`appData.squads.push({fighters:[{awards:['loyalty']}]});`);
-  assert.strictEqual(s.evalCtx('getEffectiveMorale()'), 70, 'Geen Duibreed replaces the loyalty bonus with its +2 legacy-point effect');
+  assert.strictEqual(s.evalCtx('getEffectiveMorale()'), 50, 'без нажатия кнопки дух не меняется');
+
+  const ability = createSandbox(freshAppData());
+  for (const fn of ['tacticalNormalizeMoraleScale','tacticalMoraleScale','tacticalMoraleCurrent','tacticalMoraleDeltaPercent','tacticalAdrenalineBattleKey','tacticalGeenDuibreedStatus','tacticalGeenDuibreedUse']) ability.run(sliceFunction(HTML, fn));
+  ability.run(`
+    function getTacticalBattleRecord(){return {id:7};}
+    function getScopedActiveModifiersForSquad(){return [];}
+    function log(){} function saveData(){} function updateUI(){} function redrawMap(){}
+    var moralValue=60;
+    var hq={name:'Штаб взвода',opUnitName:'Взвод',currentMorale:60,baseMorale:100,tacticalMoraleScaleVersion:1,tacticalMoraleLegacyScale:10,
+      effects:{geenDuibreed:true},fighters:[{isCommander:true,hp:3}]};
+    var platoon={name:'Пехотное отделение',opUnitName:'Взвод',currentMorale:40,baseMorale:100,tacticalMoraleScaleVersion:1,
+      fighters:[{hp:3,maxHp:3}]};
+    var currentSquad=hq; appData.squads=[hq,platoon];
+    var readyBefore=tacticalGeenDuibreedStatus(hq).ok;
+    tacticalGeenDuibreedUse();
+    var hqMorale=hq.currentMorale, platoonMorale=platoon.currentMorale;
+    var readyAfter=tacticalGeenDuibreedStatus(hq).ok;
+  `);
+  assert.strictEqual(ability.evalCtx('readyBefore'), true, 'у живого командира способность доступна');
+  assert.strictEqual(ability.evalCtx('hqMorale'), 80, 'штаб получает +20 духа');
+  assert.strictEqual(ability.evalCtx('platoonMorale'), 60, 'остальные отряды получают +20 духа');
+  assert.strictEqual(ability.evalCtx('readyAfter'), false, 'второй раз за бой способность недоступна');
 });
 
 test('мораль взвода после тактического боя считается по исходной численности отделений', () => {

@@ -208,10 +208,11 @@ test('загрузка: раннее сохранение Hard Mode не зат�
   assert.equal(s.evalCtx('battle.actionPoints[0].ap'), 0);
 });
 
-test('Кальвинистская эффективность: дефолтные глобальный и BeVe каталоги — bonus', () => {
+test('Кальвинистская эффективность: карточка BeVe (в «Общих» копии больше нет) — bonus', () => {
   const s = createSandbox(freshAppData());
-  assert.equal(s.evalCtx(`GLOBAL_CARDS.find(c=>c.name==='Кальвинистская эффективность').type`), 'bonus');
   assert.equal(s.evalCtx(`BEVE_CARDS.find(c=>c.name==='Кальвинистская эффективность').type`), 'bonus');
+  // ⚡ v13.148 (п.1): карточки BeVe больше не дублируются в общем каталоге.
+  assert.equal(s.evalCtx(`GLOBAL_CARDS.some(c=>c.name==='Кальвинистская эффективность')`), false);
 });
 for (const scope of ['catalogs', 'active', 'units']) {
   test(`Кальвинистская эффективность: миграция старого negative — ${scope}`, () => {
