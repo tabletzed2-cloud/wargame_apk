@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.157 — операция</title>
+  <title>Боевой модуль v13.158 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -131,7 +131,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.157</h1>
+    <h1>⚔️ Боевой модуль v13.158</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -144,7 +144,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.157</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.158</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -196,7 +196,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.157 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.158 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -653,7 +653,7 @@ function safeLocalStorage(method, ...args) {
 //    без радиста и вне радиуса связи вызов недоступен); новое правило телефона:
 //    линия тянется за юнитом до 7 гексов кабеля от штаба (дальше приказ на
 //    движение не выдаётся), при смещении штаба связисты прокладывают линии заново.
-var APP_VERSION = 'v13.157';
+var APP_VERSION = 'v13.158';
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
 //    иначе при загрузке старого сохранения срабатывает TDZ.
@@ -1054,9 +1054,20 @@ function closeCampaign() {
 function getPresetSignature(faction) {
   const preset = BATTALION_PRESETS[faction];
   if (!preset) return 'none';
-  const std = (preset.standard || []).map(u =>
-    `${u.type}|${u.name}|${(u.squads || []).map(s => s.name + ':' + (s.templateName || '')).join(';')}`
-  ).join('§');
+  // ⚡ v13.158: в сигнатуру входит и состав ВЗВОДОВ. Раньше учитывались только
+  //    отряды верхнего уровня (hq, взвод снабжения, батареи), а отряды внутри
+  //    `platoons[]` — нет. Из-за этого добавленный в v13.157 мотоциклетный
+  //    миномётный расчёт не появлялся в уже начатом походе: батальон в сейве
+  //    не считался устаревшим и не пересобирался.
+  const squadsSig = list => (list || [])
+    .map(s => s && (s.name + ':' + (s.templateName || '')))
+    .join(';');
+  const std = (preset.standard || []).map(u => {
+    const platoons = (u.platoons || [])
+      .map(pl => `${pl && pl.name}[${pl && pl.mobilityType || ''}]{${squadsSig(pl && pl.squads)}}`)
+      .join('|');
+    return `${u.type}|${u.name}|${squadsSig(u.squads)}|${platoons}`;
+  }).join('§');
   // ⚡ v13.028: в сигнатуру поддержки входят имена шаблонов опции —
   //    добавление нового юнита (например, «ДОТ Van Hees» в v13.026)
   //    автоматически пересобирает старые сейвы.
@@ -1104,6 +1115,81 @@ function syncSupplySquadTemplates() {
     });
     return added;
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.158: МОТОЦИКЛЕТНЫЕ ОТРЯДЫ В САМОКАТНЫХ ВЗВОДАХ BeVe.
+//
+//    В v13.157 мотоциклист-разведчик, мотоциклист-посыльный и мотоциклетный
+//    миномётный расчёт добавлялись только в BATTALION_PRESETS. В уже начатом
+//    походе батальон лежит в сейве и из пресета не пересобирался, поэтому
+//    игрок этих отрядов не находил. Здесь состав доводится до актуального
+//    прямо в сохранённом батальоне: ничего не удаляется и не пересоздаётся,
+//    отряды только ДОБАВЛЯЮТСЯ в конец взвода.
+// ═══════════════════════════════════════════════════════════════════════════
+const RECON_PLATOON_SQUAD_TEMPLATES = [
+    'Мотоциклист-разведчик',
+    'Мотоциклист-посыльный',
+    'Мотоциклетный миномётный расчёт 50-мм №1',
+    'Мотоциклетный миномётный расчёт 50-мм №2',
+    'Мотоциклетный миномётный расчёт 50-мм №3'
+];
+function isBicyclePlatoonPreset(platoon) {
+    if (!platoon) return false;
+    if (platoon.mobilityType === 'bicycle') return true;
+    const n = String(platoon.name || '');
+    return /самокат/i.test(n) || /велосипед/i.test(n);
+}
+// Шаблоны новых отрядов нужны cloneTemplate для тактического боя.
+function syncReconPlatoonTemplates() {
+    if (typeof appData === 'undefined' || !appData) return 0;
+    if (!Array.isArray(appData.templates)) appData.templates = [];
+    const wanted = (typeof SQUAD_TEMPLATES !== 'undefined' && Array.isArray(SQUAD_TEMPLATES) ? SQUAD_TEMPLATES : [])
+        .filter(t => t && RECON_PLATOON_SQUAD_TEMPLATES.includes(String(t.name || '')));
+    let added = 0;
+    wanted.forEach(t => {
+        if (appData.templates.some(x => x && x.name === t.name && x.faction === t.faction)) return;
+        try { appData.templates.push(JSON.parse(JSON.stringify(t))); added++; } catch (e) {}
+    });
+    return added;
+}
+// Доводит состав взводов сохранённого батальона до актуального пресета.
+function syncReconPlatoonSquads(battalion) {
+    if (!battalion || !Array.isArray(battalion.units)) return 0;
+    // мотоциклисты есть только у BeVe (см. applyReconPresetUpdates в data.js):
+    // у A.I.R.F. разведка — отдельный взвод и Hidalgo при штабе батальона
+    if (String(battalion.faction || '') !== 'BeVe') return 0;
+    let added = 0;
+    let bicycleIndex = 0;
+    battalion.units.forEach(unit => {
+        if (!unit || !Array.isArray(unit.platoons)) return;
+        unit.platoons.forEach(platoon => {
+            if (!platoon || !Array.isArray(platoon.squads)) return;
+            const has = re => platoon.squads.some(sq => sq && re.test(String(sq.name || '')));
+            // мотоциклисты — во взводы обеих сторон (как в пресете)
+            if (!has(/Мотоциклист-разведчик/i)) {
+                platoon.squads.push({ name: 'Мотоциклист-разведчик', templateName: 'Мотоциклист-разведчик' });
+                added++;
+            }
+            if (!has(/Мотоциклист-посыльный/i)) {
+                platoon.squads.push({ name: 'Мотоциклист-посыльный', templateName: 'Мотоциклист-посыльный' });
+                added++;
+            }
+            if (!isBicyclePlatoonPreset(platoon)) return;
+            // номер считается по порядку самокатных взводов, поэтому при
+            // нескольких проходах дубликатов («№1» дважды) не появится
+            bicycleIndex += 1;
+            const number = Math.min(3, bicycleIndex);
+            if (!has(/мотоциклетн\S* миномётн/i)) {
+                platoon.squads.push({
+                    name: `Мотоциклетный миномётный расчёт №${number}`,
+                    templateName: `Мотоциклетный миномётный расчёт 50-мм №${number}`
+                });
+                added++;
+            }
+        });
+    });
+    return added;
+}
+
 // Переименование сохранённых отделений (взводы, бои, шаблоны).
 function migrateSupplySquadNames() {
     if (typeof appData === 'undefined' || !appData) return 0;
@@ -2168,6 +2254,16 @@ function buildOperationalUnits() {
     // ⚡ v13.150: переименование отделений снабжения (BeVe — DAF) должно пройти
     //    ДО пересборки батальона, иначе шаблон с новым именем не найдётся.
     try { migrateSupplySquadNames(); } catch (e) { console.warn('migrateSupplySquadNames:', e.message); }
+    // ⚡ v13.158: мотоциклетные отряды самокатных взводов — и шаблоны, и состав
+    //    уже начатого похода (иначе новых расчётов в сейве просто нет).
+    try { syncReconPlatoonTemplates(); } catch (e) { console.warn('syncReconPlatoonTemplates:', e.message); }
+    try {
+        const reconAdded = syncReconPlatoonSquads(appData.campaign.battalions.player);
+        if (reconAdded > 0) {
+            console.log(`🏍️ В самокатные взводы добавлено отрядов: ${reconAdded}`);
+            log(`🏍️ В самокатные взводы добавлены мотоциклетные отряды: ${reconAdded}`);
+        }
+    } catch (e) { console.warn('syncReconPlatoonSquads(player):', e.message); }
 
     // ⚡ v13.020: ПЕРЕСБОРКА БАТАЛЬОНА ИЗ data.js, ЕСЛИ ПРЕСЕТ МЕНЯЛСЯ.
     //    Если сигнатура пресета в сейве не совпадает с текущей (или её нет в
@@ -2213,8 +2309,11 @@ function buildOperationalUnits() {
             if (freshEnemy) {
                 appData.campaign.battalions.enemy = freshEnemy;
                 enemyBattalion = freshEnemy;
-                // Вражеские операционные юниты пересоздаются из нового состава
-                appData.campaign.enemyOpUnits = null;
+                // ⚡ v13.158: вражеские юниты НЕ обнуляем — иначе у начатого похода
+                //    терялись их позиции на карте. Сбрасываем только сигнатуру:
+                //    ниже юниты пересоздаются из нового состава, а позиции/состояние
+                //    переносятся по именам (preserveEnemyByName).
+                appData.campaign.enemyOpUnitsSignature = null;
             }
         }
     }
@@ -2491,6 +2590,17 @@ function buildOperationalUnits() {
     //    ИЛИ ПЕРЕСОЗДАЁМ, ЕСЛИ СОСТАВ/ВЕРСИЯ КАРТЫ ИЗМЕНИЛАСЬ (сигнатура).
     const hasEnemyUnits = appData.campaign.enemyOpUnits && appData.campaign.enemyOpUnits.length > 0;
     const enemyBattalionRef = appData.campaign.battalions.enemy;
+    // ⚡ v13.158: у вражеского батальона тот же пропуск — доводим состав взводов
+    //    и, если отряды добавились, помечаем врага на пересборку (позиции
+    //    сохраняются по именам юнитов ниже).
+    if (enemyBattalionRef) {
+        try {
+            if (syncReconPlatoonSquads(enemyBattalionRef) > 0) {
+                appData.campaign.enemyOpUnitsSignature = null;
+                console.log('🏍️ Вражеский батальон: добавлены мотоциклетные отряды — пересборка');
+            }
+        } catch (e) { console.warn('syncReconPlatoonSquads(enemy):', e.message); }
+    }
     let enemySigChanged = false;
     if (hasEnemyUnits && enemyBattalionRef) {
         const enemySigNow = getBattalionSignature(enemyBattalionRef);
