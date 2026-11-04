@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.150
+// ⚡ BUILD-МАРКЕР: v13.157
 // v13.062: fixed DOT coordinates and no placement bypass for eliminated squads.
 // ⚡ v13.061: current release tactical deployment rules.
 // ============================================================
@@ -568,6 +568,68 @@ function battleStartUI(battle) {
     if (!battle.cardsChosen && typeof openCardsTabForBattleStart === 'function') openCardsTabForBattleStart();
 }
 
+// ⚡ v13.156 (п.34): ВЗВОД, ВСТУПИВШИЙ В ИДУЩИЙ БОЙ, получает своё меню
+//    размещения. Раньше фаза размещения уже была завершена (phase === 'done'),
+//    панель не показывалась вовсе, и подкрепление оставалось вне карты без
+//    подсказок и без кнопок — приходилось угадывать режим «🏷️ Разместить».
+function placementReinforcementUnplaced(battle) {
+    battle = battle || (typeof getCurrentBattleRecord === 'function' ? getCurrentBattleRecord() : null);
+    if (!battle) return [];
+    const p = battle.placement;
+    if (p && p.phase === 'placing') return [];      // идёт обычное размещение — оно и так на экране
+    try { return placementTrayUnplacedSquads(battle); } catch (e) { return []; }
+}
+function placementReinforcementPending(battle) {
+    return placementReinforcementUnplaced(battle).length > 0;
+}
+// Полоса, в которой размещается подкрепление: сторона, откуда взвод пришёл,
+// иначе — тыл (напротив стороны входа атакующего).
+function placementReinforcementZone(battle, squad) {
+    const p = battle && battle.placement;
+    const dir = (squad && squad.placementArrivalDir) || (p ? placementOppositeDir(p.entryDir) : null) || 'W';
+    let keys = placementZoneKeys(dir, placementMapSize(battle));
+    const grid = placementBattleGrid(battle) || {};
+    const free = keys.filter(key => grid[key] && !((grid[key].squadIds || []).length) && !((grid[key].enemySquadIds || []).length));
+    if (!free.length) keys = Object.keys(grid).filter(key => !((grid[key].squadIds || []).length) && !((grid[key].enemySquadIds || []).length));
+    return { dir, keys: free.length ? free : keys };
+}
+// Автоматически выставить подкрепление в его полосе: игрок не обязан водить
+// каждый отряд руками посреди боя.
+function placementAutoPlaceReinforcements() {
+    const battle = getCurrentBattleRecord();
+    if (!battle) return 0;
+    const grid = placementBattleGrid(battle);
+    const list = placementReinforcementUnplaced(battle);
+    if (!list.length || !grid) return 0;
+    let placed = 0;
+    list.forEach(item => {
+        const squad = item.s, idx = item.i;
+        if (!squad) return;
+        const zone = placementReinforcementZone(battle, squad);
+        const key = zone.keys.find(k => grid[k] && !((grid[k].squadIds || []).length));
+        if (!key) return;
+        Object.keys(grid).forEach(k => {
+            const cell = grid[k];
+            if (cell && Array.isArray(cell.squadIds)) cell.squadIds = cell.squadIds.filter(i => i !== idx);
+        });
+        if (!Array.isArray(grid[key].squadIds)) grid[key].squadIds = [];
+        grid[key].squadIds.push(idx);
+        squad.hexPos = key.split(',').map(Number);
+        // отметка «гекс занят» — только для живой тактической карты
+        const liveMap = (typeof appData !== 'undefined' && appData && appData.map) ? appData.map : null;
+        if (liveMap && liveMap.grid === grid && typeof tacticalMarkTacticalHexOccupied === 'function') {
+            try { tacticalMarkTacticalHexOccupied(key, 'player', liveMap); } catch (e) {}
+        }
+        placed++;
+    });
+    if (placed) {
+        try { log(`📍 Подкрепление выставлено на карту: ${placed} отряд(а).`); } catch (e) {}
+        try { saveData(); } catch (e) {}
+        try { if (typeof redrawMap === 'function') redrawMap(); } catch (e) {}
+        try { if (typeof renderPlacementPanel === 'function') renderPlacementPanel(); } catch (e) {}
+    }
+    return placed;
+}
 function renderPlacementPanel() {
     const el = document.getElementById('battlePlacementPanel');
     if (!el) return;
@@ -576,8 +638,35 @@ function renderPlacementPanel() {
     const selectorWrap = document.getElementById('battleSquadToPlaceWrap');
     const selectorSlot = document.getElementById('squadToPlaceToolbarSlot');
     if (!p || p.phase === 'done') {
-        if (selectorSlot && selectorWrap && selectorWrap.parentNode !== selectorSlot) selectorSlot.appendChild(selectorWrap);
-        el.style.display = 'none'; el.innerHTML = ''; return;
+        // ⚡ v13.156 (п.34): бой идёт, но в него вошёл новый взвод — показываем
+        //    компактное меню размещения подкрепления (а не пустоту).
+        const reinforcements = placementReinforcementPending(battle) ? placementReinforcementUnplaced(battle) : [];
+        if (!reinforcements.length) {
+            if (selectorSlot && selectorWrap && selectorWrap.parentNode !== selectorSlot) selectorSlot.appendChild(selectorWrap);
+            el.style.display = 'none'; el.innerHTML = ''; return;
+        }
+        const names = reinforcements.map(x => x.s && x.s.name).filter(Boolean);
+        const zoneInfo = placementReinforcementZone(battle, reinforcements[0] && reinforcements[0].s);
+        let reinforcementHtml = `<div style="font-weight:bold; color:#f1c40f; margin-bottom:4px;">📍 Подкрепление в идущем бою</div>` +
+            `<div>Не выставлены на карту: <b>${names.join(', ')}</b></div>` +
+            `<div style="font-size:.86em; color:#bbb;">Место — полоса ${PLACEMENT_DIR_LABELS[zoneInfo.dir] || zoneInfo.dir} (подсвечена на карте). Выберите отряд в списке «Отряд» и кликните гекс — либо нажмите «🎲 Выставить подкрепление».</div>` +
+            `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">` +
+            `<button onclick="setMapMode('place')" style="background:#27ae60;">🏷️ Разместить</button>` +
+            `<button onclick="placementAutoPlaceReinforcements()" style="background:#16a085;">🎲 Выставить подкрепление</button>` +
+            `<button onclick="renderPlacementPanel()" style="background:#555;">🔄 Обновить</button>` +
+            `</div>`;
+        const trayElR = document.getElementById('battlePlacementTray');
+        if (trayElR) {
+            trayElR.style.display = 'block';
+            trayElR.innerHTML = `<div class="battle-placement-tray-title">🗂 Подкрепление — перетащите на карту (или тап — выбор в списке «Отряд»)</div>` +
+                `<div class="battle-placement-tray-units">` + reinforcements.map(x =>
+                    `<button type="button" class="battle-placement-chip" data-battle-place-unit="${x.i}" title="${String(x.s.name).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}">` +
+                    (x.s.icon ? `<img src="${x.s.icon}" alt="">` : '') + `<span>${x.s.name}</span></button>`).join('') + `</div>`;
+        }
+        el.innerHTML = reinforcementHtml;
+        el.style.display = 'block';
+        try { if (typeof installBattlePlacementTray === 'function') installBattlePlacementTray(); } catch (e) {}
+        return;
     }
     const online = !!(appData.campaign && appData.campaign.online);
     const iAmAttacker = p.attackerSide === 'player';

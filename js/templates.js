@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.150 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.157 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // v13.062: AIRF reconnaissance platoon HQ icon.
 // ⚡ v13.059: current release squad templates.
 // ==================== ШАБЛОНЫ ОТРЯДОВ ====================
@@ -144,7 +144,7 @@ const SQUAD_TEMPLATES = [
           {"name": "Штаб роты №2", "faction": "A.I.R.F.", "baseMorale": 6, "currentMorale": 6, "icon": "images/AIRF/рота аирф 2.png", "fighters": [{"name": "Ком.Роты", "weapon": "ПП Star Si-35", "hp": 3, "maxHp": 3, "isCommander": true}, {"name": "Заместитель командира роты", "weapon": "ПП Star Si-35", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Старшина роты", "weapon": "ПП Star Si-35", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Интендант", "weapon": "ПП Star Si-35", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Писарь", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Фельдшер", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Связной", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Посыльный 1", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Посыльный 2", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 72, "ammoOrdnance": 0, "grenades": 18},
           {"name": "Штаб роты №3", "faction": "A.I.R.F.", "baseMorale": 6, "currentMorale": 6, "icon": "images/AIRF/рота аирф 3.png", "fighters": [{"name": "Ком.Роты", "weapon": "ПП Star Si-35", "hp": 3, "maxHp": 3, "isCommander": true}, {"name": "Заместитель командира роты", "weapon": "ПП Star Si-35", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Старшина роты", "weapon": "ПП Star Si-35", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Интендант", "weapon": "ПП Star Si-35", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Писарь", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Фельдшер", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Связной", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Посыльный 1", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Посыльный 2", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 72, "ammoOrdnance": 0, "grenades": 18},
           {"name": "Штаб Батальона", "faction": "A.I.R.F.", "baseMorale": 6, "currentMorale": 6, "icon": "images/штаб1.jpg", "fighters": [{"name": "Ком.Батальона", "weapon": "ПП Star Si-35", "hp": 3, "maxHp": 3, "isCommander": true}, {"name": "Заместитель командира батальона", "weapon": "ПП Star Si-35", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Начальник штаба", "weapon": "ПП Star Si-35", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Старшина батальона", "weapon": "Пистолет Star M1914", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Интендант", "weapon": "Пистолет Star M1914", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Писарь", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Фельдшер", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Кладовщик (каптенармус)", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Связной", "weapon": "ПП Star Si-35", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Посыльный 1", "weapon": "ПП Star Si-35", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Посыльный 2", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Радист 1", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Радист 2", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Телефонист 1", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Телефонист 2", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 120, "ammoOrdnance": 0, "grenades": 30},
-          {"name":"Штаб развед. взвода","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/AIRF/штаб развед взвода АИРФ №1.png","fighters":[{"name":"Ком.взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
+          {"name":"Штаб развед. взвода","canRecon":true,"isScout":true,"reconAssetKey":"airf_recon_platoon","faction":"A.I.R.F.","baseMorale":6,"currentMorale":6,"icon":"images/AIRF/штаб развед взвода АИРФ №1.png","fighters":[{"name":"Ком.взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Заместитель","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Посыльный 1","weapon":"ПП Star Si-35","hp":3,"maxHp":3},{"name":"Посыльный 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":32,"ammoOrdnance":0,"grenades":8},
           {"name":"Развед. отделение №1","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/развед аирф 1.png","fighters":[{"name":"Сержант","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Пулеметчик ","weapon":"Ручной пулемет Zb.26","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":42,"ammoOrdnance":0,"grenades":28},
           {"name":"Развед. отделение №2","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/развед аирф 2.png","fighters":[{"name":"Сержант","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Стрелок 1","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 3","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Стрелок 4","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Пулеметчик ","weapon":"Ручной пулемет Zb.26","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":42,"ammoOrdnance":0,"grenades":28},
           {"name":"Штаб саперного взвода","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/штаб1 саперский.png","fighters":[{"name":"Ком.Взвода","weapon":"ПП Star Si-35","hp":3,"maxHp":3,"isCommander":true},{"name":"Сапер 1","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Сапер 2","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Сапер 3","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Сапер 4","weapon":"Винтовка Vz.24","hp":3,"maxHp":3},{"name":"Пулеметчик ","weapon":"Ручной пулемет Zb.26","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Винтовка Vz.24","hp":3,"maxHp":3}],"crewInstances":[],"ammoSmall":42,"ammoOrdnance":0,"grenades":28},
@@ -226,7 +226,7 @@ const SQUAD_TEMPLATES = [
           ],
            "armor": { "front": 20, "side": 20, "rear": 40, "turret": 40 }},
           
-            {"name":"Бронеавтомобиль Landsverk 183 №1","faction":"BeVe","baseMorale":8,"currentMorale":8,"icon":"images/BeVe/БА Landsverk 183 №1.jpg","ammoSmall":50,"ammoOrdnance":20,"grenades":0,"fighters":[
+            {"name":"Бронеавтомобиль Landsverk 183 №1","faction":"BeVe","canRecon":true,"isScout":true,"reconAssetKey":"beve_armored_car","baseMorale":8,"currentMorale":8,"icon":"images/BeVe/БА Landsverk 183 №1.jpg","ammoSmall":50,"ammoOrdnance":20,"grenades":0,"fighters":[
             {"name":"Механик-водитель","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},
             {"name":"Стрелок-радист","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},
             {"name":"Заряжающий","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},
@@ -241,7 +241,7 @@ const SQUAD_TEMPLATES = [
           ],
           "armor": { "front": 20, "side": 16, "rear": 16, "turret": 20 }},
 
-           {"name":"Бронеавтомобиль Landsverk 183 №2","faction":"BeVe","baseMorale":8,"currentMorale":8,"icon":"images/BeVe/БА Landsverk 183 №2.jpg","ammoSmall":50,"ammoOrdnance":20,"grenades":0,"fighters":[
+           {"name":"Бронеавтомобиль Landsverk 183 №2","faction":"BeVe","canRecon":true,"isScout":true,"reconAssetKey":"beve_armored_car","baseMorale":8,"currentMorale":8,"icon":"images/BeVe/БА Landsverk 183 №2.jpg","ammoSmall":50,"ammoOrdnance":20,"grenades":0,"fighters":[
             {"name":"Механик-водитель","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},
             {"name":"Стрелок-радист","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},
             {"name":"Заряжающий","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},
@@ -256,7 +256,7 @@ const SQUAD_TEMPLATES = [
           ],
           "armor": { "front": 20, "side": 16, "rear": 16, "turret": 20 }},
 
-           {"name":"Бронеавтомобиль Landsverk 183 №3","faction":"BeVe","baseMorale":8,"currentMorale":8,"icon":"images/BeVe/БА Landsverk 183 №3.jpg","ammoSmall":50,"ammoOrdnance":20,"grenades":0,"fighters":[
+           {"name":"Бронеавтомобиль Landsverk 183 №3","faction":"BeVe","canRecon":true,"isScout":true,"reconAssetKey":"beve_armored_car","baseMorale":8,"currentMorale":8,"icon":"images/BeVe/БА Landsverk 183 №3.jpg","ammoSmall":50,"ammoOrdnance":20,"grenades":0,"fighters":[
             {"name":"Механик-водитель","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},
             {"name":"Стрелок-радист","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},
             {"name":"Заряжающий","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},
@@ -379,8 +379,8 @@ const SQUAD_TEMPLATES = [
         {"name": "Мул с бойцом №2 (Бельгийцы)", "faction": "BeVe", "subfaction": "belgian", "baseMorale": 5, "currentMorale": 5, "icon": "images/BeVe/Взвод снабжения BeVe №1.png", "fighters": [{"name": "Погонщик мула №2", "weapon": "Винтовка FN model 24/30", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 8, "ammoOrdnance": 0, "grenades": 2},
         {"name": "Мул с бойцом №3 (Бельгийцы)", "faction": "BeVe", "subfaction": "belgian", "baseMorale": 5, "currentMorale": 5, "icon": "images/BeVe/Взвод снабжения BeVe №1.png", "fighters": [{"name": "Погонщик мула №3", "weapon": "Винтовка FN model 24/30", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 8, "ammoOrdnance": 0, "grenades": 2},
         {"name": "Конная повозка (Бельгийцы)", "faction": "BeVe", "subfaction": "belgian", "baseMorale": 5, "currentMorale": 5, "icon": "images/BeVe/Взвод снабжения BeVe №1.png", "fighters": [{"name": "Возница", "weapon": "Винтовка FN model 24/30", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Ездовой", "weapon": "Винтовка FN model 24/30", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 16, "ammoOrdnance": 0, "grenades": 4},
-        {"name": "Грузовик DAF Trado II (Бельгийцы)", "faction": "BeVe", "subfaction": "belgian", "baseMorale": 5, "currentMorale": 5, "icon": "images/BeVe/Взвод снабжения BeVe №1.png", "fighters": [{"name": "Водитель DAF Trado II", "weapon": "Винтовка FN model 24/30", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Помощник водителя", "weapon": "Винтовка FN model 24/30", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 16, "ammoOrdnance": 0, "grenades": 4},
-        {"name": "Автомобиль DAF MC-V (Бельгийцы)", "faction": "BeVe", "subfaction": "belgian", "baseMorale": 5, "currentMorale": 5, "icon": "images/BeVe/Взвод снабжения BeVe №1.png", "fighters": [{"name": "Водитель DAF MC-V", "weapon": "Пистолет Browning Hi-Power", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 8, "ammoOrdnance": 0, "grenades": 2},
+        {"name": "Грузовик DAF Trado II (Бельгийцы)", "faction": "BeVe", "subfaction": "belgian", "baseMorale": 5, "currentMorale": 5, "icon": "images/BeVe/DAF Trado.png", "fighters": [{"name": "Водитель DAF Trado II", "weapon": "Винтовка FN model 24/30", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Помощник водителя", "weapon": "Винтовка FN model 24/30", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 16, "ammoOrdnance": 0, "grenades": 4},
+        {"name": "Автомобиль DAF MC-V (Бельгийцы)", "faction": "BeVe", "subfaction": "belgian", "baseMorale": 5, "currentMorale": 5, "icon": "images/BeVe/DAF MC-V.png", "fighters": [{"name": "Водитель DAF MC-V", "weapon": "Пистолет Browning Hi-Power", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 8, "ammoOrdnance": 0, "grenades": 2},
         {"name": "Штаб взвода снабжения (A.I.R.F.)", "faction": "A.I.R.F.", "baseMorale": 5, "currentMorale": 5, "icon": "images/AIRF/Взвод снабжения АИРФ №1.png", "fighters": [{"name": "Командир взвода снабжения", "weapon": "ПП Star Si-35", "hp": 3, "maxHp": 3, "isCommander": true}, {"name": "Заместитель командира взвода снабжения", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Кладовщик", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Писарь", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 32, "ammoOrdnance": 0, "grenades": 8},
         {"name": "Носильщики №1 (A.I.R.F.)", "faction": "A.I.R.F.", "baseMorale": 5, "currentMorale": 5, "icon": "images/AIRF/Взвод снабжения АИРФ №1.png", "fighters": [{"name": "Носильщик 1", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Носильщик 2", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Носильщик 3", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Носильщик 4", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 32, "ammoOrdnance": 0, "grenades": 8},
         {"name": "Носильщики №2 (A.I.R.F.)", "faction": "A.I.R.F.", "baseMorale": 5, "currentMorale": 5, "icon": "images/AIRF/Взвод снабжения АИРФ №1.png", "fighters": [{"name": "Носильщик 5", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Носильщик 6", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Носильщик 7", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Носильщик 8", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 32, "ammoOrdnance": 0, "grenades": 8},
@@ -390,9 +390,74 @@ const SQUAD_TEMPLATES = [
         // ⚡ v13.149: горный транспортёр TG-41 «Лама» — полугусеничный мотоцикл-вездеход,
         //    расчёт 2 бойца, заезжает на холмы и камни, груза в 1,5 раза больше ламы.
         {"name": "Горный транспортёр TG-41 «Лама» (A.I.R.F.)", "faction": "A.I.R.F.", "baseMorale": 5, "currentMorale": 5, "icon": "images/AIRF/Взвод снабжения АИРФ №1.png", "fighters": [{"name": "Водитель транспортёра TG-41", "weapon": "Пистолет Star M1914", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Механик-водитель транспортёра TG-41", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 16, "ammoOrdnance": 0, "grenades": 4},
-        {"name": "Легкий грузовик CLg-37 «Викунья» (A.I.R.F.)", "faction": "A.I.R.F.", "baseMorale": 5, "currentMorale": 5, "icon": "images/AIRF/Взвод снабжения АИРФ №1.png", "fighters": [{"name": "Водитель «Викуньи»", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Помощник водителя", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 16, "ammoOrdnance": 0, "grenades": 4},
+        {"name": "Легкий грузовик CLg-37 «Викунья» (A.I.R.F.)", "faction": "A.I.R.F.", "baseMorale": 5, "currentMorale": 5, "icon": "images/BeVe/Лёгкий грузовик CLg-37 «Викунья» (Vicuña).png", "fighters": [{"name": "Водитель «Викуньи»", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Помощник водителя", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 16, "ammoOrdnance": 0, "grenades": 4},
         {"name": "Стрелок охранник №1 (A.I.R.F.)", "faction": "A.I.R.F.", "baseMorale": 5, "currentMorale": 5, "icon": "images/AIRF/Взвод снабжения АИРФ №1.png", "fighters": [{"name": "Охранник 1", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Охранник 2", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 16, "ammoOrdnance": 0, "grenades": 4},
         {"name": "Стрелок охранник №2 (A.I.R.F.)", "faction": "A.I.R.F.", "baseMorale": 5, "currentMorale": 5, "icon": "images/AIRF/Взвод снабжения АИРФ №1.png", "fighters": [{"name": "Охранник 3", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}, {"name": "Охранник 4", "weapon": "Винтовка Vz.24", "hp": 3, "maxHp": 3, "isCommander": false}], "crewInstances": [], "ammoSmall": 16, "ammoOrdnance": 0, "grenades": 4},
+        // ⚡ v13.157: РАЗВЕДЫВАТЕЛЬНЫЕ АКТИВЫ (см. js/recon.js).
+        //    Все разведчики имеют бинокль — дальность наблюдения одинакова
+        //    (3 гекса на ходу, 5 стоя, 8 с холма); «оптического» бонуса техники нет.
+        {"name": "Мотоциклист-разведчик", "faction": "BeVe", "canRecon": true, "isScout": true, "isMessenger": false,
+         "reconAssetKey": "beve_motorcycle_scout", "mobility": "motorcycle", "baseMorale": 5, "currentMorale": 5,
+         "icon": "images/BeVe/разведчик бенилюкс мото1.png", "ammoSmall": 30, "ammoOrdnance": 0, "grenades": 0,
+         "fighters": [{"name": "Разведчик", "weapon": "Карабин Mauser 1889", "hp": 3, "maxHp": 3, "isCommander": true}],
+         "crewInstances": []},
+        {"name": "Мотоциклист-посыльный", "faction": "BeVe", "canRecon": false, "isScout": false, "isMessenger": true,
+         "reconAssetKey": "beve_motorcycle_messenger", "mobility": "motorcycle", "baseMorale": 5, "currentMorale": 5,
+         "icon": "images/BeVe/разведчик бенилюкс мото.png", "ammoSmall": 30, "ammoOrdnance": 0, "grenades": 0,
+         "fighters": [{"name": "Посыльный", "weapon": "Карабин Mauser 1889", "hp": 3, "maxHp": 3, "isCommander": true}],
+         "crewInstances": []},
+        {"name": "AL-41 Hidalgo", "faction": "A.I.R.F.", "canRecon": true, "isScout": true, "isMessenger": false,
+         "reconAssetKey": "airf_hidalgo", "mobility": "vehicle", "baseMorale": 5, "currentMorale": 5,
+         "icon": "images/AIRF/Hidalgo GL-41.png", "ammoSmall": 40, "ammoOrdnance": 0, "grenades": 0,
+         "fighters": [{"name": "Водитель", "weapon": "Пистолет Star M1914", "hp": 3, "maxHp": 3, "isCommander": true},
+                      {"name": "Наблюдатель", "weapon": "Пистолет Star M1914", "hp": 3, "maxHp": 3, "isCommander": false}],
+         "crewInstances": []},
+        // ⚡ v13.157 (п.2 доп. правок): мотоциклетный миномётный расчёт в самокатных
+        //    взводах — тот же 50-мм миномёт, что и в пехотных взводах, но на мотоцикле.
+        {"name": "Мотоциклетный миномётный расчёт 50-мм №1", "faction": "BeVe", "baseMorale": 5, "currentMorale": 5,
+         "icon": "images/BeVe/мотоцикл беве 1 мин.png", "ammoSmall": 32, "ammoOrdnance": 12, "grenades": 6,
+         "fighters": [{"name": "Сержант", "weapon": "Винтовка Geweer M95", "hp": 3, "maxHp": 3, "isCommander": true},
+                      {"name": "Наводчик", "weapon": "Пистолет Browning Hi-Power", "hp": 3, "maxHp": 3},
+                      {"name": "Заряжающий", "weapon": "Винтовка Geweer M95", "hp": 3, "maxHp": 3}],
+         "crewInstances": [{"weaponName": "Минометный расчёт 50мм DBT", "fighterIndices": [0,1,2], "active": true}]},
+        {"name": "Мотоциклетный миномётный расчёт 50-мм №2", "faction": "BeVe", "baseMorale": 5, "currentMorale": 5,
+         "icon": "images/BeVe/мотоцикл беве 2 мин.png", "ammoSmall": 32, "ammoOrdnance": 12, "grenades": 6,
+         "fighters": [{"name": "Сержант", "weapon": "Винтовка Geweer M95", "hp": 3, "maxHp": 3, "isCommander": true},
+                      {"name": "Наводчик", "weapon": "Пистолет Browning Hi-Power", "hp": 3, "maxHp": 3},
+                      {"name": "Заряжающий", "weapon": "Винтовка Geweer M95", "hp": 3, "maxHp": 3}],
+         "crewInstances": [{"weaponName": "Минометный расчёт 50мм DBT", "fighterIndices": [0,1,2], "active": true}]},
+        {"name": "Мотоциклетный миномётный расчёт 50-мм №3", "faction": "BeVe", "baseMorale": 5, "currentMorale": 5,
+         "icon": "images/BeVe/мотоцикл беве 3 мин.png", "ammoSmall": 32, "ammoOrdnance": 12, "grenades": 6,
+         "fighters": [{"name": "Сержант", "weapon": "Винтовка Geweer M95", "hp": 3, "maxHp": 3, "isCommander": true},
+                      {"name": "Наводчик", "weapon": "Пистолет Browning Hi-Power", "hp": 3, "maxHp": 3},
+                      {"name": "Заряжающий", "weapon": "Винтовка Geweer M95", "hp": 3, "maxHp": 3}],
+         "crewInstances": [{"weaponName": "Минометный расчёт 50мм DBT", "fighterIndices": [0,1,2], "active": true}]},
+
         // ⚡ v13.030: шаблоны «Полковой расчёт 75-мм» удалены — артподдержка
         //    обеих фракций теперь только приказ штаба «Арт. обстрел» (v13.025/v13.028)
 ];
+
+// ═══════════════════════════════════════════════════════════════════════
+// ⚡ v13.157: ИКОНКИ ТЕХНИКИ ВЗВОДА СНАБЖЕНИЯ
+//
+//   Раньше любой отряд снабжения принудительно получал общий значок взвода
+//   (его присваивает миграция в index.html), поэтому у грузовиков не было
+//   своих картинок. Теперь у техники есть собственные иконки, а общий значок
+//   остаётся только пешим отделениям (штаб, носильщики, мулы, повозки,
+//   охрана). Функция живёт здесь, потому что её используют и оперативная
+//   карта, и тактический бой, и миграция старых сейвов.
+// ═══════════════════════════════════════════════════════════════════════
+const SUPPLY_VEHICLE_ICON_RULES = [
+    [/DAF Trado/i, 'images/BeVe/DAF Trado.png'],
+    [/DAF MC-V/i, 'images/BeVe/DAF MC-V.png'],
+    [/Викунья/i, 'images/BeVe/Лёгкий грузовик CLg-37 «Викунья» (Vicuña).png']
+];
+function supplySquadIcon(name, faction) {
+    const n = String(name || '');
+    for (let i = 0; i < SUPPLY_VEHICLE_ICON_RULES.length; i++) {
+        if (SUPPLY_VEHICLE_ICON_RULES[i][0].test(n)) return SUPPLY_VEHICLE_ICON_RULES[i][1];
+    }
+    return String(faction || '') === 'A.I.R.F.'
+        ? 'images/AIRF/Взвод снабжения АИРФ №1.png'
+        : 'images/BeVe/Взвод снабжения BeVe №1.png';
+}

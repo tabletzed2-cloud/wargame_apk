@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.150 — tactical grenade-area fire, commissioner card limit, unified rules.
+// ⚡ BUILD-МАРКЕР: v13.157 — tactical grenade-area fire, commissioner card limit, unified rules.
 (function () {
   'use strict';
 
@@ -811,6 +811,10 @@
     state.selectedUnitId = Number(id);
     c.selectedOpUnit = unit;
     c.selectedPlaceUnitId = Number(id);
+    // ⚡ v13.156 (п.6): игрок ВЫДЕЛИЛ отряд в панели размещения — только после
+    //    этого клик по карте в онлайне переносит его на гекс. Простой клик по
+    //    карте (без выделения) больше не двигает штаб батальона.
+    c.opPlacementExplicitIndex = Number(id);
     const select = document.getElementById('opPlaceSelect');
     if (select) { select.value = String(id); }
     try { if (typeof updateDismountPanel === 'function') updateDismountPanel(); } catch (e) {}

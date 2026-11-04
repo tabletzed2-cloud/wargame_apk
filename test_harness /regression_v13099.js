@@ -15,14 +15,16 @@ const OPUI = read('js/operational_ui.js');
 const SW = read('service-worker.js');
 const MANIFEST = read('manifest.json');
 
-const CONSTS = ['RECON_RADIUS', 'RECON_RADIUS_ARMORED_CAR',
+// ⚡ v13.157: RECON_RADIUS / RECON_RADIUS_ARMORED_CAR удалены — разведка стала
+//    миссиями (js/recon.js), см. regression_v13157_recon.js.
+const CONSTS = [
   // ⚡ v13.099 (п.30): курс/сектора бронетехники и штурм ДОТа
   'VEHICLE_TURN_AP_COST', 'DOT_SABOTAGE_GRENADES', 'DOT_SMOKE_GRENADES',
   'VEHICLE_DIRECTION_LABELS', 'VEHICLE_FAMILIES',
   // ⚡ v13.099 (п.31): термитный заряд в тактическом бою
   'THERMITE_RANGE', 'THERMITE_SUCCESS_MIN', 'THERMITE_DEATH_MIN', 'THERMITE_DEATH_SKIP_NAMES'];
 const FNS = [
-  'reconRadiusForUnit', 'isArmoredCarReconUnit', 'isSupplyOperationalUnit', 'supplyBattleForceSquads',
+  'isSupplyOperationalUnit', 'supplyBattleForceSquads',
   'battleHasUnitRecord', 'tacticalTargetInCurrentBattle', 'operationalInitialCombatStrength',
   'operationalCombatAliveCount', 'operationalUnitIsShattered', 'getTacticalRoundProgress',
   'tacticalPhasesPerRound', 'tacticalRoundsPerOperationalTurn', 'RPTX_PHASES_PER_WINDOW',
@@ -53,6 +55,7 @@ function ok(condition, label, detail) {
   else { fail++; console.log('  ✗ ' + label + (detail !== undefined ? ' | ' + detail : '')); }
 }
 function sliceOf(name) { return sliceFunction(HTML, name); }
+function sliceOfRecon(text, name) { return sliceFunction(text, name); }
 
 function fresh() {
   const s = createSandbox(freshAppData());
@@ -117,18 +120,17 @@ console.log('== v13.099: пункты 1–27 ==');
   ok(/opMaskedTargetLabel/.test(HTML), 'п.4: скрытая цель подписывается «данные скрыты»');
 }
 
-// ─────────────────────────── п.5: разведка бронеавтомобиля ───────────────────────────
+// ─────────── п.5: разведка — теперь миссии (v13.157) ───────────
 {
-  const s = fresh();
-  ok(s.evalCtx('RECON_RADIUS_ARMORED_CAR') === 2, 'п.5: радиус бронеавтомобиля — 2 гекса');
-  ok(s.evalCtx('RECON_RADIUS') === 3, 'п.5: обычная разведка осталась 3 гекса');
-  ok(s.evalCtx("reconRadiusForUnit({ type: 'armored_vehicle_platoon', name: 'Бронеавтомобили' })") === 2,
-     'п.5: у бронеавтомобильного взвода радиус 2');
-  ok(s.evalCtx("reconRadiusForUnit({ type: 'recon_platoon', name: 'Разведвзвод' })") === 3,
-     'п.5: у разведвзвода радиус 3');
-  const recon = sliceOf('executeReconOrder');
-  ok(/opLineOfSightBlocked/.test(recon), 'п.5: разведка бронеавтомобиля учитывает линию видимости');
-  ok(/armoredCarRecon/.test(recon) && /reconRadiusForUnit/.test(recon), 'п.5: радиус берётся из reconRadiusForUnit');
+  // ⚡ v13.157: подсветка радиуса (радиус 2 у бронеавтомобиля) заменена
+  //    разведывательными миссиями с маршрутом, наблюдением и докладами.
+  const RECON = fs.readFileSync(path.join(ROOT, 'js/recon.js'), 'utf8');
+  ok(!/RECON_RADIUS_ARMORED_CAR/.test(HTML), 'п.5: старого радиуса бронеавтомобиля больше нет');
+  ok(/function getReconObserveRange/.test(RECON), 'п.5: дальность наблюдения считается в js/recon.js');
+  ok(/function canReconMoveTo/.test(RECON) && /function observeInRange/.test(RECON),
+     'п.5: проходимость и наблюдение активов реализованы миссиями');
+  ok(!/isVehicle/.test(sliceOfRecon(RECON, 'getReconObserveRange')),
+     'п.5: бонуса оптики техники нет — дальность одинакова для всех активов');
 }
 
 // ─────────────────────────── п.6: черновик окопов/расчистки ───────────────────────────

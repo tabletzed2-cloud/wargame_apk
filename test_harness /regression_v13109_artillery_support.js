@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert/strict');
-const { sliceFunction, HTML, ROOT } = require('./extract');
+const { sliceFunction, sliceConst, HTML, ROOT } = require('./extract');
 const { createSandbox, freshAppData, setRandom } = require('./sandbox');
 
 const read = rel => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -139,7 +139,10 @@ test('2г: заявка уходит на следующий ход и разб�
     const shell = sliceFunction(HTML, 'tacticalArtilleryResolveCall');
     assert.ok(/tacticalArtilleryScatterHex\(call\.targetHex, roll, map\)/.test(shell), 'каждый снаряд отдельно попадает/сносится');
     assert.ok(/tacticalArtilleryScatterHex/.test(HTML) && /oddRow/.test(sliceFunction(HTML, 'tacticalArtilleryScatterHex')), 'снос использует шесть соседей с учётом чётности строки');
-    assert.ok(/Math\.floor\(rawDamage \* 0\.6\)/.test(shell) && /afterTerrain \* damageable\.length/.test(shell), 'окоп снижает урон на 40%, затем он умножается на число отрядов');
+    // ⚡ v13.153 (п.23): артобстрел бьёт по площади — по каждому отряду гекса
+    //    своя случайная проверка, окопы снижают шанс попадания и число поражённых.
+    assert.ok(/tacticalArtillerySquadHitChance\(trenches\)/.test(shell) &&
+        /tacticalArtilleryFightersHit\(trenches\)/.test(shell), 'урон по площади: шанс по отряду и 1–3 бойца, окопы защищают');
     assert.ok(/Итог налёта/.test(shell), 'результат залпа виден в журнале');
     assert.ok(/tacticalIsDotSquad\(squad\)/.test(sliceFunction(HTML, 'tacticalArtilleryApplyDamage')),
         'ДОТ не получает урона от артиллерии');
@@ -206,6 +209,17 @@ test('sandbox: полный цикл — вызов, очередь, залп в
     s.run(sliceFunction(HTML, 'tacticalArtilleryApplyDamage'));
     s.run(sliceFunction(HTML, 'tacticalArtilleryScatterHex'));
     s.run(sliceFunction(HTML, 'tacticalArtilleryHexHasTrenches'));
+    // ⚡ v13.153 (п.23, 29): дух и отход после налёта
+    s.run(sliceConst(HTML, 'ARTY_AREA_HIT_CHANCE'));
+    s.run(sliceConst(HTML, 'ARTY_AREA_TRENCH_HIT_CHANCE'));
+    s.run(sliceConst(HTML, 'ARTY_AREA_MORALE_MIN'));
+    s.run(sliceConst(HTML, 'ARTY_AREA_MORALE_MAX'));
+    s.run(sliceConst(HTML, 'TACTICAL_MORALE_RETREAT_POINTS'));
+    ['tacticalMoralePercent', 'tacticalSetMoralePercent', 'tacticalShiftMoralePercent',
+     'tacticalArtilleryFightersHit', 'tacticalArtillerySquadHitChance', 'tacticalArtilleryMoraleLoss',
+     'tacticalShouldRetreatOnMorale', 'tacticalForceLowMoraleRetreat', 'tacticalSquadIndexOnMap'
+    ].forEach(fn => s.run(sliceFunction(HTML, fn)));
+    s.run(`function markTacticalSuppressed(){}`);
     s.run(sliceFunction(HTML, 'tacticalArtilleryResolveCall'));
     s.run(sliceFunction(HTML, 'resolveTacticalArtilleryCalls'));
     s.run(`
@@ -243,9 +257,13 @@ test('sandbox: полный цикл — вызов, очередь, залп в
 test('4: телефонный кабель — максимум 7 гексов пути от штаба', () => {
     assert.ok(/const PHONE_LINE_MAX_STEPS = 7;/.test(HTML), 'предел кабеля — 7 гексов');
     const validate = sliceFunction(HTML, 'validatePhoneSignalRoute');
-    assert.ok(/points\.length > PHONE_LINE_MAX_STEPS \+ 1/.test(validate), 'ручная прокладка проверяет предел');
+    // ⚡ v13.152 (п.5): предел считается по участку кабеля — без коммутатора 7,
+    //    через коммутатор штаба роты 7 + 7. Проверка осталась в validate/ build.
+    assert.ok(/points\.length > stepLimit \+ 1/.test(validate) && /phoneRouteStepLimit/.test(validate),
+        'ручная прокладка проверяет предел кабеля');
     const build = sliceFunction(HTML, 'buildPhoneSignalRouteTo');
-    assert.ok(/route\.length > PHONE_LINE_MAX_STEPS \+ 1/.test(build), 'автопрокладка проверяет предел');
+    assert.ok(/route\.length - 1 <= PHONE_LINE_MAX_STEPS/.test(build) &&
+        /buildSwitchboardPhoneRoute\(hq, recipient\)/.test(build), 'автопрокладка проверяет предел и пробует коммутатор');
     assert.ok(/катушка не хватает/.test(build), 'понятная причина отказа');
     const check = sliceFunction(HTML, 'phoneCableCheckForDestination');
     assert.ok(/buildPhoneSignalRouteTo\(hq, \{ name: unit\.name/.test(check),
@@ -280,10 +298,19 @@ test('sandbox: кабель тянется до 7 гексов, дальше —
     ];
     const s = createSandbox(app);
     s.run('var PHONE_LINE_MAX_STEPS = 7; hardMode.enabled = true;');
+    // ⚡ v13.152 (п.5): коммутатор штаба роты (7 + 7 гексов кабеля)
+    s.run('var SWITCHBOARD_SEGMENT_STEPS = 7; var SWITCHBOARD_TOTAL_STEPS = 14;');
     s.run(sliceFunction(HTML, 'signalInfantryMover'));
     s.run(sliceFunction(HTML, 'normalizePhoneRoutePoints'));
     s.run(sliceFunction(HTML, 'enemiesBlockingSignalAt'));
+    s.run(sliceFunction(HTML, 'isSwitchboardUnit'));
+    s.run(sliceFunction(HTML, 'switchboardUnitsFor'));
+    s.run(sliceFunction(HTML, 'switchboardAtHex'));
+    s.run(sliceFunction(HTML, 'phoneRouteSwitchboardIndex'));
+    s.run(sliceFunction(HTML, 'phoneRouteStepLimit'));
+    s.run(sliceFunction(HTML, 'phoneRouteSegmentsFit'));
     s.run(sliceFunction(HTML, 'validatePhoneSignalRoute'));
+    s.run(sliceFunction(HTML, 'buildSwitchboardPhoneRoute'));
     s.run(sliceFunction(HTML, 'buildPhoneSignalRouteTo'));
     s.run(sliceFunction(HTML, 'phoneCableCheckForDestination'));
     s.run(`

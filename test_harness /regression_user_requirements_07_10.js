@@ -73,8 +73,13 @@ test('7: перепроложенный кабель соединяет новы
   // ⚡ v13.109 (п.4): перекладка кабеля вынесена в buildPhoneSignalRouteTo,
   //    предел длины — константа PHONE_LINE_MAX_STEPS.
   s.run(sliceConst(HTML, 'PHONE_LINE_MAX_STEPS'));
+  // ⚡ v13.152 (п.5): коммутатор штаба роты — кабель 7 + 7 гексов.
+  s.run(sliceConst(HTML, 'SWITCHBOARD_SEGMENT_STEPS'));
+  s.run(sliceConst(HTML, 'SWITCHBOARD_TOTAL_STEPS'));
   loadHtml(s, ['getSignalHQ', 'findSignalPath', 'signalInfantryMover', 'normalizePhoneRoutePoints',
-    'enemiesBlockingSignalAt', 'validatePhoneSignalRoute', 'buildPhoneSignalRouteTo',
+    'enemiesBlockingSignalAt', 'isSwitchboardUnit', 'switchboardUnitsFor', 'switchboardAtHex',
+    'phoneRouteSwitchboardIndex', 'phoneRouteStepLimit', 'phoneRouteSegmentsFit',
+    'validatePhoneSignalRoute', 'buildPhoneSignalRouteTo', 'buildSwitchboardPhoneRoute',
     'reconnectPhoneLinesAfterUnitMove']);
   s.run(`
     var hardMode = { enabled: true, hqUnitId: 0, phoneLines: [

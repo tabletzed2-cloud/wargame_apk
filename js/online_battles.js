@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.150
+// ⚡ BUILD-МАРКЕР: v13.157
 // v13.062: monotonic turn handoff; synchronize routing and melee without stale phase rollback.
 // ⚡ v13.061: sync retreat state and attacker/defender phase in online battle snapshots.
 // ============================================================
@@ -28,6 +28,9 @@ let __onlineReturningToCampaignForTacticalPause = false;
 //    её содержимое — иначе два клиента бесконечно «пинг-понговали» пушами
 //    (каждый приём чужого updatedAt → свой пуш с новым updatedAt → …).
 const __onlineBattleEntrySig = {};
+// ⚡ v13.157 (п.18): причина, по которой снапшот боя оппонента не превратился
+//    в зеркальный бой — пишем в лог один раз на гекс (не спамим каждый пуш).
+const __onlineBattleBlockLogged = {};
 function onlineBattleStampEntries(out) {
     const seen = {};
     Object.keys(out).forEach(k => {
@@ -444,9 +447,21 @@ function onlineApplyCloudBattles(state) {
             // я уже завершил этот бой (или он завершён раньше, чем начат новый) — не воскрешаем
             if (fin && (fin.oppBattleId === e.id || (typeof e.id === 'number' && typeof fin.at === 'number' && e.id <= fin.at))) return;
             if (fin && e.oppBattleId && fin.id === e.oppBattleId) return;
-            if (appData.currentBattleId) return; // я в другом бою — создадим зеркало, когда выйду
-            battle = onlineCreateMirrorBattle(e);
-            if (!battle) return;
+            // ⚡ v13.157 (п.18): раньше при открытом другом бое зеркало не создавалось
+            //    вовсе, и столкновение «видел только атакующий». Теперь бой
+            //    создаётся сразу и тихо (без alert и подмены экрана), а перейти
+            //    в него можно из «⚔️ Текущие бои».
+            const busyInAnotherBattle = !!appData.currentBattleId;
+            battle = onlineCreateMirrorBattle(e, { quiet: busyInAnotherBattle });
+            if (!battle) {
+                const why = onlineBattleMirrorBlockReason(e);
+                if (why && __onlineBattleBlockLogged[e.hexKey] !== why) {
+                    __onlineBattleBlockLogged[e.hexKey] = why;
+                    try { log(`⚠️ Бой оппонента на гексе (${e.hexKey}) не отображён: ${why}.`); } catch (err) {}
+                    try { console.warn('online mirror blocked:', e.hexKey, why); } catch (err) {}
+                }
+                return;
+            }
             changedAny = true;
             mineChanged = true;
         }
@@ -489,7 +504,52 @@ function onlineBattlesRecheck() {
     onlineApplyCloudBattles(ONLINE.match.state || {});
 }
 
-function onlineCreateMirrorBattle(e) {
+// ⚡ v13.157 (п.18): ДИАГНОСТИКА СИНХРОНИЗАЦИИ БОЁВ.
+//    Симптом из теста: два устройства в бою на одном гексе, но бой видит
+//    только атакующий. Функция объясняет по каждому снапшоту оппонента, что
+//    именно помешало создать/слить бой. Вызывается из onlineApplyCloudBattles
+//    (пишет причину в лог один раз на гекс) и вручную из консоли:
+//    `onlineBattleSyncReport()`.
+function onlineBattleMirrorBlockReason(e) {
+    if (!e || !e.hexKey) return 'снапшот без гекса боя';
+    if (e.status !== 'active') return 'бой у оппонента уже завершён (' + e.status + ')';
+    const fin = (appData.campaign.onlineFinishedBattles || {})[onlineBattleKey(e.hexKey)];
+    if (fin && (fin.oppBattleId === e.id || (typeof e.id === 'number' && typeof fin.at === 'number' && e.id <= fin.at))) {
+        return 'у меня этот бой уже завершён раньше, чем начался новый';
+    }
+    const parts = String(e.hexKey).split(',').map(Number);
+    const [col, row] = parts;
+    const myUnits = (appData.campaign.opUnits || []).filter(u => u && !u.isDestroyed &&
+        ((Array.isArray(e.oppUnitNames) && e.oppUnitNames.includes(u.name)) || (u.col === col && u.row === row)));
+    if (!myUnits.length) return 'на гексе нет моих юнитов (и имена из снапшота не совпали)';
+    const oppUnits = (appData.campaign.enemyOpUnits || []).filter(u => u && !u.isDestroyed &&
+        ((Array.isArray(e.myUnitNames) && e.myUnitNames.includes(u.name)) || (u.col === col && u.row === row)));
+    if (!oppUnits.length && !(Array.isArray(e.squads) && e.squads.length)) return 'в снапшоте нет отрядов оппонента (squads пустой)';
+    if (appData.currentBattleId) return 'я сейчас внутри другого боя (зеркало создаётся отложенно)';
+    return null;
+}
+function onlineBattleSyncReport() {
+    const out = { online: onlineBattlesEnabled(), role: (typeof ONLINE !== 'undefined' && ONLINE && ONLINE.role) || null,
+        matchStatus: (typeof ONLINE !== 'undefined' && ONLINE && ONLINE.match && ONLINE.match.status) || null,
+        currentBattleId: (appData && appData.currentBattleId) || null,
+        myBattles: (appData.campaign.activeBattles || []).map(b => ({ id: b.id, hexKey: b.hexKey, mirror: !!b.onlineMirror, oppId: b.onlineOppBattleId || null })),
+        oppEntries: [], blocked: [] };
+    const state = (typeof ONLINE !== 'undefined' && ONLINE && ONLINE.match && ONLINE.match.state) || null;
+    if (!state) { try { console.log('online battle sync:', out); } catch (e) {} return out; }
+    const oppRole = (typeof onlineOppRole === 'function') ? onlineOppRole() : (ONLINE.role === 'p1' ? 'p2' : 'p1');
+    const oppBattles = (state[oppRole] && state[oppRole].battles) || {};
+    Object.keys(oppBattles).forEach(k => {
+        const e = oppBattles[k];
+        if (!e || !e.hexKey) return;
+        const local = (appData.campaign.activeBattles || []).find(b => b && b.hexKey === e.hexKey);
+        const reason = local ? null : onlineBattleMirrorBlockReason(e);
+        out.oppEntries.push({ hexKey: e.hexKey, status: e.status, turn: e.turn, hasLocal: !!local, reason });
+        if (reason) out.blocked.push({ hexKey: e.hexKey, reason });
+    });
+    try { console.log('online battle sync:', out); } catch (e) {}
+    return out;
+}
+function onlineCreateMirrorBattle(e, opts) {
     const parts = String(e.hexKey).split(',').map(Number);
     if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return null;
     const [col, row] = parts;
@@ -552,9 +612,11 @@ function onlineCreateMirrorBattle(e) {
     const msg = `⚔️ Противник атаковал ваши юниты на гексе (${e.hexKey})! Ваши: ${myNames}. ` +
         'Бой открыт в «⚔️ Текущие бои» — нажмите «➡️ Перейти в бой», расставьте отряды и ведите бой своими силами.';
     try { log(msg); } catch (err) {}
-    try { alert(msg); } catch (err) { /* WebView без alert */ }
-    const mi = document.getElementById('mapInfo');
-    if (mi) { mi.innerHTML = msg; mi.style.color = '#e74c3c'; }
+    if (!(opts && opts.quiet)) {
+        try { alert(msg); } catch (err) { /* WebView без alert */ }
+        const mi = document.getElementById('mapInfo');
+        if (mi) { mi.innerHTML = msg; mi.style.color = '#e74c3c'; }
+    }
     return battle;
 }
 

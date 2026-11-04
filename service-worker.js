@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.150 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.157 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.106: маркеры сборки синхронизированы (index.html APP_VERSION и
 //    4 модуля ядра теперь v13.106). Раньше verifyCachedBuild() отменяла
 //    установку — старый SW оставался активен и отдавал из кэша прежние
@@ -17,7 +17,7 @@
 // ⚡ v13.061: cache update for retreat, turn-order and initial fortification fixes.
 // v13.072: invalidate offline code cache after the reliable-update (cache: 'reload'
 //    precache + build-marker verification) and build self-check fixes.
-const CACHE_NAME = 'wargame-v13.150';
+const CACHE_NAME = 'wargame-v13.157';
 
 const ASSETS = [
     './images/AIRF/Взвод снабжения АИРФ №1.png',
@@ -32,6 +32,7 @@ const ASSETS = [
     './js/cards.js',
     './js/templates.js',
     './js/hexmaps.js',
+    './js/recon.js',
     './js/online_battles.js',
     './js/map_actions.js',
     './js/placement.js',
@@ -186,6 +187,7 @@ const ASSETS = [
 
     // ====== AIRF (images/AIRF/) ======
     './images/AIRF/AIRF.png',
+    './images/AIRF/Hidalgo GL-41.png',
     './images/AIRF/БТР аирф Llanero группа из 2.png',
     './images/AIRF/БТР аирф Llanero группа из 3.png',
     './images/AIRF/БТР аирф Llanero группа из 4.png',
@@ -210,11 +212,14 @@ const ASSETS = [
     // ====== BeVe (images/BeVe/) ======
     './images/BeVe/BeVe.png',
     './images/BeVe/Belgian Beve.png',
+    './images/BeVe/DAF MC-V.png',
+    './images/BeVe/DAF Trado.png',
     './images/BeVe/Fn24.png',
     './images/BeVe/Geweer m95.png',
     './images/BeVe/Landsverk 183 группа из 2.png',
     './images/BeVe/Landsverk 183 группа из 3.png',
     './images/BeVe/OIP.png',
+    './images/BeVe/Лёгкий грузовик CLg-37 «Викунья» (Vicuña).png',
     './images/BeVe/Schwarcloze.png',
     './images/BeVe/fn d exp.png',
     './images/BeVe/fn md.png',
@@ -252,6 +257,9 @@ const ASSETS = [
     './images/BeVe/мотоцикл беве 1.jpg',
     './images/BeVe/мотоцикл беве 2.jpg',
     './images/BeVe/мотоцикл беве 3.jpg',
+    './images/BeVe/мотоцикл беве 1 мин.png',
+    './images/BeVe/мотоцикл беве 2 мин.png',
+    './images/BeVe/мотоцикл беве 3 мин.png',
     './images/BeVe/отделение бе1 бельг.jpg',
     './images/BeVe/отделение бе1.jpg',
     './images/BeVe/отделение бе2 бельг.jpg',
@@ -284,6 +292,8 @@ const ASSETS = [
     './images/BeVe/отделение пуль6.jpg',
     './images/BeVe/пто.jpg',
     './images/BeVe/пто2.jpg',
+    './images/BeVe/разведчик бенилюкс мото.png',
+    './images/BeVe/разведчик бенилюкс мото1.png',
     './images/BeVe/снайпер Беве 1.png',
     './images/BeVe/снайпер беве 1.jpg',
     './images/BeVe/снайпер беве 2.jpg',
@@ -395,6 +405,7 @@ const CORE_ASSETS = [
     './js/cards.js',
     './js/templates.js',
     './js/hexmaps.js',
+    './js/recon.js',
     './js/online_battles.js',
     './js/map_actions.js',
     './js/placement.js',

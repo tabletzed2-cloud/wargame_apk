@@ -3,7 +3,8 @@
 //   1 — карточки фракций больше не дублируются в разделе «Общие»;
 //   2 — новые общие карточки: «Небоевая потеря» (1 боец) и «Адреналин» (рывок +1 гекс, −2 ОД);
 //   3 — «Geen Duibreed Terug!» стала кнопкой штаба (+20 духа, 1 раз за бой);
-//   4 — «Скоординированный заградительный огонь»: подавление 1,5 ОД вместо 2,5 ОД;
+//   4 — «Скоординированный заградительный огонь»: подавление 1,5 ОД вместо 2,5 ОД
+//       (⚡ v13.153, п.24: карточка переработана — два гекса за 2,5 ОД);
 //   5 — «Санитар»: боец-медик в штабе, лечит 1 бойца за фазу игрока и 5 за оперход.
 const fs = require('fs');
 const path = require('path');
@@ -47,15 +48,26 @@ function ok(condition, label, detail) {
 // ───────────────────────── п.4: цена подавления ─────────────────────────
 {
     const s = createSandbox(freshAppData());
-    for (const n of ['TACTICAL_SUPPRESSIVE_COST', 'TACTICAL_COORDINATED_BARRAGE_COST', 'ADRENALINE_AP_PENALTY', 'MEDIC_OPERATIONAL_HEALS'])
+    for (const n of ['TACTICAL_SUPPRESSIVE_COST', 'TACTICAL_COORDINATED_BARRAGE_COST', 'ADRENALINE_AP_PENALTY',
+        'MEDIC_OPERATIONAL_HEALS', 'COORDINATED_SUPPRESSION_HEXES', 'COORDINATED_SUPPRESSION_COST'])
         s.run(sliceConst(HTML, n));
-    for (const fn of ['tacticalHasCoordinatedBarrage', 'tacticalSuppressiveFireCost', 'tacticalOdLabel'])
+    for (const fn of ['tacticalHasCoordinatedBarrage', 'tacticalSuppressiveFireCost', 'tacticalOdLabel',
+        'tacticalIsSuppressionSupportSquad', 'tacticalCanUseCoordinatedSuppression'])
         s.run(sliceFunction(HTML, fn));
     s.run(`function tacticalSquadHasCard(){return false;}`);
     ok(s.evalCtx("tacticalSuppressiveFireCost({name:'Пехотное отделение'})") === 5,
         'обычное подавление — 2,5 ОД');
-    ok(s.evalCtx("tacticalSuppressiveFireCost({name:'Пехотное отделение',effects:{coordinatedBarrage:true}})") === 3,
-        'со «Скоординированным заградительным огнём» — 1,5 ОД');
+    // ⚡ v13.153 (п.24): карточка больше не снижает цену — она разрешает
+    //    скоординированное подавление двух гексов за те же 2,5 ОД.
+    ok(s.evalCtx("tacticalSuppressiveFireCost({name:'Отделение поддержки',effects:{coordinatedBarrage:true}})") === 5,
+        'со «Скоординированным заградительным огнём» цена остаётся 2,5 ОД');
+    ok(s.evalCtx("tacticalCanUseCoordinatedSuppression({name:'Отделение поддержки',effects:{coordinatedBarrage:true}})") === true,
+        'отделение поддержки с карточкой получает скоординированное подавление');
+    ok(s.evalCtx("tacticalCanUseCoordinatedSuppression({name:'Пехотное отделение',effects:{coordinatedBarrage:true}})") === false,
+        'обычная пехота скоординированное подавление не ведёт');
+    ok(s.evalCtx("tacticalCanUseCoordinatedSuppression({name:'Штаб взвода',effects:{coordinatedBarrage:true}})") === false,
+        'штаб скоординированное подавление не ведёт');
+    ok(s.evalCtx('COORDINATED_SUPPRESSION_HEXES') === 2, 'подавляются два гекса');
     ok(s.evalCtx('tacticalOdLabel(3)') === '1,5 ОД', 'подпись цены — «1,5 ОД»', s.evalCtx('tacticalOdLabel(3)'));
     const supp = sliceFunction(HTML, 'suppressiveFire');
     ok(supp.includes('tacticalSuppressiveFireCost'), 'заградительный огонь берёт цену из tacticalSuppressiveFireCost');
