@@ -193,12 +193,21 @@ test('артиллерия отдельно проверяет каждую ма
     function tacticalArtilleryApplyDamage(entry,points,result){damagePoints+=points;result.damage+=points;return points;}
     function applyVehicleHitToEnemy(squad,location,penetration){vehicleChecks.push({squad,location,penetration});}
     function rollD10(){return 10;} function rollD6(){return 6;} function log(){}
-    function markTacticalSuppressed(){} function tacticalChangeMorale(){} Math.random=()=>0.01;`);
+    function markTacticalSuppressed(){} function tacticalChangeMorale(){} Math.random=()=>0.01;
+    // ⚡ v13.153 (п.23): площадной урон и дух — в этом тесте не проверяются
+    function tacticalArtillerySquadHitChance(){return 1;}
+    function tacticalArtilleryFightersHit(){return 1;}
+    function tacticalArtilleryMoraleLoss(){return 5;}
+    function tacticalShiftMoralePercent(){return {before:100,after:95};}
+    function tacticalForceLowMoraleRetreat(){return false;}
+    function tacticalSquadIndexOnMap(){return -1;}`);
   tactical.run(sliceFunction(HTML, 'tacticalArtilleryResolveCall'));
   tactical.run(`tacticalArtilleryResolveCall({targetHex:'0,0',shells:1,isSau:true,batteryName:'САУ'},{});`);
   assert.strictEqual(tactical.evalCtx('vehicleChecks.length'), 2, 'one shell independently checks every armored vehicle in its impact hex');
   assert(tactical.evalCtx('vehicleChecks.every(hit=>hit.location>=2 && hit.location<=6 && hit.penetration===999)'), 'each successful tactical check applies a non-ricochet damage result');
-  assert.strictEqual(tactical.evalCtx('damagePoints'), 30, 'ordinary shell damage remains independent of vehicle checks');
+  // ⚡ v13.153 (п.23): урон по площади — по 1–3 бойца на отряд гекса (здесь 1
+  //    на каждый из трёх отрядов), независимо от проверок техники.
+  assert.strictEqual(tactical.evalCtx('damagePoints'), 3, 'ordinary shell damage remains independent of vehicle checks');
   tactical.run(`vehicleChecks=[]; tacticalArtilleryResolveCall({targetHex:'0,0',shells:1,isSau:false,batteryName:'миномёт'},{});`);
   assert.strictEqual(tactical.evalCtx('vehicleChecks.length'), 0, 'mortar shell never checks or damages armored vehicles');
   assert(HTML.includes('applyOperationalArtilleryArmorHitsAtHex(c, r'), 'coordinate artillery checks every vehicle at the hit hex');

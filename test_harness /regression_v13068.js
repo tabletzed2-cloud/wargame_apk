@@ -37,6 +37,11 @@ const FNS = [
   'supplyKillCarriers', 'notifySupplyDelivery', 'advanceSupplyDeliveries', 'supplyDeliveryDestination', 'supplyDeliveryEta', 'supplyEtaLabel',
   'operationalHexHasActiveBattle', 'getOpHexNeighbors', 'supplyBarHtml', 'supplyAmmoBarHtml',
   'dispatchSupplyFromPanel', 'renderSupplyPanel', 'showSupplyPanel',
+  // ⚡ v13.152 (п.17): выбор получателя и количество транспорта в панели
+  'supplyPanelState', 'supplyPanelGetSelection', 'supplyPanelSetSelection',
+  'supplyPanelGetPicks', 'selectSupplyTarget', 'rememberSupplyAsset', 'resetSupplyPanelSelection',
+  // ⚡ v13.152 (п.37): отдельные шкалы по типам боеприпасов используют unitAmmoStatus
+  
   // ⚡ v13.069: защита склада (охрана + захват) и «Бюрократия»
   'supplyDepotCaptured', 'syncSupplyDepotStatus', 'unitHasBureaucracy',
   'isOpUnitWipedOut', 'getOperationalCombatFighters',
@@ -122,7 +127,8 @@ test('R47: взвод снабжения есть в батальоне обеи
     assert.ok(u, `${fac}: взвод снабжения в стандартном составе`);
     // ⚡ v13.069: у BeVe добавлены 2 стрелка-охранника склада (9 → 11)
     // ⚡ v13.149: у A.I.R.F. добавлен горный транспортёр TG-41 (9 → 10 отделений)
-    assert.equal(u.squads.length, fac === 'BeVe' ? 11 : 10, `${fac}: состав взвода снабжения`);
+    // ⚡ v13.152 (п.8): +3 грузовика BeVe и +2 «Викуньи» A.I.R.F.
+    assert.equal(u.squads.length, fac === 'BeVe' ? 14 : 12, `${fac}: состав взвода снабжения`);
   });
   const beve = presets['BeVe'].standard.find(x => x.name === 'Взвод снабжения').squads.map(q => q.name);
   ['Носильщики №1', 'Носильщики №2', 'Мул с бойцом №1', 'Мул с бойцом №2', 'Мул с бойцом №3',

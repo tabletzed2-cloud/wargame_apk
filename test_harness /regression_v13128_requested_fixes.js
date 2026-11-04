@@ -144,9 +144,15 @@ test('обстрел длится минимум 20 минут: 10 минут п
 });
 
 
-test('тактический артналёт: d10 задаёт снос, окопы снижают урон, число отрядов умножает его', () => {
+test('тактический артналёт: d10 задаёт снос, попадание по площади, окопы защищают', () => {
   const s = createSandbox(freshAppData());
-  for (const fn of ['tacticalArtilleryScatterHex','tacticalArtilleryHexHasTrenches','tacticalArtilleryHexOccupants','tacticalArtilleryApplyDamage','tacticalArtilleryResolveCall']) s.run(sliceFunction(HTML, fn));
+  for (const fn of ['tacticalArtilleryScatterHex','tacticalArtilleryHexHasTrenches','tacticalArtilleryHexOccupants','tacticalArtilleryApplyDamage','tacticalArtilleryResolveCall',
+    // ⚡ v13.153 (п.23, 29): площадной урон и падение духа
+    'tacticalMoralePercent','tacticalSetMoralePercent','tacticalShiftMoralePercent',
+    'tacticalArtilleryFightersHit','tacticalArtillerySquadHitChance','tacticalArtilleryMoraleLoss',
+    'tacticalShouldRetreatOnMorale','tacticalForceLowMoraleRetreat','tacticalSquadIndexOnMap']) s.run(sliceFunction(HTML, fn));
+  for (const n of ['ARTY_AREA_HIT_CHANCE','ARTY_AREA_TRENCH_HIT_CHANCE','ARTY_AREA_MORALE_MIN','ARTY_AREA_MORALE_MAX','TACTICAL_MORALE_RETREAT_POINTS'])
+    s.run(sliceConst(HTML, n));
   s.run(`
     TACTICAL_ARTY_HIT_THRESHOLD=7;
     appData.map={grid:{'5,5':{type:'trenches',squadIds:[0],enemySquadIds:[0]},'6,5':{},'6,4':{},'6,6':{},'4,5':{},'5,6':{},'5,4':{}},enemySquads:[]};
@@ -155,13 +161,24 @@ test('тактический артналёт: d10 задаёт снос, око
     function tacticalIsDotSquad(){return false;}
     function applyDamagePointsToEnemy(squad,points,res){var f=squad.fighters.find(x=>x.hp>0);if(!f)return 0;f.hp-=points;res.damage+=points;if(f.hp<=0)res.killed.push(f.name);return points;}
     function rollD10(){return 7;} function rollD6(){return 5;} function log(){} function markTacticalSuppressed(){} function tacticalChangeMorale(){}
-    var seq=[0,.75,0,.75,0,.75],ix=0; Math.random=()=>seq[ix++%seq.length];
+    var seq=[0,.75,0,.75,0,.75,0,.75,0,.75],ix=0; Math.random=()=>seq[ix++%seq.length];
     var scatter=[1,2,3,4,5,6].map(n=>tacticalArtilleryScatterHex('5,5',n,appData.map));
     var resolved=tacticalArtilleryResolveCall({targetHex:'5,5',shells:1,isSau:false,batteryName:'82-мм миномёты'},{});
     var ownHp=appData.squads[0].fighters[0].hp, enemyHp=appData.squads[1].fighters[0].hp;
   `);
   assert(s.evalCtx("scatter.join('|')==='6,5|6,4|6,6|4,5|5,6|5,4'"), 'd10=1–6 maps to the six fixed neighbouring cells; 7–10 stays on target');
-  assert(s.evalCtx('resolved.hits===1 && resolved.damage===6 && ownHp===97 && enemyHp===97'), '1d6=5 becomes 3 in trenches, doubles for two squads and is randomly split across both sides');
+  // ⚡ v13.153 (п.23): каждый снаряд накрывает весь гекс, но по каждому отряду —
+  //    своя проверка; внутрь попадает 1–3 бойца, в окопах шанс ниже и не больше двух.
+  assert(s.evalCtx('resolved.hits===1'), 'снаряд разобран как попадание в заданный гекс');
+  assert(s.evalCtx('tacticalArtillerySquadHitChance(true) < tacticalArtillerySquadHitChance(false)'),
+    'окопы снижают шанс попадания по отряду');
+  assert(s.evalCtx('tacticalArtilleryFightersHit(true) <= 2 && tacticalArtilleryFightersHit(false) >= 1'),
+    'в окопах поражается не больше двух бойцов');
+  assert(s.evalCtx('tacticalArtilleryMoraleLoss(0, 5, false) === 5 && tacticalArtilleryMoraleLoss(5, 5, false) === 15'),
+    'дух падает от 5 до 15 в зависимости от потерь');
+  assert(s.evalCtx('tacticalArtilleryMoraleLoss(2, 5, true) < tacticalArtilleryMoraleLoss(2, 5, false)'),
+    'окопы берегут и нервы: дух падает меньше');
+  assert(s.evalCtx('resolved.damage >= 1'), 'урон нанесён', String(s.evalCtx('resolved.damage')));
 });
 
 

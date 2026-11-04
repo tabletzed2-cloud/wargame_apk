@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.150 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.157 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -943,25 +943,69 @@ function tacticalWeaponFireSector(squad, crewIndex) {
     const pos = squad && squad.fixedTacticalPosition;
     const sectors = (pos && pos.weaponSectors) || (squad && squad.weaponSectors) || {};
     const value = sectors[String(crewIndex)];
-    return TACTICAL_FIRE_SECTOR_OPTIONS.some(option => option.id === value) ? value : null;
+    // ⚡ v13.156 (п.9): ось сектора — направление ИЛИ кликнутый гекс.
+    return dotSectorAxisValid(value) ? value : null;
 }
 function tacticalDotHasConfiguredSectors(squad) {
     return !!squad && !!squad.fixedTacticalPosition &&
         !!(squad.fixedTacticalPosition.weaponSectors && Object.keys(squad.fixedTacticalPosition.weaponSectors).length);
 }
+// ⚡ v13.156 (п.9): ОСЬ СЕКТОРА ОБСТРЕЛА — ЛЮБОЙ КЛИКНУТЫЙ ГЕКС.
+//    Раньше направление амбразуры сводилось к одному из шести смежных
+//    направлений (e/se/sw/w/nw/ne), поэтому сектор «прыгал» по 60°. Теперь
+//    игрок кликает любую клетку карты, и ось идёт точно на неё (угол любой):
+//      • значение сектора — либо id направления (старые сохранения), либо
+//        ключ гекса-оси «col,row»;
+//      • ширина сектора по-прежнему берётся из типа ДОТа/оружия.
+function dotSectorAxisHexKey(value) {
+    const raw = String(value == null ? '' : value).trim();
+    return /^-?\d+,-?\d+$/.test(raw) ? raw : null;
+}
+function dotSectorAxisValid(value) {
+    if (dotSectorAxisHexKey(value)) return true;
+    if (typeof TACTICAL_FIRE_SECTOR_OPTIONS === 'undefined') return false;
+    return TACTICAL_FIRE_SECTOR_OPTIONS.some(option => option.id === value);
+}
+// Вектор оси в «пиксельной» плоскости карты: и для направления, и для гекса-оси.
+function dotSectorAxisVector(fromKey, value) {
+    if (typeof TACTICAL_FIRE_SECTOR_OPTIONS === 'undefined') return null;
+    const direction = TACTICAL_FIRE_SECTOR_OPTIONS.find(option => option.id === value);
+    if (direction) {
+        const v = _cubeToPixel2D(direction.cube);
+        return (v.x || v.y) ? v : null;
+    }
+    const axisKey = dotSectorAxisHexKey(value);
+    const from = String(fromKey == null ? '' : fromKey).split(',').map(Number);
+    const axis = String(axisKey || '').split(',').map(Number);
+    if (!axisKey || from.length !== 2 || axis.length !== 2 ||
+        !from.every(Number.isFinite) || !axis.every(Number.isFinite)) return null;
+    if (from[0] === axis[0] && from[1] === axis[1]) return null;
+    const a = _hexCubeCoords(from[0], from[1]), b = _hexCubeCoords(axis[0], axis[1]);
+    const v = _cubeToPixel2D({ x: b.x - a.x, y: b.y - a.y, z: b.z - a.z });
+    return (v.x || v.y) ? v : null;
+}
+// Человеческое описание оси — для подсказок в редакторе гекса.
+function dotSectorAxisLabel(fromKey, value) {
+    const axisKey = dotSectorAxisHexKey(value);
+    if (axisKey) return `на клетку (${axisKey})`;
+    const option = (typeof TACTICAL_FIRE_SECTOR_OPTIONS !== 'undefined')
+        ? TACTICAL_FIRE_SECTOR_OPTIONS.find(item => item.id === value) : null;
+    return option ? (option.label || option.id) : 'не задана';
+}
 function tacticalHexInFireSector(fromKey, targetKey, sectorId, widthDeg) {
-    const direction = TACTICAL_FIRE_SECTOR_OPTIONS.find(option => option.id === sectorId);
-    if (!direction || !fromKey || !targetKey) return true;
+    if (!fromKey || !targetKey) return true;
     const from = String(fromKey).split(',').map(Number), target = String(targetKey).split(',').map(Number);
     if (from.length !== 2 || target.length !== 2 || !from.every(Number.isFinite) || !target.every(Number.isFinite)) return false;
     const a = _hexCubeCoords(from[0], from[1]), b = _hexCubeCoords(target[0], target[1]);
     const distance = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y), Math.abs(b.z - a.z));
     if (distance <= 0) return false;
+    // Ось не задана/не распознана — ограничений нет (совместимость с сейвами).
+    const dp = dotSectorAxisVector(fromKey, sectorId);
+    if (!dp) return true;
     const width = Number.isFinite(Number(widthDeg)) ? Number(widthDeg) : 60;
     if (width >= 360) return true; // круговой обстрел (ПТ-амбразура Van Hees)
     // Угол между осью сектора и направлением на цель (в пиксельной плоскости).
     const tp = _cubeToPixel2D({ x: b.x - a.x, y: b.y - a.y, z: b.z - a.z });
-    const dp = _cubeToPixel2D(direction.cube);
     const tLen = Math.hypot(tp.x, tp.y), dLen = Math.hypot(dp.x, dp.y);
     if (tLen <= 0 || dLen <= 0) return false;
     const cos = Math.max(-1, Math.min(1, (tp.x * dp.x + tp.y * dp.y) / (tLen * dLen)));
@@ -1667,7 +1711,7 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
       ${rotateBlock}
       <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
         <button onclick="hexEditUndo()" style="background:#8e44ad;">↩️ Отменить последнюю</button>
-        ${st.kind === 'trenches' ? '<button id="hexEditorTrenchTextureButton" onclick="hexEditCycleTrenchTexture()" style="background:#8e44ad;">🖼 Сменить текстуру окопа</button>' : '<button id="hexEditorRotateButton" onclick="rotateSelectedHex()" style="background:#8e44ad;">↻ Повернуть выбранную клетку (60°)</button>'}
+        ${st.kind === 'trenches' ? '<span style="color:#8e8e8e; font-size:.82rem;">Поворот окопа — кнопки в блоке «🔄 Поворот окопа» выше (текстура окопа по клику больше не меняется)</span>' : '<button id="hexEditorRotateSelectedButton" onclick="rotateSelectedHex(60)" style="background:#8e44ad;">↻ Повернуть выбранную клетку (60°)</button>'}
         ${draftCancelBtn}
         <button onclick="zoomMap(1.2)" style="background:#555;">➕</button>
         <button onclick="zoomMap(0.8)" style="background:#555;">➖</button>
@@ -2054,19 +2098,20 @@ function hexEditClick(hexKeyCell) {
     }
     if (st.kind === 'fireField') return fireFieldEditClick(st, hexKeyCell);
 
-    // Окоп уже поставлен: повторный клик листает его текстуры, не расходуя правку.
+    // Окоп уже поставлен: клик ТОЛЬКО выбирает клетку для поворота.
+    // ⚡ v13.156 (п.16): раньше повторный клик листал текстуру окопа («клики
+    //    меняют текстуру»), из-за чего нельзя было спокойно выбрать клетку и
+    //    нажать «поворот». Смена текстуры убрана, поворот — отдельной кнопкой.
     if (ov.hexEdits[hexKeyCell]) {
         if (st.kind === 'trenches' && ov.hexEdits[hexKeyCell] === 'trenches') {
-            const trenchData = (typeof TERRAIN_DATA !== 'undefined') ? TERRAIN_DATA.trenches : null;
-            const nVar = (trenchData && trenchData.images && trenchData.images.length) ? trenchData.images.length : 1;
-            const currentVariant = (ov.hexVariants && Number.isFinite(ov.hexVariants[hexKeyCell]))
-                ? ov.hexVariants[hexKeyCell] : (Number.isFinite(working.variant) ? working.variant : 0);
-            const variant = (currentVariant + 1) % nVar;
-            ov.hexVariants[hexKeyCell] = variant;
-            working.variant = variant;
-            if (baseCell && Number.isFinite(baseCell.level)) working.level = baseCell.level;
-            saveHexOverlays(st.hexKey);
-            if (infoBox) { infoBox.innerHTML = `🕳️ Гекс ${hexKeyCell}: текстура окопа ${variant + 1}/${nVar}. Правки не потрачены.`; infoBox.style.color = '#27ae60'; }
+            st.lastCell = hexKeyCell;
+            if (appData.map) appData.map.lastEditedHex = hexKeyCell;
+            const angle = Number(working.rotation) || 0;
+            if (infoBox) {
+                infoBox.innerHTML = `🕳️ Окоп (${hexKeyCell}) выбран · поворот ${angle}°. ` +
+                    'Кнопки поворота — в блоке «🔄 Поворот окопа» под картой. Правки не потрачены.';
+                infoBox.style.color = '#27ae60';
+            }
             showHexEditorBanner();
             try { redrawMap(); } catch (e) {}
             return true;
@@ -2604,8 +2649,9 @@ function drawInitialDotSectorOverlay(ctx, size) {
 
     entries.forEach(({ index }) => {
         const sectorId = sectors[String(index)] || 'e';
-        const direction = TACTICAL_FIRE_SECTOR_OPTIONS.find(option => option.id === sectorId);
-        if (!direction) return;
+        // ⚡ v13.156 (п.9): ось — вектор на кликнутую клетку (или направление).
+        const axisVector = dotSectorAxisVector(pos.key, sectorId);
+        if (!axisVector) return;
         const widthDeg = dotSectorWidthDeg(candidate.squad, index);
         const active = index === activeCrew;
         const color = initialDotSectorColor(index);
@@ -2631,8 +2677,7 @@ function drawInitialDotSectorOverlay(ctx, size) {
         ctx.shadowColor = '#000';
         ctx.shadowBlur = 4;
         if (widthDeg < 360) {
-            const vector = _cubeToPixel2D(direction.cube);
-            const angle = Math.atan2(vector.y, vector.x);
+            const angle = Math.atan2(axisVector.y, axisVector.x);
             const half = widthDeg * Math.PI / 360;
             ctx.setLineDash([10, 6]);
             [-half, half].forEach(offset => {
@@ -2677,7 +2722,7 @@ function setInitialDotWeaponSector(crewIndex, sectorId) {
     const st = hexEditorState;
     if (!st || st.kind !== 'initialFortification') return;
     if (!st.dotWeaponSectors || st.dotSectorCandidateId !== st.dotId) setInitialDotCandidate(st.dotId);
-    if (!TACTICAL_FIRE_SECTOR_OPTIONS.some(option => option.id === sectorId)) return;
+    if (!dotSectorAxisValid(sectorId)) return;
     st.dotWeaponSectors[String(crewIndex)] = sectorId;
     st.dotSectorHighlightCrew = crewIndex;
     st.dotSectorCandidateId = st.dotId;
@@ -2728,18 +2773,23 @@ function applyInitialDotSectorPick(st, cellKey) {
         showHexEditorBanner();
         return true;
     }
-    const sectorId = tacticalSectorIdBetween(pos.key, cellKey);
-    if (!sectorId) {
+    // ⚡ v13.156 (п.9): ось сектора — ТОЧНО на кликнутую клетку (любой угол),
+    //    а не ближайшее из шести направлений. В сейв пишется ключ гекса-оси.
+    const axisKey = String(cellKey || '');
+    const axisVector = dotSectorAxisVector(pos.key, axisKey);
+    if (!axisVector) {
         if (infoBox) { infoBox.innerHTML = '⛔ Кликните по другой клетке — направление сектора задаётся от клетки ДОТа к кликнутой.'; infoBox.style.color = '#e74c3c'; }
         return true;
     }
+    const sectorId = axisKey;
     if (!st.dotWeaponSectors || st.dotSectorCandidateId !== st.dotId) setInitialDotCandidate(st.dotId);
     st.dotWeaponSectors[String(st.dotSectorPickCrew)] = sectorId;
     st.dotSectorHighlightCrew = st.dotSectorPickCrew;
     st.dotSectorCandidateId = st.dotId;
     persistInitialDotSectors(st);
-    const label = (TACTICAL_FIRE_SECTOR_OPTIONS.find(o => o.id === sectorId) || {}).label || sectorId;
-    if (infoBox) { infoBox.innerHTML = `🎯 Сектор амбразуры: линия от ДОТа (${pos.key}) к клетке ${cellKey} — ${label}. Линии сектора нарисованы на карте.`; infoBox.style.color = '#27ae60'; }
+    const widthDeg = dotSectorWidthDeg(candidate.squad, st.dotSectorHighlightCrew);
+    const label = `ось на клетку (${cellKey}), сектор ${widthDeg >= 360 ? '360° — круговой' : widthDeg + '°'}`;
+    if (infoBox) { infoBox.innerHTML = `🎯 Сектор амбразуры: ось от ДОТа (${pos.key}) точно на клетку ${cellKey} — ${label}. Линии сектора нарисованы на карте.`; infoBox.style.color = '#27ae60'; }
     st.dotSectorPickCrew = null;
     showHexEditorBanner();
     try { redrawMap(); } catch (e) {}
@@ -2760,7 +2810,12 @@ function initialDotSectorControls(st) {
             const isMg = weapon.type === 'mg';
             const label = isMg ? `Амбразура ${++counters.mg}` : `Орудие ${++counters.gun}`;
             const value = st.dotWeaponSectors[String(index)] || 'e';
-            const options = TACTICAL_FIRE_SECTOR_OPTIONS.map(option =>
+            // ⚡ v13.156 (п.9): если ось задана кликом по клетке — показываем её
+            //    отдельным пунктом списка (направление из шести больше не единственный путь).
+            const axisKey = dotSectorAxisHexKey(value);
+            const axisOption = axisKey
+                ? `<option value="${axisKey}" selected>🎯 точно на клетку (${axisKey})</option>` : '';
+            const options = axisOption + TACTICAL_FIRE_SECTOR_OPTIONS.map(option =>
                 `<option value="${option.id}" ${option.id === value ? 'selected' : ''}>${option.label}</option>`).join('');
             const picking = st.dotSectorPickCrew === index;
             const widthDeg = dotSectorWidthDeg(candidate.squad, index);
@@ -2768,7 +2823,7 @@ function initialDotSectorControls(st) {
             return `<label style="color:#ddd; font-size:.82rem; border-left:4px solid ${color}; padding-left:6px;">${label} — ${String(weapon.name || crew.weaponName)} (сектор ${widthDeg >= 360 ? '360° — круговой' : widthDeg + '°'}): ` +
                 `<select onchange="setInitialDotWeaponSector(${index},this.value)">${options}</select> ` +
                 `<button type="button" onclick="setInitialDotSectorPick(${index})" style="${picking ? 'background:#e67e22;' : 'background:#2980b9;'} font-size:.78rem;">${picking ? '🎯 Кликните клетку направления…' : '🎯 Указать на карте'}</button></label>`;
-        }).join('') + '</div><details style="margin:4px 0;"><summary style="color:#aaa; font-size:.78rem; cursor:pointer;">ℹ️ Секторы амбразур — как настроить</summary><div style="color:#888; font-size:.78rem;">У каждого расчёта свой сектор: Van Hees — ПТ-орудие 360° (круговой), пулемёт 90°; Bosh — пулемёты по 60°, орудие 90°. Цвет каждой амбразуры совпадает с подсветкой на карте; выбранная амбразура выделяется ярче. Подсветка показывает направление и ширину сектора в радиусе обстрела ДОТа — 3 гекса (дальше ДОТ не стреляет). Секторы могут перекрываться. Цель вне сектора для этого оружия недоступна — и в тактическом бою, и на оперативной карте. «🎯 Указать на карте» — затем кликните клетку, куда смотрит амбразура: линии сектора появятся на карте от клетки ДОТа.</div></details>';
+        }).join('') + '</div><details style="margin:4px 0;"><summary style="color:#aaa; font-size:.78rem; cursor:pointer;">ℹ️ Секторы амбразур — как настроить</summary><div style="color:#888; font-size:.78rem;">У каждого расчёта свой сектор: Van Hees — ПТ-орудие 360° (круговой), пулемёт 90°; Bosh — пулемёты по 60°, орудие 90°. Цвет каждой амбразуры совпадает с подсветкой на карте; выбранная амбразура выделяется ярче. Подсветка показывает направление и ширину сектора в радиусе обстрела ДОТа — 3 гекса (дальше ДОТ не стреляет). Секторы могут перекрываться. Цель вне сектора для этого оружия недоступна — и в тактическом бою, и на оперативной карте. «🎯 Указать на карте» — затем кликните ЛЮБУЮ клетку карты, куда смотрит амбразура: ось сектора пройдёт точно через неё (угол не округляется до шести направлений), линии сектора появятся на карте от клетки ДОТа. Список направлений оставлен для быстрой правки старых позиций.</div></details>';
 }
 function initialDotSelector(st) {
     const escape = text => String(text).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -2797,7 +2852,7 @@ function bindInitialDot(st, key) {
     const weaponSectors = Object.assign({}, (st.dotSectorCandidateId === st.dotId && st.dotWeaponSectors) ||
         (old && old.weaponSectors) || {});
     initialDotSectorCrewEntries(candidate).forEach(({ index }) => {
-        if (!TACTICAL_FIRE_SECTOR_OPTIONS.some(option => option.id === weaponSectors[String(index)])) {
+        if (!dotSectorAxisValid(weaponSectors[String(index)])) {
             weaponSectors[String(index)] = 'e';
         }
     });

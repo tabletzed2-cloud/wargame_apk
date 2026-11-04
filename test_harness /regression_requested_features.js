@@ -863,7 +863,7 @@ test('если точка эвакуации захвачена, отряд бе
 // 15. Конвой снабжения рисуется на своём текущем гексе.
 test('на карте кампании рисуется текущий гекс каждой колонны снабжения', () => {
   const s = createSandbox(freshAppData());
-  loadHtml(s, ['drawSupplyDeliveriesOnMap']);
+  loadHtml(s, ['supplyConvoyIcon', 'drawSupplyDeliveriesOnMap']);
   s.run(`
     var drawnText = [], drawnArcs = [];
     var ctx = {
@@ -1767,7 +1767,7 @@ test('после выполнения всех шагов чек-лист и п�
 // 27. Снабжение ограничено дефицитом каждого типа; полные юниты не попадают в список.
 test('список получателей снабжения содержит только дефицитные юниты и учитывает уже идущие грузы', () => {
   const s = createSandbox(freshAppData());
-  loadHtml(s, ['supplyOrdnanceFull', 'unitAmmoStatus', 'supplyPendingCargoForUnit', 'supplyUnitAmmoDeficits', 'supplyUnitHasIncompleteAmmo', 'supplyUnitList']);
+  loadHtml(s, ['supplyOrdnanceFull', 'unitAmmoStatus', 'supplyPendingCargoForUnit', 'supplyUnitAmmoDeficits', 'supplyUnitHasIncompleteAmmo', 'supplyUnitList', 'supplyUnitNeedsAmmo']);
   s.run(`
     const SUPPLY_AMMO_PER_MAN = 8, SUPPLY_GREN_PER_MAN = 2;
     appData.templates = [{ name: 'Пехотный взвод', ammoOrdnance: 5 }];
@@ -1779,11 +1779,17 @@ test('список получателей снабжения содержит т
     appData.campaign.supply = { deliveries: [{ kind: 'unit', targetUnitId: 0, cargo: { ammoSmall: 3, grenades: 2, ammoOrdnance: 1 }, status: 'outbound' }] };
     var deficitsAfterPending = supplyUnitAmmoDeficits(partial, 0);
     var recipients = supplyUnitList().map(item => item.idx);
+    var fullNeedsAmmo = supplyUnitNeedsAmmo(full, 1);
+    var partialNeedsAmmo = supplyUnitNeedsAmmo(partial, 0);
   `);
   equal(s.evalCtx('deficitsAfterPending.ammoSmall'), 3, 'патроны уменьшаются на уже отправленные');
   equal(s.evalCtx('deficitsAfterPending.grenades'), 0, 'гранаты с ожидающей доставкой не запрашиваются повторно');
   equal(s.evalCtx('deficitsAfterPending.ammoOrdnance'), 4, 'снаряды доставляются только в пределах дефицита');
-  equal(s.evalCtx('JSON.stringify(recipients)'), '[0]', 'полный юнит и сам взвод снабжения скрыты');
+  // ⚡ v13.156 (п.17): в списке получателей — все живые юниты, кроме взвода снабжения.
+  //    Раньше юнит с полным боезапасом исчезал из списка и выбрать его было нельзя.
+  equal(s.evalCtx('JSON.stringify(recipients)'), '[0,1]', 'видны все юниты, кроме взвода снабжения');
+  equal(s.evalCtx('fullNeedsAmmo'), false, 'юнит с полным боезапасом помечен как не нуждающийся в доставке');
+  equal(s.evalCtx('partialNeedsAmmo'), true, 'юнит с нехваткой боезапаса помечен как получатель');
 });
 
 // 28. Потеря точки связи останавливает доставку и блокирует маршрут снабжения.

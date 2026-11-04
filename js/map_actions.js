@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.150
+// ⚡ BUILD-МАРКЕР: v13.157
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1365,7 +1365,13 @@ function reportAttackOutcome(kind, data) {
         }
         case 'ampulomet':
             applyDamagePointsToEnemy(enemy, data.damage || 0, res);
-            if (data.fires) { enemy.burning = true; res.notes.push('🔥 техника горит'); }
+            // ⚡ v13.153 (п.32): поджог ампуломётом — машина горит, дальше пожар
+            //    живёт сам (ослепление экипажа, огонь в двигателе).
+            if (data.fires) {
+                if (typeof tacticalIgniteVehicle === 'function') tacticalIgniteVehicle(enemy, 'ампуломёт');
+                else enemy.burning = true;
+                res.notes.push('🔥 техника горит');
+            }
             break;
         case 'melee': {
             applyDamagePointsToEnemy(enemy, data.damage || 0, res);
@@ -1425,8 +1431,14 @@ function reportAttackOutcome(kind, data) {
             res.hits = (data.vehicleHits || []).length;
             break;
         case 'molotovCrew':
-            if (data.fires) { enemy.burning = true; res.notes.push('🔥 техника горит'); }
-            if (data.blinds) { enemy.blinded = true; res.notes.push('👁️ техника ослеплена на ход'); }
+            // ⚡ v13.153 (п.32): бутылкомёт поджигает машину; ослепление — тоже
+            //    следствие пожара (30 % за фазу), а не мгновенный эффект.
+            if (data.fires) {
+                if (typeof tacticalIgniteVehicle === 'function') tacticalIgniteVehicle(enemy, 'бутылкомёт');
+                else enemy.burning = true;
+                res.notes.push('🔥 техника горит');
+            }
+            if (data.blinds) { enemy.blinded = true; res.notes.push('👁️ экипаж ослеплён пламенем'); }
             break;
         default:
             break;

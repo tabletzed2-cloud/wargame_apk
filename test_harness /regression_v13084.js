@@ -8,6 +8,17 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const HTML = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const SW = fs.readFileSync(path.join(ROOT, 'service-worker.js'), 'utf8');
+
+const supplyIconExpected = (name, faction) => {
+    // ⚡ v13.157: иконки техники снабжения (те же пути, что в js/templates.js)
+    if (/DAF Trado/i.test(name)) return 'images/BeVe/DAF Trado.png';
+    if (/DAF MC-V/i.test(name)) return 'images/BeVe/DAF MC-V.png';
+    if (/Викунья/i.test(name)) return 'images/BeVe/Лёгкий грузовик CLg-37 «Викунья» (Vicuña).png';
+    return faction === 'A.I.R.F.'
+        ? 'images/AIRF/Взвод снабжения АИРФ №1.png'
+        : 'images/BeVe/Взвод снабжения BeVe №1.png';
+};
+
 const UI_JS = fs.readFileSync(path.join(ROOT, 'js/operational_ui.js'), 'utf8');
 // ⚡ v13.090: версия берётся из самого APP_VERSION — тесты не должны падать
 //    после каждого повышения сборки, но рассинхрон маркировки обязан ловиться.
@@ -42,13 +53,16 @@ test('v13.084: иконки взводов снабжения в BATTALION_PRESE
   bevePlatoon.squads.forEach(sq => {
     const tmpl = templates.find(t => t.name === sq.templateName && t.faction === 'BeVe');
     assert.ok(tmpl, `шаблон BeVe ${sq.templateName}`);
-    assert.equal(tmpl.icon, 'images/BeVe/Взвод снабжения BeVe №1.png', `иконка шаблона ${sq.templateName}`);
+    // ⚡ v13.157: у техники снабжения свои иконки, пешие отделения (штаб,
+    //    носильщики, мулы, повозки, охрана) остаются с общим значком взвода.
+    assert.equal(tmpl.icon, supplyIconExpected(sq.templateName, 'BeVe'), `иконка шаблона ${sq.templateName}`);
   });
 
   airfPlatoon.squads.forEach(sq => {
     const tmpl = templates.find(t => t.name === sq.templateName && t.faction === 'A.I.R.F.');
     assert.ok(tmpl, `шаблон A.I.R.F. ${sq.templateName}`);
-    assert.equal(tmpl.icon, 'images/AIRF/Взвод снабжения АИРФ №1.png', `иконка шаблона ${sq.templateName}`);
+    // ⚡ v13.157: у «Викуньи» своя иконка, остальные — общий значок А.И.Р.Ф.
+    assert.equal(tmpl.icon, supplyIconExpected(sq.templateName, 'A.I.R.F.'), `иконка шаблона ${sq.templateName}`);
   });
 });
 

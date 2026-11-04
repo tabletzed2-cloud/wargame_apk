@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.150 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.157 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.061: current release data and terrain definitions; absent texture variants no longer referenced.
 // ==================== КОНСТАНТЫ И ДАННЫЕ ==================== 
 // Типы местности
@@ -234,6 +234,10 @@ const BATTALION_PRESETS = {
               { name: "Конная повозка", templateName: "Конная повозка (Бельгийцы)" },
               // ⚡ v13.150: техника взвода снабжения BeVe получила имена
               { name: "Грузовик DAF Trado II", templateName: "Грузовик DAF Trado II (Бельгийцы)" },
+              // ⚡ v13.153 (п.8): +3 грузовика — колонна стала реально грузовой
+              { name: "Грузовик DAF Trado II №2", templateName: "Грузовик DAF Trado II (Бельгийцы)" },
+              { name: "Грузовик DAF Trado II №3", templateName: "Грузовик DAF Trado II (Бельгийцы)" },
+              { name: "Грузовик DAF Trado II №4", templateName: "Грузовик DAF Trado II (Бельгийцы)" },
               { name: "Автомобиль DAF MC-V", templateName: "Автомобиль DAF MC-V (Бельгийцы)" },
               { name: "Стрелок охранник №1", templateName: "Стрелок охранник №1 (Бельгийцы)" },
               { name: "Стрелок охранник №2", templateName: "Стрелок охранник №2 (Бельгийцы)" }
@@ -390,6 +394,9 @@ const BATTALION_PRESETS = {
               // ⚡ v13.149: горный транспортёр-вездеход и «Викунья» вместо безликого «лёгкого грузовика»
               { name: "Горный транспортёр TG-41 «Лама»", templateName: "Горный транспортёр TG-41 «Лама» (A.I.R.F.)" },
               { name: "Легкий грузовик CLg-37 «Викунья»", templateName: "Легкий грузовик CLg-37 «Викунья» (A.I.R.F.)" },
+              // ⚡ v13.153 (п.8): +2 грузовика во взводе снабжения A.I.R.F.
+              { name: "Легкий грузовик CLg-37 «Викунья» №2", templateName: "Легкий грузовик CLg-37 «Викунья» (A.I.R.F.)" },
+              { name: "Легкий грузовик CLg-37 «Викунья» №3", templateName: "Легкий грузовик CLg-37 «Викунья» (A.I.R.F.)" },
               { name: "Стрелок охранник №1", templateName: "Стрелок охранник №1 (A.I.R.F.)" },
               { name: "Стрелок охранник №2", templateName: "Стрелок охранник №2 (A.I.R.F.)" }
              ]
@@ -603,3 +610,52 @@ const markerIconMap = {
 function getFactionWeapons(f) { return (appData.factions[f] && appData.factions[f].weapons) ? appData.factions[f].weapons : []; }
 function getFactionCrewWeapons(f) { return (appData.factions[f] && appData.factions[f].crewWeapons) ? appData.factions[f].crewWeapons : []; }
 function getFactionCards(f) { return (appData.factions[f] && appData.factions[f].cardLibrary) ? appData.factions[f].cardLibrary : []; }
+
+// ═══════════════════════════════════════════════════════════════════════
+// ⚡ v13.157: РАЗВЕДЫВАТЕЛЬНЫЕ АКТИВЫ В ШТАТЕ (см. js/recon.js)
+//    • BeVe: мотоциклист-разведчик и мотоциклист-посыльный — ОТРЯДЫ при штабе
+//      каждого взвода (не отдельные юниты на карте);
+//    • A.I.R.F.: AL-41 Hidalgo — отряд при штабе батальона;
+//    • самокатным взводам BeVe добавлен мотоциклетный миномётный расчёт
+//      (точно такой же 50-мм миномёт, как у пехотных взводов).
+//    Состав правится здесь, а не в литерале выше, чтобы не дублировать
+//    одинаковые строки в девяти взводах и трёх шаблонах.
+// ═══════════════════════════════════════════════════════════════════════
+(function applyReconPresetUpdates() {
+  const beve = (typeof BATTALION_PRESETS !== 'undefined') ? BATTALION_PRESETS['BeVe'] : null;
+  let mortarNumber = 0;
+  if (beve && Array.isArray(beve.standard)) {
+    beve.standard.forEach(unit => {
+      if (!unit || unit.type !== 'infantry_company' || !Array.isArray(unit.platoons)) return;
+      unit.platoons.forEach(platoon => {
+        if (!platoon || !Array.isArray(platoon.squads)) return;
+        const hasRiders = platoon.squads.some(sq => sq && /Мотоциклист-разведчик/i.test(String(sq.name || '')));
+        if (!hasRiders) {
+          platoon.squads.push({ name: 'Мотоциклист-разведчик', templateName: 'Мотоциклист-разведчик' });
+          platoon.squads.push({ name: 'Мотоциклист-посыльный', templateName: 'Мотоциклист-посыльный' });
+        }
+        // ⚡ v13.157 (п.2 доп. правок): самокатным взводам — мотоциклетный миномёт
+        const bicycle = platoon.mobilityType === 'bicycle' ||
+          /самокат/i.test(String(platoon.name || ''));
+        if (bicycle && !platoon.squads.some(sq => sq && /мотоциклетн\S* миномётн/i.test(String(sq.name || '')))) {
+          mortarNumber += 1;
+          const number = Math.min(3, mortarNumber);
+          platoon.squads.push({
+            name: `Мотоциклетный миномётный расчёт №${number}`,
+            templateName: `Мотоциклетный миномётный расчёт 50-мм №${number}`
+          });
+        }
+      });
+    });
+  }
+  const airf = (typeof BATTALION_PRESETS !== 'undefined') ? BATTALION_PRESETS['A.I.R.F.'] : null;
+  if (airf && Array.isArray(airf.standard)) {
+    airf.standard.forEach(unit => {
+      if (!unit || unit.type !== 'hq') return;
+      if (!/^Штаб Батальона$/i.test(String(unit.name || ''))) return;
+      if (!Array.isArray(unit.squads)) unit.squads = [];
+      const hasHidalgo = unit.squads.some(sq => sq && /Hidalgo/i.test(String(sq.name || '')));
+      if (!hasHidalgo) unit.squads.push({ name: 'AL-41 Hidalgo', templateName: 'AL-41 Hidalgo' });
+    });
+  }
+})();
