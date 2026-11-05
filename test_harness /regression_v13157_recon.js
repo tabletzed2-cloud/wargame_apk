@@ -101,9 +101,13 @@ console.log('== v13.157: разведка, время кампании, мино
        s.evalCtx("getReconSpeed('motorcycle', 'grass')") === 2 &&
        s.evalCtx("getReconSpeed('motorcycle', 'forest')") === 1,
        'п.2: мотоцикл — 4 дорога / 2 трава-кусты / 1 лес');
-    // ⚡ v13.160: бронеавтомобиль больше не разведывательный актив
-    ok(s.evalCtx("typeof RECON_ASSET_TYPES.beve_armored_car === 'undefined'"),
-       'п.2: актив «Бронеавтомобиль» убран (Landsverk — обычные юниты)');
+    // ⚡ v13.164: бронеавтомобилю BeVe снова можно отдать приказ на разведку
+    ok(s.evalCtx('RECON_ASSET_TYPES.beve_armored_car.canRecon') === true,
+       'п.2 (v13.164): у бронеавтомобиля BeVe снова есть разведывательная миссия');
+    ok(s.evalCtx("getReconSpeed('armored_car', 'road')") === 4 &&
+       s.evalCtx("getReconSpeed('armored_car', 'bushes')") === 4 &&
+       s.evalCtx("getReconSpeed('armored_car', 'forest')") === 0,
+       'п.2: бронеавтомобиль — 4 дорога/трава/кусты, лес недоступен');
     ok(s.evalCtx("getReconSpeed('light_car', 'grass')") === 4 &&
        s.evalCtx("getReconSpeed('light_car', 'forest')") === 0,
        'п.2: Hidalgo — 4 трава, лес недоступен');
@@ -169,8 +173,8 @@ console.log('== v13.157: разведка, время кампании, мино
     const s = missionSandbox();
     const assets = s.evalCtx('JSON.stringify(appData.campaign.reconAssets)');
     ok(/beve_motorcycle_scout":\{"total":1,"available":1/.test(assets), 'п.7.1: пул активов посчитан из войск', assets);
-    ok(s.evalCtx("getReconAssetList().map(a => a.key)").join(',') === 'beve_motorcycle_scout',
-       'п.9.1: в списке только активы с canRecon и available > 0 (бронеавтомобиля нет)');
+    ok(s.evalCtx("getReconAssetList().map(a => a.key)").join(',') === 'beve_motorcycle_scout,beve_armored_car',
+       'п.9.1: в списке только активы с canRecon и available > 0 (v13.164: мотоциклист и бронеавтомобиль)');
     const mission = s.evalCtx(`createReconMission({ assetKey: 'beve_motorcycle_scout', route: [{col:6,row:5},{col:7,row:5}], observeMode: 'stationary', reportMethod: 'radio' })`);
     ok(!!mission && mission.status === 'active', 'п.4.1: миссия создана со статусом active');
     ok(s.evalCtx('appData.campaign.reconAssets.beve_motorcycle_scout.available') === 0, 'п.4.1: available-- при отправке');
@@ -251,8 +255,8 @@ advanceReconMissions();
     const order = { id: 77, type: 'observe', status: 'active' };
     s.run(`appData.campaign.opUnits[0].col = 4; appData.campaign.opUnits[0].row = 5;`);
     s.run(`executeObserveOrder(appData.campaign.opUnits[0], ${JSON.stringify(order)});`);
-    ok(s.evalCtx('getReconAssetList().length') === 1,
-       'п.6.3: наблюдение не тратит пул активов (активов в списке: 1 — мотоциклист, БА больше нет)');
+    ok(s.evalCtx('getReconAssetList().length') === 2,
+       'п.6.3: наблюдение не тратит пул активов (мотоциклист и бронеавтомобиль, v13.164)');
     {
         const s3 = missionSandbox();
         s3.run('function unitHasFirepower() { return false; } function isEscortCapableInfantry() { return true; }');

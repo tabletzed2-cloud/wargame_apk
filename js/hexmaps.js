@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.163 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.166 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1196,7 +1196,9 @@ function _applyShellingCraters(hexKey, count) {
 // Окопы: за каждый отряд взвода, который окапывался на гексе, — 1 гекс окопа
 function grantTrenchPoints(hexKey, squadsCount, unitName, enemySide) {
     const ov = getHexOverlay(hexKey, true);
-    const n = Math.max(1, Math.floor(Number(squadsCount) || 1));
+    // ⚡ v13.166 (п.2): сколько гексов окопов даёт приказ — по живым бойцам
+    //    (вызывающий передаёт уже посчитанный лимит, 0 — не даёт ничего).
+    const n = Math.max(0, Math.floor(Number(squadsCount) || 0));
     if (enemySide === undefined) enemySide = isEnemyOperationalUnit(unitName);
     if (enemySide) {
         // Скрываем от игрока ход выполнения и результат вражеского окапывания.
@@ -1207,7 +1209,9 @@ function grantTrenchPoints(hexKey, squadsCount, unitName, enemySide) {
     let drafted = 0;
     try { if (typeof applyPendingHexEdits === 'function') drafted = applyPendingHexEdits(hexKey, 'trenches'); } catch (e) { console.warn('applyPendingHexEdits:', e.message); }
     const currentBudget = Math.max(0, Math.floor(Number(ov.trenchPoints) || 0));
-    const granted = Math.max(0, n - drafted);
+    // ⚡ v13.166 (п.2): лимит на гекс — по живым бойцам отряда. Повторные
+    //    приказы на том же гексе больше не «накапливают» очки сверх лимита.
+    const granted = Math.max(0, Math.max(0, n - drafted) - currentBudget);
     ov.trenchPoints = currentBudget + granted;
     ov.placedByMe = true;
     saveHexOverlays(hexKey);
@@ -1217,13 +1221,14 @@ function grantTrenchPoints(hexKey, squadsCount, unitName, enemySide) {
         showHexEditButton(hexKey, 'trenches');
         if (!drafted) queueHexEditPrompt(hexKey, 'trenches', unitName);
     } else {
-        log(`🕳️ ${unitName || 'Отряд'}: лимит ${INITIAL_FORTIFICATION_TRENCH_LIMIT} клеток окопов на гексе (${hexKey}) уже исчерпан.`);
+        log(`🕳️ ${unitName || 'Отряд'}: лимит окопов на гексе (${hexKey}) уже исчерпан — ${ov.trenchPoints} (по живым бойцам отряда).`);
     }
     return ov.trenchPoints;
 }
 
-// Подготовка позиций: за каждый отряд взвода — 1 правка местности
-// (лес → поваленный лес, кусты → трава)
+// Подготовка позиций (расчистка местности): лимит тот же, что у окопов —
+// по живым бойцам отряда (8 бойцов = 1 клетка, у сапёров 5 = 1).
+// Лес → поваленный лес, кусты → трава.
 function grantPrepPoints(hexKey, squadsCount, unitName, enemySide) {
     const ov = getHexOverlay(hexKey, true);
     if (enemySide === undefined) enemySide = isEnemyOperationalUnit(unitName);
@@ -1234,11 +1239,15 @@ function grantPrepPoints(hexKey, squadsCount, unitName, enemySide) {
     // ⚡ v13.099 (п.6): приказ выполнен — переносим черновик правок на карту
     let drafted = 0;
     try { if (typeof applyPendingHexEdits === 'function') drafted = applyPendingHexEdits(hexKey, 'prep'); } catch (e) { console.warn('applyPendingHexEdits:', e.message); }
-    const n = Math.max(0, Math.max(1, Math.floor(Number(squadsCount) || 1)) - drafted);
-    ov.prepPoints = (ov.prepPoints || 0) + n;
+    // ⚡ v13.166 (п.2): лимит расчистки — по живым бойцам отряда (та же норма,
+    //    что у окопов); повторные приказы на гексе не накапливают очки сверх лимита.
+    const limit = Math.max(0, Math.floor(Number(squadsCount) || 0));
+    const currentPrep = Math.max(0, Math.floor(Number(ov.prepPoints) || 0));
+    const n = Math.max(0, Math.max(0, limit - drafted) - currentPrep);
+    ov.prepPoints = currentPrep + n;
     ov.placedByMe = true;
     saveHexOverlays(hexKey);
-    log(`🪓 ${unitName || 'Отряд'}: доступно правок «подготовка позиций» на гексе (${hexKey}) — +${n} (всего ${ov.prepPoints}).`);
+    log(`🪓 ${unitName || 'Отряд'}: доступно правок «подготовка позиций» на гексе (${hexKey}) — +${n} (всего ${ov.prepPoints}; лимит по приказу ${limit}).`);
     try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast(`🪓 Расчистка позиций готова: гекс (${hexKey}) — доступно правок: ${ov.prepPoints}.`, 'success'); } catch (e) {}
     if (!drafted) { showHexEditButton(hexKey, 'prep'); queueHexEditPrompt(hexKey, 'prep', unitName); }
     return ov.prepPoints;
@@ -1409,7 +1418,7 @@ function hexEditRuleFor(kind) {
     if (kind === 'trenches') {
         return {
             title: '🕳️ Расстановка окопов',
-            hint: 'Клик по траве/дороге ставит окоп; повторные клики по нему листают текстуры. Выберите клетку и нажмите «Повернуть» для поворота на 60°. Новая клетка расходует одно очко приказа (по одному на отделение).' ,
+            hint: 'Клик по траве/дороге ставит окоп; повторный клик по нему листает текстуры. Клик по окопу выбирает клетку — блок «🔄 Поворот окопа» ниже поворачивает её на ±60°. Новая клетка расходует одно очко приказа; лимит — по живым бойцам отряда: 8 бойцов = 1 гекс, у сапёров 5 бойцов = 1 гекс.',
             allowed: (baseType) => baseType === 'grass' || baseType === 'road',
             targetType: 'trenches',
             pointsField: 'trenchPoints'
@@ -1693,6 +1702,19 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
         ? hexEditSelectedTrenchCell() : null;
     const trenchAngle = trenchCell && appData.map && appData.map.grid && appData.map.grid[trenchCell]
         ? (Number(appData.map.grid[trenchCell].rotation) || 0) : null;
+    // ⚡ v13.166 (п.2): лимит по живым бойцам — сразу видно, сколько гексов можно.
+    const limitRow = (() => {
+        const draft = pendingHexEditDraft(st.hexKey);
+        const unitName = draft ? draft.unitName : st.ownerUnitName;
+        const unit = hexEditUnitByName(unitName);
+        if (!unit) return '';
+        const limit = draft ? draftLimitNumber(draft) : hexEditDigHexLimitForUnit(unit);
+        const used = draft ? Object.keys(draft.cells || {}).length : st.placed;
+        const what = st.kind === 'trenches' ? 'окопов' : 'клеток расчистки';
+        return `<div style="margin-top:4px; color:#bdc8cf; font-size:.85rem;">📐 Лимит по приказу: <b>${limit}</b> ${what}` +
+            ` — ${hexEditLiveFighters(unit)} живых бойцов ÷ ${hexEditUnitIsSapper(unit) ? HEX_EDIT_FIGHTERS_PER_TRENCH_SAPPER : HEX_EDIT_FIGHTERS_PER_TRENCH}` +
+            `${hexEditUnitIsSapper(unit) ? ' (сапёры)' : ''}; отмечено ${used}.</div>`;
+    })();
     const rotateBlock = (st.kind === 'trenches')
         ? `<div id="hexEditorRotateRow" style="margin-top:6px; padding:6px; background:#241a33; border:1px solid #8e44ad; border-radius:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center;">` +
             `<b style="color:#d7a4ff;">🔄 Поворот окопа</b>` +
@@ -1708,6 +1730,7 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
       <b style="color:#2ecc71;">${st.rule.title} — гекс (${st.hexKey})</b><br>
       ${draftRow}
       <span style="color:#f1c40f; font-size:0.9rem;">Осталось правок: <b>${left}</b> (поставлено в этой сессии: ${st.placed})</span>
+      ${limitRow}
       ${rotateBlock}
       <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
         <button onclick="hexEditUndo()" style="background:#8e44ad;">↩️ Отменить последнюю</button>
@@ -1807,6 +1830,12 @@ function beginPendingHexEditDraft(hexKey, kind, unitName) {
     if (!camp || !hexKey) return null;
     if (!camp.pendingHexEdits || typeof camp.pendingHexEdits !== 'object') camp.pendingHexEdits = {};
     const draftKind = kind === 'prep' ? 'prep' : 'trenches';
+    // ⚡ v13.105 (п.2) → v13.166 (п.2): лимит правок на гекс — ЧИСЛО гексов по
+    //    живым бойцам отряда (8 бойцов = 1 гекс, у сапёров 5 = 1). В v13.147 сюда
+    //    ошибочно клался объект {kind, limit, unitName}, поэтому сравнение
+    //    «отмечено ≥ лимита» никогда не срабатывало и окопов можно было
+    //    наставить сколько угодно.
+    const limitInfo = draftLimitForUnit(draftKind, unitName);
     camp.pendingHexEdits[String(hexKey)] = {
         kind: draftKind,
         unitName: unitName || null,
@@ -1814,30 +1843,43 @@ function beginPendingHexEditDraft(hexKey, kind, unitName) {
         cells: {},
         variants: {},
         rotations: {},
-        // ⚡ v13.105 (п.2): окопов в черновике не больше, чем может выкопать юнит по приказу
-        // ⚡ v13.147 (п.3): у «расчистки местности» тот же лимит — по одной клетке
-        //    на каждый живой отряд взвода. Раньше в черновике можно было отметок
-        //    сколько угодно, и правок на гексе оказывалось больше, чем отрядов.
-        limit: draftLimitForUnit(draftKind, unitName)
+        limit: limitInfo.limit,
+        limitFighters: limitInfo.fighters,
+        limitPerHex: limitInfo.perHex
     };
     log(`📝 Черновик подготовки гекса (${hexKey}): изменения появятся на карте только после выполнения приказа.`);
     return camp.pendingHexEdits[String(hexKey)];
 }
-// ⚡ v13.147 (п.3): лимит правок одного гекса — по одной клетке на каждый живой
-//    отряд взвода, одинаково для окопов и для расчистки местности.
+// ⚡ v13.147 (п.3) → v13.166 (п.2): лимит правок одного гекса — ПО ЖИВЫМ БОЙЦАМ
+//    отряда (8 бойцов = 1 гекс, у сапёров 5 бойцов = 1 гекс), одинаково для
+//    окопов и для расчистки местности.
+//    Раньше здесь в `limit` клался ОБЪЕКТ ({kind, limit, unitName}), а проверка
+//    лимита в recordPendingHexEditClick сравнивала с ним число — сравнение всегда
+//    было ложным, и в черновике можно было отметить сколько угодно клеток.
 function draftLimitForUnit(kind, unitName) {
-    const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
-    const units = (camp && camp.opUnits) || [];
-    const unit = unitName ? units.find(u => u && u.name === unitName && !u.isDestroyed) : null;
-    const alive = unit ? Math.max(1, countSquadsForHexEdit(unit)) : 1;
-    return { kind: kind === 'prep' ? 'prep' : 'trenches', limit: alive, unitName: unitName || null };
+    const unit = hexEditUnitByName(unitName);
+    const per = (unit && hexEditUnitIsSapper(unit)) ? HEX_EDIT_FIGHTERS_PER_TRENCH_SAPPER : HEX_EDIT_FIGHTERS_PER_TRENCH;
+    return {
+        kind: kind === 'prep' ? 'prep' : 'trenches',
+        limit: unit ? hexEditDigHexLimitForUnit(unit) : 1,
+        unitName: unitName || null,
+        fighters: unit ? hexEditLiveFighters(unit) : 0,
+        perHex: per
+    };
 }
-// Сколько окопов может выкопать юнит по приказу: по одному на каждый живой отряд.
+// Сколько гексов окопов может выкопать отряд по приказу (по живым бойцам).
 function trenchLimitForDraftUnit(unitName) {
-    const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
-    const units = (camp && camp.opUnits) || [];
-    const unit = unitName ? units.find(u => u && u.name === unitName && !u.isDestroyed) : null;
-    return unit ? Math.max(1, countSquadsForHexEdit(unit)) : 1;
+    const unit = hexEditUnitByName(unitName);
+    return unit ? hexEditDigHexLimitForUnit(unit) : 1;
+}
+// Подпись лимита для баннера/сообщений.
+function hexEditLimitLabel(unitName) {
+    const unit = hexEditUnitByName(unitName);
+    if (!unit) return 'лимит по живым бойцам';
+    const fighters = hexEditLiveFighters(unit);
+    const per = hexEditUnitIsSapper(unit) ? HEX_EDIT_FIGHTERS_PER_TRENCH_SAPPER : HEX_EDIT_FIGHTERS_PER_TRENCH;
+    const hexes = hexEditDigHexLimitForUnit(unit);
+    return `${hexes} гекс(ов) — ${fighters} живых бойцов ÷ ${per}${hexEditUnitIsSapper(unit) ? ' (сапёры)' : ''}`;
 }
 function pendingHexEditDraft(hexKey) {
     const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
@@ -1884,8 +1926,12 @@ function hexEditSelectedTrenchCell() {
     const ov = (typeof getHexOverlay === 'function') ? (getHexOverlay(st.hexKey, false) || null) : null;
     const draft = (typeof pendingHexEditDraft === 'function') ? pendingHexEditDraft(st.hexKey) : null;
     for (const cell of candidates) {
-        if (ov && ov.hexEdits && ov.hexEdits[cell] === 'trenches') return cell;
         if (draft && draft.cells && draft.cells[cell] === 'trenches') return cell;
+        if (ov && ov.hexEdits && ov.hexEdits[cell] === 'trenches') return cell;
+        // ⚡ v13.166 (п.1): окоп может быть уже применён к сетке (стартовая
+        //    расстановка, вторая сессия редактора) — тогда его тоже можно крутить.
+        const gridCell = (appData && appData.map && appData.map.grid) ? appData.map.grid[cell] : null;
+        if (gridCell && gridCell.type === 'trenches') return cell;
     }
     return null;
 }
@@ -1955,7 +2001,15 @@ function recordPendingHexEditClick(st, cell) {
     if (!draft) return false;
     if (!draft.variants || typeof draft.variants !== 'object') draft.variants = {};
     if (!draft.rotations || typeof draft.rotations !== 'object') draft.rotations = {};
-    const showInfo = (html, color) => { if (infoBox) { infoBox.innerHTML = html; infoBox.style.color = color; } };
+    // ⚡ v13.166 (п.1): после каждого клика в черновике обновляем и баннер редактора —
+    //    иначе блок «🔄 Поворот окопа» оставался нарисованным с прошлого рендера,
+    //    где клетка ещё не была выбрана, и кнопки поворота выглядели недоступными
+    //    (disabled), хотя окоп уже отмечен.
+    const refreshBanner = () => { try { if (typeof showHexEditorBanner === 'function') showHexEditorBanner(); } catch (e) {} };
+    const showInfo = (html, color) => {
+        if (infoBox) { infoBox.innerHTML = html; infoBox.style.color = color; }
+        refreshBanner();
+    };
     const baseCell = st.baseGrid[cell];
     const baseType = baseCell ? baseCell.type : 'grass';
     const working = appData.map.grid[cell];
@@ -1997,13 +2051,17 @@ function recordPendingHexEditClick(st, cell) {
             (st.kind === 'trenches' ? ' Окоп ставится только на «траву» и «дорогу».' : ' Менять можно только «лес» и «кусты».'), '#e74c3c');
         return true;
     }
-    // ⚡ v13.147 (п.3): лимит правок действует и для окопов, и для расчистки местности
+    // ⚡ v13.147 (п.3) → v13.166 (п.2): лимит считается по ЖИВЫМ БОЙЦАМ отряда
+    //    (8 бойцов = 1 гекс, у сапёров 5 бойцов = 1 гекс) и действует одинаково
+    //    для окопов и для расчистки местности.
     {
-        const limit = draft.limit || draftLimitForUnit(st.kind, draft.unitName).limit;
+        const limit = draftLimitNumber(draft);
         const used = Object.keys(draft.cells).length;
         if (used >= limit) {
             const what = st.kind === 'trenches' ? 'окопов' : 'клеток расчистки';
-            showInfo(`⛔ Лимит правок по приказу: ${limit} ${what} (по одной клетке на каждый отряд взвода). Снимите лишнюю отметку, чтобы поставить новую.`, '#e74c3c');
+            const label = hexEditLimitLabel(draft.unitName);
+            showInfo(`⛔ Лимит по приказу: ${limit} ${what} — ${label}. ` +
+                'Снимите лишнюю отметку, чтобы поставить новую.', '#e74c3c');
             return true;
         }
     }
@@ -2023,7 +2081,7 @@ function recordPendingHexEditClick(st, cell) {
     working.ov = 1;
     const count = Object.keys(draft.cells).length;
     showInfo(`📝 Черновик: гекс ${cell}: ${readable(baseType)} → ${readable(newType)}. Отметок: ${count}` +
-        (st.kind === 'trenches' ? ` (окопов ${trenchCount()} из ${draft.limit || trenchLimitForDraftUnit(draft.unitName)})` : '') + '. ' +
+        ` (из ${draftLimitNumber(draft)} по приказу: ${hexEditLimitLabel(draft.unitName)})` + '. ' +
         `На карте появятся после выполнения приказа (${draft.kind === 'prep' ? 'расчистка местности' : 'окапывание'}).`, '#f1c40f');
     try { saveData(); } catch (e) {}
     try { redrawMap(); } catch (e) {}
@@ -2080,7 +2138,12 @@ function hexEditClick(hexKeyCell) {
     if (appData.map) appData.map.lastEditedHex = hexKeyCell;
     st.lastCell = hexKeyCell;
     // ⚡ v13.099 (п.6): правки приказа, который ещё не выполнен, идут в черновик
-    if (st.draftMode) return recordPendingHexEditClick(st, hexKeyCell);
+    // ⚡ v13.166: проверяем не только флаг режима, но и сам черновик —
+    //    иначе клик по клетке тратил «очки» и ставил окоп мимо черновика.
+    if (st.draftMode || pendingHexEditDraftActive(st.hexKey)) {
+        st.draftMode = true;
+        return recordPendingHexEditClick(st, hexKeyCell);
+    }
     const ov = getHexOverlay(st.hexKey, true);
     const left = ov[st.rule.pointsField] || 0;
     const infoBox = document.getElementById('mapInfo');
@@ -2334,11 +2397,59 @@ function closeHexEditor() {
 // ─────────────────── ПРИКАЗ «ПОДГОТОВКА ПОЗИЦИЙ» (R34#3) ───────────────────
 
 // Сколько отрядов взвода выполняет работу на гексе (по 1 правке на отряд)
+// ⚡ v13.166 (п.2): лимит окопов/расчистки считается по ЖИВЫМ БОЙЦАМ отряда,
+//    а не по числу отделений: каждый живой боец — это рабочая сила.
+//    Обычный отряд: 8 живых бойцов → 1 гекс окопов (округление вниз).
+//    Сапёрный отряд: 5 живых бойцов → 1 гекс окопов.
+//    Та же норма действует и для «расчистки местности» (подготовки позиций).
+const HEX_EDIT_FIGHTERS_PER_TRENCH = 8;
+const HEX_EDIT_FIGHTERS_PER_TRENCH_SAPPER = 5;
+
+function hexEditUnitIsSapper(unit) {
+    if (!unit) return false;
+    if (unit.type === 'engineer_platoon') return true;
+    const nameHit = (value) => /сап[её]р/i.test(String(value || ''));
+    if (nameHit(unit.name)) return true;
+    if (Array.isArray(unit.squads) && unit.squads.some(sq => sq && nameHit(sq.name))) return true;
+    return false;
+}
+// Живые бойцы отряда (hp > 0) по всем отделениям.
+function hexEditLiveFighters(unit) {
+    if (!unit) return 0;
+    let alive = 0;
+    const squads = Array.isArray(unit.squads) ? unit.squads : (Array.isArray(unit.fighters) ? [unit] : []);
+    squads.forEach(sq => {
+        if (!sq || sq.isDestroyed) return;
+        (sq.fighters || []).forEach(f => {
+            if (f && Number(f.hp) > 0) alive += 1;
+        });
+    });
+    return alive;
+}
+// Сколько гексов окопов (и клеток расчистки) может дать приказ этого отряда.
+function hexEditDigHexLimitForUnit(unit) {
+    if (!unit) return 0;
+    const alive = hexEditLiveFighters(unit);
+    const per = hexEditUnitIsSapper(unit) ? HEX_EDIT_FIGHTERS_PER_TRENCH_SAPPER : HEX_EDIT_FIGHTERS_PER_TRENCH;
+    return Math.max(0, Math.floor(alive / per));
+}
+// Имя сохранено для старых вызовов: возвращает ЛИМИТ ГЕКСОВ по живым бойцам.
 function countSquadsForHexEdit(unit) {
-    if (!unit) return 1;
-    const alive = (unit.squads || []).filter(s => s && s.fighters && s.fighters.some(f => f.hp > 0));
-    if (alive.length > 0) return alive.length;
-    return 1;
+    return hexEditDigHexLimitForUnit(unit);
+}
+// Значение лимита из черновика (в старых сейвах limit мог быть объектом).
+function draftLimitNumber(draft) {
+    if (!draft) return 0;
+    const raw = draft.limit;
+    const value = (raw && typeof raw === 'object') ? raw.limit : raw;
+    if (Number.isFinite(Number(value))) return Math.max(0, Math.floor(Number(value)));
+    return Math.max(0, hexEditDigHexLimitForUnit(hexEditUnitByName(draft.unitName)));
+}
+function hexEditUnitByName(unitName) {
+    if (!unitName) return null;
+    const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
+    const units = (camp && camp.opUnits) || [];
+    return units.find(u => u && u.name === unitName && !u.isDestroyed) || null;
 }
 
 // Приказ выполняется 3 хода (как окапывание). По завершении игрок получает

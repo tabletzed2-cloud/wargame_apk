@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.163 — разведывательные миссии и приказ «Наблюдение»
+// ⚡ BUILD-МАРКЕР: v13.166 — разведывательные миссии и приказ «Наблюдение»
 // ═══════════════════════════════════════════════════════════════════════
 // ⚡ v13.157: НОВАЯ РАЗВЕДКА (заменяет подсветку радиуса v13.018…v13.099)
 //
@@ -36,8 +36,15 @@ const RECON_ASSET_TYPES = {
         canRecon: false, isMessenger: true, icon: 'images/BeVe/разведчик бенилюкс мото.png',
         speed: { road: 4, grass: 2, bushes: 2, forest: 1 }
     },
-    // ⚡ v13.160: бронеавтомобиль больше НЕ разведывательный актив —
-    //    Landsverk 183 остаются обычными отдельными юнитами поддержки.
+    // ⚡ v13.164: бронеавтомобилям BeVe снова можно отдавать приказ на разведку.
+    //    Это по-прежнему ОТДЕЛЬНЫЕ машины поддержки (Landsverk 183 №1–3), а не
+    //    отряды при штабе: в миссию уходит сама машина.
+    beve_armored_car: {
+        name: 'Бронеавтомобиль Landsverk 183', faction: 'BeVe', kind: 'armored_car',
+        canRecon: true, icon: 'images/BeVe/БА Landsverk 183 №1.jpg',
+        // дорога / трава / кусты; НЕ лес, болото, камни, холм
+        speed: { road: 4, grass: 4, bushes: 4 }
+    },
     airf_recon_platoon: {
         name: 'Развед. взвод', faction: 'A.I.R.F.', kind: 'foot',
         canRecon: true, icon: 'images/развед аирф.png',
@@ -118,6 +125,12 @@ function reconAssetKeyForSquad(squad) {
 function reconStandaloneKeyForUnit(unit) {
     if (!unit) return null;
     if (unit.reconAssetKey && RECON_ASSET_TYPES[unit.reconAssetKey]) return unit.reconAssetKey;
+    // ⚡ v13.164: бронеавтомобиль Landsverk 183 — самостоятельный развед-актив BeVe
+    //    (отдельная машина поддержки, в миссию уходит она сама).
+    //    Слитые группы машин («Отряд Бронеавтомобиль (2шт)») активом не считаем.
+    if (unit.isGroup || (Array.isArray(unit.vehicleList) && unit.vehicleList.length)) return null;
+    const unitName = String(unit.name || '');
+    if (/Landsverk|Бронеавтомобил/i.test(unitName)) return 'beve_armored_car';
     // ⚡ v13.160: разделённый развед. взвод — каждое отделение со своим гексом
     //    становится отдельным активом; штаб развед. взвода активом не считается.
     const hasReconSquad = ((unit && unit.squads) || [])
@@ -153,23 +166,35 @@ function reconListAssetSources() {
     return out;
 }
 // Пересчёт пула активов из войск (кампания стартовала / состав изменился)
-function initReconAssets() {
+// ⚡ v13.164: пул пересчитывается ПЕРЕД каждым обращением (см. syncReconAssetPool)
+//    и вызывается после чистки состава при загрузке: раньше у начатого похода
+//    пул оставался от прежнего состава, и развед-отряды штаба (Hidalgo, развед.
+//    взвод, мотоциклисты) не попадали в список доступных активов.
+function syncReconAssetPool() {
     const c = reconCampaign();
     if (!c) return null;
     const counts = {};
     reconListAssetSources().forEach(source => {
         counts[source.assetKey] = (counts[source.assetKey] || 0) + 1;
     });
+    const busyCounts = {};
+    reconActiveMissions().forEach(mission => {
+        if (!mission || !mission.assetKey) return;
+        busyCounts[mission.assetKey] = (busyCounts[mission.assetKey] || 0) + 1;
+    });
     const assets = {};
     Object.keys(RECON_ASSET_TYPES).forEach(key => {
         let total = counts[key] || 0;
         // ⚡ потеря актива (гибель) закрывает этот тип до конца операции
         if (c.reconLost && c.reconLost[key]) total = 0;
-        const busy = reconActiveMissions().filter(m => m && m.assetKey === key).length;
+        const busy = busyCounts[key] || 0;
         assets[key] = { total, available: Math.max(0, total - busy) };
     });
     c.reconAssets = assets;
     return assets;
+}
+function initReconAssets() {
+    return syncReconAssetPool();
 }
 function reconActiveMissions() {
     const c = reconCampaign();
@@ -180,7 +205,7 @@ function reconActiveMissions() {
 function getReconAssetList(unitOrSquad) {
     const c = reconCampaign();
     if (!c) return [];
-    if (!c.reconAssets || !Object.keys(c.reconAssets).length) initReconAssets();
+    syncReconAssetPool();
     const all = reconListAssetSources();
     const out = [];
     Object.keys(RECON_ASSET_TYPES).forEach(key => {
@@ -199,17 +224,53 @@ function getReconAssetList(unitOrSquad) {
             sources
         });
     });
-    // если передан конкретный юнит/отряд — активы этого юнита идут первыми
-    if (unitOrSquad) {
-        const unitId = typeof unitOrSquad === 'number' ? unitOrSquad
-            : ((c.opUnits || []).indexOf(unitOrSquad));
-        if (unitId >= 0) out.sort((a, b) => {
-            const aOwn = a.sources.some(s => s.unitId === unitId) ? 0 : 1;
-            const bOwn = b.sources.some(s => s.unitId === unitId) ? 0 : 1;
-            return aOwn - bOwn;
-        });
-    }
     return out;
+}
+// ⚡ v13.164: активы, которые принадлежат ИМЕННО этому юниту. Карточка взвода
+//    больше не показывает чужих разведчиков (мотоциклистов штаба, Hidalgo,
+//    развед. взвод соседа) — только свои.
+function reconAssetSourcesForUnit(unitOrId) {
+    const c = reconCampaign();
+    if (!c) return [];
+    const unitId = typeof unitOrId === 'number' ? unitOrId
+        : ((c.opUnits || []).indexOf(unitOrId));
+    if (!(unitId >= 0)) return [];
+    return reconListAssetSources().filter(source => Number(source.unitId) === Number(unitId));
+}
+function getOwnReconAssetList(unitOrId) {
+    const c = reconCampaign();
+    if (!c) return [];
+    const sources = reconAssetSourcesForUnit(unitOrId);
+    if (!sources.length) return [];
+    syncReconAssetPool();
+    const out = [];
+    const seen = new Set();
+    sources.forEach(source => {
+        const def = RECON_ASSET_TYPES[source.assetKey];
+        if (!def || !def.canRecon || seen.has(source.assetKey)) return;
+        seen.add(source.assetKey);
+        const pool = (c.reconAssets && c.reconAssets[source.assetKey]) || { total: 0, available: 0 };
+        out.push({
+            key: source.assetKey,
+            name: def.name,
+            kind: def.kind,
+            total: Number(pool.total) || 0,
+            available: Number(pool.available) || 0,
+            sources: sources.filter(item => item.assetKey === source.assetKey)
+        });
+    });
+    return out;
+}
+// Развед-актив этого юнита прямо сейчас на задании?
+function reconUnitOnMissionAssetKeys(unitOrId) {
+    const c = reconCampaign();
+    if (!c) return [];
+    const unitId = typeof unitOrId === 'number' ? unitOrId
+        : ((c.opUnits || []).indexOf(unitOrId));
+    return reconActiveMissions()
+        .filter(mission => mission && mission.unitId !== null && mission.unitId !== undefined &&
+            Number(mission.unitId) === Number(unitId))
+        .map(mission => mission.assetKey);
 }
 
 // ---------- Проходимость и скорость ----------
@@ -404,6 +465,19 @@ function reconUnitHasRadio(unit) {
         return !!hasRadio(unit);
     } catch (e) { return false; }
 }
+// ⚡ v13.165 (п.6): рация, выданная АДРЕСНО разведоргану (отделению при штабе).
+//    hasRadio(unit) проверяет только юниты из opUnits, поэтому для Hidalgo или
+//    мотоциклиста-разведчика внутри штаба нужна отдельная проверка по имени
+//    отделения (см. hasSquadRadio в index.html).
+function reconOrganHasRadio(mission) {
+    if (!mission || !mission.squadName) return false;
+    const unit = reconMissionUnit(mission);
+    if (!unit) return false;
+    try {
+        if (typeof hasSquadRadio === 'function') return !!hasSquadRadio(unit, mission.squadName);
+    } catch (e) { return false; }
+    return false;
+}
 // Штаб, ближайший к активу (батальон или рота) — для дистанции доклада
 function reconNearestHQ(mission) {
     const c = reconCampaign();
@@ -426,7 +500,8 @@ function getReconReportDelay(mission, distToHQ) {
     if (method === 'radio') {
         const hq = reconNearestHQ(mission);
         const assetUnit = reconMissionUnit(mission);
-        const assetRadio = reconUnitHasRadio(assetUnit);
+        // ⚡ v13.165 (п.6): рация может быть выдана самому разведоргану
+        const assetRadio = reconUnitHasRadio(assetUnit) || reconOrganHasRadio(mission);
         const hqRadio = hq && reconUnitHasRadio(hq.unit);
         if (assetRadio && hqRadio) return 0;      // рация у актива и у штаба
         return 1;                                  // рация без приёмника — курьер штаба
@@ -589,7 +664,9 @@ function createReconMission(opts) {
         .filter(point => Number.isFinite(point.col) && Number.isFinite(point.row))
         .slice(0, RECON_ROUTE_MAX_POINTS);
     if (!route.length) return null;
-    if (!c.reconAssets || !c.reconAssets[assetKey]) initReconAssets();
+    // ⚡ v13.164: пул пересчитываем из состава войск прямо перед отправкой —
+    //    иначе у начатого похода «available» мог остаться нулевым от прежнего состава.
+    syncReconAssetPool();
     const pool = c.reconAssets && c.reconAssets[assetKey];
     if (!pool || !pool.available) return null;
     // источник: конкретный юнит/отряд, если он передан, иначе первый свободный
@@ -642,6 +719,13 @@ function createReconMission(opts) {
             squad.onReconMission = mission.id;
             squad.reconHidden = true;
         }
+    }
+    // ⚡ v13.164: машина/взвод уходит в миссию и скрывается с карты — снимаем
+    //    выбор, иначе подсветка и панель приказов оставались на «невидимом» юните.
+    if (!source.squadName && typeof appData !== 'undefined' && appData.campaign &&
+        appData.campaign.selectedOpUnit === unit) {
+        appData.campaign.selectedOpUnit = null;
+        try { if (typeof closeOpUnitInfoPopup === 'function') closeOpUnitInfoPopup(); } catch (e) {}
     }
     if (typeof log === 'function') {
         log(`🔍 [${mission.assetName}] отправлен. Маршрут: ${route.map(p => `(${p.col},${p.row})`).join('→')}.`);
@@ -940,8 +1024,25 @@ function openReconMissionModalForAsset(unitId, assetKey) {
     renderReconPanel();
     return true;
 }
-function showReconPanel() {
+// ⚡ v13.165 (п.3): меню разведки — третья вкладка левого дока (как «Связь» и
+//    «Снабжение»). Клик по вкладке открывает док; повторный клик закрывает его.
+function showReconPanel(force) {
     const panel = (typeof document !== 'undefined') ? document.getElementById('reconPanel') : null;
+    const hasDock = (typeof window !== 'undefined' && typeof window.openOperationalSidePanel === 'function');
+    if (hasDock) {
+        let alreadyOpen = false;
+        try {
+            alreadyOpen = typeof window.isOperationalSidePanelOpen === 'function' && window.isOperationalSidePanelOpen('recon');
+        } catch (e) { alreadyOpen = false; }
+        if (alreadyOpen && !force) {
+            window.closeOperationalSidePanels();
+            if (panel) panel.style.display = 'none';
+            reconDraft = reconDraft || null;
+            if (typeof redrawOperationalMap === 'function') { try { redrawOperationalMap(); } catch (e) {} }
+            return true;
+        }
+        window.openOperationalSidePanel('recon', true);
+    }
     if (panel) panel.style.display = 'block';
     if (!reconDraft) {
         reconDraft = {
@@ -955,6 +1056,14 @@ function showReconPanel() {
 function closeReconPanel() {
     const panel = (typeof document !== 'undefined') ? document.getElementById('reconPanel') : null;
     if (panel) panel.style.display = 'none';
+    // ⚡ v13.165 (п.3): панель живёт в левом доке — закрываем и док, иначе
+    //    остаётся пустая колонка «🔍 Разведка».
+    try {
+        if (typeof window !== 'undefined' && typeof window.isOperationalSidePanelOpen === 'function' &&
+            window.isOperationalSidePanelOpen('recon') && typeof window.closeOperationalSidePanels === 'function') {
+            window.closeOperationalSidePanels();
+        }
+    } catch (e) {}
     reconDraft = null;
     if (typeof redrawOperationalMap === 'function') { try { redrawOperationalMap(); } catch (e) {} }
     return true;
@@ -1182,6 +1291,20 @@ function renderReconPanel() {
 }
 
 // ---------- Карта: маршруты миссий и иконки активов ----------
+// ⚡ v13.165 (п.4): на карте у выполняющего приказ разведотряда рисуется ЕГО
+//    иконка (тот же файл, что в карточке), а не безликая лупа 🔍.
+const reconAssetIconImages = {};
+function reconAssetImage(src) {
+    if (!src || typeof Image === 'undefined') return null;
+    let img = reconAssetIconImages[src];
+    if (!img) {
+        img = new Image();
+        img.src = src;
+        img.onload = () => { if (typeof redrawOperationalMap === 'function') { try { redrawOperationalMap(); } catch (e) {} } };
+        reconAssetIconImages[src] = img;
+    }
+    return (img.complete && img.naturalWidth > 0) ? img : null;
+}
 function reconMissionIcon(mission) {
     const def = RECON_ASSET_TYPES[mission && mission.assetKey];
     if (def && def.icon) return def.icon;
@@ -1222,23 +1345,38 @@ function drawReconMissionOverlay(ctx, size) {
         const from = Math.min(Number(mission.currentIndex) || 0, route.length - 1);
         for (let i = from; i < route.length; i++) points.push(route[i]);
         drawRoute(points, 'rgba(93,173,226,.9)');
-        // иконка актива на текущем гексе
+        // ⚡ v13.165 (п.4): иконка САМОГО отряда, выполняющего разведприказ.
         if (mission.currentHex) {
             const p = center(mission.currentHex);
-            const radius = Math.max(8, size * 0.32);
+            const radius = Math.max(10, size * 0.40);
+            const iconSrc = reconMissionIcon(mission);
+            const iconImg = iconSrc ? reconAssetImage(iconSrc) : null;
             ctx.save();
             ctx.beginPath();
             ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(20,30,45,.85)';
+            ctx.fillStyle = 'rgba(20,30,45,.92)';
             ctx.fill();
             ctx.strokeStyle = '#5dade2';
-            ctx.lineWidth = Math.max(1.5, size * 0.05);
+            ctx.lineWidth = Math.max(2, size * 0.06);
             ctx.stroke();
-            ctx.fillStyle = '#8ecbff';
-            ctx.font = `bold ${Math.max(9, radius)}px Arial`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText('🔍', p.x, p.y + 0.5);
+            if (iconImg) {
+                const box = radius * 2 * 0.88;
+                const scale = Math.min(box / iconImg.naturalWidth, box / iconImg.naturalHeight);
+                const w = iconImg.naturalWidth * scale;
+                const h = iconImg.naturalHeight * scale;
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, radius * 0.96, 0, Math.PI * 2);
+                ctx.clip();
+                ctx.drawImage(iconImg, p.x - w / 2, p.y - h / 2, w, h);
+                ctx.restore();
+            } else {
+                ctx.fillStyle = '#8ecbff';
+                ctx.font = `bold ${Math.max(10, radius)}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('🔍', p.x, p.y + 0.5);
+            }
             ctx.restore();
         }
         // маркер точки наблюдения (глаз) на конечной точке

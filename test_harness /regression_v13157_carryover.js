@@ -235,10 +235,13 @@ __logs = [];
 // ───────────────────── кнопка «🔍 Разведка» в карточке ─────────────────────
 {
     ok(/function openReconMissionModal/.test(read('js/recon.js')), 'разведка: openReconMissionModal есть');
-    ok(/openReconMissionModal\(/.test(sliceOf('showOpUnitInfoPopup')),
-       'п.9.1: кнопка «🔍 Разведка» в карточке юнита вызывает модалку');
-    ok(/getReconAssetList\(unit\)/.test(sliceOf('showOpUnitInfoPopup')),
-       'п.9.1: кнопка показывается только при наличии активов');
+    // ⚡ v13.164: в карточке — только свои активы, поэтому кнопка ведёт в
+    //    openReconMissionModalForAsset (а старая openReconMissionModal осталась
+    //    в общем API разведки и вызывается из панели)
+    ok(/openReconMissionModalForAsset\(/.test(sliceOf('showOpUnitInfoPopup')),
+       'п.9.1: кнопка «🔍 Разведка» в карточке юнита создаёт миссию');
+    ok(/getOwnReconAssetList\(unit\)/.test(sliceOf('showOpUnitInfoPopup')),
+       'п.9.1: кнопка показывается только при наличии СВОИХ активов');
     ok(/reconMissionId/.test(sliceOf('showOpUnitInfoPopup')),
        'п.9.1: у актива на миссии карточка предлагает панель разведки');
     ok(/showReconPanel\(\)/.test(sliceOf('showOpUnitInfoPopup')), 'п.9.1: из карточки открывается список миссий');
