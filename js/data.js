@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.167 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.170 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.061: current release data and terrain definitions; absent texture variants no longer referenced.
 // ==================== КОНСТАНТЫ И ДАННЫЕ ==================== 
 // Типы местности
@@ -246,8 +246,9 @@ const BATTALION_PRESETS = {
               { name: "Грузовик DAF Trado II №3", templateName: "Грузовик DAF Trado II (Бельгийцы)" },
               { name: "Грузовик DAF Trado II №4", templateName: "Грузовик DAF Trado II (Бельгийцы)" },
               { name: "Автомобиль DAF MC-V", templateName: "Автомобиль DAF MC-V (Бельгийцы)" },
-              { name: "Стрелок охранник №1", templateName: "Стрелок охранник №1 (Бельгийцы)" },
-              { name: "Стрелок охранник №2", templateName: "Стрелок охранник №2 (Бельгийцы)" }
+              // ⚡ v13.170: охрана склада — одно отделение (4 бойца) вместо
+              //    двух «Стрелок охранник №1/№2».
+              { name: "Отделение охраны склада снабжения", templateName: "Отделение охраны склада снабжения (Бельгийцы)" }
              ]
           },
       { type: "mortar_battery", name: "Батарея 82-мм миномётов", icon: "images/BeVe/мина 82 1.jpg", templates: [
@@ -414,8 +415,8 @@ const BATTALION_PRESETS = {
               // ⚡ v13.153 (п.8): +2 грузовика во взводе снабжения A.I.R.F.
               { name: "Легкий грузовик CLg-37 «Викунья» №2", templateName: "Легкий грузовик CLg-37 «Викунья» (A.I.R.F.)" },
               { name: "Легкий грузовик CLg-37 «Викунья» №3", templateName: "Легкий грузовик CLg-37 «Викунья» (A.I.R.F.)" },
-              { name: "Стрелок охранник №1", templateName: "Стрелок охранник №1 (A.I.R.F.)" },
-              { name: "Стрелок охранник №2", templateName: "Стрелок охранник №2 (A.I.R.F.)" }
+              // ⚡ v13.170: охрана склада — одно отделение (4 бойца)
+              { name: "Отделение охраны склада снабжения", templateName: "Отделение охраны склада снабжения (A.I.R.F.)" }
              ]
           },
       { type: "mortar_battery", name: "Батарея 82-мм миномётов", icon: "images/мин аирф 82.png", templates: [

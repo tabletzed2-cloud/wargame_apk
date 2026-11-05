@@ -362,7 +362,10 @@ console.log('== v13.099: пункты 1–27 ==');
 // ─────────────────────────── п.24: доставка снабжения ───────────────────────────
 {
   const panel = sliceOf('renderSupplyPanel');
-  ok(/transportReach/.test(panel) && /findSupplyRoute/.test(panel),
+  // ⚡ v13.169: проверка достижимости вынесена в supplyReachForMobility
+  //    (внутри — тот же findSupplyRoute, но с вариантом «разгрузка на соседнем
+  //    гексе»); панель должна пользоваться именно ей.
+  ok(/transportReach/.test(panel) && /supplyReachForMobility/.test(panel),
      'п.24: панель проверяет, доберётся ли выбранный транспорт');
   ok(/⛔|красн/i.test(panel), 'п.24: недоступный получатель выделяется');
 }

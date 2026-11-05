@@ -32,9 +32,10 @@ const VICUNA = 'Легкий грузовик CLg-37 «Викунья»';
     ok(airfNames.includes(VICUNA), 'A.I.R.F.: легкий грузовик переименован в «Викунью»', airfNames.join(' | '));
     ok(!airfNames.some(n => /^Лёгкий грузовик$/.test(n) || n === 'Лёгкий грузовик'), 'прежнего «Лёгкого грузовика» в составе нет');
     // ⚡ v13.152 (п.8): +2 грузовика «Викунья» — всего 12 отделений
-    ok(airf.squads.length === 12, 'A.I.R.F.: во взводе снабжения 12 отделений', String(airf.squads.length));
+    // ⚡ v13.170: охрана склада — одно отделение вместо двух (было 12 / 14)
+    ok(airf.squads.length === 11, 'A.I.R.F.: во взводе снабжения 11 отделений', String(airf.squads.length));
     // ⚡ v13.152 (п.8): у BeVe 3 добавленных грузовика DAF Trado II — 14 отделений, TG-41 нет
-    ok(beve.squads.length === 14 && !beve.squads.some(q => q.name === TG41), 'BeVe: 14 отделений, без TG-41');
+    ok(beve.squads.length === 13 && !beve.squads.some(q => q.name === TG41), 'BeVe: 13 отделений, без TG-41');
     const tg = airf.squads.find(q => q.name === TG41);
     ok(tg && tg.templateName === TG41 + ' (A.I.R.F.)', 'у отделения TG-41 есть шаблон A.I.R.F.', tg && tg.templateName);
 

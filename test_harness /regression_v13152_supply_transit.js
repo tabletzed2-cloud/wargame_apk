@@ -29,8 +29,9 @@ function ok(condition, label, detail) {
     const presets = s.evalCtx('BATTALION_PRESETS');
     const beve = presets['BeVe'].standard.find(u => u && u.name === 'Взвод снабжения');
     const airf = presets['A.I.R.F.'].standard.find(u => u && u.name === 'Взвод снабжения');
-    ok(beve.squads.length === 14, 'BeVe: во взводе снабжения 14 отделений', String(beve.squads.length));
-    ok(airf.squads.length === 12, 'A.I.R.F.: во взводе снабжения 12 отделений', String(airf.squads.length));
+    // ⚡ v13.170: охрана склада — одно отделение вместо двух «Стрелок охранник»
+    ok(beve.squads.length === 13, 'BeVe: во взводе снабжения 13 отделений', String(beve.squads.length));
+    ok(airf.squads.length === 11, 'A.I.R.F.: во взводе снабжения 11 отделений', String(airf.squads.length));
     const beveTrucks = beve.squads.filter(q => /Грузовик DAF Trado II/.test(q.name));
     const airfTrucks = airf.squads.filter(q => /Викунья/.test(q.name));
     ok(beveTrucks.length === 4, 'BeVe: четыре грузовика DAF Trado II', String(beveTrucks.length));

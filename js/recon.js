@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.167 — разведывательные миссии и приказ «Наблюдение»
+// ⚡ BUILD-МАРКЕР: v13.170 — разведывательные миссии и приказ «Наблюдение»
 // ═══════════════════════════════════════════════════════════════════════
 // ⚡ v13.157: НОВАЯ РАЗВЕДКА (заменяет подсветку радиуса v13.018…v13.099)
 //
@@ -261,16 +261,25 @@ function getOwnReconAssetList(unitOrId) {
     });
     return out;
 }
-// Развед-актив этого юнита прямо сейчас на задании?
-function reconUnitOnMissionAssetKeys(unitOrId) {
+// ⚡ v13.168: активные миссии ЭТОГО юнита (по индексу ИЛИ по имени носителя,
+//    чтобы сдвиг `opUnits` не «отвязывал» миссию от штаба).
+function reconMissionsForUnit(unitOrId) {
     const c = reconCampaign();
     if (!c) return [];
-    const unitId = typeof unitOrId === 'number' ? unitOrId
-        : ((c.opUnits || []).indexOf(unitOrId));
-    return reconActiveMissions()
-        .filter(mission => mission && mission.unitId !== null && mission.unitId !== undefined &&
-            Number(mission.unitId) === Number(unitId))
-        .map(mission => mission.assetKey);
+    const unit = (typeof unitOrId === 'number') ? (c.opUnits || [])[unitOrId] : unitOrId;
+    const unitId = (typeof unitOrId === 'number') ? unitOrId : (c.opUnits || []).indexOf(unitOrId);
+    const unitName = unit && unit.name ? String(unit.name) : '';
+    return reconActiveMissions().filter(mission => {
+        if (!mission) return false;
+        if (unitId >= 0 && mission.unitId !== null && mission.unitId !== undefined &&
+            Number(mission.unitId) === Number(unitId)) return true;
+        const wanted = mission.unitName || mission.ownerUnitName;
+        return !!(unitName && wanted && String(wanted) === unitName);
+    });
+}
+// Развед-актив этого юнита прямо сейчас на задании?
+function reconUnitOnMissionAssetKeys(unitOrId) {
+    return reconMissionsForUnit(unitOrId).map(mission => mission.assetKey);
 }
 
 // ---------- Проходимость и скорость ----------
@@ -561,13 +570,39 @@ function reportFindings(mission, enemies, opts) {
 }
 
 // ---------- Миссия: актив и его юнит ----------
+// ⚡ v13.168: `mission.unitId` — это ИНДЕКС в `opUnits`, а индекс не стабилен:
+//    приход подкрепления, слияние/разделение взводов, гибель юнита наверху
+//    списка сдвигают массив. После сдвига индекс указывал на ЧУЖОЙ юнит,
+//    `reconMissionSquad` не находил отделение, миссия падала с «потерей актива»,
+//    а сам разведчик (мотоциклист при штабе, Hidalgo, развед. отделение)
+//    оставался со флагом `reconHidden` — то есть исчезал с карты навсегда.
+//    Теперь в миссии хранится имя носителя: сначала пробуем индекс и сверяем
+//    имя, при расхождении ищем по имени и переписываем индекс.
+function reconResolveUnitIndex(unitName) {
+    const c = reconCampaign();
+    if (!c || !unitName) return -1;
+    return (c.opUnits || []).findIndex(unit => unit && String(unit.name || '') === String(unitName));
+}
 function reconMissionUnit(mission) {
     const c = reconCampaign();
     if (!c || !mission) return null;
+    const units = c.opUnits || [];
+    const wantedName = mission.unitName || mission.ownerUnitName || null;
+    let unit = null;
     if (mission.unitId !== null && mission.unitId !== undefined) {
-        return (c.opUnits || [])[Number(mission.unitId)] || null;
+        unit = units[Number(mission.unitId)] || null;
     }
-    return null;
+    if (wantedName && (!unit || String(unit.name || '') !== String(wantedName))) {
+        const index = reconResolveUnitIndex(wantedName);
+        if (index >= 0) {
+            unit = units[index];
+            mission.unitId = index;
+        } else if (!unit) {
+            // носитель не найден по имени — индекс не трогаем, вернём что есть
+            unit = null;
+        }
+    }
+    return unit || null;
 }
 function reconMissionSquad(mission) {
     const unit = reconMissionUnit(mission);
@@ -586,6 +621,75 @@ function reconMissionIsAlive(mission) {
         return true;
     }
     return true;
+}
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.168: ЛЕЧЕНИЕ «ЗАБЫТЫХ» ФЛАГОВ СКРЫТИЯ.
+//    Если у отделения/юнита остался `reconHidden`/`onReconMission`, а активной
+//    миссии с этим id нет (миссия провалилась из-за сдвига индекса, сейв от
+//    старой версии, ручной откат хода), разведчик исчезал с карты навсегда —
+//    именно «в какой-то момент мотоциклист пропадает, и непонятно где он».
+//    Теперь каждый ход (и при отрисовке панели) такие флаги снимаются, юнит
+//    возвращается на карту, а «потерянный» тип актива — снова доступен.
+// ═══════════════════════════════════════════════════════════════════════════
+function reconcileReconHiddenFlags() {
+    const c = reconCampaign();
+    if (!c) return 0;
+    const active = reconActiveMissions();
+    const activeIds = new Set(active.map(m => String(m.id)));
+    let healed = 0;
+    const healAsset = (squad, unit) => {
+        const key = (squad && reconAssetKeyForSquad(squad)) ||
+            (unit && reconStandaloneKeyForUnit(unit)) || null;
+        if (key && c.reconLost && c.reconLost[key]) {
+            delete c.reconLost[key];
+            if (typeof log === 'function') {
+                log(`🔍 Разведка «${(RECON_ASSET_TYPES[key] || {}).name || key}» снова доступна: актив на месте.`);
+            }
+        }
+    };
+    (c.opUnits || []).forEach(unit => {
+        if (!unit) return;
+        const onMission = reconMissionsForUnit(unit);
+        const busyIds = new Set(onMission.map(m => String(m.id)));
+        const busySquads = new Set(onMission.filter(m => m.squadName).map(m => String(m.squadName)));
+        // флаг на самом юните (бронеавтомобиль, развед. взвод)
+        if (unit.reconMissionId && !busyIds.has(String(unit.reconMissionId))) {
+            if (typeof log === 'function') {
+                log(`↩️ ${unit.name || 'Развед-актив'} снова на карте — миссия уже не активна.`);
+            }
+            delete unit.reconMissionId;
+            delete unit.reconHidden;
+            healAsset(null, unit);
+            healed++;
+        } else if (unit.reconHidden && !unit.reconMissionId) {
+            delete unit.reconHidden;
+            healed++;
+        }
+        // флаги на отделениях (мотоциклист при штабе, Hidalgo, развед. отделение)
+        (unit.squads || []).forEach(squad => {
+            if (!squad) return;
+            const flagged = squad.onReconMission || squad.reconHidden;
+            if (!flagged) return;
+            const onActiveMission = squad.onReconMission && activeIds.has(String(squad.onReconMission));
+            if (onActiveMission || busySquads.has(String(squad.name))) return;
+            if (typeof log === 'function') {
+                log(`↩️ ${squad.name || 'Развед-отряд'} вернулся в ${unit.name || 'расположение'} — снова на карте.`);
+            }
+            delete squad.onReconMission;
+            delete squad.reconHidden;
+            healAsset(squad, unit);
+            healed++;
+        });
+    });
+    if (healed) {
+        // пул активов пересчитываем сразу — иначе в панели оставалось
+        // «0/0» до следующей перерисовки, и разведчик «числился потерянным»
+        try { syncReconAssetPool(); } catch (e) {}
+        if (typeof redrawOperationalMap === 'function') {
+            try { redrawOperationalMap(); } catch (e) {}
+        }
+    }
+    return healed;
 }
 function releaseReconAsset(assetKey) {
     const c = reconCampaign();
@@ -711,8 +815,11 @@ function createReconMission(opts) {
         assetKey,
         assetName: source.name || def.name,
         unitId: source.unitId,
+        // ⚡ v13.168: имя носителя — стабильный ключ (индекс в opUnits «плывёт»)
+        unitName: (unit && unit.name) || source.name || null,
         squadName: source.squadName,
         ownerUnitId: source.unitId,
+        ownerUnitName: (unit && unit.name) || null,
         assetKind: def.kind,
         route,
         // ⚡ v13.167 (п.3): «своё расположение» — гекс, с которого актив ушёл.
@@ -914,6 +1021,9 @@ function advanceReconMissions() {
     const c = reconCampaign();
     if (!c) return;
     const turn = reconTurnNumber();
+    // ⚡ v13.168: перед ходом снимаем «забытые» флаги скрытия — разведчик с
+    //    флагом, но без активной миссии, не должен оставаться невидимым.
+    try { reconcileReconHiddenFlags(); } catch (e) { console.warn('reconcileReconHiddenFlags:', e.message); }
     // отложенные доклады раскрываются, когда подошёл срок
     if (Array.isArray(c.reconPendingReveals) && c.reconPendingReveals.length) {
         const due = c.reconPendingReveals.filter(item => item && Number(item.turn) <= turn);
@@ -938,7 +1048,18 @@ function advanceReconMissions() {
         dirty = true;
         // гибель актива — миссия провалена
         if (!reconMissionIsAlive(mission)) {
-            finishReconMission(mission.id, 'failed');
+            // ⚡ v13.168: «носитель не найден» ≠ «актив погиб». Раньше сдвиг
+            //    индекса в opUnits закрывал миссию как провал, тип актива
+            //    помечался потерянным до конца операции, и разведчик исчезал.
+            const carrier = reconMissionUnit(mission);
+            if (!carrier) {
+                if (typeof log === 'function') {
+                    log(`⚠️ [${mission.assetName}] носитель не найден — миссия закрыта без потери актива.`);
+                }
+                finishReconMission(mission.id, 'completed');
+            } else {
+                finishReconMission(mission.id, 'failed');
+            }
             return;
         }
         if (mission.status === 'active') {
@@ -1418,6 +1539,9 @@ function renderReconPanel() {
     if (!panel) return false;
     const c = reconCampaign();
     if (!c) return false;
+    // ⚡ v13.168: панель — ещё одна точка самовосстановления (сейвы со старыми
+    //    «висящими» флагами разведчиков чинятся при первом открытии).
+    try { reconcileReconHiddenFlags(); } catch (e) {}
     if (!c.reconAssets || !Object.keys(c.reconAssets).length) initReconAssets();
     if (!reconDraft) {
         reconDraft = {
@@ -1666,6 +1790,39 @@ function drawReconMissionOverlay(ctx, size) {
                 ctx.fillText('🔍', p.x, p.y + 0.5);
             }
             ctx.restore();
+            // ⚡ v13.168: под иконкой актива всегда видно, ГДЕ он находится.
+            //    Раньше разведчик «пропадал»: иконка есть, но ни координат, ни
+            //    подписи — по карте не понять, где именно мотоциклист.
+            try {
+                const arrow = mission.status === 'returning' ? '↩' : (mission.status === 'observing' ? '👁' : '➡');
+                const label = `${arrow}(${mission.currentHex.col},${mission.currentHex.row})`;
+                const fontSize = Math.max(9, size * 0.26);
+                ctx.save();
+                ctx.font = `bold ${fontSize}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                let textWidth = fontSize * 4;
+                try {
+                    if (typeof ctx.measureText === 'function') {
+                        const m = ctx.measureText(label);
+                        if (m && Number.isFinite(m.width) && m.width > 0) textWidth = m.width;
+                    }
+                } catch (e) {}
+                const padX = fontSize * 0.35;
+                const boxW = textWidth + padX * 2;
+                const boxH = fontSize * 1.35;
+                const boxY = p.y + radius * 1.05 + boxH / 2;
+                ctx.fillStyle = 'rgba(20,30,45,.88)';
+                ctx.strokeStyle = '#5dade2';
+                ctx.lineWidth = Math.max(1, size * 0.02);
+                ctx.beginPath();
+                ctx.rect(p.x - boxW / 2, boxY - boxH / 2, boxW, boxH);
+                ctx.fill();
+                ctx.stroke();
+                ctx.fillStyle = '#dfefff';
+                ctx.fillText(label, p.x, boxY + 0.5);
+                ctx.restore();
+            } catch (e) {}
         }
         // ⚡ v13.167 (п.6): выбранный актив подсвечивается, как выбранный юнит.
         try {

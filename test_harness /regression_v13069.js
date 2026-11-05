@@ -63,8 +63,8 @@ const BEVE_SQUADS = [
   // ⚡ v13.150: техника BeVe переименована (DAF Trado II / DAF MC-V)
   ['Грузовик DAF Trado II', 'Грузовик DAF Trado II (Бельгийцы)'],
   ['Автомобиль DAF MC-V', 'Автомобиль DAF MC-V (Бельгийцы)'],
-  ['Стрелок охранник №1', 'Стрелок охранник №1 (Бельгийцы)'],
-  ['Стрелок охранник №2', 'Стрелок охранник №2 (Бельгийцы)']
+  // ⚡ v13.170: охрана склада — одно отделение
+  ['Отделение охраны склада снабжения', 'Отделение охраны склада снабжения (Бельгийцы)']
 ];
 
 function supplySandbox(faction, squadDefs) {
@@ -160,15 +160,16 @@ test('R48#1: точка тыла своя у каждой фракции — A.I
 });
 
 // ───────────────────────── 3. R48#2 охрана и захват склада ─────────────────────────
-test('R48#2: у BeVe в взводе снабжения 11 отделений, включая 2 стрелка-охранника', () => {
+test('R48#2: у BeVe в взводе снабжения 10 отделений, охрана склада — одним отделением', () => {
   const s = supplySandbox('BeVe', BEVE_SQUADS);
   const names = s.evalCtx('appData.campaign.opUnits[0].squads.map(sq => sq.name)');
-  assert.equal(names.length, 11, 'одиннадцать отделений');
-  assert.ok(names.includes('Стрелок охранник №1'), 'первый охранник');
-  assert.ok(names.includes('Стрелок охранник №2'), 'второй охранник');
-  const guardsOnlySupplies = plain(s, `appData.campaign.opUnits[0].squads.filter(sq => /охранник/i.test(sq.name)).map(sq => (sq.fighters||[]).length)`);
-  assert.deepEqual(guardsOnlySupplies, [2, 2], 'в каждом охранении по 2 бойца');
-  const armed = s.evalCtx(`appData.campaign.opUnits[0].squads.filter(sq => /охранник/i.test(sq.name)).every(sq => (sq.fighters||[]).every(f => f.hp > 0))`);
+  assert.equal(names.length, 10, 'десять отделений');
+  // ⚡ v13.170: два «Стрелок охранник №1/№2» заменены одним отделением охраны
+  assert.ok(names.includes('Отделение охраны склада снабжения'), 'отделение охраны склада');
+  assert.ok(!names.some(n => /Стрелок охранник/.test(n)), 'старых отдельных охранников нет');
+  const guardsOnlySupplies = plain(s, `appData.campaign.opUnits[0].squads.filter(sq => /охран/i.test(sq.name)).map(sq => (sq.fighters||[]).length)`);
+  assert.deepEqual(guardsOnlySupplies, [4], 'в отделении охраны 4 бойца');
+  const armed = s.evalCtx(`appData.campaign.opUnits[0].squads.filter(sq => /охран/i.test(sq.name)).every(sq => (sq.fighters||[]).every(f => f.hp > 0))`);
   assert.ok(armed, 'охрана в строю и прикреплена к складу');
 });
 
@@ -216,7 +217,7 @@ test('R48#2: охрану нельзя потерять отдельно от в
   const s = supplySandbox('BeVe', BEVE_SQUADS);
   // гибнут только охранники: взвод ещё боеспособен (несущие отделения живы)
   s.run(`
-    appData.campaign.opUnits[0].squads.filter(sq => /охранник/i.test(sq.name))
+    appData.campaign.opUnits[0].squads.filter(sq => /охран/i.test(sq.name))
       .forEach(sq => (sq.fighters || []).forEach(f => { f.hp = 0; }));
     syncSupplyDepotStatus();
   `);
