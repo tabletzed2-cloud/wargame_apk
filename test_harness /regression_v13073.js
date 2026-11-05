@@ -86,7 +86,9 @@ test('v13.073: якорь открывает холмы технике (цена
   const i = HTML.indexOf('function getOpMoveCost');
   // ⚡ v13.079: расширяем чанк до 3000 (в 1500 уже не помещается после
   //    вставки v13.079 про скрытное движение и tacticalHexHasSublevel2)
-  const chunk = HTML.slice(i, i + 3000);
+  // ⚡ v13.171: 4000 — в getOpMoveCost добавлена проверка «машина застряла/
+  //    сломалась» (оперативный ход), талреп-блок сдвинулся ещё на ~60 символов.
+  const chunk = HTML.slice(i, i + 4000);
   // ⚡ v13.078: проверка tacticalHexHasSublevel2 вставлена в блок талрепа,
   //    но цена max(3, maxAp) и условие «terrain === 'hill' && unit.winch» сохранены.
   assert.ok(/terrain === 'hill' && unit\.winch/.test(chunk), 'условие талрепа сохранено');

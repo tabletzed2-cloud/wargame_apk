@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.167
+// ⚡ BUILD-МАРКЕР: v13.171
 // v13.062: fixed DOT coordinates and no placement bypass for eliminated squads.
 // ⚡ v13.061: current release tactical deployment rules.
 // ============================================================

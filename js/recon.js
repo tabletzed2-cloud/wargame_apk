@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.167 — разведывательные миссии и приказ «Наблюдение»
+// ⚡ BUILD-МАРКЕР: v13.171 — разведывательные миссии и приказ «Наблюдение»
 // ═══════════════════════════════════════════════════════════════════════
 // ⚡ v13.157: НОВАЯ РАЗВЕДКА (заменяет подсветку радиуса v13.018…v13.099)
 //
@@ -261,16 +261,112 @@ function getOwnReconAssetList(unitOrId) {
     });
     return out;
 }
-// Развед-актив этого юнита прямо сейчас на задании?
-function reconUnitOnMissionAssetKeys(unitOrId) {
+// ⚡ v13.168: активные миссии ЭТОГО юнита (по индексу ИЛИ по имени носителя,
+//    чтобы сдвиг `opUnits` не «отвязывал» миссию от штаба).
+function reconMissionsForUnit(unitOrId) {
     const c = reconCampaign();
     if (!c) return [];
-    const unitId = typeof unitOrId === 'number' ? unitOrId
-        : ((c.opUnits || []).indexOf(unitOrId));
-    return reconActiveMissions()
-        .filter(mission => mission && mission.unitId !== null && mission.unitId !== undefined &&
-            Number(mission.unitId) === Number(unitId))
-        .map(mission => mission.assetKey);
+    const unit = (typeof unitOrId === 'number') ? (c.opUnits || [])[unitOrId] : unitOrId;
+    const unitId = (typeof unitOrId === 'number') ? unitOrId : (c.opUnits || []).indexOf(unitOrId);
+    const unitName = unit && unit.name ? String(unit.name) : '';
+    return reconActiveMissions().filter(mission => {
+        if (!mission) return false;
+        if (unitId >= 0 && mission.unitId !== null && mission.unitId !== undefined &&
+            Number(mission.unitId) === Number(unitId)) return true;
+        const wanted = mission.unitName || mission.ownerUnitName;
+        return !!(unitName && wanted && String(wanted) === unitName);
+    });
+}
+// Развед-актив этого юнита прямо сейчас на задании?
+function reconUnitOnMissionAssetKeys(unitOrId) {
+    return reconMissionsForUnit(unitOrId).map(mission => mission.assetKey);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.171 (п.1): ВЫБОР КОНКРЕТНОЙ МАШИНЫ ДЛЯ РАЗВЕДКИ.
+//    У BeVe в разведку ходят бронеавтомобили Landsverk 183 №1–3 — это ТРИ
+//    разные машины (у каждой свой гекс, свой экипаж и своя судьба). Раньше
+//    игрок выбирал только ТИП «Бронеавтомобиль Landsverk 183», а в миссию
+//    уходила первая свободная машина. Теперь в панели разведки есть второй
+//    список: какой именно бронеавтомобиль отправить на задание.
+// ═══════════════════════════════════════════════════════════════════════════
+function reconMissionBusyKey(mission) {
+    if (!mission) return '';
+    return `${Number(mission.unitId)}|${String(mission.squadName || '')}`;
+}
+function reconSourceKey(source) {
+    if (!source) return '';
+    return `${Number(source.unitId)}|${String(source.squadName || '')}`;
+}
+function reconSourceIsOnMission(source) {
+    const key = reconSourceKey(source);
+    return reconActiveMissions().some(mission => reconMissionBusyKey(mission) === key);
+}
+// Свободные носители выбранного актива — для второго списка «какая машина».
+function reconAvailableSources(assetKey) {
+    const c = reconCampaign();
+    if (!c || !assetKey) return [];
+    const units = c.opUnits || [];
+    return reconListAssetSources()
+        .filter(source => source && source.assetKey === assetKey)
+        .filter(source => {
+            const unit = units[source.unitId];
+            if (!unit || unit.isDestroyed) return false;
+            if (unit.reconHidden || unit.reconMissionId) return false;
+            if (source.squadName) {
+                const squad = (unit.squads || []).find(sq => sq && String(sq.name) === String(source.squadName));
+                if (!squad || squad.reconHidden || squad.onReconMission) return false;
+            }
+            return !reconSourceIsOnMission(source);
+        });
+}
+function reconSourceName(source) {
+    if (!source) return '';
+    const c = reconCampaign();
+    const unit = c && (c.opUnits || [])[source.unitId];
+    if (source.squadName && !(unit && unit.reconHidden)) return String(source.squadName);
+    return String((unit && unit.name) || source.name || 'развед-актив');
+}
+function reconSourceIndex(source) {
+    if (!reconDraft || !reconDraft.assetKey) return -1;
+    const key = reconSourceKey(source);
+    return reconAvailableSources(reconDraft.assetKey).findIndex(item => reconSourceKey(item) === key);
+}
+// Выбор машины/отряда в панели (индекс в reconAvailableSources).
+function reconSelectSource(index) {
+    if (!reconDraft) return false;
+    const list = reconAvailableSources(reconDraft.assetKey);
+    const chosen = list[Number(index)];
+    if (!chosen) return false;
+    reconDraft.unitId = chosen.unitId;
+    reconDraft.squadName = chosen.squadName || null;
+    reconDraft.sourceIndex = Number(index);
+    renderReconPanel();
+    if (typeof redrawOperationalMap === 'function') { try { redrawOperationalMap(); } catch (e) {} }
+    return true;
+}
+// Держим выбор валидным: выбранная машина могла уйти в миссию или погибнуть.
+function reconDraftEnsureSource() {
+    if (!reconDraft) return null;
+    const list = reconAvailableSources(reconDraft.assetKey);
+    if (!list.length) {
+        reconDraft.unitId = null;
+        reconDraft.squadName = null;
+        reconDraft.sourceIndex = null;
+        return null;
+    }
+    let index = (reconDraft.unitId === null || reconDraft.unitId === undefined) ? -1
+        : list.findIndex(item => Number(item.unitId) === Number(reconDraft.unitId) &&
+            (reconDraft.squadName ? String(item.squadName || '') === String(reconDraft.squadName) : true));
+    if (index < 0 && Number.isInteger(Number(reconDraft.sourceIndex)) && list[Number(reconDraft.sourceIndex)]) {
+        index = Number(reconDraft.sourceIndex);
+    }
+    if (index < 0) index = 0;
+    const chosen = list[index];
+    reconDraft.unitId = chosen.unitId;
+    reconDraft.squadName = chosen.squadName || null;
+    reconDraft.sourceIndex = index;
+    return chosen;
 }
 
 // ---------- Проходимость и скорость ----------
@@ -561,13 +657,39 @@ function reportFindings(mission, enemies, opts) {
 }
 
 // ---------- Миссия: актив и его юнит ----------
+// ⚡ v13.168: `mission.unitId` — это ИНДЕКС в `opUnits`, а индекс не стабилен:
+//    приход подкрепления, слияние/разделение взводов, гибель юнита наверху
+//    списка сдвигают массив. После сдвига индекс указывал на ЧУЖОЙ юнит,
+//    `reconMissionSquad` не находил отделение, миссия падала с «потерей актива»,
+//    а сам разведчик (мотоциклист при штабе, Hidalgo, развед. отделение)
+//    оставался со флагом `reconHidden` — то есть исчезал с карты навсегда.
+//    Теперь в миссии хранится имя носителя: сначала пробуем индекс и сверяем
+//    имя, при расхождении ищем по имени и переписываем индекс.
+function reconResolveUnitIndex(unitName) {
+    const c = reconCampaign();
+    if (!c || !unitName) return -1;
+    return (c.opUnits || []).findIndex(unit => unit && String(unit.name || '') === String(unitName));
+}
 function reconMissionUnit(mission) {
     const c = reconCampaign();
     if (!c || !mission) return null;
+    const units = c.opUnits || [];
+    const wantedName = mission.unitName || mission.ownerUnitName || null;
+    let unit = null;
     if (mission.unitId !== null && mission.unitId !== undefined) {
-        return (c.opUnits || [])[Number(mission.unitId)] || null;
+        unit = units[Number(mission.unitId)] || null;
     }
-    return null;
+    if (wantedName && (!unit || String(unit.name || '') !== String(wantedName))) {
+        const index = reconResolveUnitIndex(wantedName);
+        if (index >= 0) {
+            unit = units[index];
+            mission.unitId = index;
+        } else if (!unit) {
+            // носитель не найден по имени — индекс не трогаем, вернём что есть
+            unit = null;
+        }
+    }
+    return unit || null;
 }
 function reconMissionSquad(mission) {
     const unit = reconMissionUnit(mission);
@@ -586,6 +708,75 @@ function reconMissionIsAlive(mission) {
         return true;
     }
     return true;
+}
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.168: ЛЕЧЕНИЕ «ЗАБЫТЫХ» ФЛАГОВ СКРЫТИЯ.
+//    Если у отделения/юнита остался `reconHidden`/`onReconMission`, а активной
+//    миссии с этим id нет (миссия провалилась из-за сдвига индекса, сейв от
+//    старой версии, ручной откат хода), разведчик исчезал с карты навсегда —
+//    именно «в какой-то момент мотоциклист пропадает, и непонятно где он».
+//    Теперь каждый ход (и при отрисовке панели) такие флаги снимаются, юнит
+//    возвращается на карту, а «потерянный» тип актива — снова доступен.
+// ═══════════════════════════════════════════════════════════════════════════
+function reconcileReconHiddenFlags() {
+    const c = reconCampaign();
+    if (!c) return 0;
+    const active = reconActiveMissions();
+    const activeIds = new Set(active.map(m => String(m.id)));
+    let healed = 0;
+    const healAsset = (squad, unit) => {
+        const key = (squad && reconAssetKeyForSquad(squad)) ||
+            (unit && reconStandaloneKeyForUnit(unit)) || null;
+        if (key && c.reconLost && c.reconLost[key]) {
+            delete c.reconLost[key];
+            if (typeof log === 'function') {
+                log(`🔍 Разведка «${(RECON_ASSET_TYPES[key] || {}).name || key}» снова доступна: актив на месте.`);
+            }
+        }
+    };
+    (c.opUnits || []).forEach(unit => {
+        if (!unit) return;
+        const onMission = reconMissionsForUnit(unit);
+        const busyIds = new Set(onMission.map(m => String(m.id)));
+        const busySquads = new Set(onMission.filter(m => m.squadName).map(m => String(m.squadName)));
+        // флаг на самом юните (бронеавтомобиль, развед. взвод)
+        if (unit.reconMissionId && !busyIds.has(String(unit.reconMissionId))) {
+            if (typeof log === 'function') {
+                log(`↩️ ${unit.name || 'Развед-актив'} снова на карте — миссия уже не активна.`);
+            }
+            delete unit.reconMissionId;
+            delete unit.reconHidden;
+            healAsset(null, unit);
+            healed++;
+        } else if (unit.reconHidden && !unit.reconMissionId) {
+            delete unit.reconHidden;
+            healed++;
+        }
+        // флаги на отделениях (мотоциклист при штабе, Hidalgo, развед. отделение)
+        (unit.squads || []).forEach(squad => {
+            if (!squad) return;
+            const flagged = squad.onReconMission || squad.reconHidden;
+            if (!flagged) return;
+            const onActiveMission = squad.onReconMission && activeIds.has(String(squad.onReconMission));
+            if (onActiveMission || busySquads.has(String(squad.name))) return;
+            if (typeof log === 'function') {
+                log(`↩️ ${squad.name || 'Развед-отряд'} вернулся в ${unit.name || 'расположение'} — снова на карте.`);
+            }
+            delete squad.onReconMission;
+            delete squad.reconHidden;
+            healAsset(squad, unit);
+            healed++;
+        });
+    });
+    if (healed) {
+        // пул активов пересчитываем сразу — иначе в панели оставалось
+        // «0/0» до следующей перерисовки, и разведчик «числился потерянным»
+        try { syncReconAssetPool(); } catch (e) {}
+        if (typeof redrawOperationalMap === 'function') {
+            try { redrawOperationalMap(); } catch (e) {}
+        }
+    }
+    return healed;
 }
 function releaseReconAsset(assetKey) {
     const c = reconCampaign();
@@ -711,8 +902,11 @@ function createReconMission(opts) {
         assetKey,
         assetName: source.name || def.name,
         unitId: source.unitId,
+        // ⚡ v13.168: имя носителя — стабильный ключ (индекс в opUnits «плывёт»)
+        unitName: (unit && unit.name) || source.name || null,
         squadName: source.squadName,
         ownerUnitId: source.unitId,
+        ownerUnitName: (unit && unit.name) || null,
         assetKind: def.kind,
         route,
         // ⚡ v13.167 (п.3): «своё расположение» — гекс, с которого актив ушёл.
@@ -914,6 +1108,9 @@ function advanceReconMissions() {
     const c = reconCampaign();
     if (!c) return;
     const turn = reconTurnNumber();
+    // ⚡ v13.168: перед ходом снимаем «забытые» флаги скрытия — разведчик с
+    //    флагом, но без активной миссии, не должен оставаться невидимым.
+    try { reconcileReconHiddenFlags(); } catch (e) { console.warn('reconcileReconHiddenFlags:', e.message); }
     // отложенные доклады раскрываются, когда подошёл срок
     if (Array.isArray(c.reconPendingReveals) && c.reconPendingReveals.length) {
         const due = c.reconPendingReveals.filter(item => item && Number(item.turn) <= turn);
@@ -938,7 +1135,18 @@ function advanceReconMissions() {
         dirty = true;
         // гибель актива — миссия провалена
         if (!reconMissionIsAlive(mission)) {
-            finishReconMission(mission.id, 'failed');
+            // ⚡ v13.168: «носитель не найден» ≠ «актив погиб». Раньше сдвиг
+            //    индекса в opUnits закрывал миссию как провал, тип актива
+            //    помечался потерянным до конца операции, и разведчик исчезал.
+            const carrier = reconMissionUnit(mission);
+            if (!carrier) {
+                if (typeof log === 'function') {
+                    log(`⚠️ [${mission.assetName}] носитель не найден — миссия закрыта без потери актива.`);
+                }
+                finishReconMission(mission.id, 'completed');
+            } else {
+                finishReconMission(mission.id, 'failed');
+            }
             return;
         }
         if (mission.status === 'active') {
@@ -1179,6 +1387,8 @@ function openReconMissionModal(unitId, squadName) {
         assetKey: key,
         unitId: (typeof unitId === 'number') ? unitId : null,
         squadName: squadName || null,
+        // ⚡ v13.171 (п.1): какой ИМЕННО носитель актива выбран в панели
+        sourceIndex: null,
         route: [],
         observeMode: 'stationary',
         reportMethod: 'radio',
@@ -1202,7 +1412,12 @@ function openReconMissionModalForAsset(unitId, assetKey) {
         source ? source.unitId : unitId,
         source ? source.squadName : null
     );
-    if (reconDraft) reconDraft.assetKey = assetKey;
+    if (reconDraft) {
+        reconDraft.assetKey = assetKey;
+        // ⚡ v13.171 (п.1): конкретная машина выбирается в панели — здесь только
+        //    подсказываем первую свободную этого типа.
+        reconDraft.sourceIndex = reconSourceIndex(source);
+    }
     renderReconPanel();
     return true;
 }
@@ -1228,7 +1443,7 @@ function showReconPanel(force) {
     if (panel) panel.style.display = 'block';
     if (!reconDraft) {
         reconDraft = {
-            assetKey: null, unitId: null, squadName: null, route: [],
+            assetKey: null, unitId: null, squadName: null, sourceIndex: null, route: [],
             observeMode: 'stationary', reportMethod: 'radio', missionId: null, pickingRoute: false
         };
     }
@@ -1259,6 +1474,7 @@ function reconSelectAsset(assetKey) {
     reconDraft.assetKey = assetKey;
     reconDraft.unitId = null;
     reconDraft.squadName = null;
+    reconDraft.sourceIndex = null;
     reconDraft.pickingRoute = true;
     renderReconPanel();
     return true;
@@ -1331,6 +1547,8 @@ function buildReconMissionRoute() {
 }
 function reconSubmitMission() {
     if (!reconDraft) return null;
+    // ⚡ v13.171 (п.1): отправляем ИМЕННО выбранную машину (а не первую свободную)
+    if (reconDraft.assetKey && !reconDraft.missionId) reconDraftEnsureSource();
     const route = (reconDraft.route || []).slice();
     if (!reconDraft.assetKey) {
         if (typeof log === 'function') log('⛔ Разведка: сначала выберите актив.');
@@ -1418,10 +1636,13 @@ function renderReconPanel() {
     if (!panel) return false;
     const c = reconCampaign();
     if (!c) return false;
+    // ⚡ v13.168: панель — ещё одна точка самовосстановления (сейвы со старыми
+    //    «висящими» флагами разведчиков чинятся при первом открытии).
+    try { reconcileReconHiddenFlags(); } catch (e) {}
     if (!c.reconAssets || !Object.keys(c.reconAssets).length) initReconAssets();
     if (!reconDraft) {
         reconDraft = {
-            assetKey: null, unitId: null, squadName: null, route: [],
+            assetKey: null, unitId: null, squadName: null, sourceIndex: null, route: [],
             observeMode: 'stationary', reportMethod: 'radio', missionId: null, pickingRoute: false
         };
     }
@@ -1435,6 +1656,23 @@ function renderReconPanel() {
     const assetOptions = assets.map(asset =>
         `<option value="${asset.key}" ${reconDraft.assetKey === asset.key ? 'selected' : ''}>${asset.name} (${asset.available}/${asset.total})</option>`
     ).join('');
+    // ⚡ v13.171 (п.1): какую именно машину отправить (у BeVe — Landsverk №1/№2/№3)
+    if (reconDraft.assetKey) reconDraftEnsureSource();
+    const sourceList = reconAvailableSources(reconDraft.assetKey);
+    const sourceSelect = sourceList.length > 1
+        ? `<div style="margin-top:6px; font-size:.82rem; color:#ddd;">
+            <label>Машина: <select onchange="reconSelectSource(this.value)" style="background:#444; color:#fff; max-width:240px;">
+                ${sourceList.map((source, index) => {
+                    const chosen = Number(reconDraft.unitId) === Number(source.unitId) &&
+                        String(reconDraft.squadName || '') === String(source.squadName || '');
+                    return `<option value="${index}" ${chosen ? 'selected' : ''}>${reconSourceName(source)}</option>`;
+                }).join('')}
+            </select></label>
+            <div style="color:#888; font-size:.75rem;">В разведку уйдёт именно эта машина: у каждой свой гекс, экипаж и своя судьба.</div>
+        </div>`
+        : (sourceList.length === 1
+            ? `<div style="margin-top:4px; color:#8ecbff; font-size:.78rem;">Машина: ${reconSourceName(sourceList[0])}</div>`
+            : '');
     const routeText = (reconDraft.route || []).map(point => `(${point.col},${point.row})`).join(' → ') || 'кликните по гексам на карте';
     const modeRadio = [['pass', 'Проходить'], ['stationary', 'Занять в конце'], ['pause', 'Пауза на точках (+2)']]
         .map(([value, label]) => `<label style="margin-right:10px; color:#ddd; font-size:.8rem;">
@@ -1456,6 +1694,7 @@ function renderReconPanel() {
                 </select>
             </label>
         </div>
+        ${sourceSelect}
         <div style="margin-top:6px; font-size:.82rem; color:#ddd;">
             2. Маршрут: <span style="color:#f1c40f;">${routeText}</span>
             <button onclick="reconClearRoute()" style="background:#555; font-size:.7rem; padding:1px 6px; margin-left:6px;">Очистить маршрут</button>
@@ -1666,6 +1905,39 @@ function drawReconMissionOverlay(ctx, size) {
                 ctx.fillText('🔍', p.x, p.y + 0.5);
             }
             ctx.restore();
+            // ⚡ v13.168: под иконкой актива всегда видно, ГДЕ он находится.
+            //    Раньше разведчик «пропадал»: иконка есть, но ни координат, ни
+            //    подписи — по карте не понять, где именно мотоциклист.
+            try {
+                const arrow = mission.status === 'returning' ? '↩' : (mission.status === 'observing' ? '👁' : '➡');
+                const label = `${arrow}(${mission.currentHex.col},${mission.currentHex.row})`;
+                const fontSize = Math.max(9, size * 0.26);
+                ctx.save();
+                ctx.font = `bold ${fontSize}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                let textWidth = fontSize * 4;
+                try {
+                    if (typeof ctx.measureText === 'function') {
+                        const m = ctx.measureText(label);
+                        if (m && Number.isFinite(m.width) && m.width > 0) textWidth = m.width;
+                    }
+                } catch (e) {}
+                const padX = fontSize * 0.35;
+                const boxW = textWidth + padX * 2;
+                const boxH = fontSize * 1.35;
+                const boxY = p.y + radius * 1.05 + boxH / 2;
+                ctx.fillStyle = 'rgba(20,30,45,.88)';
+                ctx.strokeStyle = '#5dade2';
+                ctx.lineWidth = Math.max(1, size * 0.02);
+                ctx.beginPath();
+                ctx.rect(p.x - boxW / 2, boxY - boxH / 2, boxW, boxH);
+                ctx.fill();
+                ctx.stroke();
+                ctx.fillStyle = '#dfefff';
+                ctx.fillText(label, p.x, boxY + 0.5);
+                ctx.restore();
+            } catch (e) {}
         }
         // ⚡ v13.167 (п.6): выбранный актив подсвечивается, как выбранный юнит.
         try {

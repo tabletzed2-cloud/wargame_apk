@@ -44,7 +44,8 @@ function cost(s, mobility, col, row) {
     ok(!names.includes('Легковой автомобиль') && !names.includes('Грузовик снабжения'),
         'прежних названий в составе нет');
     // ⚡ v13.152 (п.8): +3 грузовика DAF Trado II — 14 отделений
-    ok(beve.squads.length === 14, 'BeVe: 14 отделений (добавлены 3 грузовика)', String(beve.squads.length));
+    // ⚡ v13.170: охрана склада — одно отделение вместо двух (было 14)
+    ok(beve.squads.length === 13, 'BeVe: 13 отделений (добавлены 3 грузовика)', String(beve.squads.length));
 
     const templates = s.evalCtx('SQUAD_TEMPLATES').filter(t => t && t.faction === 'BeVe');
     const find = n => templates.find(t => t && t.name === n);
