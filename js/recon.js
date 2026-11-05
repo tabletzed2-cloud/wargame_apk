@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.170 — разведывательные миссии и приказ «Наблюдение»
+// ⚡ BUILD-МАРКЕР: v13.171 — разведывательные миссии и приказ «Наблюдение»
 // ═══════════════════════════════════════════════════════════════════════
 // ⚡ v13.157: НОВАЯ РАЗВЕДКА (заменяет подсветку радиуса v13.018…v13.099)
 //
@@ -280,6 +280,93 @@ function reconMissionsForUnit(unitOrId) {
 // Развед-актив этого юнита прямо сейчас на задании?
 function reconUnitOnMissionAssetKeys(unitOrId) {
     return reconMissionsForUnit(unitOrId).map(mission => mission.assetKey);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.171 (п.1): ВЫБОР КОНКРЕТНОЙ МАШИНЫ ДЛЯ РАЗВЕДКИ.
+//    У BeVe в разведку ходят бронеавтомобили Landsverk 183 №1–3 — это ТРИ
+//    разные машины (у каждой свой гекс, свой экипаж и своя судьба). Раньше
+//    игрок выбирал только ТИП «Бронеавтомобиль Landsverk 183», а в миссию
+//    уходила первая свободная машина. Теперь в панели разведки есть второй
+//    список: какой именно бронеавтомобиль отправить на задание.
+// ═══════════════════════════════════════════════════════════════════════════
+function reconMissionBusyKey(mission) {
+    if (!mission) return '';
+    return `${Number(mission.unitId)}|${String(mission.squadName || '')}`;
+}
+function reconSourceKey(source) {
+    if (!source) return '';
+    return `${Number(source.unitId)}|${String(source.squadName || '')}`;
+}
+function reconSourceIsOnMission(source) {
+    const key = reconSourceKey(source);
+    return reconActiveMissions().some(mission => reconMissionBusyKey(mission) === key);
+}
+// Свободные носители выбранного актива — для второго списка «какая машина».
+function reconAvailableSources(assetKey) {
+    const c = reconCampaign();
+    if (!c || !assetKey) return [];
+    const units = c.opUnits || [];
+    return reconListAssetSources()
+        .filter(source => source && source.assetKey === assetKey)
+        .filter(source => {
+            const unit = units[source.unitId];
+            if (!unit || unit.isDestroyed) return false;
+            if (unit.reconHidden || unit.reconMissionId) return false;
+            if (source.squadName) {
+                const squad = (unit.squads || []).find(sq => sq && String(sq.name) === String(source.squadName));
+                if (!squad || squad.reconHidden || squad.onReconMission) return false;
+            }
+            return !reconSourceIsOnMission(source);
+        });
+}
+function reconSourceName(source) {
+    if (!source) return '';
+    const c = reconCampaign();
+    const unit = c && (c.opUnits || [])[source.unitId];
+    if (source.squadName && !(unit && unit.reconHidden)) return String(source.squadName);
+    return String((unit && unit.name) || source.name || 'развед-актив');
+}
+function reconSourceIndex(source) {
+    if (!reconDraft || !reconDraft.assetKey) return -1;
+    const key = reconSourceKey(source);
+    return reconAvailableSources(reconDraft.assetKey).findIndex(item => reconSourceKey(item) === key);
+}
+// Выбор машины/отряда в панели (индекс в reconAvailableSources).
+function reconSelectSource(index) {
+    if (!reconDraft) return false;
+    const list = reconAvailableSources(reconDraft.assetKey);
+    const chosen = list[Number(index)];
+    if (!chosen) return false;
+    reconDraft.unitId = chosen.unitId;
+    reconDraft.squadName = chosen.squadName || null;
+    reconDraft.sourceIndex = Number(index);
+    renderReconPanel();
+    if (typeof redrawOperationalMap === 'function') { try { redrawOperationalMap(); } catch (e) {} }
+    return true;
+}
+// Держим выбор валидным: выбранная машина могла уйти в миссию или погибнуть.
+function reconDraftEnsureSource() {
+    if (!reconDraft) return null;
+    const list = reconAvailableSources(reconDraft.assetKey);
+    if (!list.length) {
+        reconDraft.unitId = null;
+        reconDraft.squadName = null;
+        reconDraft.sourceIndex = null;
+        return null;
+    }
+    let index = (reconDraft.unitId === null || reconDraft.unitId === undefined) ? -1
+        : list.findIndex(item => Number(item.unitId) === Number(reconDraft.unitId) &&
+            (reconDraft.squadName ? String(item.squadName || '') === String(reconDraft.squadName) : true));
+    if (index < 0 && Number.isInteger(Number(reconDraft.sourceIndex)) && list[Number(reconDraft.sourceIndex)]) {
+        index = Number(reconDraft.sourceIndex);
+    }
+    if (index < 0) index = 0;
+    const chosen = list[index];
+    reconDraft.unitId = chosen.unitId;
+    reconDraft.squadName = chosen.squadName || null;
+    reconDraft.sourceIndex = index;
+    return chosen;
 }
 
 // ---------- Проходимость и скорость ----------
@@ -1300,6 +1387,8 @@ function openReconMissionModal(unitId, squadName) {
         assetKey: key,
         unitId: (typeof unitId === 'number') ? unitId : null,
         squadName: squadName || null,
+        // ⚡ v13.171 (п.1): какой ИМЕННО носитель актива выбран в панели
+        sourceIndex: null,
         route: [],
         observeMode: 'stationary',
         reportMethod: 'radio',
@@ -1323,7 +1412,12 @@ function openReconMissionModalForAsset(unitId, assetKey) {
         source ? source.unitId : unitId,
         source ? source.squadName : null
     );
-    if (reconDraft) reconDraft.assetKey = assetKey;
+    if (reconDraft) {
+        reconDraft.assetKey = assetKey;
+        // ⚡ v13.171 (п.1): конкретная машина выбирается в панели — здесь только
+        //    подсказываем первую свободную этого типа.
+        reconDraft.sourceIndex = reconSourceIndex(source);
+    }
     renderReconPanel();
     return true;
 }
@@ -1349,7 +1443,7 @@ function showReconPanel(force) {
     if (panel) panel.style.display = 'block';
     if (!reconDraft) {
         reconDraft = {
-            assetKey: null, unitId: null, squadName: null, route: [],
+            assetKey: null, unitId: null, squadName: null, sourceIndex: null, route: [],
             observeMode: 'stationary', reportMethod: 'radio', missionId: null, pickingRoute: false
         };
     }
@@ -1380,6 +1474,7 @@ function reconSelectAsset(assetKey) {
     reconDraft.assetKey = assetKey;
     reconDraft.unitId = null;
     reconDraft.squadName = null;
+    reconDraft.sourceIndex = null;
     reconDraft.pickingRoute = true;
     renderReconPanel();
     return true;
@@ -1452,6 +1547,8 @@ function buildReconMissionRoute() {
 }
 function reconSubmitMission() {
     if (!reconDraft) return null;
+    // ⚡ v13.171 (п.1): отправляем ИМЕННО выбранную машину (а не первую свободную)
+    if (reconDraft.assetKey && !reconDraft.missionId) reconDraftEnsureSource();
     const route = (reconDraft.route || []).slice();
     if (!reconDraft.assetKey) {
         if (typeof log === 'function') log('⛔ Разведка: сначала выберите актив.');
@@ -1545,7 +1642,7 @@ function renderReconPanel() {
     if (!c.reconAssets || !Object.keys(c.reconAssets).length) initReconAssets();
     if (!reconDraft) {
         reconDraft = {
-            assetKey: null, unitId: null, squadName: null, route: [],
+            assetKey: null, unitId: null, squadName: null, sourceIndex: null, route: [],
             observeMode: 'stationary', reportMethod: 'radio', missionId: null, pickingRoute: false
         };
     }
@@ -1559,6 +1656,23 @@ function renderReconPanel() {
     const assetOptions = assets.map(asset =>
         `<option value="${asset.key}" ${reconDraft.assetKey === asset.key ? 'selected' : ''}>${asset.name} (${asset.available}/${asset.total})</option>`
     ).join('');
+    // ⚡ v13.171 (п.1): какую именно машину отправить (у BeVe — Landsverk №1/№2/№3)
+    if (reconDraft.assetKey) reconDraftEnsureSource();
+    const sourceList = reconAvailableSources(reconDraft.assetKey);
+    const sourceSelect = sourceList.length > 1
+        ? `<div style="margin-top:6px; font-size:.82rem; color:#ddd;">
+            <label>Машина: <select onchange="reconSelectSource(this.value)" style="background:#444; color:#fff; max-width:240px;">
+                ${sourceList.map((source, index) => {
+                    const chosen = Number(reconDraft.unitId) === Number(source.unitId) &&
+                        String(reconDraft.squadName || '') === String(source.squadName || '');
+                    return `<option value="${index}" ${chosen ? 'selected' : ''}>${reconSourceName(source)}</option>`;
+                }).join('')}
+            </select></label>
+            <div style="color:#888; font-size:.75rem;">В разведку уйдёт именно эта машина: у каждой свой гекс, экипаж и своя судьба.</div>
+        </div>`
+        : (sourceList.length === 1
+            ? `<div style="margin-top:4px; color:#8ecbff; font-size:.78rem;">Машина: ${reconSourceName(sourceList[0])}</div>`
+            : '');
     const routeText = (reconDraft.route || []).map(point => `(${point.col},${point.row})`).join(' → ') || 'кликните по гексам на карте';
     const modeRadio = [['pass', 'Проходить'], ['stationary', 'Занять в конце'], ['pause', 'Пауза на точках (+2)']]
         .map(([value, label]) => `<label style="margin-right:10px; color:#ddd; font-size:.8rem;">
@@ -1580,6 +1694,7 @@ function renderReconPanel() {
                 </select>
             </label>
         </div>
+        ${sourceSelect}
         <div style="margin-top:6px; font-size:.82rem; color:#ddd;">
             2. Маршрут: <span style="color:#f1c40f;">${routeText}</span>
             <button onclick="reconClearRoute()" style="background:#555; font-size:.7rem; padding:1px 6px; margin-left:6px;">Очистить маршрут</button>
