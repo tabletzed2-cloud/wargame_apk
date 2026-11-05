@@ -17,7 +17,7 @@ function ok(cond, name, extra) {
 }
 
 const FNS = [
-    'isBattalionHqUnit', 'pruneOpUnitRiders', 'opHqReconSquadSpecs', 'opHqReconSquadMatches', 'syncReconPlatoonSquads', 'syncReconPlatoonTemplates',
+    'isBattalionHqUnit', 'pruneOpUnitRiders', 'opHqReconSquadSpecs', 'opHqReconSquadMatches', 'opReconSquadInstance', 'opRepairSquadFighters', 'syncReconPlatoonSquads', 'syncReconPlatoonTemplates',
     'isBicyclePlatoonPreset', 'isMotorcyclePlatoonPreset', 'motorcyclePresetPlatoon',
     'generateBattalion', 'cloneTemplate', 'getPresetSignature', 'getBattalionSignature',
     'assignUniqueCrewKeys', 'buildOperationalUnits', 'switchOperationalMapScreen',

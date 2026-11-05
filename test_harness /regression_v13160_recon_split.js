@@ -275,8 +275,9 @@ console.log('== v13.160: развед. взвод, мотоциклисты, б�
     ok(s.evalCtx('appData.campaign.reconAssets.beve_motorcycle_scout.total') === 1,
         'разведчик-актив один (а не по одному на взвод)', s.evalCtx('appData.campaign.reconAssets.beve_motorcycle_scout.total'));
     ok(s.evalCtx('appData.campaign.reconAssets.beve_motorcycle_messenger.total') === 1, 'посыльный-актив один');
-    ok(s.evalCtx('typeof appData.campaign.reconAssets.beve_armored_car === "undefined"'),
-        'актива «Бронеавтомобиль» больше нет');
+    // ⚡ v13.164: актив «Бронеавтомобиль» вернулся (только Landsverk №1–3)
+    ok(s.evalCtx('typeof appData.campaign.reconAssets.beve_armored_car === "object"'),
+        'актив «Бронеавтомобиль» снова есть в пуле (v13.164)');
 }
 
 // ───────────── 8. бронеавтомобили: только Landsverk №1–3 как юниты ─────────────
@@ -311,9 +312,12 @@ console.log('== v13.160: развед. взвод, мотоциклисты, б�
     ok(onMap.includes('Бронеавтомобиль Landsverk 183 №1'), 'машина из пресета осталась');
     ok(onMap.some(n => /Отряд/.test(n)), 'слитая группа машин не тронута', onMap.join(', '));
     s.run('initReconAssets();');
-    ok(s.evalCtx('typeof appData.campaign.reconAssets.beve_armored_car === "undefined"'),
-        'бронеавтомобили не считаются развед-активами');
-    ok(!/beve_armored_car/.test(RECON_SRC), 'в js/recon.js нет актива бронеавтомобиля');
+    // ⚡ v13.164: развед-активом считается ТОЛЬКО отдельная машина (№1),
+    //    слитая группа «Отряд Бронеавтомобиль (2шт)» — нет.
+    ok(s.evalCtx('appData.campaign.reconAssets.beve_armored_car.total') === 1,
+        'бронеавтомобили считаются развед-активами поштучно (v13.164)',
+        s.evalCtx('appData.campaign.reconAssets.beve_armored_car.total'));
+    ok(/beve_armored_car/.test(RECON_SRC), 'в js/recon.js есть актив бронеавтомобиля');
 }
 
 // ───────────── 9. интерфейс ─────────────

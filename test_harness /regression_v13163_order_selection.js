@@ -168,13 +168,18 @@ console.log('== v13.163: выбор отряда после приказа и р
 
 // ───────────── 4. подчистка «залипшего» режима маршрута ─────────────────────
 {
-    ok(/isPlanningRoute\s*=\s*false;\s*\n\s*\}\s*\n\s*\/\/ ⚡ v13\.058/.test(HTML.replace(/\r/g, '')) ||
-       /залипший/.test(HTML),
-        'в начале клика по карте сбрасывается устаревший isPlanningRoute');
+    ok(/залипший/.test(HTML), 'в начале клика по карте сбрасывается устаревший isPlanningRoute');
+    ok(/compactMenuOpen/.test(HTML), 'сброс не срабатывает, пока открыто компактное меню приказов');
     ok(/if \(typeof isPlanningRoute !== 'undefined' && !isPlanningRoute\) return;/.test(HTML),
         'черновик маршрута не рисуется, когда режим планирования выключен');
-    ok(/const draftPanel = document\.getElementById\('hardModePanel'\);\s*\n\s*if \(!draftPanel \|\| draftPanel\.style\.display !== 'block'\) return;/.test(HTML),
-        'черновик маршрута не рисуется при закрытой панели приказов');
+    // ⚡ v13.165 (п.1): «закрытая панель приказов» — это И классическая
+    //    #hardModePanel, И компактное меню #opCommandMenu. Раньше проверялась
+    //    только классическая панель, из-за чего в компактном меню маршрут
+    //    при отдаче приказа вообще не рисовался.
+    ok(/const classicOpen = !!\s*\(draftPanel && draftPanel\.style\.display === 'block'\)/.test(HTML),
+        'черновик маршрута рисуется при открытой классической панели приказов');
+    ok(/if \(!classicOpen && !compactOpen\) return;/.test(HTML),
+        'черновик маршрута не рисуется, когда закрыты и классическая панель, и компактное меню');
     // hideOrderPanel чистит черновик полностью
     const hide = extractFn(HTML, 'hideOrderPanel');
     ok(/orderWaypoints = \[\]/.test(hide) && /isPlanningRoute = false/.test(hide) && /orderPanelMinimized = false/.test(hide),
@@ -308,10 +313,12 @@ initReconAssets();
 
 // ───────────── 8. штаб — узел выдачи разведприказов ────────────────────────
 {
-    ok(/openReconMissionModalForAsset\(\$\{unitIndex\}, '\$\{src\.assetKey\}'\)/.test(HTML),
+    ok(/openReconMissionModalForAsset\(\$\{unitIndex\}, '\$\{item\.key\}'\)/.test(HTML),
         'в карточке штаба — отдельная кнопка на каждый развед-отряд');
-    ok(/isBattalionHqUnit\(unit\)/.test(HTML) && /reconListAssetSources\(\)\.filter\(src => Number\(src\.unitId\) === unitIndex\)/.test(HTML),
-        'кнопки строятся только для отрядов ЭТОГО штаба');
+    // ⚡ v13.164: список активов в карточке — только свои
+    ok(/const own = getOwnReconAssetList\(unit\)/.test(HTML) &&
+       /if \(!own\.length\) return '';/.test(HTML),
+        'в карточке показываются только СВОИ развед-отряды');
     ok(/Приказ от штаба: выберите развед-отряд/.test(HTML), 'подпись «Приказ от штаба»');
 
     const s = reconSandbox();
@@ -327,20 +334,21 @@ initReconAssets();
     ok(s.evalCtx('reconDraft.assetKey') === 'airf_hidalgo', 'из штаба можно отправить именно Hidalgo');
     ok(s.evalCtx('typeof openReconMissionModalForAsset === "function"') === true,
         'функция выдачи приказа от штаба загружена');
-    // бронеавтомобиль не является развед-активом (v13.160 + v13.163)
-    ok(s.evalCtx("typeof RECON_ASSET_TYPES.beve_armored_car === 'undefined'"),
-        'бронеавтомобили не входят в пул развед-активов');
+    // ⚡ v13.164: бронеавтомобили BeVe снова с развед-миссией
+    ok(s.evalCtx("RECON_ASSET_TYPES.beve_armored_car.canRecon === true"),
+        'бронеавтомобили BeVe снова входят в пул развед-активов (v13.164)');
     ok(/armored_vehicle_platoon[\s\S]{0,400}observe/.test(HTML) || /'observe'/.test(HTML),
         'для обычных взводов (и БА) остаётся приказ «👁️ Наблюдение»');
 }
 
-// ───────────── 9. версия сборки ───────────────────────────────────────────
+// ───────────── 9. версия сборки (номер релиза не фиксируем) ───────────────
 {
-    ok(/var APP_VERSION = 'v13\.163';/.test(HTML), 'APP_VERSION = v13.163');
-    ok(/CACHE_NAME = 'wargame-v13\.163'/.test(SW), 'CACHE_NAME синхронизирован');
-    ok(/"short_name": "БМ v13\.163"/.test(MANIFEST), 'manifest.short_name синхронизирован');
+    const version = (/var APP_VERSION = '([^']+)'/.exec(HTML) || [])[1] || '';
+    ok(/^v\d+\.\d+$/.test(version), 'APP_VERSION найден', version);
+    ok(SW.indexOf(`CACHE_NAME = 'wargame-${version}'`) >= 0, 'CACHE_NAME синхронизирован');
+    ok(MANIFEST.indexOf(`"short_name": "БМ ${version}"`) >= 0, 'manifest.short_name синхронизирован');
     const markers = fs.readdirSync(path.join(ROOT, 'js')).filter(f => f.endsWith('.js'))
-        .filter(f => /BUILD-МАРКЕР: v13\.163/.test(read('js/' + f)));
+        .filter(f => new RegExp('BUILD-МАРКЕР: ' + version.replace(/\./g, '\\.')).test(read('js/' + f)));
     ok(markers.length >= 10, 'BUILD-маркеры js/*.js обновлены', markers.length);
 }
 
