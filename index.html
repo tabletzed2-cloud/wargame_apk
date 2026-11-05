@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.166 — операция</title>
+  <title>Боевой модуль v13.167 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -131,7 +131,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.166</h1>
+    <h1>⚔️ Боевой модуль v13.167</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -144,7 +144,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.166</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.167</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -196,7 +196,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.166 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.167 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -653,7 +653,7 @@ function safeLocalStorage(method, ...args) {
 //    без радиста и вне радиуса связи вызов недоступен); новое правило телефона:
 //    линия тянется за юнитом до 7 гексов кабеля от штаба (дальше приказ на
 //    движение не выдаётся), при смещении штаба связисты прокладывают линии заново.
-var APP_VERSION = 'v13.166';
+var APP_VERSION = 'v13.167';
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
 //    иначе при загрузке старого сохранения срабатывает TDZ.
@@ -4233,10 +4233,15 @@ function drawSupplyDeliveriesOnMap(ctx, deliveries, size) {
         const vehicleImg = (vehicleSrc && typeof supplyConvoyImage === 'function') ? supplyConvoyImage(vehicleSrc) : null;
         const direction = delivery.status === 'returning' ? '↩' : '➡';
         const accent = delivery.status === 'returning' ? '#8bd17c' : '#ffb347';
-        // ⚡ v13.165 (п.2): иконки техники снабжения были мелкими — увеличили
-        //    плашку (и картинку внутри неё) примерно в 1,35 раза.
-        const radius = size * (vehicleImg ? 0.70 : 0.52);
-        const badgeY = pointY - size * (vehicleImg ? 0.72 : 0.56);
+        // ⚡ v13.165 (п.2) → v13.167 (п.2): иконки техники снабжения не должны
+        //    быть КРУПНЕЕ иконок остальных юнитов на операционной карте.
+        //    Радиус иконки юнита в drawOperationalUnits — 18 * zoom, то есть
+        //    size * (18 / OP_HEX_SIZE). Раньше плашка колонны была size*0.70
+        //    (≈38 px против 18 px у взвода) — грузовики «залезали» на соседние
+        //    гексы. Теперь радиус ограничен сверху радиусом иконки юнита.
+        const unitIconRadius = size * (18 / (typeof OP_HEX_SIZE === 'number' ? OP_HEX_SIZE : 55));
+        const radius = Math.max(size * 0.20, Math.min(size * (vehicleImg ? 0.70 : 0.52), unitIconRadius));
+        const badgeY = pointY - (radius * 1.15 + size * 0.05);
         ctx.save();
         // маршрут до цели — пунктиром, чтобы колонна читалась на карте
         const dest = (delivery.kind === 'rear')
@@ -4269,7 +4274,7 @@ function drawSupplyDeliveriesOnMap(ctx, deliveries, size) {
             const h = vehicleImg.naturalHeight * scale;
             ctx.drawImage(vehicleImg, pointX - w / 2, badgeY - h / 2, w, h);
         } else {
-            ctx.font = `${size * 0.56}px Arial`;
+            ctx.font = `${radius * 1.3}px Arial`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = '#fff';
@@ -4427,6 +4432,71 @@ function drawOperationalSectorDraftHighlights(ctx, size) {
         ctx.fillStyle = 'rgba(241, 196, 15, 0.34)';
     });
     ctx.restore();
+}
+
+// ⚡ v13.167 (п.4): подсветка гексов приказа «✂️ Перерезать пути». Пока игрок
+//    выбирает три смежных гекса, на карте видно:
+//      • уже выбранные гексы (✂️ 1 → 2 → 3, средний — место взвода);
+//      • подсказку — куда можно поставить следующий гекс цепочки (пунктир).
+//    Раньше подсвечивался только приказ «Контролировать сектор», и было
+//    непонятно, на каких гексах вообще стоит перерезание.
+function opCutPathsHexPath(ctx, x, y, size) {
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+        const angle = Math.PI / 180 * (60 * i - 30);
+        const px = x + size * Math.cos(angle), py = y + size * Math.sin(angle);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+}
+function drawOperationalCutPathsDraftHighlights(ctx, size) {
+    if (!ctx || typeof window === 'undefined' || typeof window.uxGetCutPathsDraftHexes !== 'function') return;
+    let draft = null;
+    try { draft = window.uxGetCutPathsDraftHexes(); } catch (e) { return; }
+    if (!draft || (!(draft.chosen || []).length && !(draft.candidates || []).length)) return;
+    // подсказка «куда можно поставить следующий гекс» — пунктиром
+    (draft.candidates || []).forEach(point => {
+        const col = Number(point.col), row = Number(point.row);
+        if (!Number.isFinite(col) || !Number.isFinite(row)) return;
+        const x = col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+        const y = row * 1.5 * size + size;
+        ctx.save();
+        ctx.fillStyle = 'rgba(231, 126, 35, 0.16)';
+        ctx.strokeStyle = 'rgba(230, 126, 34, 0.75)';
+        ctx.lineWidth = Math.max(2, size * 0.05);
+        ctx.setLineDash([Math.max(4, size * 0.14), Math.max(3, size * 0.1)]);
+        opCutPathsHexPath(ctx, x, y, size);
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+    });
+    // выбранные гексы — плотная заливка с номером и ✂️
+    (draft.chosen || []).forEach((point, index) => {
+        const col = Number(point.col), row = Number(point.row);
+        if (!Number.isFinite(col) || !Number.isFinite(row)) return;
+        const x = col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+        const y = row * 1.5 * size + size;
+        const isMiddle = index === 1;
+        ctx.save();
+        opCutPathsHexPath(ctx, x, y, size);
+        ctx.fillStyle = isMiddle ? 'rgba(231, 76, 60, 0.42)' : 'rgba(230, 126, 34, 0.40)';
+        ctx.fill();
+        ctx.strokeStyle = isMiddle ? '#e74c3c' : '#e67e22';
+        ctx.lineWidth = Math.max(3, size * 0.09);
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${Math.max(11, size * 0.30)}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`✂️${index + 1}`, x, y - size * 0.06);
+        if (isMiddle) {
+            ctx.font = `bold ${Math.max(9, size * 0.22)}px Arial`;
+            ctx.fillStyle = '#ffd9d0';
+            ctx.fillText('взвод', x, y + size * 0.30);
+        }
+        ctx.restore();
+    });
 }
 
 function drawCampaignObjectiveMarkers(ctx, size) {
@@ -4784,6 +4854,9 @@ function redrawOperationalMapNow() {
     drawOperationalDotFireSectors(ctx, size);
     // v13.092: show already selected «Контролировать сектор» hexes during map picking.
     drawOperationalSectorDraftHighlights(ctx, size);
+    // ⚡ v13.167 (п.4): гексы приказа «✂️ Перерезать пути» — что уже выбрано и
+    //    куда можно поставить следующий гекс цепочки.
+    try { drawOperationalCutPathsDraftHighlights(ctx, size); } catch (e) { console.warn('cut paths draft:', e.message); }
 
 // ⚡ v13.157: вместо подсветки радиуса разведки — маршруты и иконки
 //    разведывательных миссий (пунктир, «🔍» на текущем гексе актива,
@@ -5460,6 +5533,44 @@ function showOpUnitInfoPopup(unit) {
                 `<button type="button" onclick="showReconPanel()" style="margin-top:6px;margin-left:6px;background:#555;">Список миссий</button></div>`;
         } catch (e) { return ''; }
     })();
+    // ⚡ v13.167 (п.7): из карточки юнита на операционной карте — сразу отправка
+    //    снабжения этому юниту. Открывается панель снабжения с уже выбранным
+    //    получателем, игрок сам отмечает, КОГО отправить (носильщиков, мулов,
+    //    машины), и жмёт «🚚 Отправить снабжение».
+    const supplyMarkup = (function () {
+        try {
+            const camp = appData && appData.campaign;
+            if (!camp || !camp.active) return '';
+            if (/взвод снабжени|штаб взвода снабжени/i.test(String(unit.name || ''))) return '';
+            if (typeof supplyUnitList !== 'function' || typeof unitAmmoStatus !== 'function') return '';
+            const units = camp.opUnits || [];
+            const unitIndex = units.indexOf(unit);
+            if (unitIndex < 0) return '';
+            const st = unitAmmoStatus(unit);
+            const hasAmmoTypes = (st.ammoSmall.max + st.grenades.max + st.ammoOrdnance.max) > 0;
+            const pct = Math.round((typeof supplyAmmoPercent === 'function' ? supplyAmmoPercent(unit) : 1) * 100);
+            const color = pct > 60 ? '#2ecc71' : pct > 25 ? '#f1c40f' : '#e74c3c';
+            const pending = (typeof supplyPendingCargoForUnit === 'function') ? supplyPendingCargoForUnit(unitIndex) : null;
+            const pendingSum = pending ? (Number(pending.ammoSmall) || 0) + (Number(pending.grenades) || 0) + (Number(pending.ammoOrdnance) || 0) : 0;
+            const deficit = (typeof supplyUnitAmmoDeficits === 'function') ? supplyUnitAmmoDeficits(unit, unitIndex) : null;
+            const shortage = deficit ? [
+                deficit.ammoSmall > 0 ? `${deficit.ammoSmall} патр.` : '',
+                deficit.grenades > 0 ? `${deficit.grenades} гран.` : '',
+                deficit.ammoOrdnance > 0 ? `${deficit.ammoOrdnance} снар.` : ''
+            ].filter(Boolean).join(' · ') : '';
+            const bar = `<div style="margin-top:5px;color:#bbb;font-size:.8rem;">📦 Боезапас: <b style="color:${color};">${pct}%</b>` +
+                ` — 🔫 ${st.ammoSmall.cur}/${st.ammoSmall.max} · 💣 ${st.grenades.cur}/${st.grenades.max}` +
+                (st.ammoOrdnance.max > 0 ? ` · 🚀 ${st.ammoOrdnance.cur}/${st.ammoOrdnance.max}` : '') + `</div>`;
+            const state = pendingSum > 0
+                ? `<div style="margin-top:4px;color:#f1c40f;font-size:.8rem;">🚚 Колонна уже в пути (${pendingSum} ед. груза) — можно отправить ещё.</div>`
+                : (!hasAmmoTypes ? '' : (shortage ? `<div style="margin-top:4px;color:#e67e22;font-size:.8rem;">Не хватает: ${shortage}</div>`
+                    : `<div style="margin-top:4px;color:#2ecc71;font-size:.8rem;">✅ Боезапас полный — отправка не требуется.</div>`));
+            return `<div class="op-unit-drawer-cards" style="border-color:#e67e22;"><b>🚚 Снабжение</b>` +
+                bar + state +
+                `<button type="button" onclick="openSupplyForUnit(${unitIndex})" style="margin-top:6px;background:#e67e22;">🚚 Отправить снабжение</button>` +
+                `<div style="margin-top:5px;color:#8ecbff;font-size:.78rem;">Откроется панель снабжения с выбранным получателем — отметьте, кого отправить со грузом (носильщиков, мулов, машины), и подтвердите.</div></div>`;
+        } catch (e) { return ''; }
+    })();
     // ⚡ v13.160: деление развед. взвода A.I.R.F. на отделения и обратная сборка
     const reconSplitMarkup = (function () {
         try {
@@ -5486,6 +5597,7 @@ function showOpUnitInfoPopup(unit) {
       vehicleBlock +
       `<div class="op-unit-drawer-cards"><b>📋 Отделения (сводка)</b><div style="margin-top:5px;">${squadRows}</div></div>` +
       `<div class="op-unit-drawer-cards"><b>✨ Активированные бонусы и дебаффы</b><div style="margin-top:5px;">${cardMarkup}</div></div>` +
+      supplyMarkup +
       reconSplitMarkup +
       reconButtonMarkup +
       `<div class="op-unit-drawer-foot">${unit.detected ? 'Обнаружен' : `ОД: ${esc(unit.ap ?? '—')}`}</div>`;
@@ -5726,6 +5838,10 @@ function handleOpMapClick(e) {
   if (hardMode.enabled && hardMode.signalPlatoon && hardMode.signalPlatoon.phoneRouteDraft &&
       handlePhoneRouteDraftClick(clickX, clickY, size)) return;
 
+  // ⚡ v13.167 (п.3): выбор ТОЧКИ ОТЗЫВА развед-актива — клик по карте задаёт,
+  //    куда именно вернуть отозванный разведотряд.
+  if (typeof handleReconRecallPickClick === 'function' && handleReconRecallPickClick(clickX, clickY, size)) return;
+
   // ⚡ v13.163: клик по СВОЕМУ отряду всегда означает «выбрать этот отряд»,
   //    он не должен уходить ни в маршрут приказа, ни в маршрут разведки.
   const ownUnitHit = (typeof opOwnUnitAtPoint === 'function')
@@ -5771,6 +5887,24 @@ function handleOpMapClick(e) {
             return;
         }
     }
+
+  // ⚡ v13.167 (п.6): иконка развед-актива на карте выбирается как юнит —
+  //    открывается карточка актива (отозвать / новый приказ). Клик не должен
+  //    уходить в выбор юнита, маршрут приказа или перемещение.
+  try {
+    const pickActive = (() => {
+      const ui = (typeof window !== 'undefined') ? window.opOperationalUiState : null;
+      return !!(ui && ui.menuOpen && ui.mapPick);
+    })();
+    if (!pickActive && typeof opReconMissionAtPoint === 'function') {
+      const reconMissionHit = opReconMissionAtPoint(clickX, clickY, size);
+      if (reconMissionHit) {
+        if (typeof reconPauseRoutePicking === 'function') { try { reconPauseRoutePicking(); } catch (e) {} }
+        if (typeof reconSelectMissionAsset === 'function') reconSelectMissionAsset(reconMissionHit.id);
+        return;
+      }
+    }
+  } catch (e) {}
 
   // ⚡ v13.024: в режиме «view» (как и в «movePlayer») клик по
   //    подсвеченному достижимому гексу ПЕРЕМЕЩАЕТ выбранный юнит, а не
@@ -34388,6 +34522,11 @@ function renderCampaignObjectivesPanel() {
 const SUPPLY_CAPTURE_LOSS = 0.5;
 const SUPPLY_AMMO_PER_MAN = 8;    // полный комплект патронов отделения
 const SUPPLY_GREN_PER_MAN = 2;    // полный комплект гранат отделения
+// ⚡ v13.167 (п.1): колонна получает те же «4 ОД за ход», что и пехота, но
+//    стоимость гекса у пеших/вьючных теперь тоже «пехотная» (2 ОД за гекс по
+//    обычной местности). Раньше пешая колонна платила 1 за гекс и проходила
+//    4 гекса за ход — вдвое быстрее пехотинца. Теперь 2 гекса за ход, как у
+//    стрелкового отделения.
 const SUPPLY_CONVOY_BUDGET = 4;   // «ОД» колонны за ход — как у пехоты
 const SUPPLY_ARRIVE_DIST = 0;
 
@@ -34929,8 +35068,27 @@ function sendSupplyDelivery(targetUnitId, assetPicks, kind) {
             alert('Не удалось загрузить груз: получателю не хватает выбранных боеприпасов либо склад пуст.'); return false;
         }
     }
-    assets.forEach(a => { st.assets[a.id].available -= a.count; });
+    // ⚡ v13.167 (п.9): перед отправкой проверяем, что ХОТЯ БЫ ОДНО из выбранных
+    //    средств сможет довезти груз до получателя по проходимой местности.
+    //    Раньше смешанная колонна (грузовик + носильщики, машина + вездеход)
+    //    получала «худший» класс подвижности, упиралась в лес/воду и стояла
+    //    намертво, пока один из транспортов не мог проехать.
     const dest = isRear ? supplyRearPoint() : { col: target.col, row: target.row };
+    if (dest && Number.isFinite(dest.col) && Number.isFinite(dest.row)) {
+        const probe = { col: depot.col, row: depot.row, assets, mobility: supplyAssetsMobility(assets) };
+        const terrainRoute = (typeof findSupplyRoute === 'function')
+            ? findSupplyRoute(probe, dest.col, dest.row, { ignoreEnemies: true }) : [];
+        if (terrainRoute === null) {
+            const reachable = supplyAssetIds().filter(id =>
+                assets.some(a => a.id === id) && Number.isFinite(supplyMoveCost(SUPPLY_ASSET_TYPES[id].mobility, dest.col, dest.row)));
+            const useIds = reachable.length ? reachable : [];
+            alert('Выбранный транспорт не сможет довезти груз: нет проходимого маршрута до получателя. ' +
+                (useIds.length ? 'Подойдут: ' + useIds.map(id => SUPPLY_ASSET_TYPES[id].name).join(', ') + '.'
+                               : 'Выберите другие средства доставки.'));
+            return false;
+        }
+    }
+    assets.forEach(a => { st.assets[a.id].available -= a.count; });
     const delivery = {
         id: 'sup-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
         kind: isRear ? 'rear' : 'unit',
@@ -35026,46 +35184,89 @@ function supplyMoveCost(mobility, toCol, toRow) {
     if (mobility === 'vehicle') {
         return (terrain === 'road' || terrain === 'grass') ? 1 : Infinity;
     }
-    // ⚡ v13.150: автомобиль-амфибия DAF MC-V (BeVe). По дорогам и траве — как
-    //    машина; переправляется через воду и непроходимое болото, но «гораздо
-    //    медленнее»: вода — 3, непроходимое болото — 4 «ОД» за гекс.
+    // ⚡ v13.150 → v13.167: автомобиль-амфибия DAF MC-V (BeVe). По дорогам и
+    //    траве — как машина; переправляется через воду и непроходимое болото, но
+    //    «гораздо медленнее»: вода — 4, непроходимое болото — 5 «ОД» за гекс.
     if (mobility === 'amphibious') {
         switch (terrain) {
             case 'road': return 1;
             case 'grass': return 1;
             case 'bushes': return 2;
             case 'trenches': return 2;
-            case 'water': return 3;
-            case 'swamp_impassable': return 4;
-            case 'swamp_passable': return 3;
+            case 'water': return 4;
+            case 'swamp_impassable': return 5;
+            case 'swamp_passable': return 4;
             default: return Infinity;
         }
     }
-    // ⚡ v13.149: горный транспортёр TG-41 «Лама» — полугусеничный вездеход.
-    //    По дорогам и траве идёт вдвое быстрее пеших (0,5 «ОД» за гекс), лес и
-    //    кусты проходит как пехота, а на холмы и камни заезжает (пешим темпом).
+    // ⚡ v13.149 → v13.167: горный транспортёр TG-41 «Лама» — полугусеничный
+    //    вездеход. По дорогам и траве идёт вдвое быстрее пеших (1 «ОД» против
+    //    2), лес и кусты проходит пешим темпом, на холмы и камни заезжает.
     if (mobility === 'halftrack') {
         switch (terrain) {
-            case 'road': return 0.5;
-            case 'grass': return 0.5;
-            case 'bushes': return 1;
-            case 'hill': return 1;
-            case 'rocks': return 1;
-            case 'forest': return 1.5;
-            case 'trenches': return 1.5;
-            case 'swamp_passable': return 2;
+            case 'road': return 1;
+            case 'grass': return 1;
+            case 'bushes': return 2;
+            case 'hill': return 2;
+            case 'rocks': return 2;
+            case 'forest': return 3;
+            case 'trenches': return 3;
+            case 'swamp_passable': return 4;
             default: return Infinity;
         }
     }
-    return 1;   // пешие и вьючные — по любой проходимой местности, как пехота
+    // ⚡ v13.167 (п.1): пешие и вьючные (носильщик, мул, лама, повозка) ходят
+    //    ровно как пехотинец: 2 «ОД» за гекс обычной местности, 3 — холм и
+    //    проходимое болото. При бюджете 4 ОД это 2 гекса за ход (а не 4, как
+    //    было, когда гекс стоил 1).
+    switch (terrain) {
+        case 'hill': return 3;
+        case 'swamp_passable': return 3;
+        case 'road': return 2;
+        case 'grass': return 2;
+        case 'bushes': return 2;
+        case 'forest': return 2;
+        case 'trenches': return 2;
+        case 'rocks': return 2;
+        default: return 2;
+    }
 }
 
-function findSupplyRoute(delivery, toCol, toRow) {
+// ⚡ v13.167 (п.9): у колонны может быть НЕСКОЛЬКО типов транспорта. Раньше
+//    смешанная колонна получала один «худший» класс подвижности, и если этот
+//    транспорт не мог пройти (лес, вода, холм), колонна вставала намертво —
+//    хотя носильщики рядом доехали бы. Теперь маршрут колонны считается по
+//    САМОМУ ПРОХОДИМОМУ средству в её составе: стоимость гекса — минимум по
+//    всем классам (если хоть кто-то проходит, колонна проходит).
+function supplyDeliveryMobilityClasses(delivery) {
+    const ids = (delivery && Array.isArray(delivery.assets)) ? delivery.assets : [];
+    const classOf = (id) => (typeof supplyAssetMobilityClass === 'function')
+        ? supplyAssetMobilityClass(id)
+        : ((SUPPLY_ASSET_TYPES[id] && SUPPLY_ASSET_TYPES[id].mobility) || 'foot');
+    const classes = Array.from(new Set(ids
+        .filter(a => a && SUPPLY_ASSET_TYPES[a.id] && Number(a.count) > 0)
+        .map(a => classOf(a.id))
+        .filter(Boolean)));
+    if (!classes.length) return [String((delivery && delivery.mobility) || 'foot')];
+    return classes;
+}
+function supplyDeliveryMoveCost(delivery, toCol, toRow) {
+    const classes = supplyDeliveryMobilityClasses(delivery);
+    let best = Infinity;
+    classes.forEach(cls => {
+        const cost = supplyMoveCost(cls, toCol, toRow);
+        if (Number.isFinite(cost) && cost < best) best = cost;
+    });
+    return best;
+}
+
+function findSupplyRoute(delivery, toCol, toRow, opts) {
     if (!delivery || !Number.isFinite(delivery.col) || !Number.isFinite(delivery.row) || !Number.isFinite(toCol) || !Number.isFinite(toRow)) return null;
     const start = `${delivery.col},${delivery.row}`, goal = `${toCol},${toRow}`;
     if (start === goal) return [];
     const enemies = new Set((appData.campaign.enemyOpUnits || []).filter(e => e && !e.isDestroyed && !e.isSurrendered &&
         Number.isFinite(e.col) && Number.isFinite(e.row)).map(e => `${e.col},${e.row}`));
+    const ignoreEnemies = !!(opts && opts.ignoreEnemies);
     const best = new Map([[start, 0]]), previous = new Map(), queue = [{ col: delivery.col, row: delivery.row, cost: 0 }];
     while (queue.length) {
         let bestIndex = 0;
@@ -35078,8 +35279,10 @@ function findSupplyRoute(delivery, toCol, toRow) {
             // ⚡ v13.147 (п.C): гекс-цель (получатель в бою / на нём стоит юнит)
             //    не считаем перекрытым — иначе доставка в бой была невозможна.
             const isGoal = key === goal;
-            if (!isGoal && (enemies.has(key) || operationalHexHasActiveBattle(next.col, next.row))) return;
-            const stepCost = supplyMoveCost(delivery.mobility || 'foot', next.col, next.row);
+            if (!ignoreEnemies && !isGoal && (enemies.has(key) || operationalHexHasActiveBattle(next.col, next.row))) return;
+            const stepCost = (typeof supplyDeliveryMoveCost === 'function')
+                ? supplyDeliveryMoveCost(delivery, next.col, next.row)
+                : supplyMoveCost(delivery.mobility || 'foot', next.col, next.row);
             if (!Number.isFinite(stepCost)) return;
             const cost = current.cost + stepCost;
             if (cost < (best.get(key) ?? Infinity)) {
@@ -35097,7 +35300,9 @@ function findSupplyRoute(delivery, toCol, toRow) {
     return key === start ? route.reverse() : null;
 }
 function supplyRouteCost(delivery, route) {
-    return (route || []).reduce((sum, hex) => sum + supplyMoveCost(delivery && delivery.mobility || 'foot', hex.col, hex.row), 0);
+    return (route || []).reduce((sum, hex) => sum + ((typeof supplyDeliveryMoveCost === 'function')
+        ? supplyDeliveryMoveCost(delivery, hex.col, hex.row)
+        : supplyMoveCost(delivery && delivery.mobility || 'foot', hex.col, hex.row)), 0);
 }
 function supplyStepToward(delivery, toCol, toRow) {
     const route = findSupplyRoute(delivery, toCol, toRow);
@@ -35105,7 +35310,9 @@ function supplyStepToward(delivery, toCol, toRow) {
     if (!route) return false;
     let budget = SUPPLY_CONVOY_BUDGET;
     for (const next of route) {
-        const cost = supplyMoveCost(delivery.mobility || 'foot', next.col, next.row);
+        const cost = (typeof supplyDeliveryMoveCost === 'function')
+            ? supplyDeliveryMoveCost(delivery, next.col, next.row)
+            : supplyMoveCost(delivery.mobility || 'foot', next.col, next.row);
         if (!Number.isFinite(cost) || cost > budget) break;
         delivery.col = next.col; delivery.row = next.row; budget -= cost;
         if (delivery.col === toCol && delivery.row === toRow) break;
@@ -35332,6 +35539,17 @@ function advanceSupplyDeliveries() {
     const units = (appData.campaign && appData.campaign.opUnits) || [];
     let events = 0;
     const finished = [];
+    // ⚡ v13.167 (п.9): единая «сдача груза» на складе — и для нормального
+    //    возврата, и для вынужденного (маршрут перекрыт слишком долго).
+    const finishAndLogReturn = (delivery) => {
+        if (!delivery || finished.includes(delivery)) return;
+        ['ammoSmall', 'grenades', 'ammoOrdnance'].forEach(k => {
+            st.stock[k] = Math.min(st.max[k], (Number(st.stock[k]) || 0) + (Number(delivery.cargo && delivery.cargo[k]) || 0));
+        });
+        finished.push(delivery);
+        log(`🏠 Колонна снабжения вернулась на склад (${supplyAssetsLabel(delivery.assets)}).`);
+        events++;
+    };
     st.deliveries.forEach(delivery => {
         if (!delivery) return;
         const target = delivery.kind === 'unit' ? units[delivery.targetUnitId] : null;
@@ -35414,12 +35632,36 @@ function advanceSupplyDeliveries() {
             const arrived = supplyStepToward(delivery, destination.col, destination.row);
             if (delivery.col !== oldCol || delivery.row !== oldRow) events++;
             if (delivery.routeBlocked) {
+                // ⚡ v13.167 (п.9): колонна не должна «зависать» навсегда. Если
+                //    по местности маршрута нет вообще — сразу разворачиваем на
+                //    склад (груз вернётся); если перекрыл противник — даём два
+                //    хода на обход, после чего тоже возвращаемся.
+                delivery.blockedTurns = (Number(delivery.blockedTurns) || 0) + 1;
+                const terrainRoute = (typeof findSupplyRoute === 'function')
+                    ? findSupplyRoute(delivery, destination.col, destination.row, { ignoreEnemies: true }) : [];
+                const terrainImpossible = terrainRoute === null;
+                if (terrainImpossible || delivery.blockedTurns >= 3) {
+                    delivery.status = 'returning';
+                    delivery.returnReason = terrainImpossible ? 'no_passable_route' : 'route_blocked_too_long';
+                    delivery.routeBlocked = false;
+                    delivery.blockedTurns = 0;
+                    if (notifySupplyDelivery(delivery,
+                        terrainImpossible ? 'outbound_no_passable_route' : 'outbound_blocked_too_long',
+                        terrainImpossible
+                            ? `до получателя (${(target || {}).name || 'полковой склад'}) нет проходимого маршрута для выбранного транспорта — колонна возвращается на склад с грузом.`
+                            : `маршрут к «${(target || {}).name || 'полковому складу'}» перекрыт третий ход подряд — колонна возвращается на склад с грузом.`)) events++;
+                    if (delivery.kind === 'rear') finished.push(delivery);
+                    return;
+                }
                 if (notifySupplyDelivery(delivery, 'outbound_route_blocked', `маршрут колонны к «${(target || {}).name || 'полковому складу'}» перекрыт; она остановилась на гексе (${delivery.col},${delivery.row}) и повторит попытку.`)) events++;
-            } else if (delivery.noticeKey === 'outbound_route_blocked') {
-                delivery.noticeKey = null;
-                delivery.notice = null;
-                log(`✅ Маршрут колонны снабжения к «${(target || {}).name || 'полковому складу'}» снова доступен.`);
-                events++;
+            } else if (delivery.blockedTurns) {
+                delivery.blockedTurns = 0;
+                if (delivery.noticeKey === 'outbound_route_blocked') {
+                    delivery.noticeKey = null;
+                    delivery.notice = null;
+                    log(`✅ Маршрут колонны снабжения к «${(target || {}).name || 'полковому складу'}» снова доступен.`);
+                    events++;
+                }
             }
             if (arrived) {
                 if (delivery.kind === 'rear') {
@@ -35476,16 +35718,22 @@ function advanceSupplyDeliveries() {
             const home = supplyStepToward(delivery, depot.col, depot.row);
             if (delivery.col !== oldCol || delivery.row !== oldRow) events++;
             if (delivery.routeBlocked) {
+                delivery.returnBlockedTurns = (Number(delivery.returnBlockedTurns) || 0) + 1;
+                if (delivery.returnBlockedTurns >= 3) {
+                    // ⚡ v13.167 (п.9): три хода без обхода — груз и средства
+                    //    списываются (колонна прорвалась по просёлкам/трофеям),
+                    //    вместо бесконечного стояния на карте.
+                    ['ammoSmall', 'grenades', 'ammoOrdnance'].forEach(k => {
+                        st.stock[k] = Math.min(st.max[k], st.stock[k] + (Number(delivery.cargo && delivery.cargo[k]) || 0));
+                    });
+                    finishAndLogReturn(delivery);
+                    return;
+                }
                 if (notifySupplyDelivery(delivery, 'return_route_blocked', `обратный маршрут колонны на склад перекрыт; она остановилась на гексе (${delivery.col},${delivery.row}) и ждёт.`)) events++;
                 return;
             }
             if (home) {
-                ['ammoSmall', 'grenades', 'ammoOrdnance'].forEach(k => {
-                    st.stock[k] = Math.min(st.max[k], st.stock[k] + (delivery.cargo[k] || 0));
-                });
-                finished.push(delivery);
-                log(`🏠 Колонна снабжения вернулась на склад (${supplyAssetsLabel(delivery.assets)}).`);
-                events++;
+                finishAndLogReturn(delivery);
             }
         }
     });
@@ -35711,6 +35959,52 @@ function renderSupplyPanel() {
     });
     html += `</div>`;
     host.innerHTML = html;
+}
+
+// ⚡ v13.167 (п.7): «🚚 Отправить снабжение» из карточки юнита — открываем
+//    панель снабжения с уже выбранным получателем и подсказкой, кого можно
+//    отправить. Игрок сам решает, носильщики это будут, мулы или машины.
+function openSupplyForUnit(unitIndex) {
+    const idx = Number(unitIndex);
+    if (!Number.isFinite(idx) || idx < 0) return false;
+    const units = (appData.campaign && appData.campaign.opUnits) || [];
+    const target = units[idx];
+    if (!target || target.isDestroyed || target.isSurrendered) {
+        alert('Этот юнит больше не может получать снабжение.');
+        return false;
+    }
+    if (![target.col, target.row].every(Number.isFinite)) {
+        alert(`«${target.name}» ещё не размещён на карте — снабжение отправить нельзя.`);
+        return false;
+    }
+    supplyPanelSetSelection(idx);
+    try { if (typeof closeOpUnitInfoPopup === 'function') closeOpUnitInfoPopup(); } catch (e) {}
+    if (typeof showSupplyPanel === 'function') showSupplyPanel(true);
+    else renderSupplyPanel();
+    // Подсказка в лог и прокрутка к выбранному получателю в панели.
+    log(`🚚 Снабжение: выбран получатель «${target.name}» — отметьте, кого отправить с грузом.`);
+    const host = document.getElementById('supplyPanel');
+    const chosen = document.getElementById('supplyPanelChosen');
+    const scrollTo = (el) => { try { if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center' }); } catch (e) {} };
+    scrollTo(chosen || host);
+    ensureSupplyChoicesHint();
+    return true;
+}
+// ⚡ v13.167 (п.7): если игрок ещё ничего не выбрал для отправки — показываем
+//    понятную подсказку прямо в панели (а не «Выберите транспорт» из alert).
+function ensureSupplyChoicesHint() {
+    const host = document.getElementById('supplyPanel');
+    if (!host) return;
+    const st = ensureSupplyState();
+    if (!st) return;
+    let html = host.innerHTML || '';
+    if (html.indexOf('supplyChoicesHint') !== -1) return;
+    const free = supplyAssetIds().filter(id => st.assets && st.assets[id] && st.assets[id].available > 0);
+    if (!free.length) return;
+    const hint = `<div id="supplyChoicesHint" style="margin-top:6px;font-size:.8rem;color:#8ecbff;">` +
+        `Кого отправить со грузом: ${free.map(id => `${SUPPLY_ASSET_TYPES[id].icon} ${SUPPLY_ASSET_TYPES[id].name}`).join(', ')}. ` +
+        `Укажите количество в полях «Транспорт и носильщики» и нажмите «🚚 Отправить снабжение».</div>`;
+    host.innerHTML = html + hint;
 }
 
 function dispatchSupplyFromPanel() {

@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.166 — tactical grenade-area fire, commissioner card limit, unified rules.
+// ⚡ BUILD-МАРКЕР: v13.167 — tactical grenade-area fire, commissioner card limit, unified rules.
 (function () {
   'use strict';
 
@@ -2443,6 +2443,59 @@
     if (!state.menuOpen || state.mapPick !== 'sector' || !state.draft) return [];
     return (state.draft.targetHexes || []).map(point => ({ col: Number(point.col), row: Number(point.row) }))
       .filter(point => Number.isFinite(point.col) && Number.isFinite(point.row));
+  };
+  // ⚡ v13.167 (п.4): приказ «✂️ Перерезать пути» — выбранные гексы и подсказка,
+  //    КУДА можно поставить следующий. Раньше карта во время выбора гексов
+  //    никак не подсвечивалась, и было непонятно, какие гексы уже перерезаны.
+  window.uxGetCutPathsDraftHexes = function () {
+    if (!state.menuOpen || state.mapPick !== 'cutpaths' || !state.draft) return null;
+    const keys = opDraftCutHexKeys(state.draft);
+    const toPoint = key => {
+      const [col, row] = String(key).split(',').map(Number);
+      return (Number.isFinite(col) && Number.isFinite(row)) ? { col, row } : null;
+    };
+    const chosen = keys.map(toPoint).filter(Boolean);
+    const keySet = new Set(keys);
+    const selected = (state.selectedUnitId != null) ? (units()[state.selectedUnitId] || null) : null;
+    const neighboursOf = (col, row) => {
+      let list = [];
+      try {
+        list = (typeof getOpHexNeighbors === 'function') ? getOpHexNeighbors(col, row) : [];
+      } catch (e) { list = []; }
+      if (!list || !list.length) {
+        list = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]
+          .map(offset => ({ col: col + offset[0], row: row + offset[1] }));
+      }
+      return list
+        .map(point => ({ col: Number(point && point.col), row: Number(point && point.row) }))
+        .filter(point => Number.isFinite(point.col) && Number.isFinite(point.row))
+        .filter(point => !keySet.has(point.col + ',' + point.row))
+        .filter(point => {
+          if (typeof isHexInPlayableArea !== 'function') return true;
+          return isHexInPlayableArea(campaign() && campaign().scenario, point.col, point.row);
+        });
+    };
+    let candidates = [];
+    if (keys.length === 0) {
+      // первая точка цепочки — рядом со взводом (он встанет на средний гекс)
+      candidates = selected && Number.isFinite(Number(selected.col))
+        ? neighboursOf(Number(selected.col), Number(selected.row)) : [];
+    } else if (keys.length < 3) {
+      const edges = keys.length === 1 ? [keys[0]] : [keys[0], keys[keys.length - 1]];
+      const seen = new Set();
+      edges.forEach(key => {
+        const point = toPoint(key);
+        if (!point) return;
+        neighboursOf(point.col, point.row).forEach(candidate => {
+          const candidateKey = candidate.col + ',' + candidate.row;
+          if (seen.has(candidateKey)) return;
+          seen.add(candidateKey);
+          candidates.push(candidate);
+        });
+      });
+    }
+    return { chosen, candidates, unitHex: selected && Number.isFinite(Number(selected.col))
+      ? { col: Number(selected.col), row: Number(selected.row) } : null };
   };
   window.toggleCommPanelBody = function () { state.commCollapsed = !state.commCollapsed; syncStageLayout(); };
   window.showWinchInfo = showWinchInfo;
