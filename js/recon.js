@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.160 — разведывательные миссии и приказ «Наблюдение»
+// ⚡ BUILD-МАРКЕР: v13.163 — разведывательные миссии и приказ «Наблюдение»
 // ═══════════════════════════════════════════════════════════════════════
 // ⚡ v13.157: НОВАЯ РАЗВЕДКА (заменяет подсветку радиуса v13.018…v13.099)
 //
@@ -921,6 +921,25 @@ function openReconMissionModal(unitId, squadName) {
     };
     return showReconPanel();
 }
+// ⚡ v13.163: выдача приказа на разведку ИЗ ШТАБА — конкретным развед-отрядом
+//    штаба (мотоциклист-разведчик BeVe, AL-41 Hidalgo A.I.R.F.).
+//    Штаб — узел выдачи: сам он не двигается, в миссию уходит его отряд.
+function openReconMissionModalForAsset(unitId, assetKey) {
+    const c = reconCampaign();
+    if (!c) return false;
+    const def = RECON_ASSET_TYPES[assetKey];
+    if (!def || !def.canRecon) return false;
+    const sources = reconListAssetSources().filter(source => source.assetKey === assetKey &&
+        (unitId === null || unitId === undefined || Number(source.unitId) === Number(unitId)));
+    const source = sources[0] || null;
+    openReconMissionModal(
+        source ? source.unitId : unitId,
+        source ? source.squadName : null
+    );
+    if (reconDraft) reconDraft.assetKey = assetKey;
+    renderReconPanel();
+    return true;
+}
 function showReconPanel() {
     const panel = (typeof document !== 'undefined') ? document.getElementById('reconPanel') : null;
     if (panel) panel.style.display = 'block';
@@ -971,6 +990,26 @@ function reconClearRoute() {
     renderReconPanel();
     if (typeof redrawOperationalMap === 'function') { try { redrawOperationalMap(); } catch (e) {} }
     return true;
+}
+// ⚡ v13.163: пауза/продолжение набора маршрута. Раньше pickingRoute держался
+//    до отправки миссии, и клики по своим отрядам уходили в маршрут — выбрать
+//    другой отряд было невозможно, пока открыта панель разведки.
+function reconPauseRoutePicking() {
+    if (!reconDraft || !reconDraft.pickingRoute) return false;
+    reconDraft.pickingRoute = false;
+    renderReconPanel();
+    if (typeof redrawOperationalMap === 'function') { try { redrawOperationalMap(); } catch (e) {} }
+    return true;
+}
+function reconResumeRoutePicking() {
+    if (!reconDraft) showReconPanel();
+    if (!reconDraft) return false;
+    reconDraft.pickingRoute = true;
+    renderReconPanel();
+    return true;
+}
+function reconIsPickingRoute() {
+    return !!(reconDraft && reconDraft.pickingRoute);
 }
 // Клик по карте во время набора маршрута
 function handleReconRouteDraftClick(clickX, clickY, size) {
@@ -1125,7 +1164,12 @@ function renderReconPanel() {
         <div style="margin-top:6px; font-size:.82rem; color:#ddd;">
             2. Маршрут: <span style="color:#f1c40f;">${routeText}</span>
             <button onclick="reconClearRoute()" style="background:#555; font-size:.7rem; padding:1px 6px; margin-left:6px;">Очистить маршрут</button>
-            <div style="color:#888; font-size:.75rem;">Клик по гексам на карте добавляет точку (до ${RECON_ROUTE_MAX_POINTS}); последняя точка — точка наблюдения.</div>
+            ${reconDraft.pickingRoute
+                ? `<button onclick="reconPauseRoutePicking()" style="background:#7f6a2b; font-size:.7rem; padding:1px 6px; margin-left:4px;" title="Клики по карте снова выбирают отряды, маршрут сохраняется">✋ Закончить набор</button>`
+                : `<button onclick="reconResumeRoutePicking()" style="background:#2980b9; font-size:.7rem; padding:1px 6px; margin-left:4px;" title="Клики по гексам снова добавляют точки маршрута">➕ Добавить точки</button>`}
+            <div style="color:#888; font-size:.75rem;">${reconDraft.pickingRoute
+                ? `Клик по гексам на карте добавляет точку (до ${RECON_ROUTE_MAX_POINTS}); последняя точка — точка наблюдения. Клик по своему отряду прерывает набор и выбирает отряд.`
+                : 'Набор точек приостановлен — клики по карте выбирают отряды. Маршрут сохранён.'}</div>
         </div>
         <div style="margin-top:6px; font-size:.82rem; color:#ddd;">3. Наблюдение: ${modeRadio}</div>
         <div style="margin-top:4px; font-size:.82rem; color:#ddd;">4. Доклад: ${reportRadio}</div>

@@ -320,7 +320,12 @@ const RADIO_UNITS = (extra) => [
     const draw = sliceFunction(HTML, 'drawSupplyDeliveriesOnMap');
     ok(/setLineDash/.test(draw), 'маршрут колонны рисуется пунктиром');
     ok(/supplyConvoyIcon\(delivery\)/.test(draw), 'значок берётся из типа колонны');
-    ok(/radius = size \* 0\.42/.test(draw), 'значок каравана крупный и читается на карте');
+    // ⚡ v13.162: у техники вместо эмодзи — картинка автомобиля/грузовика,
+    //    поэтому радиус зависит от того, есть ли файл (0.52 с картинкой, 0.42 без)
+    ok(/const radius = size \* \(vehicleImg \? 0\.52 : 0\.42\)/.test(draw),
+        'значок каравана крупный и читается на карте');
+    ok(/ctx\.drawImage\(vehicleImg/.test(draw),
+        'у колонны с техникой рисуется иконка самого автомобиля/грузовика');
     const redraw = sliceFunction(HTML, 'redrawOperationalMapNow');
     ok(/drawSupplyDeliveriesOnMap\(ctx/.test(redraw), 'отрисовка подключена к оперативной карте');
 }

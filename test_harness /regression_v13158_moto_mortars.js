@@ -47,11 +47,11 @@ function sliceConst(name) {
 // функции миграции кладём в общий /tmp/wg_part.js — песочница подхватит их сама
 function writeReconHelpers() {
     const parts = [];
-    ['RECON_PLATOON_SQUAD_TEMPLATES', 'MOTORCYCLE_SQUAD_RE', 'MOTORCYCLE_RIDER_RE'].forEach(c => {
+    ['RECON_PLATOON_SQUAD_TEMPLATES', 'MOTORCYCLE_SQUAD_RE', 'MOTORCYCLE_RIDER_RE', 'OP_HQ_RECON_SQUADS'].forEach(c => {
         try { parts.push(extractConst(HTML, c)); } catch (e) {}
     });
     ['isBicyclePlatoonPreset', 'isMotorcyclePlatoonPreset', 'motorcyclePresetPlatoon',
-        'syncReconPlatoonTemplates', 'syncReconPlatoonSquads'].forEach(fn => {
+        'syncReconPlatoonTemplates', 'syncReconPlatoonSquads', 'isBattalionHqUnit', 'pruneOpUnitRiders', 'opHqReconSquadSpecs', 'opHqReconSquadMatches'].forEach(fn => {
         try { parts.push(extractFn(HTML, fn)); } catch (e) {}
     });
     fs.writeFileSync('/tmp/wg_part.js', parts.join('\n\n'));
@@ -350,11 +350,11 @@ const MORTAR_TEMPLATES = [
         'buildOperationalUnits', 'getPresetSignature', 'getBattalionSignature',
         'generateBattalion', 'cloneTemplate', 'assignUniqueCrewKeys',
         'isBicyclePlatoonPreset', 'isMotorcyclePlatoonPreset', 'motorcyclePresetPlatoon',
-        'syncReconPlatoonTemplates', 'syncReconPlatoonSquads',
+        'syncReconPlatoonTemplates', 'syncReconPlatoonSquads', 'isBattalionHqUnit', 'pruneOpUnitRiders', 'opHqReconSquadSpecs', 'opHqReconSquadMatches',
         'syncSupplySquadTemplates', 'migrateSupplySquadNames', 'supplySquadRenamed', 'isStaticOpUnit',
         'createEnemyOperationalUnits'
     ];
-    const consts = ['RECON_PLATOON_SQUAD_TEMPLATES', 'MOTORCYCLE_SQUAD_RE', 'MOTORCYCLE_RIDER_RE', 'SUPPLY_VEHICLE_ICON_RULES', 'SUPPLY_SQUAD_RENAMES'];
+    const consts = ['RECON_PLATOON_SQUAD_TEMPLATES', 'MOTORCYCLE_SQUAD_RE', 'MOTORCYCLE_RIDER_RE', 'OP_HQ_RECON_SQUADS', 'SUPPLY_VEHICLE_ICON_RULES', 'SUPPLY_SQUAD_RENAMES'];
     const src = consts.map(c => { try { return extractConst(HTML, c); } catch (e) { return ''; } })
         .concat(FNS.map(f => extractFn(HTML, f))).join('\n\n');
     fs.writeFileSync('/tmp/wg_part.js', src);
