@@ -101,7 +101,9 @@ console.log('== v13.157: разведка, время кампании, мино
        s.evalCtx("getReconSpeed('motorcycle', 'grass')") === 2 &&
        s.evalCtx("getReconSpeed('motorcycle', 'forest')") === 1,
        'п.2: мотоцикл — 4 дорога / 2 трава-кусты / 1 лес');
-    ok(s.evalCtx("getReconSpeed('armored_car', 'bushes')") === 4, 'п.2: бронеавтомобиль идёт кустами (4)');
+    // ⚡ v13.160: бронеавтомобиль больше не разведывательный актив
+    ok(s.evalCtx("typeof RECON_ASSET_TYPES.beve_armored_car === 'undefined'"),
+       'п.2: актив «Бронеавтомобиль» убран (Landsverk — обычные юниты)');
     ok(s.evalCtx("getReconSpeed('light_car', 'grass')") === 4 &&
        s.evalCtx("getReconSpeed('light_car', 'forest')") === 0,
        'п.2: Hidalgo — 4 трава, лес недоступен');
@@ -109,10 +111,8 @@ console.log('== v13.157: разведка, время кампании, мино
        'п.10.2: мотоцикл может заехать в лес (скорость 1)');
     ok(s.evalCtx("canReconMoveTo('motorcycle', {col:4,row:5}, {col:7,row:6})") === false,
        'п.2: мотоцикл НЕ заезжает на холм');
-    ok(s.evalCtx("canReconMoveTo('armored_car', {col:4,row:5}, {col:6,row:6})") === true,
-       'п.10.3: бронеавтомобиль заезжает в кусты');
-    ok(s.evalCtx("canReconMoveTo('armored_car', {col:4,row:5}, {col:5,row:6})") === false,
-       'п.2: бронеавтомобиль НЕ заезжает в лес');
+    ok(s.evalCtx("canReconMoveTo('light_car', {col:4,row:5}, {col:6,row:6})") === false,
+       'п.10.3: Hidalgo не заезжает в кусты (только дорога/трава)');
     ok(s.evalCtx("canReconMoveTo('light_car', {col:4,row:5}, {col:5,row:6})") === false,
        'п.2: Hidalgo не заезжает в лес');
     ok(s.evalCtx("canReconMoveTo('foot', {col:4,row:5}, {col:5,row:6})") === true,
@@ -169,8 +169,8 @@ console.log('== v13.157: разведка, время кампании, мино
     const s = missionSandbox();
     const assets = s.evalCtx('JSON.stringify(appData.campaign.reconAssets)');
     ok(/beve_motorcycle_scout":\{"total":1,"available":1/.test(assets), 'п.7.1: пул активов посчитан из войск', assets);
-    ok(s.evalCtx("getReconAssetList().map(a => a.key)").join(',') === 'beve_motorcycle_scout,beve_armored_car',
-       'п.9.1: в списке только активы с canRecon и available > 0');
+    ok(s.evalCtx("getReconAssetList().map(a => a.key)").join(',') === 'beve_motorcycle_scout',
+       'п.9.1: в списке только активы с canRecon и available > 0 (бронеавтомобиля нет)');
     const mission = s.evalCtx(`createReconMission({ assetKey: 'beve_motorcycle_scout', route: [{col:6,row:5},{col:7,row:5}], observeMode: 'stationary', reportMethod: 'radio' })`);
     ok(!!mission && mission.status === 'active', 'п.4.1: миссия создана со статусом active');
     ok(s.evalCtx('appData.campaign.reconAssets.beve_motorcycle_scout.available') === 0, 'п.4.1: available-- при отправке');
@@ -230,11 +230,15 @@ advanceReconMissions();
 // ─────────────────────── 7. потеря актива ───────────────────────
 {
     const s = missionSandbox();
-    s.run(`createReconMission({ assetKey: 'beve_armored_car', route: [{col:4,row:5}], observeMode: 'pass', reportMethod: 'radio' });`);
-    s.run('reconOnUnitDestroyed(appData.campaign.opUnits[2]);');
+    // ⚡ v13.160: актив-юнит для проверки потери — развед. взвод A.I.R.F.
+    s.run(`appData.campaign.opUnits.push({ name: 'Развед. взвод', type: 'recon_platoon', col: 3, row: 6,
+        squads: [{ name: 'Развед. отделение №1', fighters: [{ hp: 3 }] }] });
+        initReconAssets();
+        createReconMission({ assetKey: 'airf_recon_platoon', route: [{col:4,row:5}], observeMode: 'pass', reportMethod: 'radio' });`);
+    s.run('reconOnUnitDestroyed(appData.campaign.opUnits[3]);');
     ok(s.evalCtx('appData.campaign.reconMissions.filter(m => m.status === "failed").length') === 1,
        'п.4.4: гибель актива → миссия failed');
-    ok(s.evalCtx('appData.campaign.reconAssets.beve_armored_car.total') === 0, 'п.4.4: тип разведки закрыт до конца операции');
+    ok(s.evalCtx('appData.campaign.reconAssets.airf_recon_platoon.total') === 0, 'п.4.4: тип разведки закрыт до конца операции');
     ok(s.logs.some(line => /потерян\. Разведка этого типа недоступна/.test(line)),
        'п.4.4: в лог записано «потерян. Разведка этого типа недоступна»');
 }
@@ -247,7 +251,8 @@ advanceReconMissions();
     const order = { id: 77, type: 'observe', status: 'active' };
     s.run(`appData.campaign.opUnits[0].col = 4; appData.campaign.opUnits[0].row = 5;`);
     s.run(`executeObserveOrder(appData.campaign.opUnits[0], ${JSON.stringify(order)});`);
-    ok(s.evalCtx('getReconAssetList().length') === 2, 'п.6.3: наблюдение не тратит пул активов');
+    ok(s.evalCtx('getReconAssetList().length') === 1,
+       'п.6.3: наблюдение не тратит пул активов (активов в списке: 1 — мотоциклист, БА больше нет)');
     {
         const s3 = missionSandbox();
         s3.run('function unitHasFirepower() { return false; } function isEscortCapableInfantry() { return true; }');

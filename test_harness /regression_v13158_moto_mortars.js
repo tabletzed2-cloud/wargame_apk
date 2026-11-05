@@ -47,8 +47,11 @@ function sliceConst(name) {
 // функции миграции кладём в общий /tmp/wg_part.js — песочница подхватит их сама
 function writeReconHelpers() {
     const parts = [];
-    try { parts.push(extractConst(HTML, 'RECON_PLATOON_SQUAD_TEMPLATES')); } catch (e) {}
-    ['isBicyclePlatoonPreset', 'syncReconPlatoonTemplates', 'syncReconPlatoonSquads'].forEach(fn => {
+    ['RECON_PLATOON_SQUAD_TEMPLATES', 'MOTORCYCLE_SQUAD_RE', 'MOTORCYCLE_RIDER_RE'].forEach(c => {
+        try { parts.push(extractConst(HTML, c)); } catch (e) {}
+    });
+    ['isBicyclePlatoonPreset', 'isMotorcyclePlatoonPreset', 'motorcyclePresetPlatoon',
+        'syncReconPlatoonTemplates', 'syncReconPlatoonSquads'].forEach(fn => {
         try { parts.push(extractFn(HTML, fn)); } catch (e) {}
     });
     fs.writeFileSync('/tmp/wg_part.js', parts.join('\n\n'));
@@ -109,28 +112,45 @@ const MORTAR_TEMPLATES = [
     });
 }
 
-// ───────────── 2. самокатные взводы пресета ─────────────
+// ───────────── 2. где живут расчёты (v13.159: отдельный мотоциклетный взвод) ─────────────
 {
     const s = sandboxWithTemplates();
     const platoons = s.evalCtx(`BATTALION_PRESETS['BeVe'].standard
         .filter(u => Array.isArray(u.platoons))
-        .flatMap(u => u.platoons)
-        .filter(p => p.mobilityType === 'bicycle' || /самокат/i.test(p.name || ''))`);
-    ok(platoons.length === 3, 'в пресете BeVe три самокатных взвода', platoons.length);
+        .flatMap(u => u.platoons)`);
+    const bicycles = platoons.filter(pl => pl.mobilityType === 'bicycle' || /самокат/i.test(pl.name || ''));
+    const moto = platoons.filter(pl => pl.mobilityType === 'motorcycle' || /мотоцикл/i.test(pl.name || ''));
+    ok(bicycles.length === 3, 'в пресете BeVe три самокатных взвода', bicycles.length);
+    ok(moto.length === 1 && /Мотоциклетный взвод №4/.test(moto[0].name),
+        'есть отдельный «Мотоциклетный взвод №4»', moto.map(pl => pl.name).join(', '));
     const templateNames = new Set(s.evalCtx('SQUAD_TEMPLATES').map(t => t.name));
-    platoons.forEach((pl, i) => {
+    bicycles.forEach(pl => {
         const names = pl.squads.map(sq => sq.name);
-        ok(names.some(n => /Мотоциклетный миномётный расчёт №\d/.test(n)),
-            `${pl.name}: есть мотоциклетный миномётный расчёт`, names.join(' | '));
-        const mortar = pl.squads.find(sq => /Мотоциклетный миномётный расчёт/i.test(sq.name));
-        ok(mortar && mortar.templateName === `Мотоциклетный миномётный расчёт 50-мм №${i + 1}`,
-            `${pl.name}: ссылается на шаблон №${i + 1}`, mortar && mortar.templateName);
-        ok(mortar && templateNames.has(mortar.templateName),
-            `${pl.name}: шаблон расчёта существует`);
-        // мотоциклетный пулемётный расчёт — «сосед» для сравнения мобильности
-        ok(names.some(n => /Мотоциклетный Пулеметный расчёт/.test(n)),
-            `${pl.name}: есть и мотоциклетный пулемётный расчёт (тот же взвод)`, names.join(' | '));
+        ok(!names.some(n => /Мотоциклетн|Мотоциклист/i.test(n)),
+            `${pl.name}: мотоциклетных отрядов больше нет`, names.join(' | '));
+        ok(names.some(n => /^Штаб взвода/i.test(n)), `${pl.name}: свой штаб взвода на месте`);
     });
+    const motoNames = moto.length ? moto[0].squads.map(sq => sq.name) : [];
+    [1, 2, 3].forEach(n => {
+        ok(motoNames.includes(`Мотоциклетный Пулеметный расчёт №${n}`),
+            `№4: мотоциклетный пулемётный расчёт №${n}`);
+        ok(motoNames.includes(`Мотоциклетный миномётный расчёт №${n}`),
+            `№4: мотоциклетный миномётный расчёт №${n}`);
+        ok(templateNames.has(`Мотоциклетный миномётный расчёт 50-мм №${n}`),
+            `№4: шаблон миномётного расчёта №${n} существует`);
+    });
+    // ⚡ v13.160: мотоциклисты живут только при штабе батальона
+    ok(!motoNames.some(n => /^Мотоциклист-/.test(n)),
+        '№4: мотоциклистов-разведчиков/посыльных в взводе нет (они при штабе батальона)',
+        motoNames.join(' | '));
+    const hqSquads = s.evalCtx(`(BATTALION_PRESETS['BeVe'].standard.find(u => u.type === 'hq' && /^Штаб батальона$/i.test(u.name)) || {}).squads || []`);
+    const hqNames = hqSquads.map(sq => sq.name);
+    ok(hqNames.includes('Мотоциклист-разведчик') && hqNames.includes('Мотоциклист-посыльный'),
+        'мотоциклист-разведчик и -посыльный при штабе батальона', hqNames.join(' | '));
+    ok(motoNames.some(n => /^Штаб взвода/i.test(n)), '№4: есть штаб взвода (карточки, связь, отход)');
+    ok(moto.length && moto[0].icon === 'images/BeVe/Мотоциклетный взвод BeVe №4.png',
+        '№4: иконка взвода', moto.length && moto[0].icon);
+    ok(moto.length && fs.existsSync(path.join(ROOT, moto[0].icon)), '№4: файл иконки на месте');
 }
 
 // ───────────── 3. корень дефекта: сигнатура видит состав взводов ─────────────
@@ -150,48 +170,60 @@ const MORTAR_TEMPLATES = [
 // ───────────── 4. миграция уже начатого похода ─────────────
 {
     const s = sandboxWithTemplates();
-    // старый сейв: батальон собран, но мотоциклетных отрядов в взводах нет
+    // сейв v13.158: мотоциклетные расчёты и мотоциклисты ещё лежат в самокатных
+    // взводах 1–3, отдельного мотоциклетного взвода нет
     s.run(`globalThis.oldBat = generateBattalion('BeVe', []);
-        oldBat.units.forEach(u => (u.platoons || []).forEach(pl => {
-            pl.squads = pl.squads.filter(sq => !/Мотоцикл/i.test(sq.name));
-        }));`);
-    const before = s.evalCtx(`oldBat.units.flatMap(u => u.platoons || [])
-        .flatMap(p => p.squads).filter(sq => /Мотоцикл/i.test(sq.name)).length`);
-    ok(before === 0, 'старый сейв: мотоциклетных отрядов нет', before);
-    // пресет кладёт разведчика и посыльного в КАЖДЫЙ взвод (как в v13.157),
-    // миномётный расчёт — только в самокатные
-    const platoonCount = s.evalCtx('oldBat.units.flatMap(u => u.platoons || []).length');
-    const bicycleCount = s.evalCtx(`oldBat.units.flatMap(u => u.platoons || [])
-        .filter(p => p.mobilityType === 'bicycle' || /самокат/i.test(p.name || '')).length`);
+        oldBat.units.forEach(u => {
+            if (!Array.isArray(u.platoons)) return;
+            u.platoons = u.platoons.filter(pl => !/мотоцикл/i.test(pl.name || '') && pl.mobilityType !== 'motorcycle');
+            u.platoons.forEach(pl => {
+                if (!/самокат/i.test(pl.name || '')) return;
+                const n = (pl.name.match(/№\s*(\d+)/) || [])[1] || '1';
+                if (!pl.squads.some(sq => /Мотоциклетный Пулеметный/.test(sq.name))) {
+                    pl.squads.push({ name: 'Мотоциклетный Пулеметный расчёт №' + n, templateName: 'Мотоциклетный Пулеметный расчёт №' + n, fighters: [{ name: 'Сержант', hp: 1, maxHp: 3 }] });
+                }
+                if (!pl.squads.some(sq => /миномётный расчёт/.test(sq.name))) {
+                    pl.squads.push({ name: 'Мотоциклетный миномётный расчёт №' + n, templateName: 'Мотоциклетный миномётный расчёт 50-мм №' + n });
+                }
+                if (!pl.squads.some(sq => /Мотоциклист-разведчик/.test(sq.name))) {
+                    pl.squads.push({ name: 'Мотоциклист-разведчик', templateName: 'Мотоциклист-разведчик' });
+                    pl.squads.push({ name: 'Мотоциклист-посыльный', templateName: 'Мотоциклист-посыльный' });
+                }
+            });
+        });`);
+    const findMoto = `oldBat.units.flatMap(u => u.platoons || []).filter(pl => pl.mobilityType === 'motorcycle' || /мотоцикл/i.test(pl.name || ''))`;
+    ok(s.evalCtx(`${findMoto}.length`) === 0, 'старый сейв: отдельного мотоциклетного взвода нет');
+    ok(s.evalCtx(`oldBat.units.flatMap(u => u.platoons || []).filter(pl => /самокат/i.test(pl.name || ''))
+        .reduce((n, pl) => n + pl.squads.filter(sq => /Мотоциклетн|Мотоциклист/.test(sq.name)).length, 0)`) === 12,
+        'старый сейв: 12 мотоциклетных отрядов лежат в самокатных взводах',
+        s.evalCtx(`oldBat.units.flatMap(u => u.platoons || []).filter(pl => /самокат/i.test(pl.name || ''))
+            .reduce((n, pl) => n + pl.squads.filter(sq => /Мотоциклетн|Мотоциклист/.test(sq.name)).length, 0)`));
 
-    s.run('globalThis.added1 = syncReconPlatoonSquads(oldBat);');
-    const added1 = s.evalCtx('added1');
-    const expectedAdded = platoonCount * 2 + bicycleCount;
-    ok(added1 === expectedAdded,
-        `миграция добавила ${expectedAdded} отрядов (разведчик и посыльный в ${platoonCount} взводов + миномёт в ${bicycleCount})`, added1);
-
-    const check = (re) => s.evalCtx(`oldBat.units.flatMap(u => u.platoons || []).flatMap(p => p.squads).filter(sq => ${re}.test(sq.name)).length`);
-    ok(check('/Мотоциклетный миномётный расчёт/') === bicycleCount,
-        'миномётный расчёт — ровно в самокатных взводах', check('/Мотоциклетный миномётный расчёт/'));
-    ok(check('/Мотоциклист-разведчик/') === platoonCount, 'мотоциклист-разведчик в каждом взводе',
-        check('/Мотоциклист-разведчик/'));
-    ok(check('/Мотоциклист-посыльный/') === platoonCount, 'мотоциклист-посыльный в каждом взводе',
-        check('/Мотоциклист-посыльный/'));
-
-    const names = s.evalCtx(`oldBat.units.flatMap(u => u.platoons || []).flatMap(p => p.squads)
-        .filter(sq => /Мотоциклетный миномётный/.test(sq.name)).map(sq => sq.name)`);
-    ok(JSON.stringify(names) === JSON.stringify([
+    s.run('globalThis.changed1 = syncReconPlatoonSquads(oldBat);');
+    ok(s.evalCtx('changed1') > 0, 'миграция что-то изменила', s.evalCtx('changed1'));
+    ok(s.evalCtx(`${findMoto}.length`) === 1, 'появился отдельный мотоциклетный взвод');
+    ok(s.evalCtx(`oldBat.units.flatMap(u => u.platoons || []).filter(pl => /самокат/i.test(pl.name || ''))
+        .reduce((n, pl) => n + pl.squads.filter(sq => /Мотоциклетн|Мотоциклист/.test(sq.name)).length, 0)`) === 0,
+        'из самокатных взводов мотоциклетные отряды убраны');
+    ok(s.evalCtx(`oldBat.units.flatMap(u => u.platoons || []).filter(pl => /самокат/i.test(pl.name || ''))
+        .every(pl => pl.squads.some(sq => /^Штаб взвода/.test(sq.name)))`),
+        'у самокатных взводов остался свой штаб');
+    const moto = s.evalCtx(`${findMoto}[0].squads.map(sq => sq.name)`);
+    ok(moto.length === 7, 'в мотоциклетном взводе 7 отделений (штаб + 3 пулемётных + 3 миномётных)', moto.join(' | '));
+    ok(JSON.stringify(moto) === JSON.stringify([
+        'Штаб взвода №4 Мотоциклетный',
+        'Мотоциклетный Пулеметный расчёт №1',
+        'Мотоциклетный Пулеметный расчёт №2',
+        'Мотоциклетный Пулеметный расчёт №3',
         'Мотоциклетный миномётный расчёт №1',
         'Мотоциклетный миномётный расчёт №2',
         'Мотоциклетный миномётный расчёт №3'
-    ]), 'нумерация расчётов 1–3 по порядку взводов', names.join(', '));
-
-    s.run('globalThis.added2 = syncReconPlatoonSquads(oldBat);');
-    ok(s.evalCtx('added2') === 0, 'повторный запуск ничего не дублирует (идемпотентно)', s.evalCtx('added2'));
-
-    // шаблоны доложены в appData.templates
-    s.run('globalThis.tplAdded = syncReconPlatoonTemplates();');
-    ok(s.evalCtx('tplAdded') === 0, 'шаблоны уже были — повторно не добавляются');
+    ]), 'состав и порядок отделений как в пресете', moto.join(', '));
+    // состояние перенесённых отделений не потерялось
+    ok(s.evalCtx(`${findMoto}[0].squads.find(sq => /Пулеметный/.test(sq.name)).fighters[0].hp`) === 1,
+        'состояние бойцов перенесённого расчёта сохранено (hp 1)');
+    s.run('globalThis.changed2 = syncReconPlatoonSquads(oldBat);');
+    ok(s.evalCtx('changed2') === 0, 'повторная миграция ничего не меняет (идемпотентно)', s.evalCtx('changed2'));
 }
 
 // ───────────── 4б. фракции: мотоциклисты только у BeVe ─────────────
@@ -317,84 +349,73 @@ const MORTAR_TEMPLATES = [
     const FNS = [
         'buildOperationalUnits', 'getPresetSignature', 'getBattalionSignature',
         'generateBattalion', 'cloneTemplate', 'assignUniqueCrewKeys',
-        'isBicyclePlatoonPreset', 'syncReconPlatoonTemplates', 'syncReconPlatoonSquads',
+        'isBicyclePlatoonPreset', 'isMotorcyclePlatoonPreset', 'motorcyclePresetPlatoon',
+        'syncReconPlatoonTemplates', 'syncReconPlatoonSquads',
         'syncSupplySquadTemplates', 'migrateSupplySquadNames', 'supplySquadRenamed', 'isStaticOpUnit',
         'createEnemyOperationalUnits'
     ];
-    const consts = ['RECON_PLATOON_SQUAD_TEMPLATES', 'SUPPLY_VEHICLE_ICON_RULES', 'SUPPLY_SQUAD_RENAMES'];
+    const consts = ['RECON_PLATOON_SQUAD_TEMPLATES', 'MOTORCYCLE_SQUAD_RE', 'MOTORCYCLE_RIDER_RE', 'SUPPLY_VEHICLE_ICON_RULES', 'SUPPLY_SQUAD_RENAMES'];
     const src = consts.map(c => { try { return extractConst(HTML, c); } catch (e) { return ''; } })
         .concat(FNS.map(f => extractFn(HTML, f))).join('\n\n');
     fs.writeFileSync('/tmp/wg_part.js', src);
 
-    const makeSave = () => {
-        const ad = freshAppData();
-        ad.campaign.playerFaction = 'BeVe';
-        // сейв эпохи v13.157: сигнатура посчитана старым способом, в взводах нет
-        // мотоциклетных расчётов, у отряда потерян боец
-        ad.campaign.battalions.player = {
-            faction: 'BeVe', presetSig: 'old-v13157-signature',
-            units: [{
-                name: '3-я самокатная рота', type: 'infantry_company',
-                platoons: [{
-                    name: '1-й самокатный взвод', mobilityType: 'bicycle',
-                    squads: [{ name: 'Самокатное отделение №1', templateName: 'Самокатное отделение №1' }]
-                }]
+    const ad = freshAppData();
+    ad.campaign.playerFaction = 'BeVe';
+    // сейв эпохи v13.158: сигнатура старая, мотоциклетные расчёты — в самокатном взводе
+    ad.campaign.battalions.player = {
+        faction: 'BeVe', presetSig: 'old-v13158-signature',
+        units: [{
+            name: '3-я самокатная рота', type: 'infantry_company',
+            platoons: [{
+                name: '1-й самокатный взвод', mobilityType: 'bicycle',
+                squads: [
+                    { name: 'Самокатное отделение №1', templateName: 'Самокатное отделение №1' },
+                    { name: 'Штаб взвода №1 Самокатный', templateName: 'Штаб взвода №7 Самокатный' },
+                    { name: 'Мотоциклетный Пулеметный расчёт №1', templateName: 'Мотоциклетный Пулеметный расчёт №1' },
+                    { name: 'Мотоциклетный миномётный расчёт №1', templateName: 'Мотоциклетный миномётный расчёт 50-мм №1' }
+                ]
             }]
-        };
-        ad.campaign.battalions.enemy = { faction: 'A.I.R.F.', presetSig: 'old-v13157-signature', units: [] };
-        ad.campaign.opUnits = [{
-            name: '1-й самокатный взвод', type: 'bicycle_platoon', mobility: 'bicycle',
-            col: 5, row: 6, side: 'player', ap: 2, maxAp: 4, operationalMorale: 71,
-            squads: [{
-                name: 'Самокатное отделение №1', fighters: [{ name: 'А', hp: 1, maxHp: 3 }]
-            }]
-        }];
-        ad.campaign.opUnitsSignature = 'old';
-        return ad;
+        }]
     };
-
-    const ad = makeSave();
+    ad.campaign.battalions.enemy = { faction: 'A.I.R.F.', presetSig: 'old-v13158-signature', units: [] };
+    ad.campaign.opUnits = [{
+        name: '1-й самокатный взвод', type: 'bicycle_platoon', mobility: 'bicycle',
+        col: 5, row: 6, side: 'player', ap: 2, maxAp: 4, operationalMorale: 71,
+        squads: [{ name: 'Самокатное отделение №1', fighters: [{ name: 'А', hp: 1, maxHp: 3 }] }]
+    }];
+    ad.campaign.opUnitsSignature = 'old';
     const s = createSandbox(ad);
     s.run('appData.templates = SQUAD_TEMPLATES.map(t => JSON.parse(JSON.stringify(t)));');
     s.evalCtx('buildOperationalUnits()');
 
     const units = ad.campaign.opUnits || [];
-    const platoon = units.find(u => /1-й самокатный взвод/.test(u.name || ''));
-    ok(!!platoon, 'после сборки самокатный взвод на месте');
-    const names = (platoon && platoon.squads || []).map(sq => sq.name);
-    ok(names.some(n => /Мотоциклетный миномётный расчёт №1/.test(n)),
-        'старый сейв: в взводе появился мотоциклетный миномётный расчёт', names.join(' | '));
-    ok(names.filter(n => /Мотоциклетный миномётный/.test(n)).length === 1,
-        'ровно один миномётный расчёт — без дублей', names.join(' | '));
-    ok(names.some(n => /Мотоциклетный Пулеметный расчёт/.test(n)),
-        'мотоциклетный пулемётный расчёт остался рядом (как в v13.157)');
-    ok(platoon && platoon.col === 5 && platoon.row === 6, 'позиция взвода сохранена (5,6)',
-        platoon && `${platoon.col},${platoon.row}`);
-    ok(platoon && platoon.ap === 2 && platoon.operationalMorale === 71,
-        'состояние взвода (ОД, дух) перенесено', platoon && `${platoon.ap}/${platoon.operationalMorale}`);
-    const firstSquad = (platoon && platoon.squads || []).find(sq => /Самокатное отделение №1/.test(sq.name || ''));
-    ok(firstSquad && firstSquad.fighters && firstSquad.fighters[0].hp === 1,
-        'потерянный боец не «ожил» — состояние отделения сохранено',
-        firstSquad && JSON.stringify(firstSquad.fighters));
-    const mortar = (platoon && platoon.squads || []).find(sq => /Мотоциклетный миномётный/.test(sq.name || ''));
-    ok(mortar && Array.isArray(mortar.fighters) && mortar.fighters.length === 3,
-        'у нового расчёта полный состав — 3 бойца', mortar && (mortar.fighters || []).length);
-    ok(mortar && mortar.crewInstances && mortar.crewInstances[0] &&
-        mortar.crewInstances[0].weaponName === 'Минометный расчёт 50мм DBT',
-        'новый расчёт вооружён 50-мм миномётом DBT');
-    ok(mortar && mortar.icon === 'images/BeVe/мотоцикл беве 1 мин.png',
-        'в карточке взвода у расчёта его иконка', mortar && mortar.icon);
-    ok(!s.logs.some(l => /syncReconPlatoonSquads is not defined|syncReconPlatoonTemplates is not defined/.test(l)),
-        'в сборке нет ошибок миграции', s.logs.filter(l => /is not defined/.test(l)).join(' | '));
+    const motoUnit = units.find(u => /Мотоциклетный взвод №4/.test(u.name || ''));
+    ok(!!motoUnit, 'появился оперативный юнит «Мотоциклетный взвод №4»', units.map(u => u.name).join(', '));
+    ok(motoUnit && motoUnit.type === 'motorcycle_platoon', 'тип юнита — motorcycle_platoon', motoUnit && motoUnit.type);
+    ok(motoUnit && motoUnit.mobility === 'motorcycle', 'мобильность мотоциклетная', motoUnit && motoUnit.mobility);
+    ok(motoUnit && motoUnit.maxAp === 4, 'запас ОД 4 (4 гекса по дороге)', motoUnit && motoUnit.maxAp);
+    ok(motoUnit && motoUnit.icon === 'images/BeVe/Мотоциклетный взвод BeVe №4.png',
+        'иконка взвода — загруженный файл', motoUnit && motoUnit.icon);
+    const motoNames = (motoUnit && motoUnit.squads || []).map(sq => sq.name);
+    ok(motoNames.filter(n => /мотоциклетн\S* миномётн/i.test(n)).length === 3,
+        'в юните три мотоциклетных миномётных расчёта', motoNames.join(' | '));
+    ok(motoNames.filter(n => /Мотоциклетный Пулеметный/.test(n)).length === 3, 'и три пулемётных расчёта');
+    const samokat = units.find(u => /1-й самокатный взвод/.test(u.name || ''));
+    const samokatNames = (samokat && samokat.squads || []).map(sq => sq.name);
+    ok(!samokatNames.some(n => /Мотоциклетн|Мотоциклист/.test(n)),
+        'в самокатном взводе мотоциклетных отрядов нет', samokatNames.join(' | '));
+    ok(samokat && samokat.col === 5 && samokat.row === 6, 'позиция самокатного взвода сохранена (5,6)',
+        samokat && `${samokat.col},${samokat.row}`);
+    ok(samokat && samokat.ap === 2 && samokat.operationalMorale === 71, 'состояние взвода (ОД, дух) перенесено');
+    ok(!s.logs.some(l => /is not defined/.test(l)), 'в сборке нет ошибок миграции',
+        s.logs.filter(l => /is not defined/.test(l)).join(' | '));
 
-    // повторная сборка в той же сессии не должна дублировать расчёт
-    const before = (platoon.squads || []).length;
+    // повторная сборка не дублирует отделения
+    const before = motoNames.length;
     s.evalCtx('buildOperationalUnits()');
-    const platoon2 = (ad.campaign.opUnits || []).find(u => /1-й самокатный взвод/.test(u.name || ''));
-    ok(((platoon2 && platoon2.squads) || []).length === before,
-        'повторная сборка не дублирует отряды', `${before} → ${((platoon2 && platoon2.squads) || []).length}`);
-    ok(((platoon2 && platoon2.squads) || []).filter(sq => /Мотоциклетный миномётный/.test(sq.name || '')).length === 1,
-        'миномётный расчёт по-прежнему один');
+    const moto2 = (ad.campaign.opUnits || []).find(u => /Мотоциклетный взвод №4/.test(u.name || ''));
+    ok(((moto2 && moto2.squads) || []).length === before, 'повторная сборка не дублирует отряды',
+        `${before} → ${((moto2 && moto2.squads) || []).length}`);
 }
 
 // ───────────── 9. враг: пересборка не теряет позиции ─────────────

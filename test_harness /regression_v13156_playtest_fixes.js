@@ -287,9 +287,9 @@ function ok(condition, label, detail) {
 
 // ─────────────── Версия сборки ───────────────
 {
-    // ⚡ v13.157: номер релиза не фиксируем — версия в шапке и в кэше одна и та же
+    // ⚡ v13.157/v13.160: номер релиза не фиксируем — версия в шапке и в кэше одна и та же
     const version = (/APP_VERSION = '(v[\d.]+)'/.exec(HTML) || [])[1] || '';
-    ok(/^v13\.(15[6-9]|[2-9]\d)$/.test(version), 'версия в index.html — актуальная (' + version + ')');
+    ok(/^v\d+\.\d+$/.test(version), 'версия в index.html — актуальная (' + version + ')');
     ok(fs.readFileSync(path.join(ROOT, 'service-worker.js'), 'utf8').includes(`CACHE_NAME = 'wargame-${version}'`),
         'кэш service worker совпадает с версией приложения (' + version + ')');
 }

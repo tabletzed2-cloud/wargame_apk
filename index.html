@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.158 — операция</title>
+  <title>Боевой модуль v13.160 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -131,7 +131,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.158</h1>
+    <h1>⚔️ Боевой модуль v13.160</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -144,7 +144,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.158</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.160</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -196,7 +196,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.158 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.160 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -653,7 +653,7 @@ function safeLocalStorage(method, ...args) {
 //    без радиста и вне радиуса связи вызов недоступен); новое правило телефона:
 //    линия тянется за юнитом до 7 гексов кабеля от штаба (дальше приказ на
 //    движение не выдаётся), при смещении штаба связисты прокладывают линии заново.
-var APP_VERSION = 'v13.158';
+var APP_VERSION = 'v13.160';
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
 //    иначе при загрузке старого сохранения срабатывает TDZ.
@@ -1126,6 +1126,7 @@ function syncSupplySquadTemplates() {
 //    отряды только ДОБАВЛЯЮТСЯ в конец взвода.
 // ═══════════════════════════════════════════════════════════════════════════
 const RECON_PLATOON_SQUAD_TEMPLATES = [
+    'Штаб взвода №4 Мотоциклетный',
     'Мотоциклист-разведчик',
     'Мотоциклист-посыльный',
     'Мотоциклетный миномётный расчёт 50-мм №1',
@@ -1138,6 +1139,17 @@ function isBicyclePlatoonPreset(platoon) {
     const n = String(platoon.name || '');
     return /самокат/i.test(n) || /велосипед/i.test(n);
 }
+function isMotorcyclePlatoonPreset(platoon) {
+    if (!platoon) return false;
+    if (platoon.mobilityType === 'motorcycle') return true;
+    return /мотоцикл/i.test(String(platoon.name || ''));
+}
+// Отделения, которые живут в мотоциклетном взводе (а не в самокатном).
+// ⚡ v13.160: мотоциклист-разведчик/-посыльный сюда НЕ входят — они живут
+//    только при штабе батальона, из взводов их просто убираем.
+const MOTORCYCLE_SQUAD_RE = /мотоциклетн\S*\s*(?:пулемётн|пулеметн|миномётн|минометн)/i;
+// Мотоциклисты при штабе батальона (разведчик и посыльный).
+const MOTORCYCLE_RIDER_RE = /^Мотоциклист-/i;
 // Шаблоны новых отрядов нужны cloneTemplate для тактического боя.
 function syncReconPlatoonTemplates() {
     if (typeof appData === 'undefined' || !appData) return 0;
@@ -1151,45 +1163,450 @@ function syncReconPlatoonTemplates() {
     });
     return added;
 }
-// Доводит состав взводов сохранённого батальона до актуального пресета.
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.159: состав мотоциклетного взвода в УЖЕ начатом походе.
+//
+//    Самокатная рота BeVe переработана: мотоциклетные пулемётные и миномётные
+//    расчёты (плюс мотоциклист-разведчик и -посыльный) вынесены из самокатных
+//    взводов 1–3 в отдельный «Мотоциклетный взвод №4». В старом сейве они ещё
+//    лежат внутри самокатных взводов — переносим их (сами объекты отделений,
+//    чтобы сохранить состояние бойцов и карточки), а не создаём заново.
+// ═══════════════════════════════════════════════════════════════════════════
+function motorcyclePresetPlatoon() {
+    const preset = (typeof BATTALION_PRESETS !== 'undefined' && BATTALION_PRESETS) ? BATTALION_PRESETS['BeVe'] : null;
+    const units = (preset && preset.standard) || [];
+    for (let i = 0; i < units.length; i++) {
+        const list = (units[i] && units[i].platoons) || [];
+        const found = list.find(pl => isMotorcyclePlatoonPreset(pl));
+        if (found) return found;
+    }
+    return null;
+}
 function syncReconPlatoonSquads(battalion) {
     if (!battalion || !Array.isArray(battalion.units)) return 0;
     // мотоциклисты есть только у BeVe (см. applyReconPresetUpdates в data.js):
     // у A.I.R.F. разведка — отдельный взвод и Hidalgo при штабе батальона
     if (String(battalion.faction || '') !== 'BeVe') return 0;
-    let added = 0;
-    let bicycleIndex = 0;
+    let changed = 0;
+    const preset = motorcyclePresetPlatoon();
+    const rank = sq => {
+        const n = String((sq && sq.name) || '');
+        if (/^Штаб взвода/i.test(n)) return 0;
+        if (/мотоциклетн\S*\s*(?:пулемётн|пулеметн)/i.test(n)) return 1;
+        if (/^Мотоциклист-разведчик/i.test(n)) return 2;
+        if (/^Мотоциклист-посыльный/i.test(n)) return 3;
+        if (/мотоциклетн\S*\s*(?:миномётн|минометн)/i.test(n)) return 4;
+        return 9;
+    };
     battalion.units.forEach(unit => {
-        if (!unit || !Array.isArray(unit.platoons)) return;
-        unit.platoons.forEach(platoon => {
-            if (!platoon || !Array.isArray(platoon.squads)) return;
-            const has = re => platoon.squads.some(sq => sq && re.test(String(sq.name || '')));
-            // мотоциклисты — во взводы обеих сторон (как в пресете)
+        if (!unit) return;
+        // ⚡ v13.160: мотоциклист-разведчик и -посыльный — только при штабе
+        //    батальона; из всех взводов и прочих юнитов их убираем.
+        const isBattalionHQ = unit.type === 'hq' && /^Штаб\s+батальона$/i.test(String(unit.name || ''));
+        if (isBattalionHQ) {
+            if (!Array.isArray(unit.squads)) unit.squads = [];
+            const has = re => unit.squads.some(sq => sq && re.test(String(sq.name || '')));
             if (!has(/Мотоциклист-разведчик/i)) {
-                platoon.squads.push({ name: 'Мотоциклист-разведчик', templateName: 'Мотоциклист-разведчик' });
-                added++;
+                unit.squads.push({ name: 'Мотоциклист-разведчик', templateName: 'Мотоциклист-разведчик' });
+                changed++;
             }
             if (!has(/Мотоциклист-посыльный/i)) {
-                platoon.squads.push({ name: 'Мотоциклист-посыльный', templateName: 'Мотоциклист-посыльный' });
-                added++;
+                unit.squads.push({ name: 'Мотоциклист-посыльный', templateName: 'Мотоциклист-посыльный' });
+                changed++;
             }
-            if (!isBicyclePlatoonPreset(platoon)) return;
-            // номер считается по порядку самокатных взводов, поэтому при
-            // нескольких проходах дубликатов («№1» дважды) не появится
-            bicycleIndex += 1;
-            const number = Math.min(3, bicycleIndex);
-            if (!has(/мотоциклетн\S* миномётн/i)) {
-                platoon.squads.push({
-                    name: `Мотоциклетный миномётный расчёт №${number}`,
-                    templateName: `Мотоциклетный миномётный расчёт 50-мм №${number}`
-                });
-                added++;
-            }
+        } else {
+            const stripRiders = list => {
+                if (!Array.isArray(list)) return list;
+                const kept = list.filter(sq => !(sq && MOTORCYCLE_RIDER_RE.test(String(sq.name || ''))));
+                if (kept.length !== list.length) changed++;
+                return kept;
+            };
+            if (Array.isArray(unit.squads)) unit.squads = stripRiders(unit.squads);
+        }
+        if (!Array.isArray(unit.platoons)) return;
+        unit.platoons.forEach(pl => { if (pl && !Array.isArray(pl.squads)) pl.squads = []; });
+        if (!isBattalionHQ) {
+            unit.platoons.forEach(pl => {
+                if (!pl || !Array.isArray(pl.squads)) return;
+                const kept = pl.squads.filter(sq => !(sq && MOTORCYCLE_RIDER_RE.test(String(sq.name || ''))));
+                if (kept.length !== pl.squads.length) { pl.squads = kept; changed++; }
+            });
+        }
+        const bicyclePlatoons = unit.platoons.filter(pl => pl && isBicyclePlatoonPreset(pl) && !isMotorcyclePlatoonPreset(pl));
+        let moto = unit.platoons.find(pl => pl && isMotorcyclePlatoonPreset(pl));
+        // переносим мотоциклетные отделения из самокатных взводов
+        const moved = [];
+        bicyclePlatoons.forEach(pl => {
+            const keep = [];
+            pl.squads.forEach(sq => {
+                if (sq && MOTORCYCLE_SQUAD_RE.test(String(sq.name || ''))) moved.push(sq);
+                else keep.push(sq);
+            });
+            if (keep.length !== pl.squads.length) { pl.squads = keep; changed++; }
         });
+        if (!moto) {
+            // взвод создаём только в той роте, где есть самокатные взводы
+            // (или откуда реально переносить мотоциклетные отделения), иначе
+            // он появился бы в каждой пехотной роте батальона
+            if (!moved.length && !bicyclePlatoons.length) return;
+            if (!preset) return;
+            moto = preset
+                ? JSON.parse(JSON.stringify(preset))
+                : { name: 'Мотоциклетный взвод №4', mobilityType: 'motorcycle', icon: null, squads: [] };
+            moto.squads = [];
+            unit.platoons.push(moto);
+            changed++;
+        }
+        // дополняем взвод недостающими отделениями (шаблонные имена)
+        const want = [
+            { re: /^Штаб взвода/i, name: 'Штаб взвода №4 Мотоциклетный' },
+            { re: /мотоциклетн\S*\s*(?:пулемётн|пулеметн)/i, name: 'Мотоциклетный Пулеметный расчёт №1' },
+            { re: /мотоциклетн\S*\s*(?:миномётн|минометн)/i, name: 'Мотоциклетный миномётный расчёт №1' }
+        ];
+        const templateNameFor = name => {
+            if (/^Штаб взвода/i.test(name)) return 'Штаб взвода №4 Мотоциклетный';
+            if (/миномётн/i.test(name)) {
+                const n = (name.match(/№\s*(\d+)/) || [])[1] || '1';
+                return `Мотоциклетный миномётный расчёт 50-мм №${n}`;
+            }
+            return name;
+        };
+        const addSquad = name => {
+            if (!name) return;
+            if (moto.squads.some(sq => sq && sq.name === name)) return;
+            moto.squads.push({ name, templateName: templateNameFor(name) });
+            changed++;
+        };
+        // перенесённые отделения не должны дублироваться по имени (в старом
+        // сейве номера расчётов могли совпадать между взводами)
+        const addMoved = () => moved.forEach(sq => {
+            if (!sq) return;
+            const name = String(sq.name || '');
+            if (!name || moto.squads.some(x => x && x.name === name)) return;
+            if (!sq.templateName) sq.templateName = templateNameFor(name);
+            moto.squads.push(sq);
+        });
+        // сами отделения из пресета (по три пулемётных и миномётных) + штаб
+        const presetSquads = (preset && Array.isArray(preset.squads)) ? preset.squads : [];
+        const presetNames = presetSquads.map(sq => String((sq && sq.name) || '')).filter(Boolean);
+        const usePreset = presetNames.length > 0;
+        addMoved();
+        if (usePreset) {
+            presetNames.forEach(name => addSquad(name));
+        } else {
+            want.forEach(w => {
+                if (moto.squads.some(sq => sq && w.re.test(String(sq.name || '')))) return;
+                addSquad(w.name);
+            });
+        }
+        const sorted = moto.squads.slice().sort((a, b) => rank(a) - rank(b));
+        const orderChanged = sorted.some((sq, i) => sq !== moto.squads[i]);
+        if (orderChanged) { moto.squads = sorted; changed++; }
     });
-    return added;
+    return changed;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.160: РАЗВЕД. ВЗВОД A.I.R.F. — ДЕЛЕНИЕ НА ОТДЕЛЕНИЯ.
+//
+//    Игрок может разделить развед. взвод на отделения прямо на оперативной
+//    карте: каждое отделение — самостоятельный юнит со своим гексом, и его
+//    можно отправить в отдельную разведывательную миссию. Обратная операция —
+//    «Собрать взвод» — возвращает один юнит для боевых операций.
+//
+//    Карточки по-прежнему выбираются на взвод: выбор копируется на каждое
+//    отделение (и наоборот), поэтому бонусы действуют на все отделения,
+//    пока взвод разделён. Выбор хранится в campaign.splitPlatoons, чтобы
+//    пережить пересборку юнитов при обновлении версии.
+// ═══════════════════════════════════════════════════════════════════════════
+function isReconPlatoonUnit(unit) {
+    if (!unit || unit.splitPlatoonName) return false;
+    if (!Array.isArray(unit.squads) || unit.squads.length <= 1) return false;
+    const name = String(unit.name || '').trim();
+    // в пресете A.I.R.F. «Развед. взвод» объявлен как штабной юнит (type:'hq'),
+    // поэтому смотрим и на имя, а не только на тип.
+    if (/^Развед\.?\s*взвод/i.test(name)) return true;
+    return unit.type === 'recon_platoon' && /развед/i.test(name);
+}
+function isReconPlatoonPart(unit) {
+    return !!(unit && unit.splitPlatoonName && Array.isArray(unit.squads));
+}
+function reconSplitRecords() {
+    const camp = appData && appData.campaign;
+    if (!camp) return {};
+    if (!camp.splitPlatoons || typeof camp.splitPlatoons !== 'object') camp.splitPlatoons = {};
+    return camp.splitPlatoons;
+}
+function cloneJsonSafe(value) {
+    try { return JSON.parse(JSON.stringify(value)); } catch (e) { return value; }
+}
+// Выбор карточек на взводе → каждое отделение разделённого взвода.
+function syncSplitPlatoonCards(unit, selection) {
+    if (!unit || !unit.splitPlatoonName) return 0;
+    const camp = appData && appData.campaign;
+    if (!camp || !Array.isArray(camp.opUnits)) return 0;
+    const chosen = selection || unit.cardSelection;
+    if (!chosen) return 0;
+    const copy = cloneJsonSafe(chosen);
+    const records = reconSplitRecords();
+    const record = records[unit.splitPlatoonName] || (records[unit.splitPlatoonName] = { parts: [] });
+    record.cardSelection = cloneJsonSafe(copy);
+    // сам юнит тоже держим в согласии с записью (вызов может прийти из карточки отделения)
+    unit.cardSelection = cloneJsonSafe(copy);
+    let synced = 0;
+    camp.opUnits.forEach(other => {
+        if (!other || other === unit) return;
+        if (other.splitPlatoonName !== unit.splitPlatoonName) return;
+        if (other.isDestroyed) return;
+        other.cardSelection = cloneJsonSafe(copy);
+        synced++;
+    });
+    return synced;
+}
+// Рации привязаны к индексу юнита — после деления/слияния индексы сдвигаются.
+function operationalRadioSnapshot() {
+    const assigned = hardMode && hardMode.signalPlatoon && hardMode.signalPlatoon.radios
+        ? hardMode.signalPlatoon.radios.assigned : null;
+    if (!Array.isArray(assigned)) return null;
+    const list = (appData.campaign.opUnits || []);
+    return assigned.map(radio => ({ ...radio, _unitName: (list[radio.unitId] && list[radio.unitId].name) || null }));
+}
+function operationalRadioRestore(snapshot) {
+    if (!Array.isArray(snapshot)) return;
+    const assigned = hardMode && hardMode.signalPlatoon && hardMode.signalPlatoon.radios
+        ? hardMode.signalPlatoon.radios.assigned : null;
+    if (!Array.isArray(assigned)) return;
+    const list = (appData.campaign.opUnits || []);
+    const restored = [];
+    snapshot.forEach(radio => {
+        const copy = { ...radio };
+        const name = copy._unitName;
+        delete copy._unitName;
+        const index = name ? list.findIndex(unit => unit && unit.name === name) : -1;
+        if (index >= 0) { copy.unitId = index; restored.push(copy); }
+    });
+    hardMode.signalPlatoon.radios.assigned = restored;
+}
+// ✂️ Разделить развед. взвод на отделения (opts.oldByName — состояние прошлых отделений).
+function splitReconPlatoon(unit, opts) {
+    opts = opts || {};
+    const camp = appData && appData.campaign;
+    if (!camp || !Array.isArray(camp.opUnits)) return 0;
+    if (!isReconPlatoonUnit(unit)) return 0;
+    const position = camp.opUnits.indexOf(unit);
+    if (position < 0) return 0;
+    const records = reconSplitRecords();
+    const record = records[unit.name] || (records[unit.name] = { parts: [] });
+    record.icon = unit.icon || record.icon || null;
+    // тип/подвижность восстанавливаем при сборке: в A.I.R.F. это штабной юнит
+    record.type = unit.type || record.type || 'recon_platoon';
+    record.mobility = unit.mobility || record.mobility || 'foot';
+    record.order = (unit.squads || []).map(squad => String((squad && squad.name) || '')).filter(Boolean);
+    if (Number.isFinite(Number(unit.operationalMorale))) record.morale = Number(unit.operationalMorale);
+    if (unit.cardSelection) record.cardSelection = cloneJsonSafe(unit.cardSelection);
+    const oldByName = opts.oldByName || {};
+    const parts = [];
+    (unit.squads || []).forEach((squad, index) => {
+        if (!squad || !squad.name) return;
+        const prev = oldByName[squad.name] || null;
+        const part = {
+            name: squad.name,
+            type: 'recon_platoon',
+            squads: [squad],
+            col: prev && prev.col !== null && prev.col !== undefined ? prev.col : unit.col,
+            row: prev && prev.row !== null && prev.row !== undefined ? prev.row : unit.row,
+            side: unit.side || 'player',
+            ap: prev && Number.isFinite(Number(prev.ap)) ? Number(prev.ap)
+                : (Number.isFinite(Number(unit.ap)) ? Number(unit.ap) : (unit.maxAp || 4)),
+            maxAp: unit.maxAp || 4,
+            mobility: record.mobility || 'foot',
+            dismounted: false,
+            icon: squad.icon || unit.icon || null,
+            faction: unit.faction || null,
+            detected: prev ? !!prev.detected : unit.detected === true,
+            noiseMarker: prev ? !!prev.noiseMarker : !!unit.noiseMarker,
+            operationalMorale: prev && Number.isFinite(Number(prev.operationalMorale))
+                ? Number(prev.operationalMorale) : unit.operationalMorale,
+            isDestroyed: false,
+            splitPlatoonName: unit.name,
+            splitPlatoonIndex: index,
+            cardSelection: record.cardSelection ? cloneJsonSafe(record.cardSelection) : null
+        };
+        parts.push(part);
+    });
+    if (parts.length < 2) return 0;
+    camp.opUnits.splice(position, 1, ...parts);
+    record.parts = parts.map(part => ({ name: part.name, col: part.col, row: part.row }));
+    try { log(`✂️ «${unit.name}» разделён на отделения: ${parts.map(p => p.name).join(', ')}. Карточки остаются общими.`); } catch (e) {}
+    return parts.length;
+}
+// 🔗 Собрать отделения обратно в один развед. взвод.
+function mergeReconPlatoonParts(unit) {
+    const camp = appData && appData.campaign;
+    if (!camp || !Array.isArray(camp.opUnits)) return null;
+    if (!isReconPlatoonPart(unit)) return null;
+    const platoonName = unit.splitPlatoonName;
+    const records = reconSplitRecords();
+    const record = records[platoonName] || {};
+    const entries = camp.opUnits.map((candidate, index) => ({ unit: candidate, index }))
+        .filter(entry => entry.unit && entry.unit.splitPlatoonName === platoonName);
+    if (!entries.length) return null;
+    const order = (Array.isArray(record.order) && record.order.length)
+        ? record.order.slice() : entries.map(entry => entry.unit.name);
+    const byName = new Map();
+    entries.forEach(entry => (entry.unit.squads || []).forEach(squad => {
+        if (squad && squad.name && !byName.has(squad.name)) byName.set(squad.name, squad);
+    }));
+    const squads = [];
+    order.forEach(name => {
+        if (!byName.has(name)) return;
+        squads.push(byName.get(name));
+        byName.delete(name);
+    });
+    byName.forEach(squad => squads.push(squad));
+    if (!squads.length) return null;
+    const anchorEntry = entries.find(entry => /Штаб/i.test(String(entry.unit.name || ''))) || entries[0];
+    const anchor = anchorEntry.unit;
+    const platoon = {
+        name: platoonName,
+        type: record.type || 'recon_platoon',
+        squads,
+        col: anchor.col,
+        row: anchor.row,
+        side: anchor.side || 'player',
+        ap: Math.max(0, ...entries.map(entry => Number(entry.unit.ap) || 0)),
+        maxAp: Math.max(4, ...entries.map(entry => Number(entry.unit.maxAp) || 4)),
+        mobility: record.mobility || 'foot',
+        dismounted: false,
+        icon: record.icon || anchor.icon || null,
+        faction: anchor.faction || null,
+        detected: entries.some(entry => entry.unit.detected === true),
+        noiseMarker: entries.some(entry => entry.unit.noiseMarker === true),
+        operationalMorale: record.morale !== undefined && record.morale !== null
+            ? record.morale : anchor.operationalMorale,
+        isDestroyed: entries.every(entry => entry.unit.isDestroyed === true),
+        cardSelection: record.cardSelection
+            ? cloneJsonSafe(record.cardSelection) : (anchor.cardSelection ? cloneJsonSafe(anchor.cardSelection) : null)
+    };
+    const insertAt = Math.min(...entries.map(entry => entry.index));
+    entries.slice().sort((a, b) => b.index - a.index).forEach(entry => camp.opUnits.splice(entry.index, 1));
+    camp.opUnits.splice(insertAt, 0, platoon);
+    delete records[platoonName];
+    try { log(`🔗 Отделения собраны обратно в «${platoonName}».`); } catch (e) {}
+    return platoon;
+}
+// После пересборки оперативных юнитов (обновление версии) — вернуть деление.
+function reapplyReconPlatoonSplits(oldByName) {
+    const camp = appData && appData.campaign;
+    if (!camp || !Array.isArray(camp.opUnits)) return 0;
+    const records = reconSplitRecords();
+    let restored = 0;
+    Object.keys(records).forEach(platoonName => {
+        if (camp.opUnits.some(unit => unit && unit.splitPlatoonName === platoonName)) return;
+        const platoon = camp.opUnits.find(unit => unit && unit.name === platoonName);
+        if (!platoon) return;
+        if (splitReconPlatoon(platoon, { oldByName: oldByName || {} }) > 0) restored++;
+    });
+    return restored;
+}
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.160: «ЛИШНИЕ» БРОНЕАВТОМОБИЛИ.
+//    В игре BeVe бронеавтомобили — это отдельные юниты поддержки
+//    «Взвод бронеавтомобилей» (Landsverk 183 №1–3). Никаких других быть не
+//    должно: убираем из батальона и с карты всё, чего нет в пресете.
+// ═══════════════════════════════════════════════════════════════════════════
+function armoredCarPresetNames() {
+    const names = new Set();
+    const preset = (typeof BATTALION_PRESETS !== 'undefined' && BATTALION_PRESETS) ? BATTALION_PRESETS['BeVe'] : null;
+    ((preset && preset.supportOptions) || []).forEach(option => {
+        if (!option || option.id !== 'armored_vehicle_platoon') return;
+        (option.templates || []).forEach(template => { if (template && template.name) names.add(String(template.name)); });
+    });
+    return names;
+}
+function pruneExtraArmoredCars() {
+    const camp = appData && appData.campaign;
+    if (!camp) return 0;
+    const allowed = armoredCarPresetNames();
+    if (!allowed.size) return 0;
+    const isArmoredName = name => /Бронеавтомобил|Landsverk/i.test(String(name || ''));
+    let removed = 0;
+    ['player', 'enemy'].forEach(side => {
+        const battalion = camp.battalions && camp.battalions[side];
+        if (!battalion || !Array.isArray(battalion.units)) return;
+        battalion.units.forEach(unit => {
+            if (!unit) return;
+            const seen = new Set();
+            const clean = list => (list || []).filter(squad => {
+                if (!squad || !isArmoredName(squad.name)) return true;
+                const name = String(squad.name);
+                if (!allowed.has(name) || seen.has(name)) { removed++; return false; }
+                seen.add(name);
+                return true;
+            });
+            if (Array.isArray(unit.squads) && unit.squads.some(squad => squad && isArmoredName(squad.name))) {
+                unit.squads = clean(unit.squads);
+            }
+            if (Array.isArray(unit.platoons)) unit.platoons.forEach(platoon => {
+                if (!platoon || !Array.isArray(platoon.squads)) return;
+                if (platoon.squads.some(squad => squad && isArmoredName(squad.name))) platoon.squads = clean(platoon.squads);
+            });
+        });
+    });
+    // на карте — только одиночные машины из пресета (слитые группы не трогаем)
+    [camp.opUnits, camp.enemyOpUnits].forEach(list => {
+        if (!Array.isArray(list)) return;
+        for (let i = list.length - 1; i >= 0; i--) {
+            const unit = list[i];
+            if (!unit || unit.isGroup || (unit.vehicleList && unit.vehicleList.length)) continue;
+            if (!isArmoredName(unit.name)) continue;
+            if (allowed.has(String(unit.name))) continue;
+            list.splice(i, 1);
+            removed++;
+        }
+    });
+    if (removed) {
+        try { log(`🚙 Убраны лишние бронеавтомобили: ${removed}. Остаются только отдельные машины поддержки Landsverk №1–3.`); } catch (e) {}
+    }
+    return removed;
+}
+// Обновление интерфейса после деления/слияния юнита на оперативной карте.
+function afterOpUnitStructureChange(message) {
+    const camp = appData && appData.campaign;
+    if (camp) camp.selectedOpUnit = null;
+    // карточка старого юнита после деления/слияния неактуальна
+    try { if (typeof closeOpUnitInfoPopup === 'function') closeOpUnitInfoPopup(); } catch (e) {}
+    try { saveData(); } catch (e) {}
+    try { if (typeof initReconAssets === 'function') initReconAssets(); } catch (e) {}
+    try { if (typeof redrawOperationalMap === 'function') redrawOperationalMap(); } catch (e) {}
+    try { if (typeof updateOpPlaceSelect === 'function') updateOpPlaceSelect(); } catch (e) {}
+    try { if (typeof renderCommunicationPanel === 'function') renderCommunicationPanel(); } catch (e) {}
+    try { if (typeof updateDismountPanel === 'function') updateDismountPanel(); } catch (e) {}
+    try { const info = document.getElementById('mapInfo'); if (info) info.innerHTML = message; } catch (e) {}
+    try { if (typeof log === 'function') log(message); } catch (e) {}
+    try { if (typeof toast === 'function') toast(message, 'success'); } catch (e) {}
+}
+function splitReconPlatoonByIndex(index) {
+    const camp = appData && appData.campaign;
+    const unit = (camp && camp.opUnits) ? camp.opUnits[index] : null;
+    if (!unit) return;
+    const radios = operationalRadioSnapshot();
+    const parts = splitReconPlatoon(unit);
+    if (!parts) return;
+    operationalRadioRestore(radios);
+    afterOpUnitStructureChange(`✂️ «${unit.name}» разделён на ${parts} отделения: у каждого свой гекс и своя развед. миссия.`);
+}
+function mergeReconPlatoonByIndex(index) {
+    const camp = appData && appData.campaign;
+    const unit = (camp && camp.opUnits) ? camp.opUnits[index] : null;
+    if (!unit) return;
+    const platoonName = unit.splitPlatoonName;
+    const radios = operationalRadioSnapshot();
+    const platoon = mergeReconPlatoonParts(unit);
+    if (!platoon) return;
+    operationalRadioRestore(radios);
+    afterOpUnitStructureChange(`🔗 Отделения снова в составе «${platoonName}»: один юнит для боевых операций.`);
+}
 // Переименование сохранённых отделений (взводы, бои, шаблоны).
 function migrateSupplySquadNames() {
     if (typeof appData === 'undefined' || !appData) return 0;
@@ -1302,6 +1719,10 @@ case "hq":
     const platoon = {
       name: pl.name,
       type: pl.type || 'infantry_platoon',
+      // ⚡ v13.159: тип мобильности взвода (bicycle / motorcycle) переносится в
+      //    сохранённый батальон — иначе «Мотоциклетный взвод №4» терял его и
+      //    определялся только по имени.
+      mobilityType: pl.mobilityType || null,
       icon: pl.icon || item.icon || null,
       squads: pl.squads.map(s => cloneTemplate(faction, s.name, s.templateName, s.icon || pl.icon || item.icon || null)).filter(Boolean)
     };
@@ -2241,7 +2662,10 @@ function getBattalionSignature(battalion) {
     // ⚡ v13.023: версия 5 — опция «полковая артиллерия» теперь реально
     //    создаёт юниты (2 пушки 75-мм); старые сейвы пересобираются
     //    (позиции совпадающих по имени юнитов сохраняются)
-    const OP_LAYOUT_VERSION = 5;
+    // ⚡ v13.159: версия 6 — у самокатной роты BeVe появился отдельный
+    //    «Мотоциклетный взвод №4»; начатые походы пересобираются один раз,
+    //    позиции юнитов переносятся по именам.
+    const OP_LAYOUT_VERSION = 6;
     return OP_LAYOUT_VERSION + '::' + battalion.units.map(u => (u.name || '') + ':' + (u.type || '')).sort().join('|');
 }
 
@@ -2254,14 +2678,14 @@ function buildOperationalUnits() {
     // ⚡ v13.150: переименование отделений снабжения (BeVe — DAF) должно пройти
     //    ДО пересборки батальона, иначе шаблон с новым именем не найдётся.
     try { migrateSupplySquadNames(); } catch (e) { console.warn('migrateSupplySquadNames:', e.message); }
-    // ⚡ v13.158: мотоциклетные отряды самокатных взводов — и шаблоны, и состав
-    //    уже начатого похода (иначе новых расчётов в сейве просто нет).
+    // ⚡ v13.158/159: мотоциклетные отряды живут в отдельном «Мотоциклетном
+    //    взводе №4» — шаблоны и состав уже начатого похода доводим здесь.
     try { syncReconPlatoonTemplates(); } catch (e) { console.warn('syncReconPlatoonTemplates:', e.message); }
     try {
         const reconAdded = syncReconPlatoonSquads(appData.campaign.battalions.player);
         if (reconAdded > 0) {
-            console.log(`🏍️ В самокатные взводы добавлено отрядов: ${reconAdded}`);
-            log(`🏍️ В самокатные взводы добавлены мотоциклетные отряды: ${reconAdded}`);
+            console.log(`🏍️ Мотоциклетный взвод №4 приведён к актуальному составу: изменений ${reconAdded}`);
+            log(`🏍️ Мотоциклетный взвод №4: состав обновлён (изменений: ${reconAdded})`);
         }
     } catch (e) { console.warn('syncReconPlatoonSquads(player):', e.message); }
 
@@ -2590,9 +3014,9 @@ function buildOperationalUnits() {
     //    ИЛИ ПЕРЕСОЗДАЁМ, ЕСЛИ СОСТАВ/ВЕРСИЯ КАРТЫ ИЗМЕНИЛАСЬ (сигнатура).
     const hasEnemyUnits = appData.campaign.enemyOpUnits && appData.campaign.enemyOpUnits.length > 0;
     const enemyBattalionRef = appData.campaign.battalions.enemy;
-    // ⚡ v13.158: у вражеского батальона тот же пропуск — доводим состав взводов
-    //    и, если отряды добавились, помечаем врага на пересборку (позиции
-    //    сохраняются по именам юнитов ниже).
+    // ⚡ v13.158/159: у вражеского батальона тот же пропуск — доводим состав
+    //    мотоциклетного взвода и, если что-то изменилось, помечаем врага на
+    //    пересборку (позиции сохраняются по именам юнитов ниже).
     if (enemyBattalionRef) {
         try {
             if (syncReconPlatoonSquads(enemyBattalionRef) > 0) {
@@ -2659,6 +3083,16 @@ function buildOperationalUnits() {
             (u.squads || []).forEach(s => { if (s) s.icon = supplySquadIcon(s.name, s.faction || fac); });
         }
     });
+
+    // ⚡ v13.160: вернуть деление развед. взвода, если игрок его разделил
+    //    (пересборка создала взвод заново — отделения восстанавливаем по именам),
+    //    и убрать лишние бронеавтомобили (только Landsverk №1–3 из поддержки).
+    try {
+        const restoredSplits = reapplyReconPlatoonSplits(preserveByName);
+        if (restoredSplits > 0) log(`✂️ Развед. взвод снова разделён на отделения: ${restoredSplits}`);
+    } catch (e) { console.warn('reapplyReconPlatoonSplits:', e.message); }
+    try { pruneExtraArmoredCars(); } catch (e) { console.warn('pruneExtraArmoredCars:', e.message); }
+    try { if (typeof initReconAssets === 'function') initReconAssets(); } catch (e) { console.warn('initReconAssets:', e.message); }
 
     saveData();
 }
@@ -4756,11 +5190,33 @@ function showOpUnitInfoPopup(unit) {
                 `<button type="button" onclick="showReconPanel()" style="margin-top:6px;margin-left:6px;background:#555;">Список миссий</button></div>`;
         } catch (e) { return ''; }
     })();
+    // ⚡ v13.160: деление развед. взвода A.I.R.F. на отделения и обратная сборка
+    const reconSplitMarkup = (function () {
+        try {
+            if (isReconPlatoonUnit(unit)) {
+                const index = (appData.campaign.opUnits || []).indexOf(unit);
+                if (index < 0) return '';
+                return `<div class="op-unit-drawer-cards" style="border-color:#e67e22;"><b>✂️ Развед. взвод</b>` +
+                    `<div style="margin-top:5px;color:#bbb;font-size:.8rem;">Разделите взвод на отделения — у каждого будет свой гекс и своя разведывательная миссия. Карточки по-прежнему выбираются на взвод и действуют на каждое отделение.</div>` +
+                    `<button type="button" onclick="splitReconPlatoonByIndex(${index})" style="margin-top:6px;background:#e67e22;">✂️ Разделить на отделения</button></div>`;
+            }
+            if (isReconPlatoonPart(unit)) {
+                const index = (appData.campaign.opUnits || []).indexOf(unit);
+                if (index < 0) return '';
+                const siblings = (appData.campaign.opUnits || []).filter(other => other && other.splitPlatoonName === unit.splitPlatoonName).length;
+                return `<div class="op-unit-drawer-cards" style="border-color:#e67e22;"><b>🔗 Отделение развед. взвода</b>` +
+                    `<div style="margin-top:5px;color:#bbb;font-size:.8rem;">Часть «${esc(unit.splitPlatoonName)}» (отделений: ${siblings}). Бонусы карточек общие для всего взвода.</div>` +
+                    `<button type="button" onclick="mergeReconPlatoonByIndex(${index})" style="margin-top:6px;background:#e67e22;">🔗 Собрать взвод обратно</button></div>`;
+            }
+            return '';
+        } catch (e) { return ''; }
+    })();
     popup.innerHTML = `<div class="op-unit-drawer-head">${icon ? `<img src="${esc(icon)}" alt="">` : '<span class="op-unit-drawer-icon">♟</span>'}<div><b>${esc(unit.name || 'Юнит')}</b><small>${esc(unit.faction || 'Фракция не указана')} · ${esc(unit.type || 'отряд')}</small></div><button type="button" aria-label="Скрыть карточку" onclick="closeOpUnitInfoPopup()">×</button></div>` +
       `<div class="op-unit-drawer-stats"><span>👥 Живые / всего</span><b>${alive}/${total}</b><span>🫡 Боевой дух</span><b>${morale === null ? '—' : `${esc(morale)}/100`}</b><span>🔫 Патроны</span><b>${ammo.small}${ammoReserve.small ? ` <span style="color:#8fd3ff;">(+${ammoReserve.small} в запасе)</span>` : ''}</b><span>💥 Снаряды</span><b>${ammo.ordnance}${ammoReserve.ordnance ? ` <span style="color:#8fd3ff;">(+${ammoReserve.ordnance} в запасе)</span>` : ''}</b><span>🧨 Гранаты</span><b>${ammo.grenades}</b><span>📍 Позиция</span><b>${esc(unit.col)}, ${esc(unit.row)}</b></div>` +
       vehicleBlock +
       `<div class="op-unit-drawer-cards"><b>📋 Отделения (сводка)</b><div style="margin-top:5px;">${squadRows}</div></div>` +
       `<div class="op-unit-drawer-cards"><b>✨ Активированные бонусы и дебаффы</b><div style="margin-top:5px;">${cardMarkup}</div></div>` +
+      reconSplitMarkup +
       reconButtonMarkup +
       `<div class="op-unit-drawer-foot">${unit.detected ? 'Обнаружен' : `ОД: ${esc(unit.ap ?? '—')}`}</div>`;
     popup.hidden = false;
@@ -14764,17 +15220,22 @@ function resolveBicycleParkCaptures(hexKey) {
 
 function getOpPlannedMoveCost(unit, fc, fr, tc, tr) {
   const cost = getOpMoveCost(unit || {}, fc, fr, tc, tr);
-  if (Number.isFinite(cost) || !unit || unit.mobility !== 'bicycle' || unit.dismounted) return cost;
+  // ⚡ v13.159: и велосипедный, и мотоциклетный взвод могут пройти пешком
+  if (Number.isFinite(cost) || !unit || (unit.mobility !== 'bicycle' && unit.mobility !== 'motorcycle') || unit.dismounted) return cost;
   return getOpMoveCost({ ...unit, mobility: 'foot', dismounted: true }, fc, fr, tc, tr);
 }
 function autoDismountOperational(unit) {
-  if (!unit || unit.mobility !== 'bicycle' || unit.dismounted) return;
+  // ⚡ v13.159: мотоциклетный взвод тоже может спешиться перед непроходимым
+  //    для техники местом и идти пешком — как велосипедный.
+  if (!unit || (unit.mobility !== 'bicycle' && unit.mobility !== 'motorcycle') || unit.dismounted) return;
   unit.dismountedFromMobility = unit.dismountedFromMobility || unit.mobility;
   setOperationalBicyclePark(unit);
   unit.dismounted = true;
   unit.mobility = 'foot';
-  (unit.squads || []).forEach(s => { if (isBicycleTacticalSquad(s)) s.dismounted = true; });
-  log(`🚲 ${unit.name}: спешился перед препятствием, продолжает пешком.`);
+  (unit.squads || []).forEach(s => {
+    if (isBicycleTacticalSquad(s) || (typeof isMotorcycleTacticalSquad === 'function' && isMotorcycleTacticalSquad(s))) s.dismounted = true;
+  });
+  log(`🏍️ ${unit.name}: спешился перед препятствием, продолжает пешком.`);
 }
 function buildOrderRoute(unit, waypoints) {
   let cur = { col: unit.col, row: unit.row };
@@ -15628,8 +16089,13 @@ function tacticalActionAllowed(squad, action, quiet) {
   if (melee && action !== 'melee' && action !== 'retreatMelee') {
     return deny('Отряд связан рукопашной: можно только продолжить рукопашную или отступить.');
   }
-  if (isBicycleTacticalSquad(squad) && !squad.dismounted && ['attack', 'shoot', 'melee'].includes(action)) {
-    return deny('Самокатный отряд должен спешиться перед стрельбой или рукопашной.');
+  const mountedCycleSquad = typeof isMotorcycleTacticalSquad === 'function'
+    ? (isBicycleTacticalSquad(squad) || isMotorcycleTacticalSquad(squad))
+    : isBicycleTacticalSquad(squad);
+  if (mountedCycleSquad && !squad.dismounted &&
+      ['attack', 'shoot', 'melee'].includes(action)) {
+    // ⚡ v13.159: мотоциклетный взвод тоже спешивается перед стрельбой/рукопашной
+    return deny('Мотоциклетный (самокатный) отряд должен спешиться перед стрельбой или рукопашной.');
   }
   // ⚡ v13.099 (п.20): ДОТ неуязвим для рукопашной, пока дверь не подорвана
   //    термитным зарядом/связкой гранат; расчёт самого ДОТа тоже не выходит
@@ -17815,7 +18281,9 @@ function renderActiveCardButtons() {
 
     // Спешиться (если самокатчик не спешен)
     if ((currentSquad.mobilityType === 'bicycle' || currentSquad.mobilityType === 'motorcycle') && !currentSquad.dismounted) {
-      moveHtml += `<button onclick="dismountBicycle()">🚲 Спешиться (оставить стоянку)</button> `;
+      // ⚡ v13.159: у мотоциклетного взвода — своя подпись
+      const dismountIcon = currentSquad.mobilityType === 'motorcycle' ? '🏍️' : '🚲';
+      moveHtml += `<button onclick="dismountBicycle()">${dismountIcon} Спешиться (оставить стоянку)</button> `;
     }
 
     // Сесть на велосипед (если спешен и есть стоянка)
@@ -17823,7 +18291,7 @@ function renderActiveCardButtons() {
       const hex = appData.map.grid[currentSquad.hexPos ? currentSquad.hexPos.join(',') : ''];
       const hasBikePark = hex && hex.markers && hex.markers.includes('bicyclePark');
       if (hasBikePark) {
-        moveHtml += `<button onclick="remountBicycle()">🚲 Сесть на велосипед/мотоцикл</button> `;
+        moveHtml += `<button onclick="remountBicycle()">${currentSquad.mobilityType === 'motorcycle' ? '🏍️' : '🚲'} Сесть на велосипед/мотоцикл</button> `;
       }
     }
   }
@@ -24039,6 +24507,9 @@ function finishCurrentUnitCardSelection(unit, cardSelection) {
     const battle = appData && appData.currentBattleId && appData.campaign && (appData.campaign.activeBattles || []).find(b => b.id === appData.currentBattleId);
     if (!battle || !unit) return;
     unit.cardSelection = { version: 1, done: true, cards: [], targets: {}, lockedAt: Date.now(), ...(cardSelection || {}) };
+    // ⚡ v13.160: у разделённого развед. взвода карточки выбираются на взвод и
+    //    достаются каждому отделению — копируем выбор на «сёстер».
+    try { if (typeof syncSplitPlatoonCards === 'function') syncSplitPlatoonCards(unit, unit.cardSelection); } catch (e) {}
     battle.cardSelectionQueue = (battle.cardSelectionQueue || []).filter(name => name !== unit.name);
     ensureBattleCardSelectionQueue(battle);
     if (typeof placementRecordBicycleBlitzCardSelection === 'function') {
@@ -32068,7 +32539,10 @@ function executeDismountOrder(unit, order) {
         unit.dismounted = true;
         unit.dismountedFromMobility = unit.mobility;
         unit.mobility = 'foot';
-        (unit.squads || []).forEach(s => { if (isBicycleTacticalSquad(s)) s.dismounted = true; });
+        // ⚡ v13.159: мотоциклетный взвод — помечаем спешенными и его отделения
+        (unit.squads || []).forEach(s => {
+            if (isBicycleTacticalSquad(s) || (typeof isMotorcycleTacticalSquad === 'function' && isMotorcycleTacticalSquad(s))) s.dismounted = true;
+        });
 
         // Оставляем велосипеды с владельцем для обработки захвата противником.
         if (unit.col !== null && unit.row !== null) setOperationalBicyclePark(unit);
@@ -37197,14 +37671,29 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
             default: return Infinity;
         }
     }
-    // ---- ВЕЛОСИПЕДИСТЫ И МОТОЦИКЛИСТЫ (НЕ спешены) ----
-    if ((mobility === 'bicycle' || mobility === 'motorcycle') && !dismounted) {
+    // ---- ВЕЛОСИПЕДИСТЫ (НЕ спешены) ----
+    if (mobility === 'bicycle' && !dismounted) {
         if (terrain === 'hill' || terrain === 'swamp_passable' || terrain === 'rocks') return Infinity;
         switch (terrain) {
             case 'road': return 1;
             case 'grass': return 2;
             case 'bushes': return 2;
             case 'forest': return 2;
+            case 'trenches': return 2;
+            default: return Infinity;
+        }
+    }
+    // ---- МОТОЦИКЛЕТНЫЙ ВЗВОД (НЕ спешен) ----
+    // ⚡ v13.159: скорость мотоциклетного взвода — 4 гекса по дороге (1 ОД),
+    //    2 по траве и кустам (2 ОД), 1 по лесу (4 ОД — весь ход). Холм, болото
+    //    и камни непроходимы; спешенный взвод ходит со скоростью пехоты.
+    if (mobility === 'motorcycle' && !dismounted) {
+        if (terrain === 'hill' || terrain === 'swamp_passable' || terrain === 'rocks') return Infinity;
+        switch (terrain) {
+            case 'road': return 1;
+            case 'grass': return 2;
+            case 'bushes': return 2;
+            case 'forest': return 4;
             case 'trenches': return 2;
             default: return Infinity;
         }
@@ -38728,10 +39217,13 @@ function updateDismountPanel() {
 
     // При спешивании ещё не размещённого взвода стоянка будет создана
     // автоматически на выбранном гексе размещения.
+    // ⚡ v13.159: для мотоциклетного взвода — мотоциклетные иконка и подписи
+    const cycleIcon = (unit.mobility === 'motorcycle' || unit.dismountedFromMobility === 'motorcycle') ? '🏍️' : '🚲';
+    const cycleWord = cycleIcon === '🏍️' ? 'Мотоциклы' : 'Велосипеды';
     if (unit.dismounted && (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined)) {
-        btn.textContent = '🚲 Спешен — стоянка при размещении';
+        btn.textContent = `${cycleIcon} Спешен — стоянка при размещении`;
         btn.disabled = true;
-        btn.title = 'Велосипеды будут оставлены на выбранном гексе при размещении отряда';
+        btn.title = `${cycleWord} будут оставлены на выбранном гексе при размещении отряда`;
         return;
     }
 
@@ -38743,7 +39235,7 @@ function updateDismountPanel() {
         if (hasBikePark) {
             btn.textContent = '🚲 Сесть на транспорт';
             btn.disabled = false;
-            btn.title = 'Сесть на велосипеды';
+            btn.title = `Сесть на ${cycleIcon === '🏍️' ? 'мотоциклы' : 'велосипеды'}`;
         } else {
             btn.textContent = '🚲 Нет велостоянки';
             btn.disabled = true;
