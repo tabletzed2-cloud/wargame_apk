@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.160 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.163 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.061: current release data and terrain definitions; absent texture variants no longer referenced.
 // ==================== КОНСТАНТЫ И ДАННЫЕ ==================== 
 // Типы местности
@@ -680,14 +680,25 @@ function getFactionCards(f) { return (appData.factions[f] && appData.factions[f]
       });
     });
   }
+  // ⚡ v13.161: у A.I.R.F. лёгкий автомобиль AL-41 Hidalgo — разведка ТОЛЬКО при
+  //    штабе батальона; из всех взводов и прочих юнитов он убирается.
+  const HIDALGO_RE = /Hidalgo/i;
   const airf = (typeof BATTALION_PRESETS !== 'undefined') ? BATTALION_PRESETS['A.I.R.F.'] : null;
   if (airf && Array.isArray(airf.standard)) {
     airf.standard.forEach(unit => {
-      if (!unit || unit.type !== 'hq') return;
-      if (!/^Штаб Батальона$/i.test(String(unit.name || ''))) return;
-      if (!Array.isArray(unit.squads)) unit.squads = [];
-      const hasHidalgo = unit.squads.some(sq => sq && /Hidalgo/i.test(String(sq.name || '')));
-      if (!hasHidalgo) unit.squads.push({ name: 'AL-41 Hidalgo', templateName: 'AL-41 Hidalgo' });
+      if (!unit) return;
+      const isAirfHq = unit.type === 'hq' && /^Штаб\s+Батальона$/i.test(String(unit.name || ''));
+      if (isAirfHq) {
+        if (!Array.isArray(unit.squads)) unit.squads = [];
+        const hasHidalgo = unit.squads.some(sq => sq && HIDALGO_RE.test(String(sq.name || '')));
+        if (!hasHidalgo) unit.squads.push({ name: 'AL-41 Hidalgo', templateName: 'AL-41 Hidalgo' });
+      } else if (Array.isArray(unit.squads)) {
+        unit.squads = unit.squads.filter(sq => !(sq && HIDALGO_RE.test(String(sq.name || ''))));
+      }
+      (unit.platoons || []).forEach(platoon => {
+        if (!platoon || !Array.isArray(platoon.squads)) return;
+        platoon.squads = platoon.squads.filter(sq => !(sq && HIDALGO_RE.test(String(sq.name || ''))));
+      });
     });
   }
 })();

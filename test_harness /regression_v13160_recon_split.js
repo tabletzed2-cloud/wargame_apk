@@ -22,14 +22,14 @@ const FNS = [
     'pruneExtraArmoredCars', 'armoredCarPresetNames', 'cloneJsonSafe',
     'operationalRadioSnapshot', 'operationalRadioRestore',
     'splitReconPlatoonByIndex', 'mergeReconPlatoonByIndex', 'afterOpUnitStructureChange',
-    'syncReconPlatoonSquads', 'syncReconPlatoonTemplates', 'isBicyclePlatoonPreset',
+    'syncReconPlatoonSquads', 'isBattalionHqUnit', 'pruneOpUnitRiders', 'opHqReconSquadSpecs', 'opHqReconSquadMatches', 'syncReconPlatoonTemplates', 'isBicyclePlatoonPreset',
     'isMotorcyclePlatoonPreset', 'motorcyclePresetPlatoon',
     'generateBattalion', 'cloneTemplate', 'getPresetSignature', 'getBattalionSignature', 'assignUniqueCrewKeys',
     'buildOperationalUnits', 'syncSupplySquadTemplates', 'migrateSupplySquadNames',
     'supplySquadRenamed', 'isStaticOpUnit', 'createEnemyOperationalUnits'
 ];
 const CONSTS = [
-    'RECON_PLATOON_SQUAD_TEMPLATES', 'MOTORCYCLE_SQUAD_RE', 'MOTORCYCLE_RIDER_RE',
+    'RECON_PLATOON_SQUAD_TEMPLATES', 'MOTORCYCLE_SQUAD_RE', 'MOTORCYCLE_RIDER_RE', 'OP_HQ_RECON_SQUADS',
     'SUPPLY_VEHICLE_ICON_RULES', 'SUPPLY_SQUAD_RENAMES'
 ];
 function loadPart() {
@@ -368,6 +368,11 @@ console.log('== v13.160: развед. взвод, мотоциклисты, б�
     ok(!!back && back.type === 'recon_platoon', 'тип взвода восстановлен', back && back.type);
     ok(!!back && back.squads.length === 3, 'три отделения на месте');
 }
+
+// Не оставляем за собой общий /tmp/wg_part.js: его подгружает каждая следующая
+// песочница (sandbox.js), и объявленные здесь const могли конфликтовать с
+// переменными других тестов.
+try { fs.unlinkSync('/tmp/wg_part.js'); } catch (e) {}
 
 console.log(`\nИтог v13.160 (развед. взвод / мотоциклисты / БА): PASS ${pass} · FAIL ${fails.length}`);
 if (fails.length) { fails.forEach(f => console.log('   ✗ ' + f)); process.exit(1); }

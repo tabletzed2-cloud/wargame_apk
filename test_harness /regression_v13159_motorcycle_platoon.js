@@ -25,7 +25,7 @@ function ok(cond, name, extra) {
 const FNS = [
     'generateBattalion', 'cloneTemplate', 'getPresetSignature', 'assignUniqueCrewKeys',
     'isBicyclePlatoonPreset', 'isMotorcyclePlatoonPreset', 'motorcyclePresetPlatoon',
-    'syncReconPlatoonTemplates', 'syncReconPlatoonSquads',
+    'syncReconPlatoonTemplates', 'syncReconPlatoonSquads', 'isBattalionHqUnit', 'pruneOpUnitRiders', 'opHqReconSquadSpecs', 'opHqReconSquadMatches',
     'getOpMoveCost', 'getOpPlannedMoveCost', 'getOpHexTypes', 'isHexInPlayableArea',
     'isCardSelectableOpUnit', 'unitCanExecuteOrderType', 'executeDismountOrder', 'executeRemountOrder',
     'setOperationalBicyclePark', 'operationalBicycleParkCell', 'operationalBicycleUnitSide',
@@ -33,7 +33,7 @@ const FNS = [
     'operationalBicycleParkBelongsTo', 'removeOperationalBicyclePark', 'operationalBicycleParkOwners',
     'tacticalIsHeadquartersSquad', 'findUnitStaffSquad'
 ];
-const CONSTS = ['RECON_PLATOON_SQUAD_TEMPLATES', 'MOTORCYCLE_SQUAD_RE', 'MOTORCYCLE_RIDER_RE', 'ORDER_TYPES'];
+const CONSTS = ['RECON_PLATOON_SQUAD_TEMPLATES', 'MOTORCYCLE_SQUAD_RE', 'MOTORCYCLE_RIDER_RE', 'OP_HQ_RECON_SQUADS', 'ORDER_TYPES'];
 function loadHelpers() {
     const parts = CONSTS.map(c => { try { return extractConst(HTML, c); } catch (e) { return ''; } });
     FNS.forEach(f => { try { parts.push(extractFn(HTML, f)); } catch (e) {} });
@@ -239,11 +239,11 @@ console.log('== v13.159: мотоциклетный взвод №4 ==');
         'buildOperationalUnits', 'getPresetSignature', 'getBattalionSignature',
         'generateBattalion', 'cloneTemplate', 'assignUniqueCrewKeys',
         'isBicyclePlatoonPreset', 'isMotorcyclePlatoonPreset', 'motorcyclePresetPlatoon',
-        'syncReconPlatoonTemplates', 'syncReconPlatoonSquads',
+        'syncReconPlatoonTemplates', 'syncReconPlatoonSquads', 'isBattalionHqUnit', 'pruneOpUnitRiders', 'opHqReconSquadSpecs', 'opHqReconSquadMatches',
         'syncSupplySquadTemplates', 'migrateSupplySquadNames', 'supplySquadRenamed', 'isStaticOpUnit',
         'createEnemyOperationalUnits'
     ];
-    const consts = ['RECON_PLATOON_SQUAD_TEMPLATES', 'MOTORCYCLE_SQUAD_RE', 'MOTORCYCLE_RIDER_RE', 'SUPPLY_VEHICLE_ICON_RULES', 'SUPPLY_SQUAD_RENAMES'];
+    const consts = ['RECON_PLATOON_SQUAD_TEMPLATES', 'MOTORCYCLE_SQUAD_RE', 'MOTORCYCLE_RIDER_RE', 'OP_HQ_RECON_SQUADS', 'SUPPLY_VEHICLE_ICON_RULES', 'SUPPLY_SQUAD_RENAMES'];
     const src = consts.map(c => { try { return extractConst(HTML, c); } catch (e) { return ''; } })
         .concat(FNS2.map(f => extractFn(HTML, f))).join('\n\n');
     fs.writeFileSync('/tmp/wg_part.js', src);

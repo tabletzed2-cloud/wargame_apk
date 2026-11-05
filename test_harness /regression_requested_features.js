@@ -189,7 +189,7 @@ test('онлайн-работы противника по окопам и рас
 
 test('8: оперативные юниты остаются доступными для выбора после смены отряда и сброса маршрута', () => {
   const s = createSandbox(freshAppData());
-  loadHtml(s, ['handleOpMapClick']);
+  loadHtml(s, ['handleOpMapClick', 'opOwnUnitAtPoint']);
   s.run(`
     var OP_HEX_SIZE = 55, pickingTargetHex = false;
     function canvasBackingScale() { return 1; }
@@ -863,7 +863,12 @@ test('если точка эвакуации захвачена, отряд бе
 // 15. Конвой снабжения рисуется на своём текущем гексе.
 test('на карте кампании рисуется текущий гекс каждой колонны снабжения', () => {
   const s = createSandbox(freshAppData());
-  loadHtml(s, ['supplyConvoyIcon', 'drawSupplyDeliveriesOnMap']);
+  // ⚡ v13.162: у колонны с техникой рисуется иконка автомобиля/грузовика
+  s.run(sliceConst(HTML, 'SUPPLY_VEHICLE_ART'));
+  s.run(sliceConst(HTML, 'SUPPLY_VEHICLE_ART_ORDER'));
+  s.run(sliceConst(HTML, 'loadedSupplyConvoyIcons'));
+  loadHtml(s, ['supplyConvoyIcon', 'drawSupplyDeliveriesOnMap', 'supplyConvoyVehicleSrc',
+    'supplyConvoyImage', 'supplyConvoyFaction']);
   s.run(`
     var drawnText = [], drawnArcs = [];
     var ctx = {

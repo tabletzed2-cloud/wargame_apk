@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.160 — операция</title>
+  <title>Боевой модуль v13.163 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -131,7 +131,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.160</h1>
+    <h1>⚔️ Боевой модуль v13.163</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -144,7 +144,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.160</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.163</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -196,7 +196,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.160 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.163 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -653,7 +653,7 @@ function safeLocalStorage(method, ...args) {
 //    без радиста и вне радиуса связи вызов недоступен); новое правило телефона:
 //    линия тянется за юнитом до 7 гексов кабеля от штаба (дальше приказ на
 //    движение не выдаётся), при смещении штаба связисты прокладывают линии заново.
-var APP_VERSION = 'v13.160';
+var APP_VERSION = 'v13.163';
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
 //    иначе при загрузке старого сохранения срабатывает TDZ.
@@ -1186,7 +1186,11 @@ function syncReconPlatoonSquads(battalion) {
     if (!battalion || !Array.isArray(battalion.units)) return 0;
     // мотоциклисты есть только у BeVe (см. applyReconPresetUpdates в data.js):
     // у A.I.R.F. разведка — отдельный взвод и Hidalgo при штабе батальона
-    if (String(battalion.faction || '') !== 'BeVe') return 0;
+    if (String(battalion.faction || '') !== 'BeVe') {
+        // старый сейв мог не хранить faction батальона — опираемся на игрока
+        const playerFaction = appData && appData.campaign ? appData.campaign.playerFaction : null;
+        if (battalion.faction || playerFaction !== 'BeVe') return 0;
+    }
     let changed = 0;
     const preset = motorcyclePresetPlatoon();
     const rank = sq => {
@@ -1202,7 +1206,7 @@ function syncReconPlatoonSquads(battalion) {
         if (!unit) return;
         // ⚡ v13.160: мотоциклист-разведчик и -посыльный — только при штабе
         //    батальона; из всех взводов и прочих юнитов их убираем.
-        const isBattalionHQ = unit.type === 'hq' && /^Штаб\s+батальона$/i.test(String(unit.name || ''));
+        const isBattalionHQ = isBattalionHqUnit(unit);
         if (isBattalionHQ) {
             if (!Array.isArray(unit.squads)) unit.squads = [];
             const has = re => unit.squads.some(sq => sq && re.test(String(sq.name || '')));
@@ -1570,6 +1574,108 @@ function pruneExtraArmoredCars() {
     }
     return removed;
 }
+// ⚡ v13.161: штаб батальона — единственный носитель мотоциклистов BeVe.
+function isBattalionHqUnit(unit) {
+    if (!unit) return false;
+    if (!['hq', 'battalion_hq'].includes(unit.type)) return false;
+    return /^Штаб\s+батальона$/i.test(String(unit.name || '').trim());
+}
+// ⚡ v13.161: разведотряды при штабе батальона — единственное их место.
+//    BeVe: мотоциклист-разведчик и мотоциклист-посыльный;
+//    A.I.R.F.: лёгкий автомобиль AL-41 Hidalgo (разведка).
+//    У всех взводов и прочих юнитов этих отрядов быть не должно.
+const OP_HQ_RECON_SQUADS = {
+    'BeVe': [
+        { re: /^Мотоциклист-разведчик/i, name: 'Мотоциклист-разведчик' },
+        { re: /^Мотоциклист-посыльный/i, name: 'Мотоциклист-посыльный' }
+    ],
+    'A.I.R.F.': [
+        { re: /Hidalgo/i, name: 'AL-41 Hidalgo' }
+    ]
+};
+function opHqReconSquadSpecs(faction) {
+    return OP_HQ_RECON_SQUADS[String(faction || '')] || [];
+}
+function opHqReconSquadMatches(name) {
+    const text = String(name || '');
+    return Object.keys(OP_HQ_RECON_SQUADS).some(faction =>
+        OP_HQ_RECON_SQUADS[faction].some(spec => spec.re.test(text)));
+}
+// ⚡ v13.161: у начатых походов эти отряды остались в уже собранных юнитах
+//    оперативной карты (opUnits пересобираются только при смене состава).
+//    Чистка проходит при каждой загрузке: у штаба батальона нужные отряды есть
+//    и не дублируются, у всех остальных юнитов (и во взводах) их нет.
+function pruneOpUnitRiders() {
+    const camp = appData && appData.campaign;
+    if (!camp) return 0;
+    let changed = 0;
+    const ensure = (unit, spec) => {
+        if (!Array.isArray(unit.squads)) unit.squads = [];
+        if (unit.squads.some(sq => sq && spec.re.test(String(sq.name || '')))) return;
+        unit.squads.push({ name: spec.name, templateName: spec.name });
+        changed++;
+    };
+    const stripList = list => {
+        if (!Array.isArray(list)) return list;
+        const kept = list.filter(sq => !(sq && opHqReconSquadMatches(sq.name)));
+        if (kept.length !== list.length) changed++;
+        return kept;
+    };
+    const cleanUnit = (unit, faction) => {
+        if (!unit) return;
+        const allowed = isBattalionHqUnit(unit) ? opHqReconSquadSpecs(faction) : [];
+        if (Array.isArray(unit.squads)) {
+            // у штаба батальона — по одному отряду каждого вида, у прочих юнитов их нет
+            const used = new Set();
+            const kept = (unit.squads || []).filter(sq => {
+                if (!sq || !opHqReconSquadMatches(sq.name)) return true;
+                const name = String(sq.name || '');
+                const index = allowed.findIndex(spec => spec.re.test(name));
+                if (index < 0) { changed++; return false; }
+                if (used.has(index)) { changed++; return false; }
+                used.add(index);
+                return true;
+            });
+            if (kept.length !== unit.squads.length) changed++;
+            unit.squads = kept;
+        }
+        allowed.forEach(spec => ensure(unit, spec));
+        // во взводах этих отрядов нет ни у штаба, ни у прочих юнитов
+        if (Array.isArray(unit.platoons)) {
+            unit.platoons.forEach(platoon => {
+                if (!platoon) return;
+                platoon.squads = stripList(platoon.squads);
+            });
+        }
+    };
+    // оперативная карта: свои и вражеские юниты (у врага BeVe тоже возможен)
+    const playerIsBeVe = camp.playerFaction === 'BeVe' ||
+        !!(camp.battalions && camp.battalions.player && camp.battalions.player.faction === 'BeVe');
+    const playerFaction = (camp.battalions && camp.battalions.player && camp.battalions.player.faction) ||
+        (playerIsBeVe ? 'BeVe' : 'A.I.R.F.');
+    const enemyFaction = (camp.battalions && camp.battalions.enemy && camp.battalions.enemy.faction) ||
+        (playerIsBeVe ? 'A.I.R.F.' : 'BeVe');
+    [camp.opUnits, camp.enemyOpUnits].forEach((list, index) => {
+        if (!Array.isArray(list)) return;
+        const sideFaction = index === 0 ? playerFaction : enemyFaction;
+        list.forEach(unit => {
+            if (!unit) return;
+            cleanUnit(unit, String(unit.faction || sideFaction));
+        });
+    });
+    // батальоны обеих сторон: у штаба батальона отряды есть, у прочих юнитов нет
+    ['player', 'enemy'].forEach(side => {
+        const battalion = camp.battalions && camp.battalions[side];
+        if (!battalion || !Array.isArray(battalion.units)) return;
+        const faction = String(battalion.faction || (side === 'player' ? playerFaction : enemyFaction));
+        battalion.units.forEach(unit => {
+            if (!unit) return;
+            cleanUnit(unit, String(unit.faction || faction));
+        });
+    });
+    return changed;
+}
+
 // Обновление интерфейса после деления/слияния юнита на оперативной карте.
 function afterOpUnitStructureChange(message) {
     const camp = appData && appData.campaign;
@@ -3092,6 +3198,11 @@ function buildOperationalUnits() {
         if (restoredSplits > 0) log(`✂️ Развед. взвод снова разделён на отделения: ${restoredSplits}`);
     } catch (e) { console.warn('reapplyReconPlatoonSplits:', e.message); }
     try { pruneExtraArmoredCars(); } catch (e) { console.warn('pruneExtraArmoredCars:', e.message); }
+    // ⚡ v13.161: мотоциклисты — только при штабе батальона
+    try {
+        const ridersRemoved = pruneOpUnitRiders();
+        if (ridersRemoved > 0) log(`🏍️🚙 Разведотряды (мотоциклисты BeVe, Hidalgo A.I.R.F.) остаются только при штабе батальона.`);
+    } catch (e) { console.warn('pruneOpUnitRiders:', e.message); }
     try { if (typeof initReconAssets === 'function') initReconAssets(); } catch (e) { console.warn('initReconAssets:', e.message); }
 
     saveData();
@@ -3988,6 +4099,56 @@ function supplyConvoyIcon(delivery) {
         default: return '🎒';
     }
 }
+// ⚡ v13.162: у колонны снабжения на карте — иконка САМОГО автомобиля или
+//    грузовика из images/ (файлы игрока). Раньше был только эмодзи по типу
+//    подвижности, поэтому DAF Trado, «Викунья» и плавающий DAF MC-V в пути
+//    выглядели одинаково. Для пеших колонн (носильщики, ламы, мулы, повозки)
+//    остаётся эмодзи, для TG-41 своего файла нет — тоже эмодзи.
+const SUPPLY_VEHICLE_ART = {
+    truck: { 'BeVe': 'images/BeVe/DAF Trado.png', 'A.I.R.F.': 'images/BeVe/Лёгкий грузовик CLg-37 «Викунья» (Vicuña).png' },
+    car: { 'BeVe': 'images/BeVe/DAF MC-V.png', 'A.I.R.F.': 'images/BeVe/DAF MC-V.png' }
+};
+// порядок важен: если в колонне есть техника, показываем её иконку
+const SUPPLY_VEHICLE_ART_ORDER = ['truck', 'car'];
+const loadedSupplyConvoyIcons = {};
+function supplyConvoyFaction(delivery) {
+    const explicit = delivery && delivery.faction;
+    if (explicit) return String(explicit);
+    const camp = appData && appData.campaign;
+    return String((camp && camp.playerFaction) || 'BeVe');
+}
+// Путь к картинке транспорта колонны (null — рисуем эмодзи).
+function supplyConvoyVehicleSrc(delivery) {
+    if (!delivery) return null;
+    if (delivery.iconSrc && SUPPLY_VEHICLE_ART_ORDER.some(id => {
+        const art = SUPPLY_VEHICLE_ART[id];
+        return art && Object.values(art).includes(delivery.iconSrc);
+    })) return delivery.iconSrc;
+    const assets = Array.isArray(delivery.assets) ? delivery.assets : [];
+    const faction = supplyConvoyFaction(delivery);
+    for (let i = 0; i < SUPPLY_VEHICLE_ART_ORDER.length; i++) {
+        const id = SUPPLY_VEHICLE_ART_ORDER[i];
+        const used = assets.some(a => a && a.id === id && (Number(a.count) || 0) > 0);
+        if (!used) continue;
+        const art = SUPPLY_VEHICLE_ART[id] || {};
+        const src = art[faction] || art['BeVe'] || null;
+        if (src) return src;
+    }
+    return null;
+}
+// Загрузка картинки транспорта (как у иконок оперативных юнитов): пока файл не
+//    пришёл — рисуем эмодзи, после загрузки перерисовываем карту.
+function supplyConvoyImage(src) {
+    if (!src || typeof Image === 'undefined') return null;
+    let img = loadedSupplyConvoyIcons[src];
+    if (!img) {
+        img = new Image();
+        img.src = src;
+        img.onload = () => { try { redrawOperationalMap(); } catch (e) {} };
+        loadedSupplyConvoyIcons[src] = img;
+    }
+    return (img.complete && img.naturalWidth > 0) ? img : null;
+}
 function drawSupplyDeliveriesOnMap(ctx, deliveries, size) {
     (deliveries || []).forEach(delivery => {
         if (!ctx || !delivery || !Number.isFinite(delivery.col) || !Number.isFinite(delivery.row)) return;
@@ -4002,9 +4163,13 @@ function drawSupplyDeliveriesOnMap(ctx, deliveries, size) {
             pointY = animPixel.y;
         }
         const icon = supplyConvoyIcon(delivery);
+        // ⚡ v13.162: техника едет по карте со своей иконкой
+        const vehicleSrc = (typeof supplyConvoyVehicleSrc === 'function') ? supplyConvoyVehicleSrc(delivery) : null;
+        const vehicleImg = (vehicleSrc && typeof supplyConvoyImage === 'function') ? supplyConvoyImage(vehicleSrc) : null;
         const direction = delivery.status === 'returning' ? '↩' : '➡';
         const accent = delivery.status === 'returning' ? '#8bd17c' : '#ffb347';
-        const radius = size * 0.42;
+        const radius = size * (vehicleImg ? 0.52 : 0.42);
+        const badgeY = pointY - size * (vehicleImg ? 0.55 : 0.48);
         ctx.save();
         // маршрут до цели — пунктиром, чтобы колонна читалась на карте
         const dest = (delivery.kind === 'rear')
@@ -4026,14 +4191,25 @@ function drawSupplyDeliveriesOnMap(ctx, deliveries, size) {
         ctx.strokeStyle = accent;
         ctx.lineWidth = Math.max(2, size * 0.06);
         ctx.beginPath();
-        ctx.arc(pointX, pointY - size * 0.48, radius, 0, 2 * Math.PI);
+        ctx.arc(pointX, badgeY, radius, 0, 2 * Math.PI);
         ctx.fill();
         ctx.stroke();
-        ctx.font = `${size * 0.44}px Arial`;
+        if (vehicleImg) {
+            // картинка вписана в плашку с сохранением пропорций
+            const box = radius * 2 * 0.84;
+            const scale = Math.min(box / vehicleImg.naturalWidth, box / vehicleImg.naturalHeight);
+            const w = vehicleImg.naturalWidth * scale;
+            const h = vehicleImg.naturalHeight * scale;
+            ctx.drawImage(vehicleImg, pointX - w / 2, badgeY - h / 2, w, h);
+        } else {
+            ctx.font = `${size * 0.44}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#fff';
+            ctx.fillText(icon, pointX, badgeY);
+        }
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#fff';
-        ctx.fillText(icon, pointX, pointY - size * 0.48);
         ctx.font = `bold ${size * 0.22}px Arial`;
         ctx.fillStyle = accent;
         ctx.fillText(`${direction} ${delivery.col},${delivery.row}`, pointX, pointY - size * 0.02);
@@ -4947,6 +5123,12 @@ function tryMoveSelectedOpUnitToHex(clickX, clickY) {
     if (isStaticOpUnit(selectedUnit)) return false;
 
     const size = OP_HEX_SIZE * (appData.campaign.opZoomLevel || 1);
+    // ⚡ v13.163: клик по ДРУГОМУ своему отряду — это его выбор, а не приказ
+    //    идти на его гекс. Иначе переключиться на соседний отряд было нельзя:
+    //    выбранный отряд «шагал» на место клика.
+    const otherOwnUnit = (typeof opOwnUnitAtPoint === 'function')
+        ? opOwnUnitAtPoint(clickX, clickY, size) : null;
+    if (otherOwnUnit && otherOwnUnit !== selectedUnit) return false;
     for (let i = 0; i < selectedUnit.availableHexes.length; i++) {
         const h = selectedUnit.availableHexes[i];
         const hexCenterX = h.col * Math.sqrt(3) * size + (h.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
@@ -5184,9 +5366,31 @@ function showOpUnitInfoPopup(unit) {
             if (!list || !list.length) return '';
             const unitIndex = (appData.campaign.opUnits || []).indexOf(unit);
             const names = list.map(item => `${esc(item.name)} (${item.available}/${item.total})`).join(', ');
+            // ⚡ v13.163: штаб — узел выдачи разведприказов. У штаба батальона
+            //    показываем отдельную кнопку на КАЖДЫЙ развед-отряд при нём
+            //    (мотоциклист-разведчик, Hidalgo), а не одну общую кнопку.
+            let hqReconButtons = '';
+            try {
+                const isHqUnit = typeof isBattalionHqUnit === 'function'
+                    ? isBattalionHqUnit(unit)
+                    : (['hq', 'battalion_hq'].includes(unit.type));
+                if (isHqUnit && typeof reconListAssetSources === 'function') {
+                    const own = reconListAssetSources().filter(src => Number(src.unitId) === unitIndex);
+                    const seen = new Set();
+                    own.forEach(src => {
+                        const pool = list.find(item => item.key === src.assetKey);
+                        if (!pool || seen.has(src.assetKey)) return;
+                        seen.add(src.assetKey);
+                        hqReconButtons += `<button type="button" onclick="openReconMissionModalForAsset(${unitIndex}, '${src.assetKey}')" style="margin-top:6px;margin-right:6px;background:#2980b9;">🔍 ${esc(pool.name)} (${pool.available}/${pool.total})</button>`;
+                    });
+                    if (hqReconButtons) {
+                        hqReconButtons = `<div style="margin-top:5px;color:#8ecbff;font-size:.8rem;">Приказ от штаба: выберите развед-отряд.</div>` + hqReconButtons;
+                    }
+                }
+            } catch (e) { hqReconButtons = ''; }
             return `<div class="op-unit-drawer-cards" style="border-color:#3498db;"><b>🔍 Разведка</b>` +
                 `<div style="margin-top:5px;color:#bbb;font-size:.8rem;">Доступно: ${names}</div>` +
-                `<button type="button" onclick="openReconMissionModal(${unitIndex >= 0 ? unitIndex : 'null'})" style="margin-top:6px;background:#2980b9;">🔍 Разведывательная миссия</button>` +
+                (hqReconButtons || `<button type="button" onclick="openReconMissionModal(${unitIndex >= 0 ? unitIndex : 'null'})" style="margin-top:6px;background:#2980b9;">🔍 Разведывательная миссия</button>`) +
                 `<button type="button" onclick="showReconPanel()" style="margin-top:6px;margin-left:6px;background:#555;">Список миссий</button></div>`;
         } catch (e) { return ''; }
     })();
@@ -5367,6 +5571,42 @@ if (typeof document !== 'undefined' && !window.__opUnitDrawerDismissInstalled) {
         if (drawer && !drawer.hidden && !drawer.contains(event.target) && !event.target.closest('#opMapCanvas')) closeOpUnitInfoPopup();
     }, true);
 }
+// ⚡ v13.163: ближайший СВОЙ юнит под точкой клика (с тем же смещением стопки,
+//    что и в findUnitAtClick внутри handleOpMapClick). Нужен, чтобы клик по
+//    другому отряду выбирал его, а не двигал ранее выбранный отряд на его гекс.
+function opOwnUnitAtPoint(clickX, clickY, size) {
+    const camp = appData && appData.campaign;
+    if (!camp) return null;
+    const zoom = camp.opZoomLevel || 1;
+    const hexSize = size || (OP_HEX_SIZE * zoom);
+    const iconRadius = 18 * zoom;
+    const groups = new Map();
+    (camp.opUnits || []).forEach(unit => {
+        if (!unit || unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
+        const key = unit.col + ',' + unit.row;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(unit);
+    });
+    let best = null, minDist = Infinity;
+    groups.forEach((group, key) => {
+        const parts = key.split(',');
+        const col = Number(parts[0]), row = Number(parts[1]);
+        const baseX = col * Math.sqrt(3) * hexSize + (row % 2) * Math.sqrt(3) * hexSize / 2 + Math.sqrt(3) * hexSize / 2;
+        const baseY = row * 1.5 * hexSize + hexSize;
+        group.forEach((unit, idx) => {
+            let x = baseX, y = baseY;
+            if (group.length > 1) {
+                const angleStep = (2 * Math.PI) / group.length;
+                const offsetDist = 25 * zoom;
+                x += Math.cos(idx * angleStep) * offsetDist;
+                y += Math.sin(idx * angleStep) * offsetDist;
+            }
+            const dist = Math.sqrt((clickX - x) ** 2 + (clickY - y) ** 2);
+            if (dist < minDist) { minDist = dist; best = unit; }
+        });
+    });
+    return (best && minDist < iconRadius * 2) ? best : null;
+}
 function handleOpMapClick(e) {
   const canvas = document.getElementById('opMapCanvas');
   if (!canvas) return;
@@ -5396,18 +5636,40 @@ function handleOpMapClick(e) {
   const size = OP_HEX_SIZE * (appData.campaign.opZoomLevel || 1);
   const iconRadius = 18 * (appData.campaign.opZoomLevel || 1);
 
+  // ⚡ v13.163: «залипший» режим маршрута приказа — частая причина того, что
+  //    клик по другому отряду не выбирал его, а рисовал жёлтый пунктир.
+  //    Если панель приказов закрыта, режим сбрасываем.
+  try {
+      const orderPanelChk = document.getElementById('hardModePanel');
+      if (typeof isPlanningRoute !== 'undefined' && isPlanningRoute &&
+          (!orderPanelChk || orderPanelChk.style.display !== 'block')) {
+          isPlanningRoute = false;
+      }
+  } catch (e) {}
+
   // ⚡ v13.058: маршрут телефонного кабеля перехватывает клики раньше движения юнитов.
   if (hardMode.enabled && hardMode.signalPlatoon && hardMode.signalPlatoon.phoneRouteDraft &&
       handlePhoneRouteDraftClick(clickX, clickY, size)) return;
 
+  // ⚡ v13.163: клик по СВОЕМУ отряду всегда означает «выбрать этот отряд»,
+  //    он не должен уходить ни в маршрут приказа, ни в маршрут разведки.
+  const ownUnitHit = (typeof opOwnUnitAtPoint === 'function')
+      ? opOwnUnitAtPoint(clickX, clickY, size) : null;
+
   // ⚡ v13.157: набор маршрута разведывательной миссии перехватывает клики
   //    (пункт «2. Маршрут» панели «🔍 Разведка»).
-  if (typeof handleReconRouteDraftClick === 'function' && handleReconRouteDraftClick(clickX, clickY, size)) return;
+  // ⚡ v13.163: если под кликом свой отряд — набор маршрута разведки ставим на
+  //    паузу и отдаём клик выбору отряда (иначе из панели не выйти кликом).
+  if (ownUnitHit) {
+      if (typeof reconPauseRoutePicking === 'function') { try { reconPauseRoutePicking(); } catch (e) {} }
+  } else if (typeof handleReconRouteDraftClick === 'function' && handleReconRouteDraftClick(clickX, clickY, size)) {
+      return;
+  }
 
   // ======== ПРОВЕРКА: РЕЖИМ ПЛАНИРОВАНИЯ МАРШРУТА ========
     // Это должно быть ПЕРВОЙ проверкой в функции
     const orderPanel = document.getElementById('hardModePanel');
-    if (orderPanel && orderPanel.style.display === 'block' && isPlanningRoute) {
+    if (orderPanel && orderPanel.style.display === 'block' && isPlanningRoute && !ownUnitHit) {
         // Находим ближайший гекс
         let closestKey = null;
         let minDist = Infinity;
@@ -5977,7 +6239,17 @@ if (pickingTargetHex && closestKey) {
     appData.campaign.selectedOpUnit = clickedUnitView;
     if (typeof showOpUnitInfoPopup === 'function') showOpUnitInfoPopup(clickedUnitView);
     appData.campaign.selectedEnemyOpUnit = null;
-    document.getElementById('mapInfo').innerHTML = `Выбран: ${clickedUnitView.name} (ОД: ${clickedUnitView.ap})`;
+    // ⚡ v13.163: у выбранного отряда на карте видны маршруты его приказов —
+    //    подсказываем это, чтобы жёлтый пунктир не выглядел «непонятно чем».
+    let selectedOrdersNote = '';
+    try {
+        if (typeof collectOperationalOrdersForUnit === 'function') {
+            const selectedIdx = (appData.campaign.opUnits || []).indexOf(clickedUnitView);
+            const count = selectedIdx >= 0 ? collectOperationalOrdersForUnit(selectedIdx).length : 0;
+            if (count > 0) selectedOrdersNote = ` · 📋 приказов: ${count} — их маршруты отмечены жёлтым пунктиром`;
+        }
+    } catch (e) {}
+    document.getElementById('mapInfo').innerHTML = `Выбран: ${clickedUnitView.name} (ОД: ${clickedUnitView.ap})` + selectedOrdersNote;
     updateDismountPanel();
     updateBtrPanel();
     updateVehiclePanel();
@@ -34537,12 +34809,16 @@ function sendSupplyDelivery(targetUnitId, assetPicks, kind) {
         kind: isRear ? 'rear' : 'unit',
         targetUnitId: isRear ? null : targetUnitId,
         assets, cargo, mobility: supplyAssetsMobility(assets),
+        // ⚡ v13.162: колонна везёт иконку своего транспорта (грузовик/автомобиль)
+        faction: (appData.campaign && appData.campaign.playerFaction) || 'BeVe',
         col: depot.col, row: depot.row,
         status: 'outbound',
         // ⚡ v13.069 (R48#7): «Бюрократия» задерживает доставку этому взводу на 1 ход
         delayTurns: (!isRear && unitHasBureaucracy(target)) ? SUPPLY_BUREAUCRACY_DELAY : 0,
         createdTurn: (appData.campaign.currentTurn || 1)
     };
+    // иконку фиксируем сразу — состав колонны уже не изменится
+    try { delivery.iconSrc = supplyConvoyVehicleSrc(delivery); } catch (e) {}
     st.deliveries.push(delivery);
     saveData();
     log(isRear
@@ -34556,6 +34832,19 @@ function sendSupplyDelivery(targetUnitId, assetPicks, kind) {
 
 function supplyAssetsLabel(assets) {
     return (assets || []).map(a => `${SUPPLY_ASSET_TYPES[a.id].icon} ${SUPPLY_ASSET_TYPES[a.id].name} ×${a.count}`).join(', ');
+}
+// ⚡ v13.162: значок средства снабжения в панели — картинка автомобиля/грузовика
+//    (тех же файлов, что и на карте), для пеших средств остаётся эмодзи.
+function supplyAssetIconHtml(id) {
+    const type = SUPPLY_ASSET_TYPES[id];
+    const art = SUPPLY_VEHICLE_ART[id];
+    const camp = appData && appData.campaign;
+    const faction = String((camp && camp.playerFaction) || 'BeVe');
+    const src = art ? (art[faction] || art['BeVe'] || null) : null;
+    if (src) {
+        return `<img src="${src}" alt="" style="width:26px;height:26px;object-fit:contain;vertical-align:middle;margin-right:4px;">`;
+    }
+    return `${type ? type.icon : '🎒'} `;
 }
 
 // Точка эвакуации (дорога в тыл): у каждой стороны своя, задана в SUPPLY_EVAC_POINTS.
@@ -35183,7 +35472,7 @@ function renderSupplyPanel() {
         if (pickedCount !== (Number(picksNow[id]) || 0)) {
             if (pickedCount > 0) picksNow[id] = pickedCount; else delete picksNow[id];
         }
-        html += `<div style="margin-top:2px;"><label style="font-size:0.85rem;">${t.icon} ${t.name} — свободно ${pool.available} из ${pool.total}` +
+        html += `<div style="margin-top:2px;"><label style="font-size:0.85rem;">${supplyAssetIconHtml(id)}${t.name} — свободно ${pool.available} из ${pool.total}` +
             ` <input type="number" id="supply_asset_${id}" value="${pickedCount}" min="0" max="${pool.available}"` +
             ` oninput="rememberSupplyAsset('${id}', this.value)" onchange="rememberSupplyAsset('${id}', this.value)"` +
             ` style="width:56px; background:#333; color:#fff; border:1px solid #555;">` +
@@ -35285,7 +35574,11 @@ function renderSupplyPanel() {
             : (d.mobility === 'amphibious' ? '🚙 плавающий: вода и болота, но медленно' : '🚶 пеший темп'));
         const delay = d.delayTurns > 0 ? ` · 📄 бюрократия: ещё ${d.delayTurns} ход(а)` : '';
         const eta = supplyEtaLabel(d);
-        html += `<div style="font-size:0.85rem; color:#f1c40f;">${dir} к «${who}» — ${supplyAssetsLabel(d.assets)} (${amb}), текущий гекс (${d.col},${d.row}) · ${eta}${delay}</div>`;
+        const convoySrc = (typeof supplyConvoyVehicleSrc === 'function') ? supplyConvoyVehicleSrc(d) : null;
+        const convoyIcon = convoySrc
+            ? `<img src="${convoySrc}" alt="" style="width:22px;height:22px;object-fit:contain;vertical-align:middle;margin-right:4px;">`
+            : '';
+        html += `<div style="font-size:0.85rem; color:#f1c40f;">${convoyIcon}${dir} к «${who}» — ${supplyAssetsLabel(d.assets)} (${amb}), текущий гекс (${d.col},${d.row}) · ${eta}${delay}</div>`;
         if (d.notice) html += `<div style="font-size:0.8rem;color:#e67e22;margin-left:8px;">⚠️ ${d.notice}</div>`;
     });
     html += `</div>`;
@@ -43141,6 +43434,13 @@ log = function(msg) {
 // ⚡ ФУНКЦИЯ ДЛЯ ОТРИСОВКИ МАРШРУТА ПРИКАЗА
 function drawOrderRoute(ctx, size) {
     if (!orderWaypoints || orderWaypoints.length === 0) return;
+    // ⚡ v13.163: черновик маршрута рисуем ТОЛЬКО при открытой панели приказов.
+    //    Раньше после сворачивания панели жёлтый пунктир оставался на карте и
+    //    выглядел как непонятно что. Данные черновика при этом сохраняются —
+    //    «▶️ Продолжить приказ» вернёт и маршрут, и рисунок.
+    if (typeof isPlanningRoute !== 'undefined' && !isPlanningRoute) return;
+    const draftPanel = document.getElementById('hardModePanel');
+    if (!draftPanel || draftPanel.style.display !== 'block') return;
 
     ctx.save();
 
@@ -43208,6 +43508,20 @@ function drawOrderRoute(ctx, size) {
         }
         ctx.stroke();
         ctx.setLineDash([]);
+    }
+
+    // ⚡ v13.163: подпись, чтобы жёлтый пунктир был понятен без панели
+    {
+        const first = orderWaypoints[0];
+        const fx = first.col * Math.sqrt(3) * size + (first.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+        const fy = first.row * 1.5 * size + size;
+        ctx.font = `bold ${Math.max(9, Math.round(size * 0.22))}px Arial`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillText('📋 маршрут приказа', fx + size * 0.42, fy - size * 0.82);
+        ctx.fillStyle = '#f1c40f';
+        ctx.fillText('📋 маршрут приказа', fx + size * 0.4, fy - size * 0.84);
     }
 
     // Рисуем точки маршрута с номерами
@@ -43622,6 +43936,20 @@ function drawSelectedUnitOrdersOnMap(ctx, size) {
         ctx.beginPath();
         ctx.arc(end.x, end.y, size * 0.3, 0, 2 * Math.PI);
         ctx.stroke();
+        // ⚡ v13.163: подпись «это маршрут приказа», иначе жёлтый пунктир
+        //    выглядел непонятно. Показываем тип приказа и его номер.
+        ctx.setLineDash([]);
+        ctx.font = `bold ${Math.max(9, Math.round(size * 0.2))}px Arial`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        const caption = `📋 №${route.label} ${opOrderMarkerEmoji(route.orderType)} маршрут${route.pending ? ' (ждёт доставки)' : ''}`;
+        ctx.fillStyle = 'rgba(16,24,32,.85)';
+        const captionX = points[0].x + size * 0.5;
+        const captionY = points[0].y + size * 0.72;
+        const captionWidth = ctx.measureText ? (ctx.measureText(caption).width || 0) : 0;
+        if (captionWidth) ctx.fillRect(captionX - 3, captionY - size * 0.16, captionWidth + 6, size * 0.32);
+        ctx.fillStyle = markerColor(route.pending);
+        ctx.fillText(caption, captionX, captionY);
         ctx.restore();
     });
 
@@ -44986,6 +45314,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // ⚡ v13.067: штаты штабов (рота 9 / батальон 15) и связисты — и без Hard Mode
     try { migrateHQPersonnelOnLoad(); } catch (e) { console.warn('migrateHQPersonnelOnLoad:', e.message); }
+
+    // ⚡ v13.161: мотоциклист-разведчик/-посыльный BeVe и AL-41 Hidalgo A.I.R.F. —
+    //    только при штабе батальона. В начатых походах они оставались в уже
+    //    собранных юнитах оперативной карты, поэтому чистим состав при загрузке.
+    try {
+        if (typeof pruneOpUnitRiders === 'function') {
+            const ridersChanged = pruneOpUnitRiders();
+            if (ridersChanged > 0) console.log(`🏍️🚙 Разведотряды: состав приведён к штабу батальона (изменений: ${ridersChanged})`);
+        }
+    } catch (e) { console.warn('pruneOpUnitRiders:', e.message); }
 
     // 3. Если Hard Mode включен - выдаём рации
     if (hardMode.enabled) {
