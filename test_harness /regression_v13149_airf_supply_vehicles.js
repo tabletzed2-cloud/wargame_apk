@@ -88,13 +88,15 @@ const VICUNA = 'Легкий грузовик CLg-37 «Викунья»';
       '4,1': { types: ['rocks'] }, '5,1': { types: ['forest'] }, '6,1': { types: ['water'] },
       '7,1': { types: ['swamp_impassable'] }, '8,1': { types: ['bushes'] } };`);
     const cost = (mob, key) => s.evalCtx(`supplyMoveCost('${mob}', ...'${key}'.split(',').map(Number))`);
-    ok(cost('halftrack', '3,1') === 1, 'вездеход заезжает на холм', String(cost('halftrack', '3,1')));
-    ok(cost('halftrack', '4,1') === 1, 'вездеход заезжает на камни (горы)', String(cost('halftrack', '4,1')));
-    ok(cost('foot', '3,1') === 1, 'пешие тоже проходят холм');
+    // ⚡ v13.167 (п.1): пешие/вьючные ходят пехотным темпом — 2 за гекс (1 за
+    //    холм/болото — 3). Вездеход по-прежнему вдвое быстрее по дороге/траве.
+    ok(cost('halftrack', '3,1') === 2, 'вездеход заезжает на холм', String(cost('halftrack', '3,1')));
+    ok(cost('halftrack', '4,1') === 2, 'вездеход заезжает на камни (горы)', String(cost('halftrack', '4,1')));
+    ok(cost('foot', '3,1') === 3, 'пешие тоже проходят холм (3 за гекс, как пехота)');
     ok(Number.isFinite(cost('vehicle', '3,1')) === false, 'машина на холм не заезжает');
-    ok(cost('halftrack', '1,1') === 0.5 && cost('foot', '1,1') === 1,
+    ok(cost('halftrack', '1,1') === 1 && cost('foot', '1,1') === 2,
         'по дороге вездеход идёт вдвое быстрее пеших', `${cost('halftrack', '1,1')} / ${cost('foot', '1,1')}`);
-    ok(cost('halftrack', '2,1') === 0.5, 'по траве — тоже вдвое быстрее');
+    ok(cost('halftrack', '2,1') === 1, 'по траве — тоже вдвое быстрее');
     ok(Number.isFinite(cost('halftrack', '5,1')), 'лес проходим (в отличие от машины)', String(cost('halftrack', '5,1')));
     ok(cost('halftrack', '6,1') === Infinity, 'вода непроходима');
     ok(cost('halftrack', '7,1') === Infinity, 'непроходимое болото закрыто');
@@ -143,7 +145,9 @@ const VICUNA = 'Легкий грузовик CLg-37 «Викунья»';
     ok(s.evalCtx('tgRoute') !== null, 'вездеход TG-41 проходит горным коридором');
     ok(s.evalCtx('tgCost') !== null && Number.isFinite(s.evalCtx('tgCost')), 'стоимость маршрута вездехода конечна', String(s.evalCtx('tgCost')));
     const tgSteps = s.evalCtx('tgSteps'), footSteps = s.evalCtx('footSteps');
-    const steps = p => Math.max(Math.abs(p.col - 0), Math.abs(p.row - 1));
+    // ⚡ v13.167: манхэттенское расстояние по пройденным гексам — прежняя
+    //    max-метрика не различала (2,2) и (2,1) в гексагональной сетке.
+    const steps = p => Math.abs(p.col - 0) + Math.abs(p.row - 1);
     ok(steps(tgSteps) > steps(footSteps), 'за ход вездеход проходит больше гексов, чем пешая колонна', `${JSON.stringify(tgSteps)} vs ${JSON.stringify(footSteps)}`);
 
     // Пул: TG-41 из отделения, «Викунья» — по-прежнему грузовик

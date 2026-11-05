@@ -62,8 +62,11 @@ function operationalMoveChainStart() { return null; }
 console.log('— п.2: крупные иконки техники снабжения —');
 {
     const draw = fn('drawSupplyDeliveriesOnMap');
-    ok(/const radius = size \* \(vehicleImg \? 0\.70 : 0\.52\)/.test(draw), 'плашка колонны на карте увеличена');
-    ok(/const badgeY = pointY - size \* \(vehicleImg \? 0\.72 : 0\.56\)/.test(draw), 'плашка поднята над гексом');
+    // ⚡ v13.167 (п.2): плашки снабжения больше не крупнее иконок остальных
+    //    юнитов — радиус ограничен радиусом иконки юнита (18 * zoom).
+    ok(/unitIconRadius/.test(draw) && /Math\.min\(size \* \(vehicleImg \? 0\.70 : 0\.52\)/.test(draw),
+        'плашка колонны на карте не крупнее иконки юнита (v13.167)');
+    ok(/const badgeY = pointY - \(radius \* 1\.15 \+ size \* 0\.05\)/.test(draw), 'плашка поднята над гексом');
     ok(/width:42px;height:42px/.test(HTML), 'иконка техники в панели снабжения крупнее (42px)');
     ok(/width:38px;height:38px/.test(HTML), 'иконка колонны в списке «Колонны в пути» крупнее (38px)');
 }

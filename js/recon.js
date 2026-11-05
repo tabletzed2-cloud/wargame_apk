@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.166 — разведывательные миссии и приказ «Наблюдение»
+// ⚡ BUILD-МАРКЕР: v13.167 — разведывательные миссии и приказ «Наблюдение»
 // ═══════════════════════════════════════════════════════════════════════
 // ⚡ v13.157: НОВАЯ РАЗВЕДКА (заменяет подсветку радиуса v13.018…v13.099)
 //
@@ -613,6 +613,19 @@ function finishReconMission(missionId, status) {
         if (typeof log === 'function') {
             log(`❌ [${mission.assetName}]: потерян. Разведка этого типа недоступна до конца операции.`);
         }
+        // ⚡ v13.167 (п.8): даже при провале снимаем флаги скрытия — живой юнит
+        //    не должен оставаться невидимым на операционной карте.
+        if (mission.unitId !== null && mission.unitId !== undefined) {
+            const lostUnit = reconMissionUnit(mission);
+            if (lostUnit && !lostUnit.isDestroyed) {
+                delete lostUnit.reconMissionId;
+                delete lostUnit.reconHidden;
+                if (mission.squadName) {
+                    const squad = (lostUnit.squads || []).find(sq => sq && String(sq.name) === String(mission.squadName));
+                    if (squad) { delete squad.onReconMission; delete squad.reconHidden; }
+                }
+            }
+        }
     } else {
         if (mission.status === 'completed') releaseReconAsset(mission.assetKey);
         if (mission.unitId !== null && mission.unitId !== undefined) {
@@ -622,9 +635,19 @@ function finishReconMission(missionId, status) {
                 const squad = (unit.squads || []).find(sq => sq && String(sq.name) === String(mission.squadName));
                 if (squad) { delete squad.onReconMission; delete squad.reconHidden; }
             } else if (unit) {
+                // ⚡ v13.167 (п.8): актив, завершивший миссию, ОБЯЗАН вернуться на
+                //    карту. Раньше флаг скрытия снимался, но если возврат застревал
+                //    (см. reconAdvanceReturn), БА оставался невидимым, хотя в
+                //    «Батальоне» числился живым. Теперь место возврата — точка
+                //    отзыва / своё расположение, а не «последний гекс в поле».
                 delete unit.reconMissionId;
                 delete unit.reconHidden;
-                if (mission.currentHex) {
+                const home = reconRecallDestination(mission);
+                if (home && Number.isFinite(home.col) && Number.isFinite(home.row) &&
+                    (!mission.currentHex || reconKeyOf(mission.currentHex) !== `${home.col},${home.row}`)) {
+                    unit.col = Number(home.col);
+                    unit.row = Number(home.row);
+                } else if (mission.currentHex) {
                     unit.col = Number(mission.currentHex.col);
                     unit.row = Number(mission.currentHex.row);
                 }
@@ -692,6 +715,12 @@ function createReconMission(opts) {
         ownerUnitId: source.unitId,
         assetKind: def.kind,
         route,
+        // ⚡ v13.167 (п.3): «своё расположение» — гекс, с которого актив ушёл.
+        //    Отзыв возвращает актив ИМЕННО туда (развед-орган при штабе — к
+        //    штабу-носителю), а не «в ближайший штаб по прямой».
+        originHex: { col: Number(startHex.col), row: Number(startHex.row) },
+        recallHex: null,
+        returnStuck: 0,
         observeMode: ['pass', 'pause', 'stationary'].includes(opts.observeMode) ? opts.observeMode : 'stationary',
         reportMethod: ['radio', 'messenger', 'return'].includes(opts.reportMethod) ? opts.reportMethod : 'radio',
         status: 'active',
@@ -733,6 +762,96 @@ function createReconMission(opts) {
     if (typeof saveData === 'function') { try { saveData(); } catch (e) {} }
     if (typeof redrawOperationalMap === 'function') { try { redrawOperationalMap(); } catch (e) {} }
     return mission;
+}
+
+// ⚡ v13.167 (п.3): КУДА возвращается отозванный разведчик.
+//    Приоритет: явная точка отзыва (игрок выбрал на карте) → своё расположение
+//    (для развед-органа при штабе — текущий гекс штаба-носителя) → ближайший штаб.
+//    Раньше отзыв всегда вёл «в ближайший штаб по прямой» и застревал, если
+//    прямой шаг был невозможен.
+function reconRecallDestination(mission) {
+    if (!mission) return null;
+    const valid = (point) => !!(point && Number.isFinite(Number(point.col)) && Number.isFinite(Number(point.row)));
+    if (valid(mission.recallHex)) return { col: Number(mission.recallHex.col), row: Number(mission.recallHex.row) };
+    if (mission.squadName) {
+        const unit = reconMissionUnit(mission);
+        if (unit && valid({ col: unit.col, row: unit.row })) return { col: Number(unit.col), row: Number(unit.row) };
+    }
+    if (valid(mission.originHex)) return { col: Number(mission.originHex.col), row: Number(mission.originHex.row) };
+    const hq = reconNearestHQ(mission);
+    if (hq && hq.unit) return { col: Number(hq.unit.col), row: Number(hq.unit.row) };
+    return null;
+}
+// Поиск пути (Дейкстра) с учётом проходимости и скорости актива. Гreedy-шаг
+// «сосед, ближе к цели» застревал в лесу/у воды: все соседи дальше — и актив
+// висел на точке навсегда (и оставался скрытым с карты, см. п.8).
+function reconFindPath(mission, dest) {
+    if (!mission || !dest) return null;
+    const startHex = mission.currentHex;
+    if (!startHex || !Number.isFinite(Number(startHex.col))) return null;
+    const start = reconKeyOf(startHex);
+    const goal = reconKeyOf(dest);
+    if (!start || !goal) return null;
+    if (start === goal) return [];
+    const best = new Map([[start, 0]]);
+    const previous = new Map();
+    const queue = [{ col: Number(startHex.col), row: Number(startHex.row), cost: 0 }];
+    let guard = 0;
+    while (queue.length && guard++ < 6000) {
+        let bestIndex = 0;
+        for (let i = 1; i < queue.length; i++) if (queue[i].cost < queue[bestIndex].cost) bestIndex = i;
+        const current = queue.splice(bestIndex, 1)[0];
+        const currentKey = `${current.col},${current.row}`;
+        if (currentKey === goal) break;
+        if (current.cost > (best.get(currentKey) ?? Infinity)) continue;
+        const neighbors = (typeof getOpHexNeighbors === 'function')
+            ? getOpHexNeighbors(current.col, current.row) : [];
+        neighbors.forEach(neighbor => {
+            const col = Number(neighbor && neighbor.col), row = Number(neighbor && neighbor.row);
+            if (!Number.isFinite(col) || !Number.isFinite(row)) return;
+            const key = `${col},${row}`;
+            if (!canReconMoveTo(mission.assetKind, { col: current.col, row: current.row }, { col, row })) return;
+            const stepCost = getReconMoveCost(mission.assetKind, { col, row });
+            if (!Number.isFinite(stepCost)) return;
+            const cost = current.cost + stepCost;
+            if (cost < (best.get(key) ?? Infinity)) {
+                best.set(key, cost);
+                previous.set(key, currentKey);
+                queue.push({ col, row, cost });
+            }
+        });
+    }
+    if (!previous.has(goal)) return null;
+    const path = [];
+    let key = goal, steps = 0;
+    while (key !== start && steps++ < 2000) {
+        const [col, row] = String(key).split(',').map(Number);
+        path.push({ col, row });
+        key = previous.get(key);
+        if (!key) return null;
+    }
+    return key === start ? path.reverse() : null;
+}
+// Шаг к точке отзыва по найденному пути (в пределах ОД текущего хода).
+function reconAdvanceReturn(mission) {
+    const dest = reconRecallDestination(mission);
+    if (!dest) return 'no_destination';
+    const goalKey = `${Number(dest.col)},${Number(dest.row)}`;
+    let moved = 0;
+    let guard = 0;
+    while (guard++ < 24) {
+        // ⚡ v13.167: «прибыл» — это состояние гекса, а не «в этом ходу не двигался».
+        //    Раньше актив, дошедший до точки на последнем шаге хода, возвращал
+        //    'moved' и миссия висела в «возвращается» лишний ход.
+        if (reconKeyOf(mission.currentHex) === goalKey) return 'arrived';
+        const path = reconFindPath(mission, dest);
+        if (!path || !path.length) return moved ? 'moved' : 'blocked';
+        const result = moveReconAsset(mission, path[0]);
+        if (result === 'moved') { moved++; continue; }
+        if (result === 'no_ap') return moved ? 'moved' : 'no_ap';
+        return moved ? 'moved' : 'blocked';
+    }
+    return moved ? 'moved' : 'blocked';
 }
 
 // ---------- Движение ----------
@@ -871,35 +990,39 @@ function advanceReconMissions() {
                 pauseBonus: mission.observeMode === 'pause' ? 2 : 0
             });
         } else if (mission.status === 'returning') {
+            // ⚡ v13.167 (п.3): возврат по НАЙДЕННОМУ пути (обход леса/воды), а не
+            //    «шаг к штабу по прямой». Если обхода нет два хода подряд —
+            //    актив возвращается в расположение принудительно (иначе он
+            //    навсегда оставался скрытым с карты — см. п.8).
             mission.ap = RECON_TURN_BUDGET;
-            const hq = reconNearestHQ(mission);
-            if (!hq) { finishReconMission(mission.id, 'completed'); return; }
-            const hqHex = { col: Number(hq.unit.col), row: Number(hq.unit.row) };
-            const dist = (typeof getOpHexDistance === 'function')
-                ? getOpHexDistance(Number(mission.currentHex.col), Number(mission.currentHex.row), hqHex.col, hqHex.row) : 0;
-            if (dist === 0) {
-                if (typeof log === 'function') log(`✅ [${mission.assetName}] вернулся в штаб — снова доступен.`);
+            const destination = reconRecallDestination(mission);
+            const outcome = reconAdvanceReturn(mission);
+            if (outcome === 'arrived') {
+                const where = destination ? `(${destination.col},${destination.row})` : 'в расположение';
+                if (typeof log === 'function') log(`✅ [${mission.assetName}] вернулся ${where} — снова доступен.`);
                 finishReconMission(mission.id, 'completed');
                 return;
             }
-            let guard = 0;
-            while (guard++ < 12) {
-                const before = `${mission.currentHex.col},${mission.currentHex.row}`;
-                const targetDist = (typeof getOpHexDistance === 'function')
-                    ? getOpHexDistance(hqHex.col, hqHex.row, Number(mission.currentHex.col), Number(mission.currentHex.row)) : 0;
-                if (targetDist === 0) break;
-                // шаг в сторону штаба
-                const neighbors = (typeof getOpHexNeighbors === 'function')
-                    ? getOpHexNeighbors(Number(mission.currentHex.col), Number(mission.currentHex.row)) : [];
-                let step = null, best = Infinity;
-                neighbors.forEach(neighbor => {
-                    const d = getOpHexDistance(neighbor.col, neighbor.row, hqHex.col, hqHex.row);
-                    if (d < best && canReconMoveTo(mission.assetKind, mission.currentHex, neighbor)) { best = d; step = neighbor; }
-                });
-                if (!step) break;
-                const result = moveReconAsset(mission, step);
-                if (result !== 'moved') break;
-                if (`${mission.currentHex.col},${mission.currentHex.row}` === before) break;
+            if (outcome === 'no_destination') {
+                if (typeof log === 'function') log(`✅ [${mission.assetName}] отозван: расположение не найдено, миссия завершена.`);
+                finishReconMission(mission.id, 'completed');
+                return;
+            }
+            if (outcome === 'blocked') {
+                mission.returnStuck = (Number(mission.returnStuck) || 0) + 1;
+                if (mission.returnStuck >= 2) {
+                    if (destination) mission.currentHex = { col: Number(destination.col), row: Number(destination.row) };
+                    if (typeof log === 'function') {
+                        log(`↩️ [${mission.assetName}] обхода к точке отзыва нет — вернулся в расположение ${destination ? `(${destination.col},${destination.row})` : ''} своим ходом.`);
+                    }
+                    finishReconMission(mission.id, 'completed');
+                    return;
+                }
+                if (typeof log === 'function') {
+                    log(`⚠️ [${mission.assetName}] обратный путь перекрыт на (${mission.currentHex.col},${mission.currentHex.row}) — ищет обход.`);
+                }
+            } else {
+                mission.returnStuck = 0;
             }
         }
     });
@@ -912,19 +1035,78 @@ function advanceReconMissions() {
 }
 
 // ---------- Управление миссией ----------
-function recallReconMission(missionId) {
+// ⚡ v13.167 (п.3): отзыв актива. Без аргументов — возврат в СВОЁ расположение
+//    (развед-орган батальона — к своему штабу). С гексом — возврат в указанную
+//    точку (игрок прокладывает маршрут отзыва сам).
+function recallReconMission(missionId, destHex) {
     const c = reconCampaign();
     if (!c) return false;
     const mission = (c.reconMissions || []).find(m => m && String(m.id) === String(missionId));
     if (!mission) return false;
-    if (mission.status === 'returning') return true;
-    mission.status = 'returning';
-    const hq = reconNearestHQ(mission);
-    const dist = hq ? hq.distance : 0;
-    if (typeof log === 'function') {
-        log(`↩️ [${mission.assetName}] отозван. Возврат в штаб: ${Math.max(1, Math.ceil(dist / 4))} ход(ов).`);
+    if (destHex && Number.isFinite(Number(destHex.col)) && Number.isFinite(Number(destHex.row))) {
+        mission.recallHex = { col: Number(destHex.col), row: Number(destHex.row) };
+    } else if (!mission.recallHex) {
+        const destination = reconRecallDestination(mission);
+        if (destination) mission.recallHex = { col: destination.col, row: destination.row };
     }
+    const destination = reconRecallDestination(mission);
+    if (mission.status === 'returning') {
+        if (typeof log === 'function') {
+            log(`↩️ [${mission.assetName}] уже возвращается${destination ? ` в (${destination.col},${destination.row})` : ''}.`);
+        }
+        renderReconPanel();
+        return true;
+    }
+    mission.status = 'returning';
+    mission.returnStuck = 0;
+    const dist = (destination && Number.isFinite(Number(mission.currentHex && mission.currentHex.col)))
+        ? ((typeof getOpHexDistance === 'function')
+            ? getOpHexDistance(Number(mission.currentHex.col), Number(mission.currentHex.row), destination.col, destination.row) : 0)
+        : 0;
+    const turns = Math.max(1, Math.ceil(dist / 2));
+    if (typeof log === 'function') {
+        log(`↩️ [${mission.assetName}] отозван: возвращается ${destination ? `в (${destination.col},${destination.row})` : 'в расположение'} — примерно ${turns} ход(ов).`);
+    }
+    // отзыв — это приказ, а не «зависание»: подсветка на карте обновится сразу
+    try { if (typeof redrawOperationalMap === 'function') redrawOperationalMap(); } catch (e) {}
+    try { renderReconPanel(); } catch (e) {}
     if (typeof saveData === 'function') { try { saveData(); } catch (e) {} }
+    return true;
+}
+// ⚡ v13.167 (п.3): выбор точки отзыва кликом по карте.
+let reconRecallPick = null;
+function reconStartRecallPointPick(missionId) {
+    const c = reconCampaign();
+    if (!c) return false;
+    const mission = (c.reconMissions || []).find(m => m && String(m.id) === String(missionId));
+    if (!mission) return false;
+    reconRecallPick = { missionId: mission.id };
+    try { if (typeof closeReconAssetPopup === 'function') closeReconAssetPopup(); } catch (e) {}
+    if (typeof log === 'function') log(`📍 [${mission.assetName}] кликните по гексу — туда будет отозван актив.`);
+    try { if (typeof redrawOperationalMap === 'function') redrawOperationalMap(); } catch (e) {}
+    return true;
+}
+function reconIsPickingRecall() {
+    return !!(reconRecallPick && reconRecallPick.missionId);
+}
+function reconCancelRecallPointPick() {
+    reconRecallPick = null;
+    return true;
+}
+function handleReconRecallPickClick(clickX, clickY, size) {
+    if (!reconIsPickingRecall()) return false;
+    const centers = (typeof appData !== 'undefined' && appData.campaign && appData.campaign.opCenters) || [];
+    let closest = null, minDist = Infinity;
+    centers.forEach(center => {
+        const dist = Math.sqrt((clickX - center.x) ** 2 + (clickY - center.y) ** 2);
+        if (dist < minDist) { minDist = dist; closest = center; }
+    });
+    if (!closest || minDist > size) return false;
+    const hex = reconHexFromKey(closest.key);
+    const missionId = reconRecallPick.missionId;
+    reconRecallPick = null;
+    if (!hex) return true;
+    recallReconMission(missionId, hex);
     return true;
 }
 function changeReconMissionOrder(missionId, newOrder) {
@@ -1200,7 +1382,7 @@ function reconMissionStatusLabel(mission) {
     const labels = {
         active: '➡️ на маршруте',
         observing: '👁️ наблюдает',
-        returning: '↩️ возвращается в штаб',
+        returning: '↩️ отозван, возвращается',
         completed: '✅ завершена',
         failed: '❌ провалена'
     };
@@ -1213,18 +1395,22 @@ function reconMissionsPanelHtml() {
     if (!list.length) return '';
     const rows = list.map(mission => {
         const hex = mission.currentHex ? `(${mission.currentHex.col},${mission.currentHex.row})` : '—';
-        const hq = reconNearestHQ(mission);
-        const dist = hq ? hq.distance : 0;
-        const eta = mission.status === 'returning' ? ` · возврат ${Math.max(1, Math.ceil(dist / 4))} ход(ов)` : '';
-        return `<div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin:3px 0; padding:4px 6px; background:#20242e; border-left:3px solid #3498db; border-radius:4px; font-size:.8rem;">
-            <span>🔍 <b>${mission.assetName}</b> — на ${hex}, ${reconMissionStatusLabel(mission)}${eta}</span>
-            <span style="white-space:nowrap;">
-              <button onclick="reconNewOrderForMission('${mission.id}')" style="background:#2980b9; font-size:.7rem; padding:1px 6px;">📡 Новый приказ</button>
-              <button onclick="recallReconMission('${mission.id}');renderActiveOrders();renderReconPanel();" style="background:#7f3b30; font-size:.7rem; padding:1px 6px;">↩️ Отозвать</button>
+        const destination = reconRecallDestination(mission);
+        const eta = mission.status === 'returning' && destination
+            ? ` · возврат в (${destination.col},${destination.row})` : '';
+        // ⚡ v13.167 (п.5): кнопки больше не вылезают за пределы панели —
+        //    строки и кнопки переносятся (классы recon-mission-*).
+        return `<div class="recon-mission-row">
+            <span class="recon-mission-title">🔍 <b>${mission.assetName}</b> — на ${hex}, ${reconMissionStatusLabel(mission)}${eta}</span>
+            <span class="recon-mission-actions">
+              <button type="button" onclick="reconSelectMissionAsset('${mission.id}')" title="Выбрать актив как юнит">👆 Выбрать</button>
+              <button type="button" onclick="reconNewOrderForMission('${mission.id}')" style="background:#2980b9;">📡 Новый приказ</button>
+              <button type="button" onclick="recallReconMission('${mission.id}')" style="background:#7f3b30;">↩️ Отозвать</button>
+              <button type="button" onclick="reconStartRecallPointPick('${mission.id}')" style="background:#8e44ad;" title="Кликните по карте — туда будет отозван актив">📍 Точка отзыва</button>
             </span>
         </div>`;
     }).join('');
-    return `<div style="margin:6px 0; padding:6px; background:#141a24; border:1px solid #3498db; border-radius:6px;">
+    return `<div class="recon-missions-block">
         <b style="color:#5dade2;">🔍 Активные разведывательные миссии:</b>${rows}</div>`;
 }
 function renderReconPanel() {
@@ -1311,6 +1497,108 @@ function reconMissionIcon(mission) {
     const unit = reconMissionUnit(mission);
     return (unit && unit.icon) || null;
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.167 (п.6): развед-актив на карте — это «юнит», который можно ВЫБРАТЬ.
+//    Мотоциклист-разведчик при штабе BeVe и Hidalgo при штабе A.I.R.F. уходят
+//    в миссию ОТДЕЛЕНИЕМ внутри штаба и как самостоятельные юниты на карте не
+//    рисуются — кликнуть по ним было нечем, и отозвать/переприказать их можно
+//    было только из панели, если догадаться её открыть. Теперь у иконки миссии
+//    есть карточка актива: отозвать (в своё расположение или в выбранную точку)
+//    и отдать новый приказ на разведку.
+// ═══════════════════════════════════════════════════════════════════════════
+function reconMissionById(missionId) {
+    const c = reconCampaign();
+    if (!c) return null;
+    return (c.reconMissions || []).find(m => m && String(m.id) === String(missionId)) || null;
+}
+// Иконка миссии в пиксельных координатах карты (та же формула, что в отрисовке).
+function reconMissionIconCenter(mission, size) {
+    const hex = mission && mission.currentHex;
+    if (!hex || !Number.isFinite(Number(hex.col))) return null;
+    return {
+        x: Number(hex.col) * Math.sqrt(3) * size + (Number(hex.row) % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2,
+        y: Number(hex.row) * 1.5 * size + size,
+        radius: Math.max(10, size * 0.40)
+    };
+}
+function opReconMissionAtPoint(clickX, clickY, size) {
+    if (!reconCampaign()) return null;
+    let best = null, bestDist = Infinity;
+    reconActiveMissions().forEach(mission => {
+        const center = reconMissionIconCenter(mission, size);
+        if (!center) return;
+        const dist = Math.hypot(Number(clickX) - center.x, Number(clickY) - center.y);
+        if (dist <= Math.max(14, center.radius) && dist < bestDist) { bestDist = dist; best = mission; }
+    });
+    return best;
+}
+function reconSelectMissionAsset(missionId) {
+    const mission = reconMissionById(missionId);
+    if (!mission) return false;
+    const c = reconCampaign();
+    if (c) c.selectedReconMissionId = mission.id;
+    openReconAssetPopup(mission.id);
+    try { if (typeof redrawOperationalMap === 'function') redrawOperationalMap(); } catch (e) {}
+    return true;
+}
+function closeReconAssetPopup() {
+    const popup = (typeof document !== 'undefined') ? document.getElementById('reconAssetPopup') : null;
+    if (popup) { popup.hidden = true; popup.style.display = 'none'; }
+    const c = reconCampaign();
+    if (c && c.selectedReconMissionId) c.selectedReconMissionId = null;
+    try { if (typeof redrawOperationalMap === 'function') redrawOperationalMap(); } catch (e) {}
+    return true;
+}
+function openReconAssetPopup(missionId) {
+    if (typeof document === 'undefined') return false;
+    const mission = reconMissionById(missionId);
+    if (!mission) return false;
+    const c = reconCampaign();
+    if (c) c.selectedReconMissionId = mission.id;
+    let popup = document.getElementById('reconAssetPopup');
+    if (!popup) {
+        popup = document.createElement('aside');
+        popup.id = 'reconAssetPopup';
+        popup.className = 'op-unit-drawer recon-asset-drawer';
+        popup.setAttribute('role', 'dialog');
+        document.body.appendChild(popup);
+    }
+    const esc = (value) => String(value == null ? '' : value)
+        .replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    const destination = reconRecallDestination(mission);
+    const iconSrc = reconMissionIcon(mission);
+    const routeText = (mission.route || []).map(point => `(${point.col},${point.row})`).join(' → ') || '—';
+    const hq = reconNearestHQ(mission);
+    const radio = reconUnitHasRadio(reconMissionUnit(mission)) || reconOrganHasRadio(mission);
+    const found = (mission.foundEnemies || []).length;
+    const modeLabel = { pass: 'проходить', stationary: 'занять в конце', pause: 'пауза на точках (+2)' }[mission.observeMode] || mission.observeMode;
+    const reportLabel = { radio: 'рация', messenger: 'посыльный', return: 'вернуться в штаб' }[mission.reportMethod] || mission.reportMethod;
+    popup.innerHTML =
+        `<div class="op-unit-drawer-head">${iconSrc ? `<img src="${esc(iconSrc)}" alt="">` : '<span class="op-unit-drawer-icon">🔍</span>'}` +
+        `<div><b>${esc(mission.assetName || 'Развед-актив')}</b><small>разведывательная миссия · ${esc(mission.assetKey || '')}</small></div>` +
+        `<button type="button" aria-label="Закрыть" onclick="closeReconAssetPopup()">×</button></div>` +
+        `<div class="op-unit-drawer-stats">` +
+        `<span>📍 Сейчас</span><b>(${esc(mission.currentHex ? mission.currentHex.col : '—')},${esc(mission.currentHex ? mission.currentHex.row : '—')})</b>` +
+        `<span>🚦 Состояние</span><b>${esc(reconMissionStatusLabel(mission))}</b>` +
+        `<span>🎯 Возврат</span><b>${destination ? `(${destination.col},${destination.row})` : '—'}</b>` +
+        `<span>📡 Доклад</span><b>${esc(reportLabel)}${radio ? ' · рация' : ''}</b>` +
+        `<span>👁️ Режим</span><b>${esc(modeLabel)}</b>` +
+        `<span>🔎 Найдено</span><b>${found}</b>` +
+        `<span>🧭 Маршрут</span><b>${esc(routeText)}</b>` +
+        (hq ? `<span>🏳️ Штаб</span><b>${esc(hq.unit.name || 'штаб')} · ${esc(hq.distance)} гекс.</b>` : '') +
+        `</div>` +
+        `<div class="op-unit-drawer-cards recon-asset-actions">` +
+        `<button type="button" onclick="recallReconMission('${mission.id}')" style="background:#7f3b30;">↩️ Отозвать в своё расположение</button>` +
+        `<button type="button" onclick="reconStartRecallPointPick('${mission.id}')" style="background:#8e44ad;">📍 Отозвать в точку…</button>` +
+        `<button type="button" onclick="reconNewOrderForMission('${mission.id}')" style="background:#2980b9;">📡 Новый приказ на разведку</button>` +
+        `<button type="button" onclick="showReconPanel(true)" style="background:#555;">🔍 Панель разведки</button>` +
+        `</div>`;
+    popup.hidden = false;
+    popup.style.display = 'block';
+    try { if (typeof redrawOperationalMap === 'function') redrawOperationalMap(); } catch (e) {}
+    return true;
+}
+
 function drawReconMissionOverlay(ctx, size) {
     const c = reconCampaign();
     if (!ctx || !c) return;
@@ -1379,6 +1667,21 @@ function drawReconMissionOverlay(ctx, size) {
             }
             ctx.restore();
         }
+        // ⚡ v13.167 (п.6): выбранный актив подсвечивается, как выбранный юнит.
+        try {
+            const camp = reconCampaign();
+            if (camp && camp.selectedReconMissionId && String(camp.selectedReconMissionId) === String(mission.id) && mission.currentHex) {
+                const p = center(mission.currentHex);
+                const radius = Math.max(10, size * 0.40);
+                ctx.save();
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = Math.max(3, size * 0.08);
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, radius + Math.max(4, size * 0.10), 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+        } catch (e) {}
         // маркер точки наблюдения (глаз) на конечной точке
         const last = route[route.length - 1];
         if (last && mission.status !== 'returning') {
