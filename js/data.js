@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.158 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.160 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.061: current release data and terrain definitions; absent texture variants no longer referenced.
 // ==================== КОНСТАНТЫ И ДАННЫЕ ==================== 
 // Типы местности
@@ -173,6 +173,8 @@ const SCENARIO_START_POSITIONS = {
       '1-й самокатный взвод': '10,7',
       '2-й самокатный взвод': '10,7',
       '3-й самокатный взвод': '10,7',
+      // ⚡ v13.159: мотоциклетный взвод — на дороге рядом с самокатной ротой
+      'Мотоциклетный взвод №4': '9,8',
       'Штаб роты №3 (самокат.)': '10,7',
       // поддержка (если выбрана)
       'ДОТ Bosh': '4,7',
@@ -222,7 +224,12 @@ const SCENARIO_START_POSITIONS = {
 const BATTALION_PRESETS = {
   "BeVe": {
     standard: [
-      { type: "hq", name: "Штаб батальона", templateName: "Штаб Батальона", icon: "images/BeVe/штаб батальона BeVe.jpg" }, // используем шаблон штаба, можно потом расширить
+      // ⚡ v13.160: мотоциклист-разведчик и мотоциклист-посыльный — ТОЛЬКО при
+      //    штабе батальона (из взводов и прочих юнитов они убраны).
+      { type: "hq", name: "Штаб батальона", templateName: "Штаб Батальона", icon: "images/BeVe/штаб батальона BeVe.jpg", squads: [
+        { name: "Мотоциклист-разведчик", templateName: "Мотоциклист-разведчик" },
+        { name: "Мотоциклист-посыльный", templateName: "Мотоциклист-посыльный" }
+      ] },
       // ⚡ v13.068 (R47): взвод снабжения — батальонный склад боеприпасов на карте
       { type: "hq", name: "Взвод снабжения", icon: "images/BeVe/Взвод снабжения BeVe №1.png", squads: [
               { name: "Штаб взвода снабжения", templateName: "Штаб взвода снабжения (Бельгийцы)" },
@@ -328,8 +335,7 @@ const BATTALION_PRESETS = {
               { name: "Самокатное отделение №2", templateName: "Самокатное отделение №2" },
               { name: "Самокатное отделение №3", templateName: "Самокатное отделение №3" },
               { name: "Отделение поддержки №1 Самокатное", templateName: "Отделение поддержки №1 Самокатное" },
-              { name: "Штаб взвода №1 Самокатный", templateName: "Штаб взвода №7 Самокатный" },
-              { name: "Мотоциклетный Пулеметный расчёт №1", templateName: "Мотоциклетный Пулеметный расчёт №1" }
+              { name: "Штаб взвода №1 Самокатный", templateName: "Штаб взвода №7 Самокатный" }
             ]
           },
          { name: "2-й самокатный взвод", icon: "images/BeVe/штаб самокат вззод 2.jpg", "mobilityType": "bicycle", squads: [
@@ -337,8 +343,7 @@ const BATTALION_PRESETS = {
               { name: "Самокатное отделение №5", templateName: "Самокатное отделение №5" },
               { name: "Самокатное отделение №6", templateName: "Самокатное отделение №6" },
               { name: "Отделение поддержки №2 Самокатное", templateName: "Отделение поддержки №2 Самокатное" },
-              { name: "Штаб взвода №2 Самокатный", templateName: "Штаб взвода №8 Самокатный" },
-              { name: "Мотоциклетный Пулеметный расчёт №2", templateName: "Мотоциклетный Пулеметный расчёт №2" }
+              { name: "Штаб взвода №2 Самокатный", templateName: "Штаб взвода №8 Самокатный" }
             ]
           },
          { name: "3-й самокатный взвод", icon: "images/BeVe/штаб самокат вззод 3.jpg", "mobilityType": "bicycle", squads: [
@@ -346,8 +351,20 @@ const BATTALION_PRESETS = {
               { name: "Самокатное отделение №8", templateName: "Самокатное отделение №8" },
               { name: "Самокатное отделение №9", templateName: "Самокатное отделение №9" },
               { name: "Отделение поддержки №3 Самокатное", templateName: "Отделение поддержки №3 Самокатное" },
-              { name: "Штаб взвода №3 Самокатный", templateName: "Штаб взвода №9 Самокатный" },
-              { name: "Мотоциклетный Пулеметный расчёт №3", templateName: "Мотоциклетный Пулеметный расчёт №3" }
+              { name: "Штаб взвода №3 Самокатный", templateName: "Штаб взвода №9 Самокатный" }
+            ]
+          },
+         // ⚡ v13.159: мотоциклетные расчёты вынесены из самокатных взводов 1–3
+         //    в отдельный 4-й мотоциклетный взвод (скорость 4/2/2/1: дорога,
+         //    трава и кусты, лес; спешивание — как у пехоты).
+         { name: "Мотоциклетный взвод №4", icon: "images/BeVe/Мотоциклетный взвод BeVe №4.png", "mobilityType": "motorcycle", squads: [
+              { name: "Штаб взвода №4 Мотоциклетный", templateName: "Штаб взвода №4 Мотоциклетный" },
+              { name: "Мотоциклетный Пулеметный расчёт №1", templateName: "Мотоциклетный Пулеметный расчёт №1" },
+              { name: "Мотоциклетный Пулеметный расчёт №2", templateName: "Мотоциклетный Пулеметный расчёт №2" },
+              { name: "Мотоциклетный Пулеметный расчёт №3", templateName: "Мотоциклетный Пулеметный расчёт №3" },
+              { name: "Мотоциклетный миномётный расчёт №1", templateName: "Мотоциклетный миномётный расчёт 50-мм №1" },
+              { name: "Мотоциклетный миномётный расчёт №2", templateName: "Мотоциклетный миномётный расчёт 50-мм №2" },
+              { name: "Мотоциклетный миномётный расчёт №3", templateName: "Мотоциклетный миномётный расчёт 50-мм №3" }
             ]
           }
                       ],
@@ -622,27 +639,42 @@ function getFactionCards(f) { return (appData.factions[f] && appData.factions[f]
 //    одинаковые строки в девяти взводах и трёх шаблонах.
 // ═══════════════════════════════════════════════════════════════════════
 (function applyReconPresetUpdates() {
+  // ⚡ v13.159: самокатная рота BeVe — мотоциклетные расчёты в отдельном
+  //    «Мотоциклетном взводе №4».
+  // ⚡ v13.160: мотоциклист-разведчик и мотоциклист-посыльный есть ТОЛЬКО при
+  //    штабе батальона. Из всех взводов и прочих юнитов они убираются.
+  const MOTORCYCLE_RIDER_RE = /^Мотоциклист-/i;
+  const isBicycle = platoon => !!(platoon && (platoon.mobilityType === 'bicycle' ||
+    /самокат|велосипед/i.test(String(platoon.name || ''))));
+  const isMotorcycle = platoon => !!(platoon && (platoon.mobilityType === 'motorcycle' ||
+    /мотоцикл/i.test(String(platoon.name || ''))));
+  const stripRiders = list => (list || []).filter(sq => !(sq && MOTORCYCLE_RIDER_RE.test(String(sq.name || ''))));
+  const ensureRiders = unit => {
+    if (!unit) return;
+    if (!Array.isArray(unit.squads)) unit.squads = [];
+    const has = re => unit.squads.some(sq => sq && re.test(String(sq.name || '')));
+    if (!has(/Мотоциклист-разведчик/i)) unit.squads.push({ name: 'Мотоциклист-разведчик', templateName: 'Мотоциклист-разведчик' });
+    if (!has(/Мотоциклист-посыльный/i)) unit.squads.push({ name: 'Мотоциклист-посыльный', templateName: 'Мотоциклист-посыльный' });
+  };
+  const isBattalionHQ = unit => !!(unit && unit.type === 'hq' && /^Штаб\s+батальона$/i.test(String(unit.name || '')));
   const beve = (typeof BATTALION_PRESETS !== 'undefined') ? BATTALION_PRESETS['BeVe'] : null;
-  let mortarNumber = 0;
   if (beve && Array.isArray(beve.standard)) {
     beve.standard.forEach(unit => {
-      if (!unit || unit.type !== 'infantry_company' || !Array.isArray(unit.platoons)) return;
+      if (!unit) return;
+      // штаб батальона — единственное место для мотоциклистов
+      if (isBattalionHQ(unit)) { ensureRiders(unit); return; }
+      if (Array.isArray(unit.squads)) unit.squads = stripRiders(unit.squads);
+      if (!Array.isArray(unit.platoons)) return;
       unit.platoons.forEach(platoon => {
         if (!platoon || !Array.isArray(platoon.squads)) return;
-        const hasRiders = platoon.squads.some(sq => sq && /Мотоциклист-разведчик/i.test(String(sq.name || '')));
-        if (!hasRiders) {
-          platoon.squads.push({ name: 'Мотоциклист-разведчик', templateName: 'Мотоциклист-разведчик' });
-          platoon.squads.push({ name: 'Мотоциклист-посыльный', templateName: 'Мотоциклист-посыльный' });
-        }
-        // ⚡ v13.157 (п.2 доп. правок): самокатным взводам — мотоциклетный миномёт
-        const bicycle = platoon.mobilityType === 'bicycle' ||
-          /самокат/i.test(String(platoon.name || ''));
-        if (bicycle && !platoon.squads.some(sq => sq && /мотоциклетн\S* миномётн/i.test(String(sq.name || '')))) {
-          mortarNumber += 1;
-          const number = Math.min(3, mortarNumber);
+        platoon.squads = stripRiders(platoon.squads);
+        // ⚡ v13.159: мотоциклетным взводам — минимум по одному мотоциклетному
+        //    миномётному расчёту (в пресете их три, здесь только страховка)
+        if (isMotorcycle(platoon) && !isBicycle(platoon) &&
+            !platoon.squads.some(sq => sq && /мотоциклетн\S*\s*миномётн/i.test(String(sq.name || '')))) {
           platoon.squads.push({
-            name: `Мотоциклетный миномётный расчёт №${number}`,
-            templateName: `Мотоциклетный миномётный расчёт 50-мм №${number}`
+            name: 'Мотоциклетный миномётный расчёт №1',
+            templateName: 'Мотоциклетный миномётный расчёт 50-мм №1'
           });
         }
       });

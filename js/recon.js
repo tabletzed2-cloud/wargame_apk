@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.158 — разведывательные миссии и приказ «Наблюдение»
+// ⚡ BUILD-МАРКЕР: v13.160 — разведывательные миссии и приказ «Наблюдение»
 // ═══════════════════════════════════════════════════════════════════════
 // ⚡ v13.157: НОВАЯ РАЗВЕДКА (заменяет подсветку радиуса v13.018…v13.099)
 //
@@ -36,12 +36,8 @@ const RECON_ASSET_TYPES = {
         canRecon: false, isMessenger: true, icon: 'images/BeVe/разведчик бенилюкс мото.png',
         speed: { road: 4, grass: 2, bushes: 2, forest: 1 }
     },
-    beve_armored_car: {
-        name: 'Бронеавтомобиль', faction: 'BeVe', kind: 'armored_car',
-        canRecon: true, icon: null,
-        // дорога / трава / кусты; НЕ лес, холм, болото, камни
-        speed: { road: 4, grass: 4, bushes: 4 }
-    },
+    // ⚡ v13.160: бронеавтомобиль больше НЕ разведывательный актив —
+    //    Landsverk 183 остаются обычными отдельными юнитами поддержки.
     airf_recon_platoon: {
         name: 'Развед. взвод', faction: 'A.I.R.F.', kind: 'foot',
         canRecon: true, icon: 'images/развед аирф.png',
@@ -105,24 +101,29 @@ function reconTerrainAt(hex) {
 // ---------- Определение активов в войсках ----------
 function reconAssetKeyForSquad(squad) {
     if (!squad) return null;
-    if (squad.reconAssetKey) return squad.reconAssetKey;
     const name = String(squad.name || '');
+    // ⚡ v13.160: штаб развед. взвода не разведывает сам — он остаётся при управлении,
+    //    даже если в шаблоне у него остался reconAssetKey.
+    if (/Штаб развед\. взвода/i.test(name)) return null;
+    if (squad.reconAssetKey && RECON_ASSET_TYPES[squad.reconAssetKey]) return squad.reconAssetKey;
     if (/Мотоциклист-разведчик/i.test(name)) return 'beve_motorcycle_scout';
     if (/Мотоциклист-посыльный/i.test(name)) return 'beve_motorcycle_messenger';
     if (/AL-41\s*Hidalgo|Hidalgo/i.test(name)) return 'airf_hidalgo';
-    if (/Штаб развед\. взвода|Развед\. отделение/i.test(name)) return 'airf_recon_platoon';
-    if (/Бронеавтомобиль|Landsverk/i.test(name)) return 'beve_armored_car';
+    // ⚡ v13.160: развед-актив — только боевые развед. отделения; штаб развед.
+    //    взвода активом не является (он остаётся при управлении).
+    if (/Развед\. отделение/i.test(name)) return 'airf_recon_platoon';
     return null;
 }
 // Юнит, который сам является активом (бронеавтомобиль, развед.взвод).
 function reconStandaloneKeyForUnit(unit) {
     if (!unit) return null;
-    if (unit.reconAssetKey) return unit.reconAssetKey;
-    if (unit.type === 'recon_platoon') return 'airf_recon_platoon';
-    const name = String(unit.name || '');
-    if (/^Развед\.?\s*взвод/i.test(name)) return 'airf_recon_platoon';
-    if ((unit.type === 'vehicle' || unit.type === 'armored_vehicle_platoon') &&
-        /Бронеавтомобиль|Landsverk/i.test(name)) return 'beve_armored_car';
+    if (unit.reconAssetKey && RECON_ASSET_TYPES[unit.reconAssetKey]) return unit.reconAssetKey;
+    // ⚡ v13.160: разделённый развед. взвод — каждое отделение со своим гексом
+    //    становится отдельным активом; штаб развед. взвода активом не считается.
+    const hasReconSquad = ((unit && unit.squads) || [])
+        .some(squad => squad && /Развед\. отделение/i.test(String(squad.name || '')));
+    const isReconPlatoon = unit.type === 'recon_platoon' || /^Развед\.?\s*взвод/i.test(String(unit.name || ''));
+    if (isReconPlatoon && hasReconSquad) return 'airf_recon_platoon';
     return null;
 }
 function reconAssetKeyForUnit(unit) {
@@ -541,7 +542,11 @@ function finishReconMission(missionId, status) {
         if (mission.status === 'completed') releaseReconAsset(mission.assetKey);
         if (mission.unitId !== null && mission.unitId !== undefined) {
             const unit = reconMissionUnit(mission);
-            if (unit) {
+            if (unit && mission.squadName) {
+                // ⚡ v13.160: отряд вернулся в юнит — носитель остаётся на месте
+                const squad = (unit.squads || []).find(sq => sq && String(sq.name) === String(mission.squadName));
+                if (squad) { delete squad.onReconMission; delete squad.reconHidden; }
+            } else if (unit) {
                 delete unit.reconMissionId;
                 delete unit.reconHidden;
                 if (mission.currentHex) {
@@ -629,7 +634,14 @@ function createReconMission(opts) {
         unit.reconMissionId = mission.id;
         unit.reconHidden = true;
     } else if (unit) {
+        // ⚡ v13.160: отряд внутри юнита (мотоциклист при штабе батальона, развед.
+        //    отделение) уходит в миссию САМ — юнит-носитель с места не двигается.
         unit.reconMissionId = unit.reconMissionId || null;
+        const squad = (unit.squads || []).find(sq => sq && String(sq.name) === String(source.squadName));
+        if (squad) {
+            squad.onReconMission = mission.id;
+            squad.reconHidden = true;
+        }
     }
     if (typeof log === 'function') {
         log(`🔍 [${mission.assetName}] отправлен. Маршрут: ${route.map(p => `(${p.col},${p.row})`).join('→')}.`);
@@ -649,9 +661,12 @@ function moveReconAsset(mission, toHex) {
     mission.ap = Number(mission.ap) - cost;
     mission.currentHex = { col: Number(toHex.col), row: Number(toHex.row) };
     mission.lastMoveTurn = reconTurnNumber();
-    // юнит-актив двигается вместе с миссией (иконка не рисуется — см. §9.4)
-    const unit = reconMissionUnit(mission);
-    if (unit) { unit.col = mission.currentHex.col; unit.row = mission.currentHex.row; }
+    // юнит-актив двигается вместе с миссией (иконка не рисуется — см. §9.4);
+    // отряд внутри юнита ходит сам, носитель остаётся на своём гексе
+    if (!mission.squadName) {
+        const unit = reconMissionUnit(mission);
+        if (unit) { unit.col = mission.currentHex.col; unit.row = mission.currentHex.row; }
+    }
     return 'moved';
 }
 function reconRouteTarget(mission) {
