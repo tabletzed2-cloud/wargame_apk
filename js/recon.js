@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.171 — разведывательные миссии и приказ «Наблюдение»
+// ⚡ BUILD-МАРКЕР: v13.172 — разведывательные миссии и приказ «Наблюдение»
 // ═══════════════════════════════════════════════════════════════════════
 // ⚡ v13.157: НОВАЯ РАЗВЕДКА (заменяет подсветку радиуса v13.018…v13.099)
 //
@@ -404,7 +404,7 @@ function getReconMoveCost(assetKind, toHex) {
     const speed = getReconSpeed(assetKind, terrain);
     if (!speed) return Infinity;
     const maxSpeed = getReconSpeed(assetKind, null) || 1;
-    return Math.max(1, maxSpeed / speed);
+    return Math.max(1, maxSpeed / speed) * (assetKind === 'foot' ? 2 : 1);
 }
 
 // ---------- Наблюдение ----------
@@ -866,6 +866,83 @@ function reconOnUnitDestroyed(unit) {
 }
 
 // ---------- Создание миссии ----------
+// One mission API is shared by the recon dock and the unit special order.
+function reconCanReceiveMission(unit) {
+    if (!unit || unit.isDestroyed || unit.isSurrendered || unit.reconMissionId || unit.embarkedInBtr) return false;
+    const key = reconStandaloneKeyForUnit(unit);
+    return !!(key && RECON_ASSET_TYPES[key] && RECON_ASSET_TYPES[key].canRecon);
+}
+function reconPlanRoute(assetKind, startHex, waypoints) {
+    if (!startHex || startHex.col == null || startHex.row == null || !Array.isArray(waypoints)) return null;
+    const result = [];
+    let current = { col: Number(startHex.col), row: Number(startHex.row) };
+    for (const point of waypoints) {
+        if (!point || point.col == null || point.row == null ||
+            !Number.isFinite(Number(point.col)) || !Number.isFinite(Number(point.row))) return null;
+        const path = reconFindPath({ assetKind, currentHex: current }, point);
+        if (path === null) return null;
+        path.forEach(hex => result.push({ col: hex.col, row: hex.row, observe: false }));
+        if (!path.length && !result.length) result.push({ col: current.col, row: current.row, observe: false });
+        if (result.length) result[result.length - 1].observe = point.observe !== false;
+        current = { col: Number(point.col), row: Number(point.row) };
+        if (result.length > 2000) return null;
+    }
+    return result;
+}
+function executeReconMissionOrder(unit, order) {
+    if (!unit || !order) return false;
+    if (!reconCanReceiveMission(unit)) {
+        order.status = 'cancelled';
+        if (typeof log === 'function') log('⛔ Для этого подразделения разведывательная миссия недоступна.');
+        return false;
+    }
+    const c = reconCampaign();
+    let route = order.route || order.waypoints || [];
+    if (!route.length && order.targetHex) {
+        const point = reconHexFromKey(order.targetHex);
+        if (point) route = [point];
+    }
+    const mission = createReconMission({
+        assetKey: reconStandaloneKeyForUnit(unit), unitId: c.opUnits.indexOf(unit),
+        route, observeMode: order.observeMode || 'stationary', reportMethod: order.reportMethod || 'radio'
+    });
+    order.status = mission ? 'completed' : 'cancelled';
+    if (mission) order.reconMissionId = mission.id;
+    return !!mission;
+}
+function reconDraftPreviewRoute() {
+    if (!reconDraft || !reconDraft.assetKey) return null;
+    const def = RECON_ASSET_TYPES[reconDraft.assetKey];
+    const c = reconCampaign();
+    const mission = reconDraft.missionId && reconActiveMissions().find(m => m.id === reconDraft.missionId);
+    const unit = c && (c.opUnits || [])[reconDraft.unitId];
+    const start = mission ? mission.currentHex : unit;
+    return def && start ? reconPlanRoute(def.kind, start, reconDraft.route || []) : null;
+}
+function reconToggleObservation(index, enabled) {
+    if (!reconDraft || !reconDraft.route || !reconDraft.route[index]) return false;
+    reconDraft.route[index].observe = !!enabled;
+    renderReconPanel();
+    if (typeof redrawOperationalMap === 'function') redrawOperationalMap();
+    return true;
+}
+function reconMissionFeedback(message, success) {
+    if (typeof document !== 'undefined') {
+        let notice = document.getElementById('reconMissionFeedback');
+        if (!notice) {
+            notice = document.createElement('div');
+            notice.id = 'reconMissionFeedback';
+            notice.setAttribute('role', 'status');
+            notice.setAttribute('aria-live', 'polite');
+            document.body.appendChild(notice);
+        }
+        notice.className = success ? 'recon-feedback success' : 'recon-feedback error';
+        notice.textContent = message;
+        clearTimeout(reconMissionFeedback.timer);
+        reconMissionFeedback.timer = setTimeout(() => notice.remove(), success ? 6000 : 10000);
+    }
+    if (typeof log === 'function') log(message);
+}
 function createReconMission(opts) {
     opts = opts || {};
     const c = reconCampaign();
@@ -873,8 +950,8 @@ function createReconMission(opts) {
     const assetKey = opts.assetKey;
     const def = RECON_ASSET_TYPES[assetKey];
     if (!def || !def.canRecon) return null;
-    const route = (Array.isArray(opts.route) ? opts.route : [])
-        .map(point => ({ col: Number(point && point.col), row: Number(point && point.row) }))
+    let route = (Array.isArray(opts.route) ? opts.route : [])
+        .map(point => ({ col: Number(point && point.col), row: Number(point && point.row), observe: point && point.observe !== false }))
         .filter(point => Number.isFinite(point.col) && Number.isFinite(point.row))
         .slice(0, RECON_ROUTE_MAX_POINTS);
     if (!route.length) return null;
@@ -892,12 +969,16 @@ function createReconMission(opts) {
         source = sources.find(s => Number(s.unitId) === Number(opts.unitId) &&
             (opts.squadName ? String(s.squadName || '') === String(opts.squadName) : true)) || null;
     }
-    if (!source) source = sources[0] || null;
+    if (!source && (opts.unitId === null || opts.unitId === undefined)) source = sources[0] || null;
     if (!source) return null;
     const unit = (c.opUnits || [])[source.unitId] || null;
-    const startHex = (unit && Number.isFinite(Number(unit.col)))
-        ? { col: Number(unit.col), row: Number(unit.row) } : { col: route[0].col, row: route[0].row };
+    if (!unit || unit.col == null || unit.row == null || !Number.isFinite(Number(unit.col)) || !Number.isFinite(Number(unit.row))) return null;
+    const startHex = { col: Number(unit.col), row: Number(unit.row) };
+    route = reconPlanRoute(def.kind, startHex, route);
+    if (!route || !route.length) return null;
     const mission = {
+        routeVersion: 2,
+        stealth: def.kind === 'foot',
         id: opts.id || `recon-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         assetKey,
         assetName: source.name || def.name,
@@ -933,6 +1014,7 @@ function createReconMission(opts) {
     if (unit && !source.squadName) {
         unit.reconMissionId = mission.id;
         unit.reconHidden = true;
+        unit.stealthMove = def.kind === 'foot';
     } else if (unit) {
         // ⚡ v13.160: отряд внутри юнита (мотоциклист при штабе батальона, развед.
         //    отделение) уходит в миссию САМ — юнит-носитель с места не двигается.
@@ -1062,7 +1144,11 @@ function moveReconAsset(mission, toHex) {
     // отряд внутри юнита ходит сам, носитель остаётся на своём гексе
     if (!mission.squadName) {
         const unit = reconMissionUnit(mission);
-        if (unit) { unit.col = mission.currentHex.col; unit.row = mission.currentHex.row; }
+        if (unit) {
+            unit.col = mission.currentHex.col; unit.row = mission.currentHex.row;
+            unit.stealthMove = mission.assetKind === 'foot';
+            unit.movedThisTurn = true;
+        }
     }
     return 'moved';
 }
@@ -1079,26 +1165,19 @@ function reconStepAlongRoute(mission) {
     const current = mission.currentHex || { col: target.col, row: target.row };
     const atTarget = Number(current.col) === Number(target.col) && Number(current.row) === Number(target.row);
     if (atTarget) {
+        if (mission.routeVersion === 2 && target.observe && mission.lastObservedIndex !== mission.currentIndex) {
+            observeInRange(null, mission, getReconObserveRange(mission, current, false), {
+                isScout: true, pauseBonus: mission.observeMode === 'pause' ? 2 : 0
+            });
+            mission.lastObservedIndex = mission.currentIndex;
+            if (mission.observeMode === 'pause') { mission.ap = 0; return 'no_ap'; }
+        }
         if (Number(mission.currentIndex) >= mission.route.length - 1) return 'end';
         mission.currentIndex = Number(mission.currentIndex) + 1;
         return 'point';
     }
-    // идём по прямой к точке: промежуточный гекс — сосед в сторону цели
-    let step = null;
-    const neighbors = (typeof getOpHexNeighbors === 'function')
-        ? getOpHexNeighbors(Number(current.col), Number(current.row)) : [];
-    let bestDist = Infinity;
-    neighbors.forEach(neighbor => {
-        const dist = (typeof getOpHexDistance === 'function')
-            ? getOpHexDistance(neighbor.col, neighbor.row, Number(target.col), Number(target.row)) : 99;
-        if (dist < bestDist && canReconMoveTo(mission.assetKind, current, neighbor)) {
-            bestDist = dist; step = neighbor;
-        }
-    });
-    if (!step) {
-        // прямой сосед недоступен — пробуем саму точку (может быть на расстоянии 2)
-        if (canReconMoveTo(mission.assetKind, current, target)) step = { col: Number(target.col), row: Number(target.row) };
-    }
+    const path = reconFindPath(mission, target);
+    const step = path && path[0];
     if (!step) return 'blocked';
     return moveReconAsset(mission, step);
 }
@@ -1153,11 +1232,11 @@ function advanceReconMissions() {
             mission.ap = RECON_TURN_BUDGET;
             let guard = 0;
             let outcome = 'moved';
-            while (guard++ < 12) {
+            while (guard++ < 2000) {
                 outcome = reconStepAlongRoute(mission);
                 if (outcome === 'moved') {
                     // наблюдение на каждом пройденном гексе
-                    if (mission.observeMode === 'pass' || mission.observeMode === 'pause') {
+                    if (mission.routeVersion !== 2 && (mission.observeMode === 'pass' || mission.observeMode === 'pause')) {
                         observeInRange(null, mission, getReconObserveRange(mission, mission.currentHex, true), {
                             isScout: true,
                             pauseBonus: mission.observeMode === 'pause' ? 2 : 0
@@ -1169,8 +1248,13 @@ function advanceReconMissions() {
                 break;
             }
             if (outcome === 'end') {
+                const endpoint = mission.route[mission.route.length - 1];
+                if (mission.routeVersion === 2 && !endpoint.observe) {
+                    mission.status = 'returning';
+                    return;
+                }
                 const range = getReconObserveRange(mission, mission.currentHex, false);
-                observeInRange(null, mission, range, {
+                if (mission.routeVersion !== 2 || mission.lastObservedIndex !== mission.currentIndex) observeInRange(null, mission, range, {
                     isScout: true,
                     pauseBonus: mission.observeMode === 'pause' ? 2 : 0
                 });
@@ -1332,9 +1416,13 @@ function changeReconMissionOrder(missionId, newOrder) {
         return false;
     }
     if (Array.isArray(newOrder.route) && newOrder.route.length) {
-        mission.route = newOrder.route.slice(0, RECON_ROUTE_MAX_POINTS)
-            .map(point => ({ col: Number(point.col), row: Number(point.row) }))
-            .filter(point => Number.isFinite(point.col) && Number.isFinite(point.row));
+        const route = reconPlanRoute(mission.assetKind, mission.currentHex,
+            newOrder.route.slice(0, RECON_ROUTE_MAX_POINTS));
+        if (!route || !route.length) return false;
+        mission.route = route;
+        mission.routeVersion = 2;
+        mission.stealth = mission.assetKind === 'foot';
+        mission.lastObservedIndex = null;
         mission.currentIndex = 0;
         mission.status = 'active';
     }
@@ -1395,7 +1483,7 @@ function openReconMissionModal(unitId, squadName) {
         missionId: null,
         pickingRoute: true
     };
-    return showReconPanel();
+    return showReconPanel(true);
 }
 // ⚡ v13.163: выдача приказа на разведку ИЗ ШТАБА — конкретным развед-отрядом
 //    штаба (мотоциклист-разведчик BeVe, AL-41 Hidalgo A.I.R.F.).
@@ -1537,7 +1625,7 @@ function handleReconRouteDraftClick(clickX, clickY, size) {
     }
     const last = reconDraft.route[reconDraft.route.length - 1];
     if (last && Number(last.col) === hex.col && Number(last.row) === hex.row) return true;
-    reconDraft.route.push(hex);
+    reconDraft.route.push({ ...hex, observe: true });
     renderReconPanel();
     if (typeof redrawOperationalMap === 'function') { try { redrawOperationalMap(); } catch (e) {} }
     return true;
@@ -1547,22 +1635,28 @@ function buildReconMissionRoute() {
 }
 function reconSubmitMission() {
     if (!reconDraft) return null;
+    const c = reconCampaign();
+    if (c && c.online && typeof onlineMyTurnActive === 'function' && !onlineMyTurnActive()) {
+        reconMissionFeedback('⏳ Сейчас ход оппонента. Черновик разведки сохранён в открытом меню.', false);
+        return null;
+    }
     // ⚡ v13.171 (п.1): отправляем ИМЕННО выбранную машину (а не первую свободную)
     if (reconDraft.assetKey && !reconDraft.missionId) reconDraftEnsureSource();
     const route = (reconDraft.route || []).slice();
     if (!reconDraft.assetKey) {
-        if (typeof log === 'function') log('⛔ Разведка: сначала выберите актив.');
+        reconMissionFeedback('⛔ Разведка: сначала выберите актив.', false);
         return null;
     }
     if (!route.length) {
-        if (typeof log === 'function') log('⛔ Разведка: кликните по карте, чтобы задать маршрут.');
+        reconMissionFeedback('⛔ Разведка: кликните по карте, чтобы задать маршрут.', false);
         return null;
     }
     if (reconDraft.missionId) {
         const ok = changeReconMissionOrder(reconDraft.missionId, {
             route, observeMode: reconDraft.observeMode, reportMethod: reconDraft.reportMethod
         });
-        if (ok) closeReconPanel();
+        if (ok) { closeReconPanel(); reconMissionFeedback('✅ Новый маршрут разведки передан.', true); }
+        else reconMissionFeedback('⛔ Приказ не передан: нет связи или проходимого маршрута.', false);
         return ok;
     }
     const mission = createReconMission({
@@ -1573,8 +1667,10 @@ function reconSubmitMission() {
         observeMode: reconDraft.observeMode,
         reportMethod: reconDraft.reportMethod
     });
-    if (mission) closeReconPanel();
-    else if (typeof log === 'function') log('⛔ Разведка: актив недоступен (занят или потерян).');
+    if (mission) {
+        closeReconPanel();
+        reconMissionFeedback('✅ Задача разведки передана: ' + mission.assetName + '. Маршрут принят.', true);
+    } else reconMissionFeedback('⛔ Разведка не отправлена: актив занят, потерян или маршрут непроходим.', false);
     return mission;
 }
 // «📡 Новый приказ» для активной миссии — по рации, без возврата
@@ -1593,7 +1689,7 @@ function reconNewOrderForMission(missionId) {
         missionId: mission.id,
         pickingRoute: true
     };
-    return showReconPanel();
+    return showReconPanel(true);
 }
 function reconMissionStatusLabel(mission) {
     if (!mission) return '';
@@ -1673,8 +1769,14 @@ function renderReconPanel() {
         : (sourceList.length === 1
             ? `<div style="margin-top:4px; color:#8ecbff; font-size:.78rem;">Машина: ${reconSourceName(sourceList[0])}</div>`
             : '');
-    const routeText = (reconDraft.route || []).map(point => `(${point.col},${point.row})`).join(' → ') || 'кликните по гексам на карте';
-    const modeRadio = [['pass', 'Проходить'], ['stationary', 'Занять в конце'], ['pause', 'Пауза на точках (+2)']]
+    const preview = reconDraftPreviewRoute();
+    const routeText = preview && preview.length
+        ? preview.map(point => `${point.observe ? '👁️ ' : ''}(${point.col},${point.row})`).join(' → ')
+        : ((reconDraft.route || []).length ? '⛔ Нет проходимого маршрута от выбранного актива' : 'кликните по гексам на карте');
+    const observationChecks = (reconDraft.route || []).map((point, index) =>
+        `<label class="recon-observation-point"><input type="checkbox" ${point.observe !== false ? 'checked' : ''}
+          onchange="reconToggleObservation(${index},this.checked)"> 👁️ Разведать (${point.col},${point.row})</label>`).join('');
+    const modeRadio = [['pass', 'Наблюдать в отмеченных местах'], ['stationary', 'Занять в конце'], ['pause', 'Пауза в отмеченных местах (+2)']]
         .map(([value, label]) => `<label style="margin-right:10px; color:#ddd; font-size:.8rem;">
             <input type="radio" name="reconMode" value="${value}" ${reconDraft.observeMode === value ? 'checked' : ''}
                    onchange="reconSetObserveMode('${value}')"> ${label}</label>`).join('');
@@ -1696,13 +1798,15 @@ function renderReconPanel() {
         </div>
         ${sourceSelect}
         <div style="margin-top:6px; font-size:.82rem; color:#ddd;">
-            2. Маршрут: <span style="color:#f1c40f;">${routeText}</span>
+            2. Полный маршрут: <span style="color:#f1c40f;">${routeText}</span>
+            <div>${observationChecks}</div>
+            ${RECON_ASSET_TYPES[reconDraft.assetKey] && RECON_ASSET_TYPES[reconDraft.assetKey].kind === 'foot' ? '<div>🥷 Пешая разведка всегда движется скрытно.</div>' : ''}
             <button onclick="reconClearRoute()" style="background:#555; font-size:.7rem; padding:1px 6px; margin-left:6px;">Очистить маршрут</button>
             ${reconDraft.pickingRoute
                 ? `<button onclick="reconPauseRoutePicking()" style="background:#7f6a2b; font-size:.7rem; padding:1px 6px; margin-left:4px;" title="Клики по карте снова выбирают отряды, маршрут сохраняется">✋ Закончить набор</button>`
                 : `<button onclick="reconResumeRoutePicking()" style="background:#2980b9; font-size:.7rem; padding:1px 6px; margin-left:4px;" title="Клики по гексам снова добавляют точки маршрута">➕ Добавить точки</button>`}
             <div style="color:#888; font-size:.75rem;">${reconDraft.pickingRoute
-                ? `Клик по гексам на карте добавляет точку (до ${RECON_ROUTE_MAX_POINTS}); последняя точка — точка наблюдения. Клик по своему отряду прерывает набор и выбирает отряд.`
+                ? `Клик задаёт изгиб маршрута (до ${RECON_ROUTE_MAX_POINTS}). Между ними строится проходимый путь. Галочками отметьте, где провести разведку; остальные гексы — только движение. Клик по своему отряду прерывает набор и выбирает отряд.`
                 : 'Набор точек приостановлен — клики по карте выбирают отряды. Маршрут сохранён.'}</div>
         </div>
         <div style="margin-top:6px; font-size:.82rem; color:#ddd;">3. Наблюдение: ${modeRadio}</div>
@@ -1955,9 +2059,10 @@ function drawReconMissionOverlay(ctx, size) {
             }
         } catch (e) {}
         // маркер точки наблюдения (глаз) на конечной точке
-        const last = route[route.length - 1];
-        if (last && mission.status !== 'returning') {
-            const p = center(last);
+        const observationPoints = mission.routeVersion === 2 ? route.filter(point => point.observe) : route.slice(-1);
+        observationPoints.forEach(point => {
+          if (mission.status !== 'returning') {
+            const p = center(point);
             ctx.save();
             ctx.fillStyle = '#f1c40f';
             ctx.font = `bold ${Math.max(10, size * 0.34)}px Arial`;
@@ -1965,8 +2070,18 @@ function drawReconMissionOverlay(ctx, size) {
             ctx.textBaseline = 'middle';
             ctx.fillText('👁️', p.x, p.y - size * 0.55);
             ctx.restore();
-        }
+          }
+        });
     });
-    if (draft) drawRoute(draft.route, 'rgba(241,196,15,.95)');
+    if (draft) {
+        const preview = reconDraftPreviewRoute();
+        if (preview) drawRoute(preview, 'rgba(241,196,15,.95)');
+        (draft.route || []).filter(point => point.observe !== false).forEach(point => {
+            const p = center(point);
+            ctx.font = `bold ${Math.max(12, size * 0.34)}px Arial`;
+            ctx.fillStyle = '#f1c40f';
+            ctx.fillText('👁️', p.x, p.y - size * 0.4);
+        });
+    }
     ctx.restore();
 }

@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.171 — tactical grenade-area fire, commissioner card limit, unified rules.
+// ⚡ BUILD-МАРКЕР: v13.172 — tactical grenade-area fire, commissioner card limit, unified rules.
 (function () {
   'use strict';
 
@@ -25,9 +25,7 @@
     error: ''
   };
 
-  const esc = value => String(value == null ? '' : value)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const esc = value => escapeCardHtml(value);
 
   function campaign() {
     return (typeof appData !== 'undefined' && appData && appData.campaign) ? appData.campaign : null;
@@ -50,11 +48,16 @@
     // ⚡ v13.136 (п.3): на этапе связи панель раскрывается автоматически —
     //    иначе её можно случайно пропустить и не распределить рации/телефоны.
     if (stage === 'communications') {
+      ensureHardMode();
       // ⚡ v13.138 (playtest): «на стадии распределения связи так и не открывается меню связи» —
       //    v13.136 раскрывал только тело панели (commCollapsed), а боковая панель оставалась
       //    скрытой; теперь меню связи раскрывается САМО (force=true — без toggle-закрытия).
       state.commCollapsed = false;
-      try { if (typeof showCommunicationPanel === 'function') showCommunicationPanel(true); } catch (e) {}
+      setTimeout(() => {
+        if (activeMap() && getStage() === 'communications') {
+          try { if (typeof showCommunicationPanel === 'function') showCommunicationPanel(true); } catch (e) {}
+        }
+      }, 0);
     }
     try { saveData(); } catch (e) {}
     renderSetup();
@@ -94,7 +97,6 @@
       try { if (typeof applyHardModeUI === 'function') applyHardModeUI(); } catch (e) {}
       try { if (typeof updateHardModeButtons === 'function') updateHardModeButtons(); } catch (e) {}
     }
-    c.hardMode = true;
     try { if (typeof ensureSignalPlatoonState === 'function') ensureSignalPlatoonState(); } catch (e) {}
     if (!wasEnabled) { try { if (typeof saveData === 'function') saveData(); } catch (e) {} }
     return true;
@@ -116,7 +118,11 @@
     //    v13.136 раскрывал только тело панели внутри скрытого контейнера (no-op).
     if (c.opSetupStage === 'communications') {
       state.commCollapsed = false;
-      try { if (typeof showCommunicationPanel === 'function') showCommunicationPanel(true); } catch (e) {}
+      setTimeout(() => {
+        if (activeMap() && getStage() === 'communications') {
+          try { if (typeof showCommunicationPanel === 'function') showCommunicationPanel(true); } catch (e) {}
+        }
+      }, 0);
     }
   }
 
@@ -133,7 +139,21 @@
     });
   }
   function renderSetup() {
-    renderSetupCore();
+    const c = campaign();
+    const host = document.getElementById('opSetupWizard');
+    const sig = JSON.stringify([
+      activeMap(), getStage(), c && c.playerFaction,
+      typeof getUnplacedOpUnits === 'function' ? getUnplacedOpUnits().length : 0,
+      typeof hardMode !== 'undefined' && hardMode && !!hardMode.enabled,
+      c && c.online, c && c.initialPlatoonCardsAssigned,
+      typeof initialFortificationHexCount === 'function' ? initialFortificationHexCount() : 0,
+      typeof initialFortificationComplete === 'function' ? initialFortificationComplete() : false
+    ]);
+    if (host && (sig !== state.setupSig || host !== state.setupHost)) {
+      renderSetupCore();
+      state.setupSig = sig;
+      state.setupHost = host;
+    }
     syncStageLayout();
   }
   function renderSetupCore() {
@@ -142,6 +162,7 @@
     const c = campaign();
     if (!c || !c.active || !activeMap()) { host.style.display = 'none'; return; }
     const stage = getStage();
+    if (['communications', 'cards', 'orders'].includes(stage)) ensureHardMode();
     ['showOrderPanelBtn', 'showCommPanelBtn', 'showSupplyPanelBtn'].forEach(id => setDisplay(id, false));
     const onlineEnemyPanel = document.getElementById('opEnemyPanel');
     if (onlineEnemyPanel && c.online) onlineEnemyPanel.style.display = 'none';
@@ -212,7 +233,7 @@
     }
 
     const deployGroup = document.getElementById('opPhaseDeploy');
-    if (deployGroup) deployGroup.style.display = stage === 'orders' ? 'none' : 'flex';
+    if (deployGroup) deployGroup.style.display = 'flex';
     setButtonByOnclick("setOpMapMode('placePlayer')", stage === 'placement');
     setButtonByOnclick("setOpMapMode('view')", stage === 'placement');
     setButtonByOnclick('autoPlaceUnplacedUnits', stage === 'placement');
@@ -227,7 +248,6 @@
     if (rare) rare.style.display = stage === 'orders' ? 'flex' : 'none';
     const enemyPanel = document.getElementById('opEnemyPanel');
     if (enemyPanel && c.online) enemyPanel.style.display = 'none';
-    if (stage === 'communications') ensureHardMode();
     updatePlacementTray();
     if (typeof showCampaignTutorialStage === 'function') showCampaignTutorialStage(stage, false);
   }
@@ -291,6 +311,13 @@
     renderActiveOrders();
   }
   function syncStageLayout() {
+    const autoPlace = document.querySelector('#opPhaseDeploy button[onclick*="autoPlaceUnplacedUnits"]');
+    if (autoPlace) {
+      const primary = getStage() === 'placement' && typeof getUnplacedOpUnits === 'function' && getUnplacedOpUnits().length > 0;
+      autoPlace.style.order = primary ? '-1' : '';
+      autoPlace.style.background = primary ? '#27ae60' : '#16a085';
+    }
+
     const c = campaign();
     const dock = ensureDock();
     const active = activeMap();
@@ -523,10 +550,7 @@
     const canvas = document.getElementById('opMapCanvas');
     if (!canvas || canvas.__opIconDrag) return;
     canvas.__opIconDrag = true;
-    // без pointer events свою прокрутку не построить — оставляем браузерную
-    if (typeof window === 'undefined' || typeof window.PointerEvent === 'undefined') {
-      try { canvas.style.touchAction = 'pan-x pan-y'; } catch (e) {}
-    }
+    try { canvas.style.touchAction = 'none'; } catch (e) {}
     // Клик, пришедший сразу после прокрутки, — не выбор гекса. Слушаем на
     // контейнере в фазе перехвата: она идёт раньше onclick самого канваса.
     const viewport = panViewport();
@@ -565,7 +589,7 @@
       if (!drag.moved) {
         if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) <= 7) return;
         drag.moved = true;
-        if (!selectPlacementUnit(drag.id)) { state.canvasDrag = null; canvas.style.touchAction = ''; return; }
+        if (!selectPlacementUnit(drag.id)) { state.canvasDrag = null; canvas.style.touchAction = 'none'; return; }
         try { if (typeof setOpMapMode === 'function') setOpMapMode('placePlayer'); } catch (e) {}
         const ghost = document.createElement('div');
         ghost.className = 'op-placement-ghost';
@@ -580,7 +604,7 @@
       const drag = state.canvasDrag;
       if (!drag) return;
       state.canvasDrag = null;
-      canvas.style.touchAction = '';
+      canvas.style.touchAction = 'none';
       removePlacementGhost();
       if (!drag.moved) return;
       state.lastDragAt = Date.now();
@@ -594,7 +618,7 @@
     }, { passive: true });
     document.addEventListener('pointercancel', event => {
       if (pan.id != null && (event.pointerId === pan.id || event.pointerId == null)) endPan();
-      state.canvasDrag = null; canvas.style.touchAction = ''; removePlacementGhost();
+      state.canvasDrag = null; canvas.style.touchAction = 'none'; removePlacementGhost();
     }, { passive: true });
     window.addEventListener('blur', () => { if (pan.id != null) endPan(); });
     // ⚡ v13.092 (п.1): прокрутка карты — на любом этапе операции
@@ -1041,7 +1065,7 @@
       return !(typeof isVehicleMobilityUnit === 'function' && isVehicleMobilityUnit(unit)) &&
         !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
     }
-    if (action === 'recon') return !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
+    if (action === 'recon') return typeof reconCanReceiveMission === 'function' && reconCanReceiveMission(unit);
     if (action === 'dig_in' || action === 'prep_positions') return !(typeof isVehicleMobilityUnit === 'function' && isVehicleMobilityUnit(unit)) && !(typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit));
     // ⚡ v13.137 (п.1): спешивание/посадка — велосипедисты И мотоциклы верхом:
     //    «Спешиться» — только сидящему верхом; «Сесть» — только спешенному.
@@ -1245,7 +1269,8 @@
       //    подразделениям, которые можно спешить (велосипедисты и т.п.);
       //    остальным юнитам опции не показываются вообще.
       const visibleActions = actions.filter(([value]) =>
-        (value !== 'dismount' && value !== 'remount') || canIssueSpecial(unit, value));
+        ((value !== 'dismount' && value !== 'remount') || canIssueSpecial(unit, value)) &&
+        (value !== 'recon' || canIssueSpecial(unit, value)));
       if (visibleActions.length && visibleActions.every(([value]) => value !== draft.specialAction)) {
         draft.specialAction = visibleActions[0][0];
       }
@@ -1254,7 +1279,8 @@
       if (unit.embarkedInBtr && draft.specialAction !== 'disembark') {
         body += `<div class="op-cmd-note">Отряд в БТР. Действие ждёт отдельной высадки: оно не высаживает десант автоматически и начнёт выполняться со следующего оперативного хода после высадки.</div>`;
       }
-      if (['dig_in', 'recon', 'prep_positions'].includes(draft.specialAction)) {
+      if (draft.specialAction === 'recon') body += '<div class="op-cmd-note">Откроется единое меню разведки: маршрут, места наблюдения и способ доклада.</div>';
+      if (['dig_in', 'prep_positions'].includes(draft.specialAction)) {
         const hexKey = draft.targetHex || unitHexKey(unit);
         body += `<div class="op-cmd-note">Гекс выполнения: <b>${esc(hexKey || 'не выбран')}</b>${draft.targetHex ? '' : ' (по умолчанию — текущий гекс)'}. Отряд подойдёт к нему и выполнит действие.</div>` +
           pointPicker('Выбрать гекс на карте', 'special');
@@ -2216,6 +2242,13 @@
     }
     if (action === 'submit') {
       try {
+        if (state.draft && state.draft.category === 'special' && state.draft.specialAction === 'recon') {
+          const unit = units()[state.selectedUnitId];
+          if (!canIssueSpecial(unit, 'recon')) throw new Error('Это подразделение не выполняет разведывательные миссии.');
+          closeCommandMenu(true);
+          openReconMissionModal(units().indexOf(unit));
+          return;
+        }
         if (state.draft && state.draft.category === 'artillery') submitQuickArtillery();
         else issueDraftOrder();
       } catch (e) { state.error = e.message || 'Не удалось отдать приказ.'; renderCommandMenu(); }
@@ -2270,12 +2303,37 @@
       // Обычный click после drag игнорируем, но drop-событие должно дойти
       // до handleOpMapClick, иначе перетаскивание не размещает выбранный юнит.
       if (Date.now() - state.lastDragAt < 500 && !(event && event.__opPlacementDrop)) return;
+      if (typeof handleSupplyDangerPick === 'function' && handleSupplyDangerPick(event)) return;
       if (state.mapPick && handleQuickMapPick(event)) return;
+      const cardsCampaign = campaign();
+      if (cardsCampaign && getStage() === 'cards' && !cardsCampaign.initialPlatoonCardsAssigned && isOnlineTurn()) {
+        const canvas = document.getElementById('opMapCanvas');
+        if (canvas && event && typeof opOwnUnitAtPoint === 'function') {
+          const rect = canvas.getBoundingClientRect();
+          const scale = typeof canvasBackingScale === 'function' ? canvasBackingScale(canvas) : 1;
+          const x = (event.clientX - rect.left) * (canvas.width / scale) / rect.width;
+          const y = (event.clientY - rect.top) * (canvas.height / scale) / rect.height;
+          const hit = opOwnUnitAtPoint(x, y, OP_HEX_SIZE * (cardsCampaign.opZoomLevel || 1));
+          if (hit) {
+            cardsCampaign.selectedOpUnit = hit;
+            state.selectedUnitId = units().indexOf(hit);
+            closeCommandMenu(true);
+            if (typeof closeOpUnitInfoPopup === 'function') closeOpUnitInfoPopup();
+            openInitialUnitCardMenu(state.selectedUnitId);
+            return;
+          }
+        }
+      }
       const result = original.apply(this, arguments);
       const c = campaign();
       if (c && c.selectedOpUnit) {
         const nextId = units().indexOf(c.selectedOpUnit);
         state.selectedUnitId = nextId >= 0 ? nextId : null;
+        if (nextId >= 0 && getStage() === 'cards' && !c.initialPlatoonCardsAssigned) {
+          closeCommandMenu(true);
+          if (typeof openInitialUnitCardMenu === 'function') openInitialUnitCardMenu(nextId);
+          return result;
+        }
         if (nextId >= 0 && state.menuOpen) {
           state.draft = null;
           state.menuPage = 'main';
@@ -2304,7 +2362,8 @@
     if (!c || !c.active || !activeMap()) return;
     setInitialStage();
     renderSetup();
-    renderPinnedActions();
+    if (state.menuOpen && c.selectedOpUnit != null && units()[c.selectedOpUnit]) renderCommandMenu();
+    else renderPinnedActions();
     const overlay = document.getElementById('initialCardStageOverlay');
     if (getStage() === 'cards' && !c.initialPlatoonCardsAssigned) {
       // ⚡ v13.099 (п.2): свёрнутое игроком меню раздачи не открываем принудительно —
@@ -2415,6 +2474,8 @@
       if (!state.hardModeTogglePatched) patchHardModeToggle();
       if (!state.confirmBattalionPatched || !state.showOperationalMapPatched) patchCampaignResetters();
       if (activeMap()) {
+        if (getStage() === 'placement') installPlacementInteractions();
+        installCanvasDrag();
         renderSetup();
         renderPinnedActions();
       } else {
@@ -2457,6 +2518,10 @@
     const chosen = keys.map(toPoint).filter(Boolean);
     const keySet = new Set(keys);
     const selected = (state.selectedUnitId != null) ? (units()[state.selectedUnitId] || null) : null;
+    if (!selected || selected.col == null || selected.row == null ||
+        !Number.isFinite(Number(selected.col)) || !Number.isFinite(Number(selected.row))) {
+      return { chosen, candidates: [], unitHex: null };
+    }
     const neighboursOf = (col, row) => {
       let list = [];
       try {
@@ -2478,7 +2543,7 @@
     let candidates = [];
     if (keys.length === 0) {
       // первая точка цепочки — рядом со взводом (он встанет на средний гекс)
-      candidates = selected && Number.isFinite(Number(selected.col))
+      candidates = selected && selected.col != null && selected.row != null && Number.isFinite(Number(selected.col)) && Number.isFinite(Number(selected.row))
         ? neighboursOf(Number(selected.col), Number(selected.row)) : [];
     } else if (keys.length < 3) {
       const edges = keys.length === 1 ? [keys[0]] : [keys[0], keys[keys.length - 1]];
@@ -2494,7 +2559,7 @@
         });
       });
     }
-    return { chosen, candidates, unitHex: selected && Number.isFinite(Number(selected.col))
+    return { chosen, candidates, unitHex: selected && selected.col != null && selected.row != null && Number.isFinite(Number(selected.col)) && Number.isFinite(Number(selected.row))
       ? { col: Number(selected.col), row: Number(selected.row) } : null };
   };
   window.toggleCommPanelBody = function () { state.commCollapsed = !state.commCollapsed; syncStageLayout(); };

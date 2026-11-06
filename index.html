@@ -3,135 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.171 — операция</title>
+  <title>Боевой модуль v13.172 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
   <!-- ⚡ v13.031: Firebase (онлайн-матчи). Конфиг — в блоке ONLINE_CONFIG ниже. -->
 <!-- Local SDK: online lobby also opens in installed/offline builds without a CDN. -->
 <script src="js/firebase-offline.js"></script>
-  <style>
-    /* ⚡ v13.071: акцент на одну кнопку действия и мягкий фон фазового бара */
-    #uxPhaseBar { box-shadow: 0 0 0 1px #2980b9 inset; }
-    #btnFinishPlacement { font-weight: 700; box-shadow: 0 0 10px rgba(39,174,96,.35) inset; }
-    #opEndTurnBtn { font-weight: 700; box-shadow: 0 0 10px rgba(41,128,185,.35) inset; }
-    /* v13.097: номер раунда над обеими тактическими вкладками; пауза не исчезает как toast. */
-    #initialCardStageRestoreBar { position:fixed; left:50%; transform:translateX(-50%); bottom:10px; z-index:1900;
-      display:none; gap:8px; align-items:center; flex-wrap:wrap; justify-content:center; padding:8px 10px;
-      background:rgba(18,24,30,0.95); border:1px solid #8e44ad; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.5); }
-    #initialCardStageRestoreBar button { margin:0; }
-    #tacticalRoundBar { position:sticky; top:0; z-index:80; flex-wrap:wrap; align-items:center; gap:6px 14px;
-      padding:10px 12px; margin:4px 0 8px; background:#142033; color:#ecf0f1; border:1px solid #4fc3f7; border-radius:8px; }
-    #tacticalRoundLabel { font-size:1.15rem; color:#f1c40f; }
-    /* Компактная панель начального размещения — освобождаем экран карты. */
-    #battlePlacementPanel { max-height: min(23vh, 180px); overflow-y:auto; padding:5px 7px !important; font-size:.78rem !important; line-height:1.25; }
-    #battlePlacementPanel button, #battlePlacementPanel select { padding:4px 6px; margin:2px; font-size:.78rem; }
-    #squadToPlace { max-width:min(48vw, 260px); font-size:.82rem; }
-    #tacticalEnemyPlacementPanel { max-height:100px; overflow-y:auto; font-size:.78rem; }
-    #tacticalRoundProgress { font-size:.9rem; }
-    #tacticalRoundSide { font-weight:700; }
-    #tacticalRoundActions { display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin-left:auto; }
-    #tacticalRoundActions button { margin:0; font-size:.85rem; }
-    @media (max-width:680px) {
-      #tacticalRoundActions { flex-basis:100%; margin-left:0; }
-      #tacticalRoundActions button { flex:1 1 auto; }
-    }
-    #tacticalOrdersPauseOverlay { position:fixed; inset:0; z-index:22000; align-items:center; justify-content:center;
-      padding:16px; background:rgba(0,0,0,.78); box-sizing:border-box; }
-    #tacticalOrdersPauseOverlay .tactical-pause-dialog { width:min(100%, 520px); max-height:90vh; overflow:auto;
-      padding:20px; box-sizing:border-box; background:#1d2734; border:2px solid #f1c40f; border-radius:12px; color:#ecf0f1; }
-    #tacticalOrdersPauseBanner { padding:10px; margin:8px 0; border:1px solid #f1c40f; border-radius:8px;
-      background:#332d18; color:#f1c40f; line-height:1.4; }
-    /* Минимальный интерфейс редактора окопов/расчистки: оставляем карту, её
-       панель размещения окопов и строку сообщений; ВСЕ кнопки тактического боя
-       (разместить/переместить/редактор/метки/ход и т.п.) скрыты. Без :has() —
-       старые WebView его не понимают и весь блок правил отбрасывался. */
-    #battleApp.hex-editor-mode > :not(#mapTab) { display:none !important; }
-    #battleApp.hex-editor-mode #mapTab > * { display:none !important; }
-    /* ⚡ v13.138 (playtest): меню расстановки ДОТов НЕ должно перекрывать карту —
-       шапка редактора ограничена 42vh с собственной прокруткой, карта остаётся
-       видимой (52vh) для клика по клетке даже на телефоне. */
-    #battleApp.hex-editor-mode #mapTab > #hexEditorBanner { display:block !important; position:sticky; top:0; z-index:120; max-height:42vh; overflow-y:auto; }
-    #battleApp.hex-editor-mode #mapTab > #mapContainer { display:block !important; height:52vh !important; }
-    #battleApp.hex-editor-mode #mapTab > #battleMapInfoSlot { display:block !important; }
-    #battleApp.hex-editor-mode #mapTab > #campaignMiniMapPanel { display:block !important; }
-    /* Панель перетаскивания отрядов при размещении на тактической карте */
-    .battle-placement-tray { margin:5px 0; padding:5px; background:#1d2b1f; border:1px solid #376244; border-radius:6px; }
-    .battle-placement-tray-title { font-size:.75rem; color:#9ad3a8; margin-bottom:3px; }
-    .battle-placement-tray-units { display:flex; flex-wrap:wrap; gap:4px; max-height:96px; overflow-y:auto; }
-    .battle-placement-chip { display:inline-flex; align-items:center; gap:4px; padding:4px 7px; background:#24402d; border:1px solid #3f7a54; border-radius:6px; color:#dff5e5; cursor:grab; font-size:.78rem; touch-action:none; }
-    .battle-placement-chip img { width:18px; height:18px; object-fit:contain; }
-    .battle-placement-chip:active { cursor:grabbing; }
-    /* главная кнопка действия в фазе пусть чуть крупнее остальных */
-    .ux-phase-deploy button, .ux-phase-battle button, .ux-phase-rare button { padding:6px 10px; }
-  </style>
 
-  <style>
-    /* ⚡ v13.071: TOAST вместо alert() — не блокирующие плашки в углу */
-    #toastContainer { position:fixed; right:18px; bottom:18px; z-index:20000; display:flex; flex-direction:column; gap:8px; pointer-events:none; max-width:min(92vw, 360px); }
-    .ux-toast { pointer-events:auto; padding:10px 14px; border-radius:8px; background:#2c3e50; color:#ecf0f1; font-size:.92rem; line-height:1.35; box-shadow:0 6px 18px rgba(0,0,0,.45); border-left:4px solid #3498db; animation:ux-toast-in .18s ease-out; }
-    .ux-toast.kind-success { border-left-color:#27ae60; background:#1e3a2c; }
-    .ux-toast.kind-warn    { border-left-color:#f39c12; background:#3a2f18; }
-    .ux-toast.kind-error   { border-left-color:#c0392b; background:#3a1d1d; }
-    .ux-toast.kind-info    { border-left-color:#3498db; background:#1d2d3a; }
-    .ux-toast .ux-toast-x { float:right; margin-left:10px; background:transparent; border:none; color:#bdc3c7; cursor:pointer; font-size:1rem; padding:0 4px; }
-    /* ⚠️ v13.106 (п.13): на телефоне уведомления об обстрелах —
-       компактнее, кнопка закрытия крупнее (раньше не влезало
-       на экран и × было не нажать). */
-    @media (max-width: 480px) {
-      #shellNoticeStack { width: 96vw !important; right: 2vw !important; left: 2vw !important; bottom: 6px !important; max-height: 42vh !important; }
-      #shellNoticeStack .shell-notice { font-size: 0.78rem !important; padding: 6px 8px !important; }
-      #shellNoticeStack .shell-notice [data-shell-close] { font-size: 1.7rem !important; padding: 6px 10px !important; line-height: 1 !important; }
-    }
-    @keyframes ux-toast-in { from { transform:translateY(12px); opacity:0 } to { transform:none; opacity:1 } }
-    @keyframes ux-toast-out { to { transform:translateY(12px); opacity:0 } }
-    /* ⚡ v13.075: БЕЗРЕЖИМНЫЕ ДЕЙСТВИЯ — строка чипов выбранного отряда */
-    .ux-action-bar { display:none; flex-wrap:wrap; gap:6px; align-items:center; margin:0 0 6px 0; padding:8px; background:#17261c; border:1px solid #27ae60; border-radius:8px; font-size:.9rem; color:#ecf0f1; }
-    .ux-action-bar .ux-ab-head { width:100%; color:#f1c40f; margin-bottom:2px; }
-    .ux-action-bar .ux-chip { padding:6px 12px; border-radius:16px; border:1px solid #3d566e; background:#2c3e50; color:#ecf0f1; cursor:pointer; font-size:.88rem; }
-    .ux-action-bar .ux-chip:hover { background:#34495e; border-color:#5d7a96; }
-    .ux-action-bar .ux-chip:disabled { opacity:.45; cursor:not-allowed; }
-    .ux-action-bar .ux-ab-note { width:100%; color:#95a5a6; font-size:.82rem; }
-    /* ⚡ v13.076: F3 — постепенная разблокировка. Класс с !important, чтобы не спорить
-       с inline-стилями игровой логики (btrPanel, dismountPanel, splitBtn и т.п.).
-       ⚡ v13.077: гейты отменены (всё открыто, новичку — подсказки); класс оставлен
-       только как «предохранитель» — uxApplyGates() теперь НЕ добавляет его. */
-    .ux-locked { display:none !important; }
-    .ux-action-bar .ux-ab-lock { width:100%; color:#95a5a6; font-size:.8rem; margin-top:2px; }
-    /* ⚡ v13.077: F3 — ПОДСКАЗКИ ВМЕСТО ГЕЙТОВ. Мягкая золотая пульсация кнопки
-       текущего шага чек-листа (ничего не скрывается, глаз ведётся за подсказкой). */
-    @keyframes uxHintGlow {
-      0%, 100% { box-shadow: 0 0 0 1px rgba(241, 196, 15, 0.40); }
-      50%      { box-shadow: 0 0 12px 3px rgba(241, 196, 15, 0.75); }
-    }
-    .ux-hint-glow { animation: uxHintGlow 1.8s ease-in-out infinite; border-radius: 4px; }
-    /* чип действия, который новичок ещё не осваивал — подсказка, а не запрет */
-    .ux-action-bar .ux-chip-hint { outline: 1px dashed rgba(241, 196, 15, 0.60); outline-offset: 2px; }
-    .ux-action-bar .ux-chip-hint .ux-chip-hint-mark { color: #f1c40f; }
-    .ux-action-bar .ux-ab-hint { width:100%; color:#f1c40f; font-size:.8rem; margin-top:2px; opacity:.92; }
-    /* ⚡ v13.077: легенда меток оперативной карты (векторные знаки, не эмодзи) */
-    #opMapLegend { margin:6px 0 2px 0; padding:6px 8px; background:#141c26; border:1px solid #2c3e50; border-radius:6px; font-size:.8rem; color:#bdc3c7; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-    #opMapLegend .op-legend-item { display:flex; gap:5px; align-items:center; }
-    #opMapLegend canvas { display:block; background:rgba(76,175,80,0.28); border-radius:3px; }
-    #opMapLegend .op-legend-note { color:#7f8c8d; font-size:.74rem; margin-left:auto; }
-    /* ⚡ v13.077: подпись рельефа под тактической картой */
-    #tacticalReliefNote { margin:4px 0 2px 0; font-size:.78rem; color:#8fa3ad; }
 
-    /* ⚡ v13.071: Профиль сложности — крупнее кнопка, цвет по профилю */
-    #profileBtn { font-weight:600; }
-    .profile-menu { position:absolute; background:#2c3e50; border:1px solid #34495e; border-radius:8px; padding:6px; z-index:500; box-shadow:0 6px 18px rgba(0,0,0,.4); min-width:230px; }
-    .profile-menu button { display:block; width:100%; text-align:left; background:transparent; color:#ecf0f1; border:none; padding:8px 10px; border-radius:4px; cursor:pointer; font-size:.92rem; }
-    .profile-menu button:hover { background:#34495e; }
-    .profile-menu button.active { background:#3498db; }
-    .profile-menu .profile-desc { color:#95a5a6; font-size:.78rem; padding:2px 10px 8px; }
-  </style>
+
 </head>
 <body>
 <div id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.171</h1>
+    <h1>⚔️ Боевой модуль v13.172</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -144,7 +32,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.171</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.172</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -196,7 +84,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.171 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.172 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -653,7 +541,8 @@ function safeLocalStorage(method, ...args) {
 //    без радиста и вне радиуса связи вызов недоступен); новое правило телефона:
 //    линия тянется за юнитом до 7 гексов кабеля от штаба (дальше приказ на
 //    движение не выдаётся), при смещении штаба связисты прокладывают линии заново.
-var APP_VERSION = 'v13.171';
+var APP_VERSION = 'v13.172';
+// v13.172: full recon routes/observation marks, safe supply corridors, unit card editor, review fixes.
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
 //    иначе при загрузке старого сохранения срабатывает TDZ.
@@ -2683,7 +2572,7 @@ function updateInitialCardStageRestoreBar() {
     bar.id = 'initialCardStageRestoreBar';
     document.body.appendChild(bar);
   }
-  const selected = Array.from(document.querySelectorAll('.initial-campaign-card:checked')).length;
+  const selected = (campaign.initialCardDraft || []).reduce((sum, item) => sum + (item.cards || []).length, 0);
   bar.innerHTML = '<button type="button" onclick="restoreInitialCardDistributionStage()" style="background:#8e44ad;">🎖️ Раздача карт — вернуться в меню</button>' +
     `<span style="color:#ddd; font-size:0.78rem;">Выбрано карт: ${selected}. Меню можно закрывать и вызывать заново сколько угодно раз — выбор сохраняется.</span>`;
   bar.style.display = 'flex';
@@ -2694,11 +2583,38 @@ function saveInitialCampaignCardDraft() {
   const overlay = document.getElementById('initialCardStageOverlay');
   if (!campaign || campaign.opSetupStage !== 'cards' || campaign.initialPlatoonCardsAssigned ||
       !overlay || overlay.style.display === 'none' || !overlay.querySelectorAll) return false;
-  campaign.initialCardDraft = Array.from(overlay.querySelectorAll('[data-initial-card-group]')).map(group => {
+  const updates = Array.from(overlay.querySelectorAll('[data-initial-card-group]')).map(group => {
     const unit = (campaign.opUnits || [])[Number(group.dataset.initialCardGroup)];
     return unit ? { unitName: unit.name, cards: Array.from(group.querySelectorAll('.initial-campaign-card:checked'))
       .map(input => ({ name: input.dataset.cardName, faction: input.dataset.cardFaction })) } : null;
   }).filter(Boolean);
+  const byUnit = new Map((campaign.initialCardDraft || []).map(item => [item.unitName, item]));
+  updates.forEach(item => byUnit.set(item.unitName, item));
+  campaign.initialCardDraft = Array.from(byUnit.values());
+  return true;
+}
+// The same overlay and draft serve both the battalion and unit editor: no
+// duplicate checkbox trees, and closing a unit never commits random cards.
+function openInitialUnitCardMenu(unitIndex) {
+  const c = appData.campaign;
+  if (!c || c.opSetupStage !== 'cards' || c.initialPlatoonCardsAssigned) return false;
+  const unit = (c.opUnits || [])[Number(unitIndex)];
+  if (!unit || typeof isCardSelectableOpUnit !== 'function' || !isCardSelectableOpUnit(unit)) {
+    alert('Для этого подразделения бонусы не предусмотрены');
+    return false;
+  }
+  saveInitialCampaignCardDraft();
+  openInitialCardDistributionStage();
+  const overlay = document.getElementById('initialCardStageOverlay');
+  if (!overlay) return false;
+  overlay.innerHTML = `<div class="initial-card-screen">
+    <h2>🎖️ Бонусы: ${escapeCardHtml(unit.name)}</h2>
+    <p>Выбор сохраняется сразу и доступен в общем меню раздачи. Карты закрепляются только после завершения общей раздачи.</p>
+    ${initialCampaignCardUnitHtml(unit, Number(unitIndex))}
+    <div class="initial-card-actions">
+      <button onclick="minimizeInitialCardDistributionStage()">✅ Сохранить и закрыть</button>
+      <button onclick="saveInitialCampaignCardDraft(); saveData(); beginInitialCardDistribution()">🎖️ Все подразделения</button>
+    </div></div>`;
   return true;
 }
 function initialCardDistributionHtml(inStageMenu) {
@@ -2770,7 +2686,12 @@ function toggleInitialCampaignCard(input) {
     alert(`На один взвод можно назначить не более ${cardLimit} бонусных карт${selectedNames.has('Торговый дух') ? ' с «Торговым духом»' : selectedNames.has('Комиссар') ? ' с «Комиссаром»' : ''}.`);
   }
   if (input.checked && cardName) {
-    const draftCopies = Array.from(document.querySelectorAll('.initial-campaign-card:checked'))
+    const visibleGroups = new Set(Array.from(document.querySelectorAll('[data-initial-card-group]'))
+      .map(item => ((appData.campaign.opUnits || [])[Number(item.dataset.initialCardGroup)] || {}).name));
+    const hiddenCopies = ((appData.campaign && appData.campaign.initialCardDraft) || [])
+      .filter(item => !visibleGroups.has(item.unitName))
+      .reduce((sum, item) => sum + (item.cards || []).filter(card => card.name === cardName).length, 0);
+    const draftCopies = hiddenCopies + Array.from(document.querySelectorAll('.initial-campaign-card:checked'))
       .filter(item => item.dataset.cardName === cardName).length;
     const savedCopies = typeof countBattalionBonusCardCopies === 'function' ? countBattalionBonusCardCopies(cardName) : 0;
     const cardCopyLimit = 3;
@@ -4672,7 +4593,7 @@ function drawCampaignObjectiveMarkers(ctx, size) {
 //    карте. Показываются в начале каждого хода и закрываются только вручную
 //    (кнопка ×). Нажатие на уведомление подсвечивает связанный гекс.
 function shellNoticeEsc(v) {
-    return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    return escapeCardHtml(v);
 }
 function shellNoticeCardHtml(n, solo) {
     const hexTxt = (n.col != null && n.row != null) ? `(${n.col},${n.row})` : '';
@@ -4964,6 +4885,7 @@ function redrawOperationalMapNow() {
 // ⚡ v13.157: вместо подсветки радиуса разведки — маршруты и иконки
 //    разведывательных миссий (пунктир, «🔍» на текущем гексе актива,
 //    «👁️» на точке наблюдения).
+try { drawSupplyDangerOverlay(ctx, size); } catch (e) { console.warn('drawSupplyDangerOverlay:', e.message); }
 try { drawReconMissionOverlay(ctx, size); } catch (e) { console.warn('drawReconMissionOverlay:', e.message); }
 
     // Подсветка для врага
@@ -5496,7 +5418,7 @@ function showOpUnitInfoPopup(unit) {
     const squads = unit.squads || [];
     const alive = squads.reduce((sum, squad) => sum + ((squad.fighters || []).filter(f => f && f.hp > 0).length), 0);
     const total = squads.reduce((sum, squad) => sum + ((squad.fighters || []).length), 0);
-    const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    const esc = escapeCardHtml;
     const morale = Number.isFinite(Number(unit.operationalMorale)) ? Math.max(0, Math.min(100, Number(unit.operationalMorale)))
       : (Number.isFinite(Number(unit.morale)) ? Number(unit.morale)
         : (Number.isFinite(Number(unit.currentMorale)) ? Number(unit.currentMorale) : null));
@@ -5786,7 +5708,7 @@ function showOpEnemyInfoPopup(unit) {
         popup.className = 'op-unit-drawer';
         document.body.appendChild(popup);
     }
-    const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    const esc = escapeCardHtml;
     const squads = Array.isArray(unit.squads) ? unit.squads : [];
     const alive = squads.reduce((sum, sq) => sum + ((sq && sq.fighters || []).filter(f => f && Number(f.hp) > 0).length), 0);
     const total = squads.reduce((sum, sq) => sum + ((sq && sq.fighters || []).length), 0);
@@ -5822,7 +5744,7 @@ function showTacticalSquadSummary(squad) {
             'font-size:.82rem;box-shadow:0 8px 22px rgba(0,0,0,.45);';
         document.body.appendChild(popup);
     }
-    const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    const esc = escapeCardHtml;
     const sAlive = (squad.fighters || []).filter(f => f && f.hp > 0).length;
     const sTotal = (squad.fighters || []).length;
     const mMax = Math.max(1, Number(squad.tacticalMoraleMax) || Number(squad.baseMorale) || 100);
@@ -8086,31 +8008,8 @@ function applyHardModeUI() {
         btn.textContent = on ? '🎯 Hard Mode: ВКЛ' : '🎯 Hard Mode: ВЫКЛ';
         btn.style.background = on ? '#c0392b' : '#555';
     }
-    // ⚡ v13.063: видимость кнопки «🎯 Отдать приказ» считается centrally в
-    //    updateShowOrderPanelButton() (панель раскрыта → кнопка скрыта).
-    if (typeof updateShowOrderPanelButton === 'function') updateShowOrderPanelButton();
-    else { const orderPanelBtn = document.getElementById('showOrderPanelBtn'); if (orderPanelBtn) orderPanelBtn.style.display = on ? 'inline-block' : 'none'; }
-    const commPanelBtn = document.getElementById('showCommPanelBtn');
-    if (commPanelBtn) commPanelBtn.style.display = on ? 'inline-block' : 'none';
-    // ⚡ v13.068 (R47): панель снабжения — вместе с панелью связи
-    const supplyPanelBtn = document.getElementById('showSupplyPanelBtn');
-    if (supplyPanelBtn) supplyPanelBtn.style.display = on ? 'inline-block' : 'none';
     const supplyPanel = document.getElementById('supplyPanel');
     if (supplyPanel && !on) supplyPanel.style.display = 'none';
-    // ⚡ v13.157: панель разведки — кнопка видна только при наличии активов
-    const reconPanelBtn = document.getElementById('showReconPanelBtn');
-    if (reconPanelBtn) {
-        let hasRecon = false;
-        try {
-            // кнопка видна, пока в батальоне ЕСТЬ активы (даже если все на задании —
-            // иначе нельзя было бы отозвать миссию)
-            const assets = (appData && appData.campaign && appData.campaign.reconAssets) || {};
-            hasRecon = on && (Object.keys(assets).some(key => Number(assets[key] && assets[key].total) > 0) ||
-                (typeof getReconAssetList === 'function' && getReconAssetList().length > 0) ||
-                (typeof reconActiveMissions === 'function' && reconActiveMissions().length > 0));
-        } catch (e) {}
-        reconPanelBtn.style.display = hasRecon ? 'inline-block' : 'none';
-    }
     const reconPanel = document.getElementById('reconPanel');
     if (reconPanel && !on) reconPanel.style.display = 'none';
     const opBtn = document.getElementById('opHardModeBtn');
@@ -9745,7 +9644,7 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
     order.deliveryMethod = effectiveDelivery;
 
     if (effectiveDelivery === 'messenger') {
-        const messenger = assignMessenger(fromUnit);
+        const messenger = assignMessenger(fromUnit, order.id);
         if (!messenger) {
             // ⚡ Нет свободных посыльных — приказ НЕ теряется:
             // он уходит в ОЧЕРЕДЬ, и первый освободившийся посыльный
@@ -9850,6 +9749,8 @@ function unitCanExecuteOrderType(unit, type) {
     //    в панели «🔍 Разведка»).
     if (unit.reconMissionId) return false;
     switch (type) {
+        case 'recon':
+            return typeof reconCanReceiveMission === 'function' && reconCanReceiveMission(unit);
         case 'embark':          // посадка в конкретный БТР — приказ личный, не зеркалим
             return false;
         case 'disembark':       // выйти может только тот, кто сидит в машине
@@ -9873,7 +9774,6 @@ function unitCanExecuteOrderType(unit, type) {
         case 'move':
         case 'attack':
         case 'defend':
-        case 'recon':
         // ⚡ v13.157: «👁️ Наблюдение» — приказ для ЛЮБОГО юнита (в т.ч. пехоты);
         //    пул разведывательных активов он не тратит и «разведчиком» не считается.
         case 'observe':
@@ -10129,23 +10029,24 @@ function hasPhoneLine(fromUnit, toUnit) {
          (line.fromUnitId === toId && line.toUnitId === fromId)));
 }
 
-function assignMessenger(unit) {
+function assignMessenger(unit, orderId) {
     if (!hardMode || !hardMode.messengers) return null;
     const unitId = appData.campaign.opUnits ? appData.campaign.opUnits.indexOf(unit) : -1;
     if (unitId === -1) return null;
+    const messengerId = 'messenger_' + Date.now() + '_' + (hardMode.messengerSequence = (Number(hardMode.messengerSequence) || 0) + 1);
 
     if (unit.type === 'battalion_hq' || unit.type === 'hq') {
         if (hardMode.messengers.battalion.available > 0) {
             hardMode.messengers.battalion.available--;
-            hardMode.messengers.battalion.active.push({ unitId, turnSent: (appData.campaign && appData.campaign.currentTurn) || currentTurn });
-            return 'battalion_messenger_' + hardMode.messengers.battalion.active.length;
+            hardMode.messengers.battalion.active.push({ unitId, orderId: orderId == null ? null : orderId, messengerId, turnSent: (appData.campaign && appData.campaign.currentTurn) || currentTurn });
+            return messengerId;
         }
     } else if (unit.type === 'company_hq') {
         const companyMessengers = hardMode.messengers.companies[unitId];
         if (companyMessengers && companyMessengers.available > 0) {
             companyMessengers.available--;
-            companyMessengers.active.push({ unitId, turnSent: (appData.campaign && appData.campaign.currentTurn) || currentTurn });
-            return 'company_messenger_' + companyMessengers.active.length;
+            companyMessengers.active.push({ unitId, orderId: orderId == null ? null : orderId, messengerId, turnSent: (appData.campaign && appData.campaign.currentTurn) || currentTurn });
+            return messengerId;
         }
     }
 
@@ -10428,7 +10329,7 @@ function cancelOrder(orderId, skipConfirm) {
     if (order.messengerId) {
         const fromUnit = appData.campaign.opUnits[order.fromUnitId];
         if (fromUnit) {
-            returnMessenger(fromUnit);
+            returnMessenger(fromUnit, order.id, order.messengerId);
         }
     }
     // ⚡ Если это company_order — отменяем ещё не завершённые relay-приказы
@@ -10440,7 +10341,7 @@ function cancelOrder(orderId, skipConfirm) {
                     o.status = 'cancelled';
                     if (o.messengerId) {
                         const fu = appData.campaign.opUnits[o.fromUnitId];
-                        if (fu) returnMessenger(fu);
+                        if (fu) returnMessenger(fu, o.id, o.messengerId);
                     }
                 }
             });
@@ -10510,30 +10411,24 @@ function cancelCompanyOrderRecipient(parentId, subUnitId) {
     try { if (typeof renderOrderJournalRows === 'function') renderOrderJournalRows(); } catch (e) {}
 }
 
-function returnMessenger(unit) {
+function returnMessenger(unit, orderId, messengerId) {
+    if (!unit || !hardMode || !hardMode.messengers) return false;
     const unitId = appData.campaign.opUnits.indexOf(unit);
-    // Возвращаем ОДНОГО посыльного (первого из списка), а не всех сразу
-    let freed = false;
-    if (unit.type === 'battalion_hq' || unit.type === 'hq') {
-      const idx = hardMode.messengers.battalion.active.findIndex(a => a.unitId === unitId);
-        if (idx !== -1) {
-            hardMode.messengers.battalion.available++;
-            hardMode.messengers.battalion.active.splice(idx, 1);
-            freed = true;
-        }
-        } else if (unit.type === 'company_hq') {
-        const companyMessengers = hardMode.messengers.companies[unitId];
-        if (companyMessengers) {
-         const idx = companyMessengers.active.findIndex(a => a.unitId === unitId);
-            if (idx !== -1) {
-                companyMessengers.available++;
-                companyMessengers.active.splice(idx, 1);
-                freed = true;
-            }
-        }
-    }
-    // ⚡ Свободный посыльный есть — сразу отдаём ему первый приказ из очереди
-    if (freed) dispatchQueuedOrders();
+    const pool = (unit.type === 'battalion_hq' || unit.type === 'hq')
+        ? hardMode.messengers.battalion : hardMode.messengers.companies[unitId];
+    if (!pool || !Array.isArray(pool.active)) return false;
+    const matches = entry => entry.unitId === unitId &&
+        ((orderId != null && entry.orderId === orderId) || (messengerId && entry.messengerId === messengerId));
+    let index = pool.active.findIndex(matches);
+    // Old saves had neither identity field. Upgrade only a legacy entry, never
+    // release another modern order's messenger on repeated cancellation.
+    if (index < 0) index = pool.active.findIndex(entry => entry.unitId === unitId &&
+        entry.orderId == null && !entry.messengerId);
+    if (index < 0) return false;
+    pool.active.splice(index, 1);
+    pool.available++;
+    dispatchQueuedOrders();
+    return true;
 }
 
 // ⚡ ОЧЕРЕДЬ ПРИКАЗОВ, ЖДУЩИХ ПОСЫЛЬНОГО
@@ -10575,7 +10470,7 @@ function dispatchQueuedOrders() {
                 : hardMode.messengers.companies[fromId];
             if (!pool || pool.available <= 0) continue;
 
-            const messenger = assignMessenger(sender);
+            const messenger = assignMessenger(sender, order.id);
             if (!messenger) continue;
 
             order.messengerId = messenger;
@@ -12624,7 +12519,7 @@ function cancelOrdersForMoraleRetreat(unit) {
     const releaseMessenger = order => {
         if (!order || !order.messengerId) return;
         const from = appData.campaign.opUnits[order.fromUnitId];
-        if (from && typeof returnMessenger === 'function') returnMessenger(from);
+        if (from && typeof returnMessenger === 'function') returnMessenger(from, order.id, order.messengerId);
         order.messengerId = null;
     };
     (hardMode.orders || []).forEach(o => { if (o && o.toUnitId === unitId && o.status !== 'cancelled') { releaseMessenger(o); o.status = 'cancelled'; } });
@@ -18185,20 +18080,7 @@ function syncTacticalCrewSuccession(squad) {
   });
   return promoted;
 }
-function handleFighterDeath(squad) {
-  if (!squad || !Array.isArray(squad.fighters) || squad.fighters.length === 0) return;
-  const total = squad.fighters.length;
-  squad.ammoSmall = Math.max(0, squad.ammoSmall - Math.ceil(squad.ammoSmall / total));
-  squad.grenades = Math.max(0, squad.grenades - Math.ceil(squad.grenades / total));
-  const enemySquads = appData && appData.map && appData.map.enemySquads || [];
-  const side = enemySquads.includes(squad) ? 'enemy' : 'player';
-  const tacticalContext = !!(appData && appData.map && appData.map.grid &&
-      ((appData.currentBattleId !== undefined && appData.currentBattleId !== null) || (typeof inStandaloneBattle !== 'undefined' && inStandaloneBattle)));
-  if (tacticalContext && typeof tacticalApplyFighterMoraleLoss === 'function') {
-    squad.fighters.filter(f => f && Number(f.hp) <= 0).forEach(f => tacticalApplyFighterMoraleLoss(squad, f, side));
-  }
-  if (typeof syncTacticalCrewSuccession === 'function' && squad.crewInstances) syncTacticalCrewSuccession(squad);
-}
+
 
 function sniperShot() {
   if (!currentSquad || !tacticalActionAllowed(currentSquad, 'shoot')) return;
@@ -22717,8 +22599,8 @@ function openTargetModal(attackType) {
     return;
   }
   pendingAttack = attackType;
-  document.getElementById('modalDistance').value = document.getElementById('targetDistance').value;
-  document.getElementById('modalCover').value = document.getElementById('coverTarget').value;
+  { const to = document.getElementById('modalDistance'), from = document.getElementById('targetDistance'); if (to && from) to.value = from.value; }
+  { const to = document.getElementById('modalCover'), from = document.getElementById('coverTarget'); if (to && from) to.value = from.value; }
   // ⚡ v13.049 (R34#3): список целей (отряды противника на тактической карте)
   try { fillModalTargets(attackType); } catch (e) { console.warn('fillModalTargets:', e.message); }
   const aimMode = attackType === 'vehicleAim';
@@ -22739,8 +22621,8 @@ function executeAttack() {
     const pr = placementPendingReason();
     if (pr) { closeTargetModal(); try { alert(pr); } catch (e) {} log(pr); return; }
   }
-  document.getElementById('targetDistance').value = document.getElementById('modalDistance').value;
-  document.getElementById('coverTarget').value = document.getElementById('modalCover').value;
+  { const to = document.getElementById('targetDistance'), from = document.getElementById('modalDistance'); if (to && from) to.value = from.value; }
+  { const to = document.getElementById('coverTarget'), from = document.getElementById('modalCover'); if (to && from) to.value = from.value; }
   const preselectedTarget = document.getElementById('modalTargetSelect');
   const preselectedTargetIdx = preselectedTarget ? parseInt(preselectedTarget.value, 10) : -1;
   if (pendingAttack === 'smallArms' && currentSquad && currentSquad.armor && appData.map && appData.map.selectedVehicleFireWeaponKey) {
@@ -23276,8 +23158,7 @@ const THERMITE_DEATH_MIN = 4;      // d6 4–6 — гибель бойца
 const THERMITE_DEATH_SKIP_NAMES = ['пулеметчик', 'пулемётчик', 'второй номер'];
 
 function thermiteEsc(text) {
-    return String(text === null || text === undefined ? '' : text)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return escapeCardHtml(text);
 }
 function thermiteToast(text, type) {
     try {
@@ -27850,7 +27731,12 @@ function installGlobalMenuButton() {
     btn.addEventListener('blur', () => { btn.style.opacity = '0.48'; });
     btn.addEventListener('click', () => exitToMainMenu());
     document.body.appendChild(btn);
-    setInterval(updateGlobalMenuButton, 400);
+    const observer = new MutationObserver(updateGlobalMenuButton);
+    ['mainMenu', 'battleApp', 'campaignApp', 'rulesPage', 'historyPage'].forEach(id => {
+        const screen = document.getElementById(id);
+        if (screen) observer.observe(screen, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+    });
+    updateGlobalMenuButton();
 }
 function goToMenu() {
   // ⚡ v13.042 (R27#10): уход «В меню» из СЕРЕДИНЫ боя — сохраняем состояние
@@ -30388,6 +30274,7 @@ function rotateSelectedHex(delta) {
     try { if (typeof preloadTacticalHexMaps === 'function') preloadTacticalHexMaps(); } catch (e) {}
   document.getElementById('campaignContent').style.display = 'none';
   document.getElementById('campaignMapScreen').style.display = 'block';
+  if (typeof initOperationalSidePanels === 'function') initOperationalSidePanels();
   // ⚡ v13.086: карта лежит под длинной панелью размещения — при входе сразу прокручиваем к ней
   setTimeout(() => {
     const cv = document.getElementById('opMapCanvas');
@@ -30544,7 +30431,9 @@ function endOperationalTurn() {
             const stealthOrder = (hardMode.orders || []).some(o => o && o.status === 'active' && o.toUnitId === uIdx &&
                 ((o.stealth && (o.type === 'move' || o.type === 'attack' || o.type === 'retreat' || o.type === 'escort')) ||
                  (Array.isArray(o.series) && o.series.some(st => st && st.stealth && st.status !== 'completed'))));
-            u.stealthMove = !!stealthOrder && !opDetectionIsArmored(u); // скрытный марш только пехоты
+            const footRecon = typeof reconActiveMissions === 'function' && reconActiveMissions().some(m =>
+                m.assetKind === 'foot' && !m.squadName && m.unitId === uIdx);
+            u.stealthMove = (!!stealthOrder || footRecon) && !opDetectionIsArmored(u); // скрытный марш только пехоты
             // ⚡ v13.024: стационарные (ДОТ) ОД не получают
             u.ap = isStaticOpUnit(u) ? 0 : (u.stealthMove ? Math.min(u.maxAp || 4, 2) : u.maxAp);
             u.movedThisTurn = false;
@@ -30742,7 +30631,7 @@ function processOrders() {
                 order.status = 'cancelled';
                 log(`❌ Приказ "${order.type}" не доставлен: получатель уничтожен.`);
                 const fromUnit = appData.campaign.opUnits ? appData.campaign.opUnits[order.fromUnitId] : null;
-                if (fromUnit) returnMessenger(fromUnit);
+                if (fromUnit) returnMessenger(fromUnit, order.id, order.messengerId);
                 order.messengerId = null;
                 return;
             }
@@ -30766,7 +30655,7 @@ function processOrders() {
                     order.deliveryMethod = 'messenger';
                     order.deliveryTurnsNeeded = Math.max(1, Number(order.deliveryTurnsNeeded) || 1);
                     order.deliveryTurnsPassed = 0;
-                    const messenger = assignMessenger(fromUnit || source);
+                    const messenger = assignMessenger(appData.campaign.opUnits[order.fromUnitId], order.id);
                     if (messenger) {
                         order.messengerId = messenger;
                         order.status = 'delivering';
@@ -30791,7 +30680,7 @@ function processOrders() {
 
                 const fromUnit = appData.campaign.opUnits ? appData.campaign.opUnits[order.fromUnitId] : null;
                 if (fromUnit) {
-                    returnMessenger(fromUnit);
+                    returnMessenger(fromUnit, order.id, order.messengerId);
                 }
                 order.messengerId = null;
                 log(`📨 Приказ "${order.type}" доставлен!`);
@@ -31446,7 +31335,7 @@ function demoteOrderToMessenger(order, reason) {
             ? getOpHexDistance(from.col, from.row, to.col, to.row) : 3;
         order.deliveryTurnsNeeded = Math.max(1, Math.ceil((Number.isFinite(distance) ? distance : 3) / 3));
         order.deliveryTurnsPassed = 0;
-        order.messengerId = order.messengerId || (typeof assignMessenger === 'function' && from ? assignMessenger(from) : null);
+        order.messengerId = order.messengerId || (typeof assignMessenger === 'function' && from ? assignMessenger(from, order.id) : null);
         if (!hardMode.pendingOrders) hardMode.pendingOrders = [];
         if (!hardMode.pendingOrders.includes(order)) hardMode.pendingOrders.push(order);
     } catch (e) { console.warn('demoteOrderToMessenger:', e.message); }
@@ -31586,8 +31475,10 @@ function executeOrder(order) {
         // ⚡ v13.157: «👁️ Наблюдение» — любой юнит стоит на месте и каждый
         //    ход проверяет радиус 5 гексов с −1 к броску (старый приказ
         //    «🔍 Разведка» с подсветкой радиуса удалён — см. js/recon.js).
+        case 'recon':
+            executeReconMissionOrder(unit, order);
+            break;
         case 'observe':
-        case 'recon':            // старые сейвы: «разведка» = наблюдение
             executeObserveOrder(unit, order);
             break;
         case 'shoot':
@@ -31978,8 +31869,10 @@ function executeSeriesOrder(unit, order) {
             }
             break;
 
-        case 'observe':
         case 'recon':
+            executeReconMissionOrder(unit, currentAction);
+            break;
+        case 'observe':
             // ⚡ v13.157: в серии наблюдение — разовая проверка (иначе шаг
             //    «бессрочного» приказа никогда не завершится и серия встанет).
             executeObserveOrder(unit, currentAction);
@@ -33281,7 +33174,8 @@ function planEnemyArtilleryFire() {
         if (typeof isMediumArtillery !== 'function' || !isMediumArtillery(art)) return;
         const range = (typeof operationalHexFireRange === 'function') ? operationalHexFireRange(art) : 10;
         const dist = u => getOpHexDistance(art.col, art.row, u.col, u.row);
-        const targets = ours.filter(u => dist(u) <= range).sort((a, b) => dist(a) - dist(b));
+        const targets = ours.filter(u => dist(u) <= range &&
+            (typeof isHexInPlayableArea !== 'function' || isHexInPlayableArea(campaign.scenario, u.col, u.row))).sort((a, b) => dist(a) - dist(b));
         if (!targets.length) return;
         const t = targets[0];
         const key = `${t.col},${t.row}`;
@@ -35416,7 +35310,7 @@ function sendSupplyDelivery(targetUnitId, assetPicks, kind) {
     if (routeDest && Number.isFinite(routeDest.col) && Number.isFinite(routeDest.row)) {
         const probe = { col: depot.col, row: depot.row, assets, mobility: supplyAssetsMobility(assets) };
         const terrainRoute = (typeof findSupplyRoute === 'function')
-            ? findSupplyRoute(probe, routeDest.col, routeDest.row, { ignoreEnemies: true }) : [];
+            ? findSupplyRoute(probe, routeDest.col, routeDest.row) : [];
         if (terrainRoute === null) {
             const reachable = supplyAssetIds().filter(id =>
                 assets.some(a => a.id === id) && Number.isFinite(supplyMoveCost(SUPPLY_ASSET_TYPES[id].mobility, dest.col, dest.row)));
@@ -35613,13 +35507,92 @@ function supplyDeliveryMoveCost(delivery, toCol, toRow) {
     return best;
 }
 
+// Player-marked no-go hexes persist with the campaign. Automatic risk zones
+// use known enemy positions only; drawing them must not reveal hidden units.
+let supplyDangerPicking = false;
+function supplyDangerKeys(includeHiddenOccupants) {
+    const c = appData.campaign || {};
+    const danger = new Set(Array.isArray(c.supplyDangerHexes) ? c.supplyDangerHexes : []);
+    (c.enemyOpUnits || []).forEach(enemy => {
+        if (!enemy || enemy.isDestroyed || enemy.isSurrendered || enemy.col == null || enemy.row == null) return;
+        const known = enemy.detected === true || enemy.noiseMarker === true;
+        if (known || includeHiddenOccupants) danger.add(`${enemy.col},${enemy.row}`);
+        if (known && typeof getOpHexNeighbors === 'function') {
+            getOpHexNeighbors(enemy.col, enemy.row).forEach(hex => danger.add(`${hex.col},${hex.row}`));
+        }
+    });
+    Object.keys(c.opMapGrid || {}).forEach(key => {
+        const [col, row] = key.split(',').map(Number);
+        if (operationalHexHasActiveBattle(col, row)) danger.add(key);
+    });
+    return danger;
+}
+function toggleSupplyDangerPicking() {
+    supplyDangerPicking = !supplyDangerPicking;
+    renderSupplyPanel();
+    redrawOperationalMap();
+}
+function clearSupplyDangerHexes() {
+    appData.campaign.supplyDangerHexes = [];
+    saveData(); renderSupplyPanel(); redrawOperationalMap();
+}
+function handleSupplyDangerPick(event) {
+    if (!supplyDangerPicking || !event) return false;
+    const supplyPanel = document.getElementById('supplyPanel');
+    if (!supplyPanel || supplyPanel.style.display === 'none') { supplyDangerPicking = false; return false; }
+    if (appData.campaign.online && typeof onlineMyTurnActive === 'function' && !onlineMyTurnActive()) return true;
+    const c = appData.campaign;
+    if (!c || !c.active) { supplyDangerPicking = false; return false; }
+    const canvas = document.getElementById('opMapCanvas');
+    if (!canvas) return false;
+    const rect = canvas.getBoundingClientRect();
+    const backingScale = typeof canvasBackingScale === 'function' ? canvasBackingScale(canvas) : 1;
+    const x = (event.clientX - rect.left) * (canvas.width / backingScale) / rect.width;
+    const y = (event.clientY - rect.top) * (canvas.height / backingScale) / rect.height;
+    let closest = null, distance = Infinity;
+    (c.opCenters || []).forEach(center => {
+        const d = Math.hypot(center.x - x, center.y - y);
+        if (d < distance) { closest = center; distance = d; }
+    });
+    if (!closest || distance > OP_HEX_SIZE * (c.opZoomLevel || 1)) return true;
+    const [col, row] = String(closest.key).split(',').map(Number);
+    if (typeof isHexInPlayableArea === 'function' && !isHexInPlayableArea(c.scenario, col, row)) return true;
+    const keys = new Set(c.supplyDangerHexes || []);
+    if (keys.has(closest.key)) keys.delete(closest.key); else keys.add(closest.key);
+    c.supplyDangerHexes = Array.from(keys);
+    saveData(); renderSupplyPanel(); redrawOperationalMap();
+    return true;
+}
+function drawSupplyDangerOverlay(ctx, size) {
+    const panel = document.getElementById('supplyPanel');
+    if (!panel || panel.style.display === 'none') { supplyDangerPicking = false; return; }
+    const manual = new Set(appData.campaign.supplyDangerHexes || []);
+    ctx.save();
+    supplyDangerKeys(false).forEach(key => {
+        const [col, row] = key.split(',').map(Number);
+        if (!Number.isFinite(col) || !Number.isFinite(row)) return;
+        const x = col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+        const y = row * 1.5 * size + size;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+            const angle = (60 * i - 30) * Math.PI / 180;
+            const px = x + size * Math.cos(angle), py = y + size * Math.sin(angle);
+            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fillStyle = manual.has(key) ? 'rgba(231,76,60,.30)' : 'rgba(230,126,34,.22)';
+        ctx.strokeStyle = manual.has(key) ? '#e74c3c' : '#e67e22';
+        ctx.fill(); ctx.stroke();
+    });
+    ctx.restore();
+}
 function findSupplyRoute(delivery, toCol, toRow, opts) {
     if (!delivery || !Number.isFinite(delivery.col) || !Number.isFinite(delivery.row) || !Number.isFinite(toCol) || !Number.isFinite(toRow)) return null;
     const start = `${delivery.col},${delivery.row}`, goal = `${toCol},${toRow}`;
-    if (start === goal) return [];
-    const enemies = new Set((appData.campaign.enemyOpUnits || []).filter(e => e && !e.isDestroyed && !e.isSurrendered &&
-        Number.isFinite(e.col) && Number.isFinite(e.row)).map(e => `${e.col},${e.row}`));
+    const danger = supplyDangerKeys(true);
     const ignoreEnemies = !!(opts && opts.ignoreEnemies);
+    if (!ignoreEnemies && danger.has(goal)) return null;
+    if (start === goal) return [];
     const best = new Map([[start, 0]]), previous = new Map(), queue = [{ col: delivery.col, row: delivery.row, cost: 0 }];
     while (queue.length) {
         let bestIndex = 0;
@@ -35629,10 +35602,10 @@ function findSupplyRoute(delivery, toCol, toRow, opts) {
         if (current.cost > (best.get(currentKey) ?? Infinity)) continue;
         getOpHexNeighbors(current.col, current.row).forEach(next => {
             const key = `${next.col},${next.row}`;
-            // ⚡ v13.147 (п.C): гекс-цель (получатель в бою / на нём стоит юнит)
-            //    не считаем перекрытым — иначе доставка в бой была невозможна.
-            const isGoal = key === goal;
-            if (!ignoreEnemies && !isGoal && (enemies.has(key) || operationalHexHasActiveBattle(next.col, next.row))) return;
+            // No destination exception: caravans never enter an enemy/battle/no-go hex.
+            if (!ignoreEnemies && danger.has(key)) return;
+            if (typeof isHexInPlayableArea === 'function' &&
+                !isHexInPlayableArea(appData.campaign.scenario, next.col, next.row)) return;
             const stepCost = (typeof supplyDeliveryMoveCost === 'function')
                 ? supplyDeliveryMoveCost(delivery, next.col, next.row)
                 : supplyMoveCost(delivery.mobility || 'foot', next.col, next.row);
@@ -35674,7 +35647,7 @@ function supplyReachForMobility(mobility, fromCol, fromRow, dest) {
     if (!Number.isFinite(Number(fromCol)) || !Number.isFinite(Number(fromRow))) return null;
     const probe = { col: Number(fromCol), row: Number(fromRow), mobility, assets: [] };
     const destCol = Number(dest.col), destRow = Number(dest.row);
-    const direct = findSupplyRoute(probe, destCol, destRow, { ignoreEnemies: true });
+    const direct = findSupplyRoute(probe, destCol, destRow);
     if (direct !== null) {
         return { col: destCol, row: destRow, adjacent: false, hops: direct.length, cost: supplyRouteCost(probe, direct) };
     }
@@ -35683,7 +35656,7 @@ function supplyReachForMobility(mobility, fromCol, fromRow, dest) {
     let best = null;
     neighbors.forEach(hex => {
         if (!Number.isFinite(supplyMoveCost(mobility, hex.col, hex.row))) return;
-        const route = findSupplyRoute(probe, hex.col, hex.row, { ignoreEnemies: true });
+        const route = findSupplyRoute(probe, hex.col, hex.row);
         if (route === null) return;
         const cost = supplyRouteCost(probe, route);
         if (!best || cost < best.cost) {
@@ -36318,6 +36291,11 @@ function renderSupplyPanel() {
     html += `<div>💣 Гранаты: ${supplyBarHtml(st.stock.grenades, st.max.grenades)}</div>`;
     html += `<div>🚀 Снаряды: ${supplyBarHtml(st.stock.ammoOrdnance, st.max.ammoOrdnance)}</div>`;
 
+    html += `<div class="supply-danger-tools">
+        <button onclick="toggleSupplyDangerPicking()" style="background:${supplyDangerPicking ? '#c0392b' : '#7f3b30'};">${supplyDangerPicking ? '✅ Закончить отметку зон' : '⛔ Опасные зоны на карте'}</button>
+        <button onclick="clearSupplyDangerHexes()">Снять свои запреты</button>
+        <small>Колонны обходят отмеченные гексы, бои и известные позиции противника с соседними гексами. При отсутствии безопасного пути ждут. Необнаруженная угроза не показывается.</small>
+    </div>`;
     // транспортные средства
     // ⚡ v13.169: средства, которые не смогут добраться до ВЫБРАННОГО пункта
     //    назначения, показываются с нулём и заблокированы — назначить их нельзя.
@@ -36325,7 +36303,15 @@ function renderSupplyPanel() {
     //    рисоваться даже в урезанной сборке, где их ещё нет.
     const supplyPanelDestination = (typeof supplyPanelDestinationInfo === 'function')
         ? supplyPanelDestinationInfo() : null;
-    const supplyPanelReach = (id) => (typeof supplyPanelReachFor === 'function') ? supplyPanelReachFor(id) : null;
+    const reachCache = new Map();
+    const supplyPanelReach = id => {
+        const mobility = typeof supplyAssetMobilityClass === 'function'
+            ? supplyAssetMobilityClass(id) : ((SUPPLY_ASSET_TYPES[id] || {}).mobility || 'foot');
+        if (!reachCache.has(mobility)) {
+            reachCache.set(mobility, typeof supplyPanelReachFor === 'function' ? supplyPanelReachFor(id) : null);
+        }
+        return reachCache.get(mobility);
+    };
     html += `<div style="margin-top:8px;"><strong style="color:#e67e22;">Транспорт и носильщики:</strong></div>`;
     if (supplyPanelDestination) {
         html += `<div style="font-size:0.78rem; color:#8ecbff;">Пункт назначения: ${supplyPanelDestination.label} (${supplyPanelDestination.col},${supplyPanelDestination.row}). Средства, которые туда не дойдут, недоступны для назначения.</div>`;
@@ -37461,13 +37447,7 @@ function onOrderTypeChange() {
     redrawOperationalMap();
 }
 
-function clearOrderWaypoints() {
-    orderWaypoints = [];
-    updateOrderWaypointsDisplay();
-    document.getElementById('mapInfo').innerHTML = '📍 Маршрут очищен. Кликайте по гексам для нового маршрута';
-    document.getElementById('mapInfo').style.color = '#f1c40f';
-    redrawOperationalMap();
-}
+
 function pickTargetHex() {
     pickingTargetHex = true;
     document.getElementById('mapInfo').innerHTML = '📍 Кликните по гексу для выбора цели';
@@ -37496,18 +37476,7 @@ function validateRoute(unit, waypoints) {
     planned.route.forEach(hex => { totalCost += getOpPlannedMoveCost(unit, prev.col, prev.row, hex.col, hex.row); prev = hex; });
     return { valid: true, totalCost, totalOD: Math.ceil(totalCost / 2) };
 }
-function updateOrderWaypointsDisplay() {
-    const display = document.getElementById('orderWaypointsDisplay');
-    if (!display) return;
 
-    if (orderWaypoints.length === 0) {
-        display.innerHTML = 'Нет точек маршрута';
-    } else {
-        display.innerHTML = orderWaypoints.map((wp, i) =>
-            `${i+1}. (${wp.col},${wp.row})`
-        ).join(' → ');
-    }
-}
 
 function addOrderWaypoint(col, row) {
     orderWaypoints.push({ col, row });
@@ -38153,7 +38122,7 @@ function submitOrder()   {
         }
         return;
     }
-    
+
     // Обычный приказ
     const order = createOrder(hqIndex, toUnitId, orderType, options);
 
@@ -39476,7 +39445,7 @@ function setOpMapMode(mode) {
     //    ВАЖНО: проверять ПОСЛЕ преобразования 'move' → 'movePlayer' (см. ниже).
     if (mode === 'move') mode = 'movePlayer';
     if ((mode === 'movePlayer' || mode === 'moveEnemy') &&
-        appData.campaign && appData.campaign.hardMode === true) {
+        typeof hardMode !== 'undefined' && hardMode && hardMode.enabled) {
         const miH = document.getElementById('mapInfo');
         if (miH) miH.innerHTML = '🛡️ В режиме Hard Mode юниты действуют только по приказам (без ручного перемещения).';
         return;
@@ -44219,7 +44188,7 @@ function onOrderTargetUnitChange() {
                 order.subUnitIds = order.subUnitIds.filter(id => id !== subUnitId);
                 return;
             }
-            const messenger = assignMessenger(unit);
+            const messenger = assignMessenger(unit, subOrder.id);
             if (!messenger) {
                 // Свободного посыльного нет — ждём, попробуем в конце
                 // следующего хода (приказ остаётся активным)
@@ -44283,29 +44252,7 @@ function moveOrderPriority(orderIdx, direction) {
     saveData();
     renderActiveOrders();
 }
-function checkVehicleRadioAfterLoss(unit) {
-    if (!unit || !unit.isGroup) return;
 
-    const radioEntry = hardMode.signalPlatoon.radios.assigned.find(r =>
-        r.unitId === appData.campaign.opUnits.indexOf(unit)
-    );
-
-    if (!radioEntry || radioEntry.isDestroyed) return;
-
-    // ⚡ v13.020: проверяем, жива ли МАШИНА С РАЦИЕЙ (отмеченная v.hasRadio /
-    //    radioVehicleName), а не просто «машина №1»
-    const radioAlive = unit.vehicleList && unit.vehicleList.some(v =>
-        !v.destroyed && !v.isDestroyed &&
-        (v.hasRadio === true || v.name === radioEntry.radioVehicleName ||
-         (radioEntry.hasNumber1 && v.name && v.name.includes('№1')))
-    );
-
-    if (!radioAlive) {
-        // Машина с рацией уничтожена - рация перестаёт действовать
-        radioEntry.isDestroyed = true;
-        log(`📻 Рация в отряде "${unit.name}" перестала действовать (машина с рацией уничтожена).`);
-    }
-}
 // Удержание позиции: юнит закрепляется на месте, приказ выполняется за ход
 function executeHoldOrder(unit, order) {
     if (unit.col === null || unit.row === null) {
@@ -46482,7 +46429,7 @@ document.addEventListener('DOMContentLoaded', function() {
     uiRestorePending = false;
     saveData();
 });
-vehicleStatusCollapsed = localStorage.getItem('vehicleStatusCollapsed') === 'true';
+vehicleStatusCollapsed = safeLocalStorage('getItem', 'vehicleStatusCollapsed') === 'true';
 
 function isNightTime() {
     const time = appData.currentTime ?? appData.campaign.currentTime ?? 0;
@@ -46513,7 +46460,7 @@ function toggleVehicleStatusPanel() {
     }
 
     // Сохраняем состояние
-    localStorage.setItem('vehicleStatusCollapsed', vehicleStatusCollapsed);
+    safeLocalStorage('setItem', 'vehicleStatusCollapsed', vehicleStatusCollapsed);
 }
 function executeDigInOrder(unit, order) {
     if (!order || order.status === 'completed' || order.status === 'cancelled') return;
@@ -47136,7 +47083,7 @@ function onlineSelfTest() {
 }
 
 function onlineEscape(value) {
-    return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return escapeCardHtml(value);
 }
 
 function onlineGenCode() {
@@ -47563,10 +47510,11 @@ function onlinePushMyUnits() {
     if (!m || (m.status !== 'placing' && m.status !== 'playing')) return;
     const units = (appData.campaign.opUnits || []).map(onlineUnitSnapshot);
     const json = JSON.stringify(units);
-    if (json === ONLINE.lastPushedJson) return;
-    ONLINE.lastPushedJson = json;
-    ONLINE.docRef.update({ ['state.' + ONLINE.role + '.units']: units })
-        .catch(e => console.warn('onlinePushMyUnits:', e.message));
+    if (json !== ONLINE.lastPushedJson) {
+        ONLINE.lastPushedJson = json;
+        ONLINE.docRef.update({ ['state.' + ONLINE.role + '.units']: units })
+            .catch(e => console.warn('onlinePushMyUnits:', e.message));
+    }
     // ⚡ v13.157: оппонент видит МОИ разведывательные миссии (маршрут и позицию
     //    актива), но не результаты наблюдения — найденные враги раскрываются
     //    только через туман войны (onlineRevealEnemy).
@@ -47580,6 +47528,8 @@ function onlinePushMyUnits() {
                 status: mission.status,
                 currentHex: mission.currentHex,
                 route: mission.route,
+                routeVersion: mission.routeVersion || 1,
+                stealth: mission.assetKind === 'foot',
                 currentIndex: mission.currentIndex
             }));
             const missionJson = JSON.stringify(missions);
@@ -48139,10 +48089,6 @@ function onlineOnSnapshotSync() {
     });
   }
 </script>
-    <button id="btnBattleToMenu" class="legacy-menu-exit" onclick="if(confirm('Menu? Battle is saved.')) goToMenu();" style="display:none !important; position:fixed; top:44px; right:10px; z-index:999; background:#555;">Menu</button>
-    <button id="btnReturnToCampaign" onclick="returnToCampaign()" style="display:none; position:fixed; top:10px; right:10px; z-index:999; background:#f39c12;">↩️ В кампанию</button>
-    <button id="btnFinishBattle" onclick="finishBattle()" style="display:none; position:fixed; top:50px; right:10px; z-index:999; background:#27ae60;">✅ Завершить бой</button>
-    <button id="btnRetreatBattle" onclick="openRetreatZoneChoice()" style="display:none; position:fixed; top:90px; right:10px; z-index:999; background:#c0392b;">🏳️ Отступить</button>
   </div>
 
   <!-- Раздел «Правила» -->
@@ -48254,20 +48200,6 @@ function onlineOnSnapshotSync() {
 </div>
 
 <!-- Кнопка открытия панели связи -->
-<div id="opLegacyPanelButtons" style="margin-bottom:8px;">
-  <button onclick="showCommunicationPanel()" id="showCommPanelBtn" style="background:#3498db; display:none;">
-    📡 Связь
-  </button>
-  <!-- ⚡ v13.068 (R47): кнопка панели снабжения -->
-  <button onclick="showSupplyPanel()" id="showSupplyPanelBtn" style="background:#e67e22; display:none;">
-    🚚 Снабжение
-  </button>
-  <!-- ⚡ v13.157: кнопка панели разведки (показывается, если есть активы) -->
-  <button onclick="showReconPanel()" id="showReconPanelBtn" style="background:#2980b9; display:none;">
-    🔍 Разведка
-  </button>
-</div>
-
 <!-- ⚡ v13.157: ПАНЕЛЬ РАЗВЕДЫВАТЕЛЬНЫХ МИССИЙ -->
 <div id="reconPanel" style="display:none; margin-bottom:8px; padding:8px; background:#141a24; border-radius:6px; border:1px solid #3498db;"></div>
 
@@ -48467,7 +48399,7 @@ function onlineOnSnapshotSync() {
          показываются только в этой группе (в бою скрываются). -->
     <span id="opDeployEnemySlot"></span>
     <span id="opDeployUnitSelectSlot"></span>
-    <div id="opPlacementTray" aria-label="Перетащите отряд на гекс"></div>
+    <div id="opPlacementTray" style="display:none" aria-label="Перетащите отряд на гекс"></div>
   </div>
 
   <div id="opPhasePrep" class="ux-phase-prep" style="display:none; gap:6px; flex-wrap:wrap; margin-bottom:6px;"></div>
@@ -48881,8 +48813,7 @@ function autoPlaceEnemyUnits(opts) {
     // ⚡ v13.079: в HardMode на оперкарте юниты действуют ТОЛЬКО по приказам —
     //    ручное «🚶 Перемещение» и «🎯 Обстрел» скрыты, остаются «⏭️ Завершить
     //    ход» и кнопки развёртывания/посадки/управления юнитами.
-    const hardModeOn = (typeof appData !== 'undefined' && appData.campaign &&
-                        appData.campaign.hardMode === true);
+    const hardModeOn = (typeof hardMode !== 'undefined' && hardMode && hardMode.enabled);
     const opMoveBtn = document.querySelector('#opPhaseBattle button[onclick*="setOpMapMode(\'move\')"]');
     const opShootBtn = document.querySelector('#opPhaseBattle button[onclick*="startOpShooting()"]');
     if (opMoveBtn) opMoveBtn.style.display = (hardModeOn ? 'none' : '');
@@ -48937,19 +48868,18 @@ function autoPlaceEnemyUnits(opts) {
       const dotsDone = (typeof initialFortificationComplete === 'function') ? initialFortificationComplete() : true;
       const dotsVisible = dotsSetup && dotsSetup.style.display !== 'none';
       if (unplaced > 0) {
-        next = '① Разместите отряды (' + unplaced + ' осталось)';
+        next = 'Разместите отряды (' + unplaced + ' осталось)';
         hint = '«🎲 Авторазмещение» поставит всех в один клик; или «📌 Размещение» → выберите юнит → клик по зелёной зоне.';
         // Расстановка отмечается завершённой только после явного подтверждения мастера.
       } else if (dotsVisible && !dotsDone) {
-        next = '② Расставьте ДОТы';
+        next = 'Расставьте ДОТы';
         hint = 'Нажмите «🪖 Расставить ДОТы» и выберите гексы в своей зоне (по одному под каждый ДОТ).';
       } else {
-        next = '③ Нажмите «✅ Завершить размещение»';
+        next = 'Нажмите «✅ Завершить размещение»';
         hint = 'После этого ход перейдёт в фазу передвижения и боя.';
       }
     } else {
-      const hm = (typeof hardMode !== 'undefined' && hardMode && hardMode.enabled) ||
-                 (typeof appData !== 'undefined' && appData.campaign && appData.campaign.hardMode === true);
+      const hm = (typeof hardMode !== 'undefined' && hardMode && hardMode.enabled);
       const done = getChecklistState();
       if (!done.communication) {
         next = 'Наладьте связь';
@@ -49103,7 +49033,7 @@ let uxActionBarSig = '';   // подпись последней отрисовк
 let uxActionBarCollapsed = false;
 
 function uxEsc(s) {
-  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return escapeCardHtml(s);
 }
 function uxPhaseNow() {
   return (typeof window.uxCurrentPhase === 'function') ? window.uxCurrentPhase() : 'battle';
@@ -49194,8 +49124,7 @@ function uxBuildChips(u, phase) {
   const chips = [];
   const add = (id, label, title) => chips.push({ id: id, label: label, title: title });
   const battle = phase === 'battle';
-  const hardOn = (typeof hardMode !== 'undefined' && hardMode && hardMode.enabled) ||
-                 (typeof appData !== 'undefined' && appData.campaign && appData.campaign.hardMode === true);
+  const hardOn = (typeof hardMode !== 'undefined' && hardMode && hardMode.enabled);
   const onMap = u.col !== null && u.col !== undefined && u.row !== null && u.row !== undefined;
   if (u.embarkedInBtr) {
     add('disembark', '🚶 Высадить', 'Высадить отряд из БТР');
@@ -49208,8 +49137,8 @@ function uxBuildChips(u, phase) {
     if (battle && ap > 0 && canUnitShoot(u) && !hardOn) {
       add('shoot', '🎯 Обстрел', 'Выбрать цель: затем кликните по врагу в радиусе огня');
     }
-    if (battle) {
-      add('recon', '🔍 Разведка', 'Проверить, видит ли отряд противника в радиусе обнаружения');
+    if (battle && typeof reconCanReceiveMission === 'function' && reconCanReceiveMission(u)) {
+      add('recon', '🔍 Разведка', 'Задать маршрут разведывательной миссии и места наблюдения');
     }
     if (!fixed && !uxIsBtrUnit(u) && !uxIsVehicleUnit(u) && uxFindEmbarkBtr(u)) {
       add('embark', '🚌 Сесть в БТР', 'Посадить отряд в БТР на этом же гексе');
@@ -49398,7 +49327,7 @@ window.uxChip = function (id) {
   const u = st.unit;
   if (id === 'move') uxDoMove(u);
   else if (id === 'shoot') startOpShooting();
-  else if (id === 'recon') checkOpDetection();
+  else if (id === 'recon') openReconMissionModal((appData.campaign.opUnits || []).indexOf(u));
   else if (id === 'embark') showBtrEmbarkDialog();
   else if (id === 'disembark') showBtrDisembarkDialog();
   else if (id === 'dismount' || id === 'mount') toggleDismount();
@@ -49543,7 +49472,7 @@ window.uxGatesRefresh = function () { uxApplyGates(); uxRenderActionBar(); };
       '<button type="button" data-op-side-tab="supply" onclick="showSupplyPanel()">🚚 Снабжение</button>' +
       '<button type="button" data-op-side-tab="recon" onclick="showReconPanel()">🔍 Разведка</button></div>' +
       '<button type="button" class="op-log-tab" onclick="toggleOperationalLogPanel()">📋 Лог событий</button>';
-    document.body.appendChild(tabs);
+    (document.getElementById('campaignApp') || document.body).appendChild(tabs);
     map.parentNode.insertBefore(workspace, map);
     workspace.appendChild(left);
     workspace.appendChild(map);
@@ -49592,6 +49521,7 @@ window.uxGatesRefresh = function () { uxApplyGates(); uxRenderActionBar(); };
       closeOperationalSidePanels();
       return;
     }
+    if (kind !== 'supply') supplyDangerPicking = false;
     activeOperationalSidePanel = kind;
     workspace.classList.add('op-left-open');
     workspace.classList.remove('op-right-open');
@@ -49607,6 +49537,7 @@ window.uxGatesRefresh = function () { uxApplyGates(); uxRenderActionBar(); };
     return !!workspace && workspace.classList.contains('op-left-open') && activeOperationalSidePanel === kind;
   };
   window.closeOperationalSidePanels = function () {
+    supplyDangerPicking = false;
     const workspace = document.getElementById('opMapWorkspace');
     if (workspace) workspace.classList.remove('op-left-open', 'op-right-open');
     activeOperationalSidePanel = null;

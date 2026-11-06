@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.171
+// ⚡ BUILD-МАРКЕР: v13.172
 // v13.062: fixed DOT coordinates and no placement bypass for eliminated squads.
 // ⚡ v13.061: current release tactical deployment rules.
 // ============================================================
@@ -322,7 +322,7 @@ function placementCheckPlace(side, key, wasPlaced, squad, allowReposition) {
     if (squad && squad.placementArrivalDir && p.attackerSide !== side) {
         return `⛔ Подкрепление размещается со стороны, откуда пришло (${PLACEMENT_DIR_LABELS[squad.placementArrivalDir] || squad.placementArrivalDir}) — подсвеченная полоса у края карты.`;
     }
-    if (p.attackerSide === 'enemy') return '⛔ Этот гекс недоступен для размещения. Выберите другой гекс.';
+    if (p.attackerSide === 'enemy') return '⛔ Этот гекс недоступен: он зарезервирован для входа противника. Выберите другой гекс для защитников.';
     const isAttacker = (p.attackerSide === side);
     const who = side === 'player' ? 'Ваш' : 'Вражеский';
     return isAttacker
@@ -370,7 +370,7 @@ function placementRandomizeAmbushEnemies(tacticalMap) {
         if (!/^\d+,\d+$/.test(key) || !grid[key]) return false;
         const type = grid[key].type;
         const terrain = (typeof TERRAIN_DATA !== 'undefined' && TERRAIN_DATA && TERRAIN_DATA[type]) || null;
-        return !terrain || !Number.isFinite(Number(terrain.baseCost)) || Number(terrain.baseCost) < 999;
+        return !terrain || (Number.isFinite(Number(terrain.baseCost)) && Number(terrain.baseCost) < 999);
     });
     const available = passable.filter(key => {
         const cell = grid[key];

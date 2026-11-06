@@ -356,6 +356,7 @@ console.log('== v13.160: развед. взвод, мотоциклисты, б�
         'кнопка деления доступна настоящему взводу A.I.R.F.');
     s.run('initReconAssets();');
     const oneAsset = s.evalCtx('appData.campaign.reconAssets.airf_recon_platoon.total');
+    s.run('appData.campaign.opUnits.find(u => u.name === "Развед. взвод").col = 4; appData.campaign.opUnits.find(u => u.name === "Развед. взвод").row = 5;');
     s.run('splitReconPlatoon(appData.campaign.opUnits.find(u => u.name === "Развед. взвод"))');
     const parts = (ad.campaign.opUnits || []).filter(u => u.splitPlatoonName === 'Развед. взвод');
     ok(parts.length === 3, 'взвод разделён на три отдельных юнита', parts.map(u => u.name).join(', '));
