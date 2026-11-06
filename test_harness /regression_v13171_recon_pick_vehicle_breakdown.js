@@ -28,7 +28,9 @@ function baseSandbox(opUnits, enemyOpUnits) {
     ad.campaign.reconMissions = [];
     ad.campaign.opMapGrid = {};
     const s = createSandbox(ad);
-    s.run('function isHexInPlayableArea() { return true; }');
+    s.run(`function isHexInPlayableArea(scenario, col, row) { return col >= 0 && row >= 0 && col < 14 && row < 14; }
+      function getOpHexNeighbors(col, row) { return [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]]
+        .map(([dc,dr]) => ({col:col+dc,row:row+dr})).filter(p=>isHexInPlayableArea(null,p.col,p.row)); }`);
     s.run('globalThis.__rng = [];\nfunction __roll() { return __rng.length ? __rng.shift() : 0.99; }');
     return s;
 }

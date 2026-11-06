@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.171 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.172 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -262,6 +262,11 @@ function countHexTrenchCells(ov) {
     const initial = ov.initialFortifications || {};
     const legacy = Object.keys(ov.hexEdits || {}).filter(k => ov.hexEdits[k] === 'trenches');
     return new Set([...(Array.isArray(initial.trenchCells) ? initial.trenchCells : []), ...legacy].map(String)).size;
+}
+// Only applied preparation edits consume the preparation allowance.
+function countHexPrepCells(ov) {
+    return Object.keys((ov && ov.hexEdits) || {}).filter(k =>
+        ov.hexEditSources && ov.hexEditSources[k] === 'prep').length;
 }
 // ─── ⚡ v13.066: ДОТы начальной расстановки ───
 // У BeVe ДОТы идут опцией поддержки (обычно два: «ДОТ Bosh» и «ДОТ Van Hees»).
@@ -622,7 +627,7 @@ function applyHexOverlays(grid, hexKey) {
         cell.variant = (ov.hexVariants && ov.hexVariants[k]) || 0;
         if (rotations[k] !== undefined) cell.rotation = normalizeHexRotation(rotations[k], 0);
         cell.ov = 1;
-        if (edits[k] === 'trenches') applyFortificationOwner(cell, k);
+        if (edits[k] === 'trenches' || (ov.hexEditSources && ov.hexEditSources[k] === 'prep')) applyFortificationOwner(cell, k);
     });
     trenches.forEach(k => {
         const cell = grid[k];
@@ -766,7 +771,10 @@ function mergeHexOverlays(cloud) {
                 if (owner) l.hexEditOwners[k] = owner;
                 hexChanged = true;
             } else {
-                if (source && !l.hexEditSources[k]) l.hexEditSources[k] = source;
+                if (source && (cloudWins || !l.hexEditSources[k]) && l.hexEditSources[k] !== source) {
+                    l.hexEditSources[k] = source;
+                    hexChanged = true;
+                }
                 if (owner && (cloudWins || !l.hexEditOwners[k]) && l.hexEditOwners[k] !== owner) {
                     l.hexEditOwners[k] = owner;
                     hexChanged = true;
@@ -1211,7 +1219,7 @@ function grantTrenchPoints(hexKey, squadsCount, unitName, enemySide) {
     const currentBudget = Math.max(0, Math.floor(Number(ov.trenchPoints) || 0));
     // ⚡ v13.166 (п.2): лимит на гекс — по живым бойцам отряда. Повторные
     //    приказы на том же гексе больше не «накапливают» очки сверх лимита.
-    const granted = Math.max(0, Math.max(0, n - drafted) - currentBudget);
+    const granted = Math.max(0, n - countHexTrenchCells(ov) - currentBudget);
     ov.trenchPoints = currentBudget + granted;
     ov.placedByMe = true;
     saveHexOverlays(hexKey);
@@ -1243,7 +1251,7 @@ function grantPrepPoints(hexKey, squadsCount, unitName, enemySide) {
     //    что у окопов); повторные приказы на гексе не накапливают очки сверх лимита.
     const limit = Math.max(0, Math.floor(Number(squadsCount) || 0));
     const currentPrep = Math.max(0, Math.floor(Number(ov.prepPoints) || 0));
-    const n = Math.max(0, Math.max(0, limit - drafted) - currentPrep);
+    const n = Math.max(0, limit - countHexPrepCells(ov) - currentPrep);
     ov.prepPoints = currentPrep + n;
     ov.placedByMe = true;
     saveHexOverlays(hexKey);
@@ -2937,7 +2945,7 @@ function initialDotSectorControls(st) {
         }).join('') + '</div><details style="margin:4px 0;"><summary style="color:#aaa; font-size:.78rem; cursor:pointer;">ℹ️ Секторы амбразур — как настроить</summary><div style="color:#888; font-size:.78rem;">У каждого расчёта свой сектор: Van Hees — ПТ-орудие 360° (круговой), пулемёт 90°; Bosh — пулемёты по 60°, орудие 90°. Цвет каждой амбразуры совпадает с подсветкой на карте; выбранная амбразура выделяется ярче. Подсветка показывает направление и ширину сектора в радиусе обстрела ДОТа — 3 гекса (дальше ДОТ не стреляет). Секторы могут перекрываться. Цель вне сектора для этого оружия недоступна — и в тактическом бою, и на оперативной карте. «🎯 Указать на карте» — затем кликните ЛЮБУЮ клетку карты, куда смотрит амбразура: ось сектора пройдёт точно через неё (угол не округляется до шести направлений), линии сектора появятся на карте от клетки ДОТа. Список направлений оставлен для быстрой правки старых позиций.</div></details>';
 }
 function initialDotSelector(st) {
-    const escape = text => String(text).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const escape = text => escapeCardHtml(text);
     const candidates = initialDotCandidates();
     if (!candidates.length) return '<span>В батальоне нет доступных ДОТов.</span>';
     if (!candidates.some(x => x.id === st.dotId)) st.dotId = initialDotIdForHex(st.hexKey) || candidates[0].id;

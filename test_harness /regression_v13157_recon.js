@@ -178,8 +178,8 @@ console.log('== v13.157: разведка, время кампании, мино
     const mission = s.evalCtx(`createReconMission({ assetKey: 'beve_motorcycle_scout', route: [{col:6,row:5},{col:7,row:5}], observeMode: 'stationary', reportMethod: 'radio' })`);
     ok(!!mission && mission.status === 'active', 'п.4.1: миссия создана со статусом active');
     ok(s.evalCtx('appData.campaign.reconAssets.beve_motorcycle_scout.available') === 0, 'п.4.1: available-- при отправке');
-    ok(s.evalCtx("JSON.stringify(appData.campaign.reconMissions[0].route)") === '[{"col":6,"row":5},{"col":7,"row":5}]',
-       'п.4.1: маршрут сохранён в миссии');
+    ok(s.evalCtx("appData.campaign.reconMissions[0].routeVersion === 2 && appData.campaign.reconMissions[0].route.map(p=>p.col+','+p.row).join('|') === '5,5|6,5|7,5' && appData.campaign.reconMissions[0].route.filter(p=>p.observe).length === 2"),
+       'п.4.1: сохранён полный маршрут со смежными шагами и двумя местами наблюдения');
     s.run('advanceReconMissions();');
     ok(s.evalCtx('appData.campaign.reconMissions[0].status') === 'observing', 'п.4.2: режим «занять в конце» → observing');
     ok(s.evalCtx('JSON.stringify(appData.campaign.reconMissions[0].currentHex)') === '{"col":7,"row":5}',

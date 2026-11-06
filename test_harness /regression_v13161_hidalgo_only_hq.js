@@ -154,6 +154,8 @@ console.log('== v13.161: AL-41 Hidalgo только при штабе батал
         'источник актива — штаб батальона', sources[0] && sources[0].unit);
     ok(sources[0] && sources[0].squadName === 'AL-41 Hidalgo',
         'актив привязан к отряду внутри штаба', sources[0] && sources[0].squadName);
+    // Full-route planning requires the carrier to be deployed.
+    s.run('appData.campaign.opUnits[0].col = 2; appData.campaign.opUnits[0].row = 11;');
     // миссия от отряда не двигает штаб
     s.run(`globalThis.mis = createReconMission({ assetKey: 'airf_hidalgo', unitId: 0, route: [{ col: 2, row: 12 }], observeMode: 'pass', reportMethod: 'radio' });`);
     ok(s.evalCtx('!!mis && mis.status === "active"'), 'миссия Hidalgo создаётся');
