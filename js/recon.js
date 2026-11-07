@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.172 — разведывательные миссии и приказ «Наблюдение»
+// ⚡ BUILD-МАРКЕР: v13.173 — разведывательные миссии и приказ «Наблюдение»
 // ═══════════════════════════════════════════════════════════════════════
 // ⚡ v13.157: НОВАЯ РАЗВЕДКА (заменяет подсветку радиуса v13.018…v13.099)
 //
@@ -128,8 +128,9 @@ function reconStandaloneKeyForUnit(unit) {
     // ⚡ v13.164: бронеавтомобиль Landsverk 183 — самостоятельный развед-актив BeVe
     //    (отдельная машина поддержки, в миссию уходит она сама).
     //    Слитые группы машин («Отряд Бронеавтомобиль (2шт)») активом не считаем.
-    if (unit.isGroup || (Array.isArray(unit.vehicleList) && unit.vehicleList.length)) return null;
-    const unitName = String(unit.name || '');
+    if (unit.isGroup && (Number(unit.groupSize) > 1 || !Array.isArray(unit.vehicleList) || unit.vehicleList.length !== 1 || !unit.vehicleList[0].name)) return null;
+    if (Array.isArray(unit.vehicleList) && unit.vehicleList.length > 1) return null;
+    const unitName = String(unit.name || '') + ' ' + String((unit.vehicleList && unit.vehicleList[0] && unit.vehicleList[0].name) || '');
     if (/Landsverk|Бронеавтомобил/i.test(unitName)) return 'beve_armored_car';
     // ⚡ v13.160: разделённый развед. взвод — каждое отделение со своим гексом
     //    становится отдельным активом; штаб развед. взвода активом не считается.
@@ -341,6 +342,7 @@ function reconSelectSource(index) {
     reconDraft.unitId = chosen.unitId;
     reconDraft.squadName = chosen.squadName || null;
     reconDraft.sourceIndex = Number(index);
+    reconDraft.pickingRoute = true;
     renderReconPanel();
     if (typeof redrawOperationalMap === 'function') { try { redrawOperationalMap(); } catch (e) {} }
     return true;
@@ -1743,17 +1745,27 @@ function renderReconPanel() {
         };
     }
     const assets = getReconAssetList();
+    if (reconDraft.missionId && !assets.some(a => a.key === reconDraft.assetKey)) {
+        const def = RECON_ASSET_TYPES[reconDraft.assetKey];
+        if (def) assets.push({ key: reconDraft.assetKey, name: def.name, available: 0, total: 1 });
+    }
     if (!assets.length) {
         panel.innerHTML = `<b style="color:#f1c40f;">🔍 Разведка</b>
             <div style="color:#bbb; font-size:.85rem; margin-top:4px;">Нет доступных разведывательных активов: в батальоне нет мотоциклистов, бронеавтомобилей, развед.взвода или Hidalgo — либо все они на задании.</div>
             ${reconMissionsPanelHtml()}`;
         return true;
     }
-    const assetOptions = assets.map(asset =>
+    if (!reconDraft.assetKey) {
+        reconDraft.assetKey = assets[0].key;
+        reconDraft.pickingRoute = true;
+    }
+    const unavailable = reconDraft.assetKey && !assets.some(a => a.key === reconDraft.assetKey)
+        ? `<option value="${reconDraft.assetKey}" selected disabled>Выбранный актив занят или недоступен</option>` : '';
+    const assetOptions = unavailable + assets.map(asset =>
         `<option value="${asset.key}" ${reconDraft.assetKey === asset.key ? 'selected' : ''}>${asset.name} (${asset.available}/${asset.total})</option>`
     ).join('');
     // ⚡ v13.171 (п.1): какую именно машину отправить (у BeVe — Landsverk №1/№2/№3)
-    if (reconDraft.assetKey) reconDraftEnsureSource();
+    if (reconDraft.assetKey && !reconDraft.missionId) reconDraftEnsureSource();
     const sourceList = reconAvailableSources(reconDraft.assetKey);
     const sourceSelect = sourceList.length > 1
         ? `<div style="margin-top:6px; font-size:.82rem; color:#ddd;">

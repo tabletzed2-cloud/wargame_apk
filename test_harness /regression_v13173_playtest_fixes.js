@@ -1,0 +1,67 @@
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const assert = require('assert');
+const { createSandbox, freshAppData } = require('./sandbox');
+const { sliceFunction, HTML } = require('./extract');
+const s = createSandbox(freshAppData());
+const load = names => names.forEach(name => s.run(sliceFunction(HTML, name)));
+const recon = fs.readFileSync(path.join(__dirname, '..', 'js/recon.js'), 'utf8');
+s.run(recon);
+s.run(`appData.campaign.opUnits = [{name:'Штаб батальона',type:'battalion_hq',col:0,row:0,
+  squads:[{name:'Мотоциклист-разведчик',fighters:[{hp:3}]}]}];
+appData.campaign.opCenters=[{key:'2,0',x:100,y:0}];
+showReconPanel(true);`);
+assert.equal(s.evalCtx('reconDraft.assetKey'), 'beve_motorcycle_scout', 'first visible asset is also selected in state');
+assert(s.evalCtx('reconDraft.pickingRoute'));
+assert(s.evalCtx('handleReconRouteDraftClick(100,0,40)'));
+assert.equal(s.evalCtx('reconDraft.route.length'), 1);
+assert(s.evalCtx('!!reconDraftPreviewRoute()'));
+assert(s.evalCtx('!!reconSubmitMission()'), 'battalion scout route can actually be dispatched');
+assert(s.evalCtx("reconCanReceiveMission({name:'Бронеавтомобиль Landsverk 183 №1',vehicleList:[{name:'Бронеавтомобиль Landsverk 183 №1'}]})"));
+assert(s.evalCtx("reconCanReceiveMission({name:'Отряд Бронеавтомобиль',isGroup:true,groupSize:1,vehicleList:[{name:'Landsverk №1'}]})"));
+assert(!s.evalCtx("reconCanReceiveMission({name:'Пехотный взвод',type:'infantry_platoon'})"));
+const ui=fs.readFileSync(path.join(__dirname,'..','js/operational_ui.js'),'utf8');
+assert(ui.includes("const specialActions = ['recon',"), 'armored cars default to enabled recon, not disabled dig-in');
+load(['migrateMediumMortarCrews']);
+assert.equal(s.evalCtx('SQUAD_TEMPLATES.filter(t=>/Минометный расчёт 82-мм/.test(t.name)).length'),6);
+assert(s.evalCtx('SQUAD_TEMPLATES.filter(t=>/Минометный расчёт 82-мм/.test(t.name)).every(t=>t.fighters.length===5 && t.crewInstances[0].fighterIndices.length===5)'));
+s.run(`var oldMortar={name:'Минометный расчёт 82-мм №1',faction:'BeVe',fighters:[
+{name:'Сержант',isCommander:true,hp:1},{name:'Наводчик',hp:0},{name:'Заряжающий',hp:3,weapon:'Винтовка'}],
+crewInstances:[{weaponName:'Минометный расчёт 82мм',fighterIndices:[0,1,2]}]};
+appData.campaign.opUnits=[{squads:[oldMortar]}];migrateMediumMortarCrews();migrateMediumMortarCrews();`);
+assert.equal(s.evalCtx('oldMortar.fighters.length'),5);
+assert.equal(s.evalCtx('oldMortar.fighters[0].hp'),1);
+assert.equal(s.evalCtx('oldMortar.fighters[1].hp'),0,'migration does not resurrect casualties');
+load(['unitAmmoStatus','supplyOrdnanceFull','supplyDistributeCargo']);
+s.run(`var sau=JSON.parse(JSON.stringify(SQUAD_TEMPLATES.find(t=>t.name==='САУ Brugge №1')));
+sau.ammoSmall=0;sau.ammoOrdnance=0;
+var carrier={name:'САУ',squads:[sau],ammoSmall:0,ammoOrdnance:0};
+var group={name:'Группа САУ',isGroup:true,squads:[],vehicleList:[carrier]};
+var status=unitAmmoStatus(group);`);
+assert.equal(s.evalCtx('status.ammoOrdnance.max'),40,'empty SAU keeps its full shell capacity');
+assert.equal(s.evalCtx('status.ammoSmall.max'),50,'vehicle capacity comes from its own template');
+s.run(`var left=supplyDistributeCargo(group,{ammoSmall:70,grenades:10,ammoOrdnance:45});`);
+assert.equal(s.evalCtx('unitAmmoStatus(group).ammoOrdnance.cur'),40);
+assert.equal(s.evalCtx('carrier.ammoOrdnance'),40,'tactical vehicle mirror also receives resupply');
+assert.equal(s.evalCtx('left.ammoOrdnance'),5);
+s.run('group.squads=[sau];');
+assert.equal(s.evalCtx('unitAmmoStatus(group).ammoOrdnance.cur'),40,'shared nested squad is not counted twice');
+assert(s.evalCtx("supplyRecipientIconHtml(group).includes('<img')"));
+assert(s.evalCtx("supplyRecipientIconHtml({name:'no icon',squads:[]}).includes('supply-recipient-fallback')"));
+load(['recordEnemyPrisoners','campaignPrisonerCount','showCampaignFieldNotice','renderCampaignFieldStatus',
+  'opRefreshEncirclementFlags','dismissCampaignFieldNotice']);
+s.run(`appData.campaign.fieldNotifications=[];
+var captured={name:'Расчёт',opUnitName:'Вражеский взвод',fighters:[{hp:3},{hp:1},{hp:0},{hp:3,isAway:true}]};
+recordEnemyPrisoners(captured);
+recordEnemyPrisoners(JSON.parse(JSON.stringify(captured)));
+recordEnemyPrisoners({name:'Вражеский взвод',squads:[JSON.parse(JSON.stringify(captured))]});`);
+assert.equal(s.evalCtx('campaignPrisonerCount()'),2,'live/saved/operational surrender share a single ledger key');
+assert.equal(s.evalCtx('appData.campaign.fieldNotifications.length'),1,'repeat reconciliation produces no repeated notice');
+s.run(`appData.campaign.opUnits=[{name:'Наш взвод'}];
+function operationalEncirclementReasons(){return [{text:'пути перекрыты'}];}
+opRefreshEncirclementFlags();opRefreshEncirclementFlags();`);
+assert.equal(s.evalCtx('appData.campaign.fieldNotifications.length'),2,'encirclement alerts only on entry into the state');
+assert(s.elements.opCampaignFieldStatus.innerHTML.includes('Пленные бойцы противника'));
+assert(s.elements.opCampaignFieldStatus.innerHTML.includes('Наш взвод'));
+console.log('v13.173: battalion recon route, armored-car command, five-person mortar crews, vehicle supply/icons, encirclement and prisoners: PASS');

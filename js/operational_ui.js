@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.172 — tactical grenade-area fire, commissioner card limit, unified rules.
+// ⚡ BUILD-МАРКЕР: v13.173 — tactical grenade-area fire, commissioner card limit, unified rules.
 (function () {
   'use strict';
 
@@ -1148,7 +1148,7 @@
   function beginDraft(category, mode) {
     const picked = selectedUnit();
     if (!picked.unit || picked.id < 0) return;
-    const specialActions = ['dig_in', 'prep_positions', 'cut_paths', 'embark', 'disembark', 'dismount', 'remount', 'pour_oil'];
+    const specialActions = ['recon', 'dig_in', 'prep_positions', 'cut_paths', 'embark', 'disembark', 'dismount', 'remount', 'pour_oil'];
     const firstSpecial = category === 'special'
       ? (specialActions.find(action => canIssueSpecial(picked.unit, action)) || 'dig_in') : '';
     state.draft = {
