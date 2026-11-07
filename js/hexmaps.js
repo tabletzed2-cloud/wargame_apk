@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.173 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.175 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1201,6 +1201,15 @@ function _applyShellingCraters(hexKey, count) {
 
 // ─────────────────── ВЫДАЧА ПРАВОК ПО ПРИКАЗАМ ───────────────────
 
+// A completed order cannot consume another unit's allowance on the same hex.
+function hexEditClaimUnitAllowance(overlay, kind, unitName, limit) {
+    const claims = overlay.hexEditUnitAllowances || (overlay.hexEditUnitAllowances = {});
+    const key = JSON.stringify([kind, unitName || null]);
+    const previous = Math.max(0, Number(claims[key]) || 0);
+    claims[key] = Math.max(previous, limit);
+    return Math.max(0, limit - previous);
+}
+
 // Окопы: за каждый отряд взвода, который окапывался на гексе, — 1 гекс окопа
 function grantTrenchPoints(hexKey, squadsCount, unitName, enemySide) {
     const ov = getHexOverlay(hexKey, true);
@@ -1215,11 +1224,11 @@ function grantTrenchPoints(hexKey, squadsCount, unitName, enemySide) {
     // ⚡ v13.099 (п.6): приказ выполнен — переносим черновик правок на карту и
     //    зачитываем эти отметки в счёт выданных правок.
     let drafted = 0;
-    try { if (typeof applyPendingHexEdits === 'function') drafted = applyPendingHexEdits(hexKey, 'trenches'); } catch (e) { console.warn('applyPendingHexEdits:', e.message); }
+    try { if (typeof applyPendingHexEdits === 'function') drafted = applyPendingHexEdits(hexKey, 'trenches', unitName); } catch (e) { console.warn('applyPendingHexEdits:', e.message); }
     const currentBudget = Math.max(0, Math.floor(Number(ov.trenchPoints) || 0));
     // ⚡ v13.166 (п.2): лимит на гекс — по живым бойцам отряда. Повторные
     //    приказы на том же гексе больше не «накапливают» очки сверх лимита.
-    const granted = Math.max(0, n - countHexTrenchCells(ov) - currentBudget);
+    const granted = Math.max(0, hexEditClaimUnitAllowance(ov, 'trenches', unitName, n) - drafted);
     ov.trenchPoints = currentBudget + granted;
     ov.placedByMe = true;
     saveHexOverlays(hexKey);
@@ -1246,12 +1255,12 @@ function grantPrepPoints(hexKey, squadsCount, unitName, enemySide) {
     }
     // ⚡ v13.099 (п.6): приказ выполнен — переносим черновик правок на карту
     let drafted = 0;
-    try { if (typeof applyPendingHexEdits === 'function') drafted = applyPendingHexEdits(hexKey, 'prep'); } catch (e) { console.warn('applyPendingHexEdits:', e.message); }
+    try { if (typeof applyPendingHexEdits === 'function') drafted = applyPendingHexEdits(hexKey, 'prep', unitName); } catch (e) { console.warn('applyPendingHexEdits:', e.message); }
     // ⚡ v13.166 (п.2): лимит расчистки — по живым бойцам отряда (та же норма,
     //    что у окопов); повторные приказы на гексе не накапливают очки сверх лимита.
     const limit = Math.max(0, Math.floor(Number(squadsCount) || 0));
     const currentPrep = Math.max(0, Math.floor(Number(ov.prepPoints) || 0));
-    const n = Math.max(0, limit - countHexPrepCells(ov) - currentPrep);
+    const n = Math.max(0, hexEditClaimUnitAllowance(ov, 'prep', unitName, limit) - drafted);
     ov.prepPoints = currentPrep + n;
     ov.placedByMe = true;
     saveHexOverlays(hexKey);
@@ -1455,7 +1464,7 @@ function openHexEditorForBattle(hexKey, kind, ownerUnitName) {
     //    игрока в редактор: разрешаем вход, если по гексу есть черновик или
     //    активный приказ нужного типа.
     const draftKind = (kind === 'prep') ? 'prep' : 'trenches';
-    const hasPendingDraft = (typeof pendingHexEditDraftActive === 'function') && pendingHexEditDraftActive(hexKey);
+    const hasPendingDraft = !!pendingHexEditDraft(hexKey, ownerUnitName, draftKind);
     const orderKindForHex = (kind === 'prep') ? 'prep_positions' : 'dig_in';
     const activeOrderForHex = (() => {
         try {
@@ -1843,6 +1852,18 @@ function beginPendingHexEditDraft(hexKey, kind, unitName) {
     //    ошибочно клался объект {kind, limit, unitName}, поэтому сравнение
     //    «отмечено ≥ лимита» никогда не срабатывало и окопов можно было
     //    наставить сколько угодно.
+    if (!camp.pendingHexEditDrafts) camp.pendingHexEditDrafts = {};
+    const bucket = camp.pendingHexEditDrafts[String(hexKey)] || (camp.pendingHexEditDrafts[String(hexKey)] = {});
+    const old = camp.pendingHexEdits[String(hexKey)];
+    if (old) {
+        const oldKey = JSON.stringify([old.kind, old.unitName || null]);
+        if (!bucket[oldKey]) bucket[oldKey] = old;
+    }
+    const ownerKey = JSON.stringify([draftKind, unitName || null]);
+    if (bucket[ownerKey]) {
+        camp.pendingHexEdits[String(hexKey)] = bucket[ownerKey];
+        return bucket[ownerKey];
+    }
     const limitInfo = draftLimitForUnit(draftKind, unitName);
     camp.pendingHexEdits[String(hexKey)] = {
         kind: draftKind,
@@ -1856,7 +1877,8 @@ function beginPendingHexEditDraft(hexKey, kind, unitName) {
         limitPerHex: limitInfo.perHex
     };
     log(`📝 Черновик подготовки гекса (${hexKey}): изменения появятся на карте только после выполнения приказа.`);
-    return camp.pendingHexEdits[String(hexKey)];
+    bucket[ownerKey] = camp.pendingHexEdits[String(hexKey)];
+    return bucket[ownerKey];
 }
 // ⚡ v13.147 (п.3) → v13.166 (п.2): лимит правок одного гекса — ПО ЖИВЫМ БОЙЦАМ
 //    отряда (8 бойцов = 1 гекс, у сапёров 5 бойцов = 1 гекс), одинаково для
@@ -1889,10 +1911,22 @@ function hexEditLimitLabel(unitName) {
     const hexes = hexEditDigHexLimitForUnit(unit);
     return `${hexes} гекс(ов) — ${fighters} живых бойцов ÷ ${per}${hexEditUnitIsSapper(unit) ? ' (сапёры)' : ''}`;
 }
-function pendingHexEditDraft(hexKey) {
-    const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
-    if (!camp || !camp.pendingHexEdits) return null;
-    return camp.pendingHexEdits[String(hexKey || '')] || null;
+function pendingHexEditDraft(hexKey, unitName, kind) {
+    const camp = appData && appData.campaign;
+    if (!camp) return null;
+    const st = typeof hexEditorState !== 'undefined' && hexEditorState;
+    if (unitName === undefined && st && String(st.hexKey) === String(hexKey)) {
+        unitName = st.ownerUnitName;
+        kind = st.kind;
+    }
+    const legacy = (camp.pendingHexEdits || {})[String(hexKey)] || null;
+    const bucket = (camp.pendingHexEditDrafts || {})[String(hexKey)] || {};
+    if (unitName) {
+        const key = JSON.stringify([kind || 'trenches', unitName]);
+        return bucket[key] || (legacy && legacy.unitName === unitName && (!kind || legacy.kind === kind) ? legacy : null);
+    }
+    if (legacy) return bucket[JSON.stringify([legacy.kind, legacy.unitName || null])] || legacy;
+    return Object.values(bucket).find(d => !kind || d.kind === kind) || null;
 }
 // ⚡ v13.129 (п.1): меню расстановки окопов/расчистки открывается, когда юнит
 //    ДОШЁЛ до целевого гекса (а не сразу при отдаче приказа). Один раз на приказ:
@@ -1907,7 +1941,7 @@ function openHexEditorOnFortificationArrival(order, unit, kind) {
     order.hexMenuOpened = true;
     const draftKind = (kind === 'prep') ? 'prep' : 'trenches';
     try {
-        if (!pendingHexEditDraftActive(hexKey)) beginPendingHexEditDraft(hexKey, draftKind, unit.name);
+        if (!pendingHexEditDraft(hexKey, unit.name, draftKind)) beginPendingHexEditDraft(hexKey, draftKind, unit.name);
     } catch (e) { console.warn('beginPendingHexEditDraft:', e && e.message); }
     try {
         if (typeof openHexEditorForBattle === 'function') {
@@ -1965,10 +1999,18 @@ function hexEditCycleTrenchTexture() {
     hexEditClick(cellKey);
 }
 function pendingHexEditDraftActive(hexKey) { return !!pendingHexEditDraft(hexKey); }
-function clearPendingHexEditDraft(hexKey) {
-    const camp = (typeof appData !== 'undefined' && appData && appData.campaign) || null;
-    if (!camp || !camp.pendingHexEdits) return;
-    delete camp.pendingHexEdits[String(hexKey || '')];
+function clearPendingHexEditDraft(hexKey, unitName, kind) {
+    const camp = appData && appData.campaign;
+    const draft = pendingHexEditDraft(hexKey, unitName, kind);
+    if (!camp || !draft) return;
+    const key = String(hexKey || '');
+    const bucket = (camp.pendingHexEditDrafts || {})[key];
+    if (bucket) {
+        delete bucket[JSON.stringify([draft.kind, draft.unitName || null])];
+        if (!Object.keys(bucket).length) delete camp.pendingHexEditDrafts[key];
+    }
+    const legacy = (camp.pendingHexEdits || {})[key];
+    if (legacy && legacy.kind === draft.kind && legacy.unitName === draft.unitName) delete camp.pendingHexEdits[key];
 }
 // ⚠️ v13.106 (п.12): снять ВСЕ отметки черновика (кнопка в редакторе).
 //    Сам приказ при этом не отменяется — отменить его можно в журнале
@@ -2096,11 +2138,11 @@ function recordPendingHexEditClick(st, cell) {
     return true;
 }
 // Приказ выполнен — переносим черновик на карту гекса (правки уже оплачены приказом)
-function applyPendingHexEdits(hexKey, kind) {
-    const draft = pendingHexEditDraft(hexKey);
+function applyPendingHexEdits(hexKey, kind, unitName) {
+    const draft = pendingHexEditDraft(hexKey, unitName, kind);
     if (!draft) return 0;
     const cells = Object.keys(draft.cells || {});
-    if (!cells.length) { clearPendingHexEditDraft(hexKey); return 0; }
+    if (!cells.length) { clearPendingHexEditDraft(hexKey, unitName, kind); return 0; }
     const ov = getHexOverlay(String(hexKey), true);
     if (!ov.hexEdits || typeof ov.hexEdits !== 'object') ov.hexEdits = {};
     if (!ov.hexVariants || typeof ov.hexVariants !== 'object') ov.hexVariants = {};
@@ -2133,7 +2175,7 @@ function applyPendingHexEdits(hexKey, kind) {
     });
     ov.placedByMe = true;
     saveHexOverlays(String(hexKey));
-    clearPendingHexEditDraft(hexKey);
+    clearPendingHexEditDraft(hexKey, unitName, kind);
     log(`✅ Подготовка гекса (${hexKey}) применена: изменено клеток ${cells.length} (приказ выполнен).`);
     try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast(`✅ Гекс (${hexKey}): изменения применены на карте`, 'success'); } catch (e) {}
     return cells.length;

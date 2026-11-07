@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.173 — операция</title>
+  <title>Боевой модуль v13.175 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -19,7 +19,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.173</h1>
+    <h1>⚔️ Боевой модуль v13.175</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -32,7 +32,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.173</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.175</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -84,7 +84,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.173 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.175 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -376,7 +376,17 @@
     function rollD6() { return Math.floor(Math.random()*6)+1; }
     function formatTime(minutes) { const h = Math.floor(minutes / 60); const m = minutes % 60; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;}
     function rollD10() { return Math.floor(Math.random()*10)+1; }
-    function log(msg) { const d = document.getElementById('log'); if(d){ d.innerHTML += msg+'<br>'; d.scrollTop = d.scrollHeight; }
+    function log(msg) {
+        const d = document.getElementById('log');
+        if (d) {
+            // Do not reparse the entire growing log on every network event.
+            // Repeated mirror creation used to amplify this cost indefinitely.
+            const entry = document.createElement('div');
+            entry.innerHTML = String(msg);
+            d.appendChild(entry);
+            while (d.children.length > 600) d.removeChild(d.firstElementChild);
+            d.scrollTop = d.scrollHeight;
+        }
         // ⚡ v13.133 (п.4): событие попадает и в журнал КОНКРЕТНОГО тактического боя
         try { if (typeof appendBattleEventLog === 'function') appendBattleEventLog(msg); } catch (ignored) {}
     }
@@ -399,6 +409,7 @@ function appendBattleEventLog(msg) {
             div.style.cssText = 'margin:2px 0; padding:2px 0; border-bottom:1px solid #22303c;';
             div.innerHTML = `<span style="color:#5dade2;">[ход ${turn}]</span> ${msg}`;
             box.appendChild(div);
+            while (box.children.length > 600) box.removeChild(box.firstElementChild);
             box.scrollTop = box.scrollHeight;
         }
     } catch (ignored) {}
@@ -541,8 +552,8 @@ function safeLocalStorage(method, ...args) {
 //    без радиста и вне радиуса связи вызов недоступен); новое правило телефона:
 //    линия тянется за юнитом до 7 гексов кабеля от штаба (дальше приказ на
 //    движение не выдаётся), при смещении штаба связисты прокладывают линии заново.
-var APP_VERSION = 'v13.173';
-// v13.173: battalion recon picker, armored-car commands, mortar crews, vehicle supply and prisoner notices.
+var APP_VERSION = 'v13.175';
+// v13.175: stable online battle authority, independent dig drafts, mixed-side layouts and shelling history.
 // v13.172: full recon routes/observation marks, safe supply corridors, unit card editor, review fixes.
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
@@ -11110,6 +11121,10 @@ function battleEnsureParticipantSquads(battle) {
 function repairBattleHexAnchor(battle, options) {
     if (!battle) return false;
     const opts = options || {};
+    if (battle.onlineAuthority && battle.onlineAuthority.hexKey) {
+        battleEnsureParticipantSquads(battle);
+        return false; // Online battle anchor is shared, not inferred from stale unit positions.
+    }
     const best = battleMostFrequentParticipantHex(battle);
     const currentKey = battle.hexKey ? String(battle.hexKey) : '';
     if (!best) { battleEnsureParticipantSquads(battle); return false; }
@@ -11280,6 +11295,10 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
     const unitBelongsToHex = (u, col, row) => {
         if (!u || u.isDestroyed || u.isSurrendered || u.isRetreated) return false;
         if (Number(u.col) === col && Number(u.row) === row) return true;
+        // A mirror's explicit participants may still have stale operational
+        // positions. Do not discard them and fail to create the shared battle.
+        const mirror = opts.mirrorOf;
+        if (mirror && ((mirror.oppUnitNames || []).includes(u.name) || (mirror.myUnitNames || []).includes(u.name))) return true;
         return (u.squads || []).some(s => {
             const key = s && s.fixedTacticalPosition && s.fixedTacticalPosition.hexKey;
             if (!key) return false;
@@ -11429,6 +11448,7 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
             // ⚡ v13.133 (п.3): физическое присутствие юнита на гексе боя.
             //    Десант в БТР считается находящимся вместе со своей машиной.
             const unitOnAnchorHex = !!(u && (u.embarkedInBtr ||
+                (opts.mirrorOf && unitBelongsToHex(u, battleAnchor.col, battleAnchor.row)) ||
                 (Number(u.col) === Number(battleAnchor.col) && Number(u.row) === Number(battleAnchor.row))));
             // ⚡ v13.133 (п.3): «дистанционные» отряды: юнит, вошедший в бой только
             //    через закреплённый ДОТ (сам он стоит на другом гексе), привносит в
@@ -11620,6 +11640,7 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
             const fixedHex = squad.fixedTacticalPosition && squad.fixedTacticalPosition.hexKey;
             if (fixedHex) return String(fixedHex) === String(hexKey);
             const owner = (units || []).find(u => u && (u.name === squad.opUnitName || (u.squads || []).includes(squad)));
+            if (opts.mirrorOf && owner && unitBelongsToHex(owner, battleAnchor.col, battleAnchor.row)) return true;
             if (!owner || !Number.isFinite(Number(owner.col)) || !Number.isFinite(Number(owner.row))) return true;
             return `${Number(owner.col)},${Number(owner.row)}` === String(hexKey);
         };
@@ -28638,7 +28659,7 @@ if (appData.map.mode === 'move' && shouldShowTacticalReachability() && appData.m
       const base = size * 0.92;
       if (n === 1) return { iconSize: base, positions: [{ x: cx, y: cy }] };
       const iconSize = Math.max(size * 0.38, base * (n <= 2 ? 0.66 : (n === 3 ? 0.56 : 0.50)));
-      const radius = Math.max(size * 0.22, (iconSize * 1.15) / (2 * Math.sin(Math.PI / n)));
+      const radius = Math.max(size * 0.22, (iconSize * 1.5) / (2 * Math.sin(Math.PI / n)));
       const positions = [];
       for (let i = 0; i < n; i++) {
         const angle = (i * 2 * Math.PI / n) - Math.PI / 2;
@@ -28648,6 +28669,18 @@ if (appData.map.mode === 'move' && shouldShowTacticalReachability() && appData.m
     }
     // ⚡ v13.108 (п.11): запоминаем, где нарисована иконка каждого отряда, —
     //    по этим центрам клик выбирает конкретный отряд, а не «первый в гексе».
+    function tacticalCellIconLayout(hexData, x, y, size, hexKey) {
+      const player = (hexData.squadIds || []).filter(id => appData.squads[id]);
+      const enemy = (hexData.enemySquadIds || []).filter(id => {
+        const sq = (appData.map.enemySquads || [])[id];
+        if (!sq || sq.hidden || (typeof tacticalShouldShowEnemyAt === 'function' && !tacticalShouldShowEnemyAt(hexKey))) return false;
+        return (typeof tacticalSquadIsFixedFortification === 'function' && tacticalSquadIsFixedFortification(sq)) ||
+          sq.detected || sq.isDestroyed || sq.isRetreated || sq.status === 'retreated';
+      });
+      const layout = tacticalHexIconLayout(player.length + enemy.length, x, y, size);
+      return {player, enemy, iconSize:layout.iconSize,
+        playerPositions:layout.positions.slice(0, player.length), enemyPositions:layout.positions.slice(player.length)};
+    }
     function tacticalRememberIconCenter(side, hexKey, squadId, x, y, radius) {
       if (typeof window === 'undefined') return;
       if (!window.__tacticalSquadIconCenters) window.__tacticalSquadIconCenters = {};
@@ -28780,20 +28813,10 @@ if (dotPreview) {
 if (typeof drawTacticalDotSectorLines === 'function') drawTacticalDotSectorLines(ctx, x, y, size, hexKey);
 
 // ====== ОТРИСОВКА СВОИХ ОТРЯДОВ (с подсветкой выбранного) ======
-const squadIds = hexData.squadIds || [];
+const cellIcons = tacticalCellIconLayout(hexData, x, y, size, hexKey);
+const squadIds = cellIcons.player;
 if (squadIds.length > 0) {
-  // ⚡ v13.108 (п.11): несколько отрядов в одном гексе раскладываем ПО КРУГУ,
-  //    как на карте кампании (раньше — в ряд, иконки налезали друг на друга и
-  //    щелчок не попадал в нужный отряд). Центры иконок запоминаем, чтобы клик
-  //    выбирал ровно тот отряд, по которому попали.
-  const layout = (typeof tacticalHexIconLayout === 'function')
-    ? tacticalHexIconLayout(squadIds.length, x, y - size * 0.1, size)
-    : (() => { // запасная раскладка (если хелпер не загружен)
-        const base = size * 0.85;
-        const totalWidth = squadIds.length * (base + 6) - 6;
-        const startX2 = x - totalWidth / 2 + base / 2;
-        return { iconSize: base, positions: squadIds.map((_, i2) => ({ x: startX2 + i2 * (base + 6), y: y - size * 0.1 })) };
-      })();
+  const layout = {iconSize:cellIcons.iconSize, positions:cellIcons.playerPositions};
   const iconSize = layout.iconSize;
 
   squadIds.forEach((squadId, idx) => {
@@ -28947,21 +28970,9 @@ if (squadIds.length > 0) {
 }
 
       // ====== ОТРИСОВКА ВРАЖЕСКИХ ОТРЯДОВ ======
-      const enemyIdsRaw = hexData.enemySquadIds || [];
-      // visible count only (hidden/detected filter) to not leak stack size via icon scale
-      const enemyIdsVisibleForLayout = enemyIdsRaw.filter(eid=>{const e=(appData.map&&appData.map.enemySquads||[])[eid]; if(!e) return false; if(e.hidden) return false; const isFort=(typeof tacticalSquadIsFixedFortification==='function'&&tacticalSquadIsFixedFortification(e)); if(!isFort && !e.detected && !e.isDestroyed && !e.isRetreated && e.status!=='retreated') return false; return true;});
-      const enemyIds = enemyIdsRaw;
+      const enemyIds = cellIcons.enemy;
       if (enemyIds.length > 0) {
-        // layout by visible count to hide stack size
-        const layoutCount = enemyIdsVisibleForLayout.length>0 ? enemyIdsVisibleForLayout.length : 1;
-        const enemyLayout = (typeof tacticalHexIconLayout === 'function')
-          ? tacticalHexIconLayout(layoutCount, x, y + size * 0.2, size)
-          : (() => {
-              const base = size * 0.85;
-              const totalWidth = enemyIds.length * (base + 6) - 6;
-              const startX2 = x - totalWidth / 2 + base / 2;
-              return { iconSize: base, positions: enemyIds.map((_, i2) => ({ x: startX2 + i2 * (base + 6), y: y + size * 0.2 })) };
-            })();
+        const enemyLayout = {iconSize:cellIcons.iconSize, positions:cellIcons.enemyPositions};
         const iconSize = enemyLayout.iconSize;
         const startX = x;
         enemyIds.forEach((enemyId, idx) => {
@@ -31291,6 +31302,7 @@ function executeArtilleryStrikeSalvo(order, rangingShot) {
 
     // ⚡ v13.024: метка «воронка» на гексе, куда нанесён арт. обстрел
     const craterKey = `${c},${r}`;
+    recordOperationalShelling(craterKey);
     if (appData.campaign.opMapGrid) {
         let craterCell = appData.campaign.opMapGrid[craterKey];
         if (!craterCell) {
@@ -32114,6 +32126,7 @@ function executeSeriesOrder(unit, order) {
 //             | 'blocked' (не может двинуться) | 'no_route' (маршрута нет)
 //             | 'battle' (вступил в бой по пути)
 function stepUnitTowardTarget(unit, targetCol, targetRow) {
+    if (unit.isInBattle) return 'battle';
     if (unit.col === targetCol && unit.row === targetRow) return 'reached';
     // ⚡ v13.171 (п.2): машина застряла/сломана — шага нет
     if (typeof opVehicleIsImmobile === 'function' && opVehicleIsImmobile(unit)) return 'blocked';
@@ -33066,6 +33079,7 @@ function endOpShellCapture(capture, extra) {
         const visible = rows.filter(r => !r.hidden && r.hits > 0);
         const meta = Object.assign({}, capture.meta, extra || {});
         const hexKey = meta.hexKey || (meta.col != null ? `${meta.col},${meta.row}` : null);
+        if (hexKey) recordOperationalShelling(hexKey);
         const hasHidden = rows.some(r => r.hidden && r.hits > 0);
         const note = (!visible.length)
             ? (hasHidden ? 'снаряды легли на гекс — видимых разведке целей там нет' : 'попаданий нет')
@@ -33088,6 +33102,40 @@ function endOpShellCapture(capture, extra) {
         });
         if (campaign.shellNotices.length > 60) campaign.shellNotices.splice(0, campaign.shellNotices.length - 60);
     } catch (e) { console.warn('endOpShellCapture:', e.message); }
+}
+
+// Public impact history, separate from anonymous noise at the gun's position.
+function recordOperationalShelling(hexKey, turn) {
+    const camp = appData && appData.campaign;
+    if (!camp || !/^-?\d+,-?\d+$/.test(String(hexKey))) return false;
+    const t = Number(turn) || Number(camp.currentTurn) || 1;
+    const role = camp.online && typeof ONLINE !== 'undefined' ? ONLINE.role : 'local';
+    camp.opShellingMarkers = (camp.opShellingMarkers || []).filter(m => m && Number(m.turn) >= t - 1 &&
+        !(m.hexKey === String(hexKey) && m.sourceRole === role));
+    camp.opShellingMarkers.push({hexKey:String(hexKey),turn:t,sourceRole:role});
+    if (camp.online && typeof onlinePushOperationalNoiseMarkers === 'function') onlinePushOperationalNoiseMarkers();
+    return true;
+}
+function drawOperationalShellingMarkers(ctx) {
+    const camp = appData && appData.campaign;
+    if (!camp || !ctx) return;
+    const turn = Number(camp.currentTurn) || 1;
+    const size = OP_HEX_SIZE * (camp.opZoomLevel || 1);
+    const keys = new Set();
+    // Recover already saved impacts as well, including a game loaded after a strike.
+    const history = (camp.opShellingMarkers || []).concat((camp.shellNotices || []).map(n => ({hexKey:n.hexKey,turn:n.turn})));
+    history.forEach(marker => {
+        if (!marker || Number(marker.turn) < turn - 1 || Number(marker.turn) > turn || keys.has(marker.hexKey)) return;
+        if (!/^-?\d+,-?\d+$/.test(String(marker.hexKey))) return;
+        keys.add(marker.hexKey);
+        const [col,row] = marker.hexKey.split(',').map(Number);
+        const x = col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+        const y = row * 1.5 * size + size;
+        ctx.save(); ctx.fillStyle = 'rgba(115,36,17,.9)'; ctx.strokeStyle = '#ffb04d'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(x,y,size*.43,0,Math.PI*2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ffe1aa'; ctx.font = `bold ${Math.max(9,size*.18)}px Arial`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('Обстрел',x,y+size*.38); ctx.restore();
+    });
 }
 
 // Обезличенный шум: гекс источника и два случайных соседних гекса.
@@ -33123,7 +33171,8 @@ function drawOperationalNoiseMarkers(ctx) {
     //    но и НЕ выбрасываем из массива — иначе они пропали бы из синхронизации
     //    с оппонентом при следующем пуше.
     const visibleNoise = (campaign.opNoiseMarkers || []).filter(m => m && Number(m.expiresTurn) >= turn);
-    visibleNoise.filter(m => m.viewerSide !== 'enemy').forEach(marker => {
+    visibleNoise.filter(m => m.viewerSide !== 'enemy' &&
+        !(campaign.online && typeof ONLINE !== 'undefined' && m.side === ONLINE.role)).forEach(marker => {
         const x = marker.col * Math.sqrt(3) * size + (marker.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
         const y = marker.row * 1.5 * size + size;
         ctx.save(); ctx.fillStyle = 'rgba(175,112,20,.88)'; ctx.strokeStyle = '#ffd36a';
@@ -33723,6 +33772,7 @@ function executeRemountOrder(unit, order) {
     }
 }
 function executeMoveOrder(unit, order) {
+    if (unit.isInBattle) return; // Includes direct/series calls after contact.
     console.log(`=== executeMoveOrder: ${unit.name} ===`);
     console.log(`ОД: ${unit.ap}, Позиция: (${unit.col},${unit.row}), Цель: ${order.targetHex}, Waypoints:`, order.waypoints);
     // ⚡ v13.129 (п.10): бронетехника не ходит скрытно — даже если флаг остался
@@ -40311,11 +40361,12 @@ function addEnemyReinforcementsToBattle(battleId, enemyUnit, playerUnits) {
 //    и снимается. Иначе юнит «числится в бою» и отказывается от всех приказов.
 function healBattleFlags() {
     let healed = 0;
-    const healList = (units) => {
+    const healList = (units, side) => {
         (units || []).forEach(u => {
             if (!u || !u.isInBattle) return;
             const stillInBattle = (appData.campaign.activeBattles || []).some(b => {
                 if (!b || !b.hexKey) return false;
+                if (battleUnitNamesForSide(b, side).includes(u.name)) return true;
                 const [bc, br] = b.hexKey.split(',').map(Number);
                 return bc === u.col && br === u.row;
             });
@@ -40326,8 +40377,8 @@ function healBattleFlags() {
             }
         });
     };
-    healList(appData.campaign.opUnits);
-    healList(appData.campaign.enemyOpUnits);
+    healList(appData.campaign.opUnits, 'player');
+    healList(appData.campaign.enemyOpUnits, 'enemy');
     if (healed > 0) {
         log(`⚕️ Самоисправление: снят остаточный статус «в тактическом бою» с ${healed} юнитов.`);
     }
@@ -45228,6 +45279,40 @@ function drawSelectedUnitOrdersOnMap(ctx, size) {
     });
 }
 
+function operationalUnitIconLayout(size, iconRadius) {
+    const unitEntries = [];
+    const allVisible = [
+        ...(appData.campaign.opUnits || []).filter(u => u && !u.isDestroyed && !u.reconMissionId).map(unit => ({unit,isEnemy:false})),
+        ...(appData.campaign.enemyOpUnits || []).filter(u => u && !u.isDestroyed &&
+            (typeof onlineEnemyVisible !== 'function' || onlineEnemyVisible(u))).map(unit => ({unit,isEnemy:true}))
+    ];
+    const groups = new Map();
+    allVisible.forEach(entry => {
+        const {unit,isEnemy} = entry;
+        if (unit.col == null || unit.row == null) return;
+        const uid = (appData.campaign.opUnits || []).indexOf(unit);
+        const anim = !isEnemy && uid >= 0 ? opUnitAnimPixel[uid] : null;
+        if (anim) { unitEntries.push({...entry,x:anim.x,y:anim.y,dx:0,dy:0}); return; }
+        const key = `${unit.col},${unit.row}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(entry);
+    });
+    groups.forEach(group => {
+        const first = group[0].unit;
+        const x = first.col * Math.sqrt(3) * size + (first.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
+        const y = first.row * 1.5 * size + size;
+        const zoom = appData.campaign.opZoomLevel || 1;
+        const distance = group.length > 1 ? Math.max(25 * zoom, (Math.SQRT2 * 2.2 * iconRadius + 4 * zoom) / (2 * Math.sin(Math.PI / group.length))) : 0;
+        group.forEach((entry,i) => {
+            const dx = Math.cos(i * 2 * Math.PI / group.length) * distance;
+            const dy = Math.sin(i * 2 * Math.PI / group.length) * distance;
+            unitEntries.push({...entry,x:x+dx,y:y+dy,dx,dy});
+        });
+    });
+
+    return unitEntries;
+}
+
 function drawOperationalUnits(ctx) {
     const size = OP_HEX_SIZE * (appData.campaign.opZoomLevel || 1);
     const iconRadius = 18 * (appData.campaign.opZoomLevel || 1);
@@ -45472,11 +45557,6 @@ function drawOperationalUnits(ctx) {
                 ctx.beginPath();
                 ctx.arc(drawX + radius, drawY - radius, 4, 0, 2 * Math.PI);
                 ctx.fill();
-            } else if (unit.noiseMarker) {
-                ctx.fillStyle = '#f39c12';
-                ctx.beginPath();
-                ctx.arc(drawX + radius, drawY - radius, 4, 0, 2 * Math.PI);
-                ctx.fill();
             }
         }
 
@@ -45609,96 +45689,14 @@ function drawOperationalUnits(ctx) {
         }
     }
 
-    // Функция для группировки юнитов на одном гексе
-    function drawGroupedUnits(units, isEnemy) {
-        if (!units) return;
-        // ⚡ v13.039 туман войны: вражеские юниты рисуются только если
-        //    они видны мне (обнаружены / были в ходе оппонента / разведка)
-        if (isEnemy && typeof onlineEnemyVisible === 'function') {
-            units = units.filter(onlineEnemyVisible);
-        }
-
-        // ⚡ Анимируемые юниты рисуем ОТДЕЛЬНО (в их текущей пиксельной
-        //    позиции), чтобы они «проскакивали» по маршруту, а не
-        //    телепортировались к конечному гексу
-        const isAnimating = (u) => {
-            const uid = units.indexOf(u);
-            return uid >= 0 && !!opUnitAnimPixel[uid];
-        };
-        const animUnits = units.filter(isAnimating);
-        const staticUnits = units.filter(u => !isAnimating(u));
-
-        const groupedByHex = new Map();
-        staticUnits.forEach(unit => {
-            if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
-            const key = `${unit.col},${unit.row}`;
-            if (!groupedByHex.has(key)) {
-                groupedByHex.set(key, []);
-            }
-            groupedByHex.get(key).push(unit);
-        });
-
-        // Анимируемые — по одному, в пиксельной позиции
-        animUnits.forEach(unit => drawUnit(unit, isEnemy, 0, 0));
-
-        groupedByHex.forEach((group) => {
-            const [col, row] = group[0].col !== undefined ? [group[0].col, group[0].row] : [0, 0];
-            const baseX = col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
-            const baseY = row * 1.5 * size + size;
-
-            if (group.length === 1) {
-                drawUnit(group[0], isEnemy, 0, 0);
-            } else {
-                const angleStep = (2 * Math.PI) / group.length;
-                const zoom = appData.campaign.opZoomLevel || 1;
-                const minCenterDistance = 2 * iconRadius + 4 * zoom;
-                const offsetDist = Math.max(25 * zoom, minCenterDistance / (2 * Math.sin(Math.PI / group.length)));
-
-                group.forEach((unit, idx) => {
-                    const offsetX = Math.cos(idx * angleStep) * offsetDist;
-                    const offsetY = Math.sin(idx * angleStep) * offsetDist;
-                    drawUnit(unit, isEnemy, offsetX, offsetY);
-                });
-            }
-        });
-    }
+    const unitEntries = operationalUnitIconLayout(size, iconRadius);
 
     // Плашки имён рисуются после маркеров и раскладываются в свободные места карты.
     // Сначала рассматриваем выбранный отряд; пересечение с любой иконкой/плашкой запрещено.
     function drawUnitNameLabels() {
         const zoom = appData.campaign.opZoomLevel || 1;
         const radius = 18 * zoom;
-        const entries = [];
-        const collect = (source, isEnemy) => {
-            const list = source || [];
-            const visible = list.filter(unit => unit && !unit.isDestroyed && unit.col != null && unit.row != null &&
-                (!isEnemy || typeof onlineEnemyVisible !== 'function' || onlineEnemyVisible(unit)));
-            const byHex = new Map();
-            visible.forEach(unit => {
-                const index = list.indexOf(unit);
-                const anim = !isEnemy && index >= 0 ? opUnitAnimPixel[index] : null;
-                if (anim) { entries.push({ unit, isEnemy, x: anim.x, y: anim.y }); return; }
-                const key = `${unit.col},${unit.row}`;
-                if (!byHex.has(key)) byHex.set(key, []);
-                byHex.get(key).push(unit);
-            });
-            byHex.forEach(group => {
-                const first = group[0];
-                const baseX = first.col * Math.sqrt(3) * size + (first.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
-                const baseY = first.row * 1.5 * size + size;
-                if (group.length === 1) { entries.push({ unit: first, isEnemy, x: baseX, y: baseY }); return; }
-                const step = (2 * Math.PI) / group.length;
-                const minDistance = 2 * radius + 4 * zoom;
-                const spread = Math.max(25 * zoom, minDistance / (2 * Math.sin(Math.PI / group.length)));
-                group.forEach((unit, i) => entries.push({
-                    unit, isEnemy,
-                    x: baseX + Math.cos(i * step) * spread,
-                    y: baseY + Math.sin(i * step) * spread
-                }));
-            });
-        };
-        collect(appData.campaign.opUnits, false);
-        collect(appData.campaign.enemyOpUnits, true);
+        const entries = unitEntries.slice();
         const selected = appData.campaign.selectedOpUnit;
         entries.sort((a, b) => {
             if (a.unit === selected) return -1;
@@ -45771,8 +45769,8 @@ function drawOperationalUnits(ctx) {
     }
 
     // Рисуем только один раз
-    drawGroupedUnits(appData.campaign.opUnits, false);
-    drawGroupedUnits(appData.campaign.enemyOpUnits, true);
+    drawOperationalShellingMarkers(ctx);
+    unitEntries.forEach(entry => drawUnit(entry.unit, entry.isEnemy, entry.dx, entry.dy));
     drawOperationalNoiseMarkers(ctx);
     drawUnitNameLabels();
 }
@@ -47674,7 +47672,9 @@ function onlinePushOperationalNoiseMarkers() {
     const turn = Number(appData.campaign.currentTurn) || 1;
     const markers = (appData.campaign.opNoiseMarkers || []).filter(marker => marker && marker.side !== onlineOppRole() && marker.viewerSide !== 'player' && Number(marker.expiresTurn) >= turn)
         .map(marker => ({ col: Number(marker.col), row: Number(marker.row), turn: Number(marker.turn) || turn, expiresTurn: Number(marker.expiresTurn) || turn }));
-    ONLINE.docRef.update({ ['state.' + ONLINE.role + '.noiseMarkers']: markers })
+    const shellingMarkers = (appData.campaign.opShellingMarkers || []).filter(m => m && m.sourceRole === ONLINE.role && Number(m.turn) >= turn - 1);
+    ONLINE.docRef.update({ ['state.' + ONLINE.role + '.noiseMarkers']: markers,
+        ['state.' + ONLINE.role + '.shellingMarkers']: shellingMarkers })
         .catch(e => console.warn('onlinePushOperationalNoiseMarkers:', e.message));
 }
 
@@ -47852,6 +47852,13 @@ function onlineApplyCloudState() {
     const ownNoise = (appData.campaign.opNoiseMarkers || []).filter(marker => marker && marker.side !== oppRole && Number(marker.expiresTurn) >= turnForNoise);
     appData.campaign.opNoiseMarkers = ownNoise.concat(oppNoise.filter(marker => marker && Number.isFinite(Number(marker.col)) && Number.isFinite(Number(marker.row)) && Number(marker.expiresTurn) >= turnForNoise)
         .map(marker => ({ col: Number(marker.col), row: Number(marker.row), label: 'Шум', turn: Number(marker.turn) || turnForNoise, expiresTurn: Number(marker.expiresTurn) || turnForNoise, side: oppRole })));
+    const remoteShelling = state[oppRole] && state[oppRole].shellingMarkers;
+    if (Array.isArray(remoteShelling)) {
+        const ownShelling = (appData.campaign.opShellingMarkers || []).filter(m => m && m.sourceRole !== oppRole && Number(m.turn) >= turnForNoise - 1);
+        appData.campaign.opShellingMarkers = ownShelling.concat(remoteShelling.filter(m => m &&
+            /^-?\d+,-?\d+$/.test(String(m.hexKey)) && Number(m.turn) >= turnForNoise - 1 && Number(m.turn) <= turnForNoise)
+            .map(m => ({hexKey:String(m.hexKey),turn:Number(m.turn),sourceRole:oppRole})));
+    }
     if (Array.isArray(oppUnits)) {
         const oppFaction = (m.players[oppRole] && m.players[oppRole].faction) || null;
         const newEnemy = oppUnits.map(cu => {

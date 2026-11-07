@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.173
+// ⚡ BUILD-МАРКЕР: v13.175
 // v13.062: monotonic turn handoff; synchronize routing and melee without stale phase rollback.
 // ⚡ v13.061: sync retreat state and attacker/defender phase in online battle snapshots.
 // ============================================================
@@ -157,6 +157,7 @@ function onlineBattleSnapshot(battle, status) {
         phaseRevision: battle.phaseRevision || 0,
         entryDir: pl ? (pl.entryDir || null) : null,
         id: battle.id,
+        authority: onlineBattleAuthority(battle),
         hexKey: battle.hexKey,
         status: status || (battle.onlineFinished ? 'finished' : 'active'),
         result: battle.result || null,
@@ -391,8 +392,8 @@ function onlineBattleNames(battle, side) {
 }
 
 function onlineFindLocalBattleByParticipants(e) {
-    const oppNames = Array.isArray(e.oppUnitNames) ? e.oppUnitNames : [];
-    const mineSnapshot = Array.isArray(e.myUnitNames) ? e.myUnitNames : [];
+    const oppNames = Array.isArray(e.myUnitNames) ? e.myUnitNames : [];
+    const mineSnapshot = Array.isArray(e.oppUnitNames) ? e.oppUnitNames : [];
     if (!oppNames.length && !mineSnapshot.length) return null;
     return (appData.campaign.activeBattles || []).find(b => {
         if (!b || b.onlineFinished) return false;
@@ -406,6 +407,65 @@ function onlineFindLocalBattleByParticipants(e) {
     }) || null;
 }
 
+// Stable, shared battle metadata: never let two mirrors re-anchor each other
+// from independently advancing operational positions. Concurrent originals elect
+// the same authority by (creation id, player role), not by local clock ticks.
+function onlineBattleAuthority(battle) {
+    if (battle.onlineAuthority) return battle.onlineAuthority;
+    const mine = ONLINE.role;
+    const other = mine === 'p1' ? 'p2' : 'p1';
+    const mirror = !!battle.onlineMirror;
+    battle.onlineAuthority = {
+        role: mirror ? other : mine,
+        id: mirror ? (battle.onlineOppBattleId || battle.id) : battle.id,
+        hexKey: String(battle.hexKey),
+        attackerRole: battle.placement && battle.placement.attackerSide === 'enemy' ? other : mine,
+        entryDir: battle.placement && battle.placement.entryDir || null
+    };
+    return battle.onlineAuthority;
+}
+function onlineReconcileBattleAuthority(battle, e, senderRole) {
+    const hadAuthority = !!battle.onlineAuthority;
+    const local = onlineBattleAuthority(battle);
+    const remote = e.authority && ['p1', 'p2'].includes(e.authority.role) ? e.authority : {
+        role: e.startedBy === 'opponent' ? ONLINE.role : senderRole,
+        id: e.startedBy === 'opponent' ? (e.oppBattleId || e.id) : e.id,
+        hexKey: String(e.hexKey),
+        attackerRole: e.attacker === 'opp' ? ONLINE.role : senderRole,
+        entryDir: e.entryDir || null
+    };
+    const rank = value => Number.isFinite(Number(value.id)) ? Number(value.id) : Number.MAX_SAFE_INTEGER;
+    const wins = rank(remote) < rank(local) || (rank(remote) === rank(local) && remote.role < local.role) ||
+        (!hadAuthority && battle.onlineMirror && remote.role === senderRole && rank(remote) === rank(local));
+    let changed = false;
+    if (wins && /^-?\d+,-?\d+$/.test(String(remote.hexKey))) {
+        battle.onlineAuthority = {role:remote.role,id:remote.id,hexKey:String(remote.hexKey),
+            attackerRole:['p1','p2'].includes(remote.attackerRole) ? remote.attackerRole : remote.role,
+            entryDir:remote.entryDir || null};
+        changed = true;
+    }
+    const authority = battle.onlineAuthority;
+    if (onlineReanchorBattleToHex(battle, authority.hexKey)) changed = true;
+    const side = authority.attackerRole === ONLINE.role ? 'player' : 'enemy';
+    if (!battle.placement && typeof initBattlePlacement === 'function') {
+        initBattlePlacement(battle, side, authority.entryDir, 'online');
+        changed = true;
+    }
+    if (battle.tacticalMap) battle.tacticalMap.attackerSide = side;
+    if (onlineBattleIsLive(battle) && appData.map) appData.map.attackerSide = side;
+    if (battle.placement && battle.placement.attackerSide !== side) {
+        battle.placement.attackerSide = side;
+        if (authority.entryDir) battle.placement.entryDir = authority.entryDir;
+        if (Number(battle.phaseRevision || 0) === 0) {
+            battle.activeSide = side;
+            if (battle.tacticalMap) battle.tacticalMap.activeSide = side;
+            if (onlineBattleIsLive(battle) && appData.map) appData.map.activeSide = side;
+        }
+        changed = true;
+    }
+    return changed;
+}
+
 function onlineReanchorBattleToHex(battle, hexKey) {
     if (!battle || !hexKey) return false;
     if (String(battle.hexKey) === String(hexKey)) return false;
@@ -414,7 +474,8 @@ function onlineReanchorBattleToHex(battle, hexKey) {
     if (battle.tacticalMap && typeof battle.tacticalMap === 'object') battle.tacticalMap.hexKey = String(hexKey);
     if (battle.placement && typeof battle.placement === 'object') battle.placement.hexKey = String(hexKey);
     if (appData.currentBattleId === battle.id && appData.map) appData.map.hexKey = String(hexKey);
-    if (appData.campaign) appData.campaign.lastOpenedHexKey = String(hexKey);
+    if (appData.currentBattleId === battle.id && appData.campaign) appData.campaign.lastOpenedHexKey = String(hexKey);
+    if (appData.currentBattleId === battle.id && typeof renderCampaignMiniMap === 'function') { try { renderCampaignMiniMap(); } catch (e) {} }
     try { log(`🧭 Бой согласован с оппонентом: гекс (${hexKey}) вместо «${old || '?'}».`); } catch (err) {}
     return true;
 }
@@ -431,16 +492,12 @@ function onlineApplyCloudBattles(state) {
     Object.keys(oppBattles).forEach(k => {
         const e = oppBattles[k];
         if (!e || !e.hexKey) return;
-        let battle = (appData.campaign.activeBattles || []).find(b => b && b.hexKey === e.hexKey);
-        if (!battle) {
-            // ⚡ v13.147 (п.10): у меня тот же бой может висеть на другом гексе.
-            const sameClash = onlineFindLocalBattleByParticipants(e);
-            if (sameClash && onlineReanchorBattleToHex(sameClash, e.hexKey)) {
-                battle = sameClash;
-                changedAny = true;
-                mineChanged = true;
-            }
-        }
+        // Match identities/participants before the hex: two clients may have
+        // created this same clash on adjacent hexes while a convoy was moving.
+        let battle = (appData.campaign.activeBattles || []).find(b => b && !b.onlineFinished &&
+            ((b.onlineOppBattleId && b.onlineOppBattleId === e.id) || (e.oppBattleId && e.oppBattleId === b.id)))
+            || onlineFindLocalBattleByParticipants(e)
+            || (appData.campaign.activeBattles || []).find(b => b && !b.onlineFinished && b.hexKey === e.hexKey);
         if (!battle) {
             if (e.status !== 'active') return;
             const fin = (appData.campaign.onlineFinishedBattles || {})[onlineBattleKey(e.hexKey)];
@@ -462,6 +519,10 @@ function onlineApplyCloudBattles(state) {
                 }
                 return;
             }
+            changedAny = true;
+            mineChanged = true;
+        }
+        if (onlineReconcileBattleAuthority(battle, e, oppRole)) {
             changedAny = true;
             mineChanged = true;
         }
@@ -568,31 +629,9 @@ function onlineCreateMirrorBattle(e, opts) {
         }];
     }
     if (oppUnits.length === 0) return null;
-    // ⚡ v13.147 (п.10): зеркало ставим на гекс, где стороны реально сошлись.
-    //    Снимок оппонента может нести гекс, на котором моих юнитов уже нет
-    //    (они отошли/были перенесены) — тогда бой «не отображается» у меня.
-    //    Ищем гекс, где стоят и мои юниты, и подразделения оппонента.
-    let mirrorHexKey = String(e.hexKey || '');
-    const onHex = (u, key) => u && Number(u.col) === Number(String(key).split(',')[0]) &&
-        Number(u.row) === Number(String(key).split(',')[1]);
-    const sidesMeetOnHex = (key) => {
-        if (!/^-?\d+,-?\d+$/.test(String(key))) return false;
-        const mine = myUnits.some(u => onHex(u, key) ||
-            (u.squads || []).some(sq => sq && sq.fixedTacticalPosition && sq.fixedTacticalPosition.hexKey === key));
-        const theirs = oppUnits.some(u => onHex(u, key) ||
-            (u.squads || []).some(sq => sq && sq.fixedTacticalPosition && sq.fixedTacticalPosition.hexKey === key));
-        return mine && theirs;
-    };
-    if (!sidesMeetOnHex(mirrorHexKey)) {
-        const candidate = myUnits.concat(oppUnits)
-            .filter(u => u && Number.isFinite(Number(u.col)) && Number.isFinite(Number(u.row)))
-            .map(u => `${Number(u.col)},${Number(u.row)}`)
-            .find(sidesMeetOnHex);
-        if (candidate && candidate !== mirrorHexKey) {
-            try { log(`🧭 Зеркальный бой перенесён на гекс (${candidate}): оппонент указал (${mirrorHexKey}), но стороны стоят вместе там.`); } catch (err) {}
-            mirrorHexKey = candidate;
-        }
-    }
+    // The initiating snapshot is authoritative; stale operational coordinates
+    // must not independently move the defender's battle to another hex.
+    const mirrorHexKey = String(e.authority && e.authority.hexKey || e.hexKey);
     // юниты оппонента, вошедшие в бой, — известны (бой не спрячешь)
     oppUnits.forEach(u => { if (typeof onlineRevealEnemy === 'function') onlineRevealEnemy(u, ((appData.campaign.currentTurn || 1) + 1)); });
     let battle = null;
@@ -780,23 +819,8 @@ function onlineMergeOppBattle(battle, e) {
     // --- ⚡ v13.055 (R39#3): фаза размещения ---
     //     кто атакует / сторона входа — от того, кто начал бой (зеркало берёт из облака);
     //     готовность оппонента (placed); позиции его отрядов видны только когда готовы ОБА
-    if (e.attacker && (battle.onlineMirror || (typeof e.id === 'number' && typeof battle.id === 'number' && e.id < battle.id))) {
-        const side = (e.attacker === 'me') ? 'enemy' : 'player';
-        const dir = e.entryDir || null;
-        if (!battle.placement) {
-            if (typeof initBattlePlacement === 'function') { initBattlePlacement(battle, side, dir, 'online'); changed = true; }
-        } else if (battle.placement.attackerSide !== side || (dir && battle.placement.entryDir !== dir)) {
-            battle.placement.attackerSide = side;
-            if (dir) battle.placement.entryDir = dir;
-            changed = true;
-        }
-        if (Number(battle.phaseRevision || 0) === 0 && battle.activeSide !== side) {
-            battle.activeSide = side;
-            if (battle.tacticalMap) battle.tacticalMap.activeSide = side;
-            if (live && appData.map) appData.map.activeSide = side;
-            changed = true;
-        }
-    }
+    // Attacker/entry metadata is resolved once through the shared authority,
+    // never repeatedly inverted from a mirror's relative 'me'/'opp' label.
     const oppPlaced = (e.placed === undefined || e.placed === null) ? true : !!e.placed;
     const myPl = battle.placement || null;
     if (myPl) {
@@ -1089,7 +1113,9 @@ function onlineMergeOppBattle(battle, e) {
 
     // --- служебное ---
     if (battle.onlineOppTurn !== e.turn) { battle.onlineOppTurn = e.turn; changed = true; }
-    if (e.updatedAt && battle.onlineOppUpdatedAt !== e.updatedAt) { battle.onlineOppUpdatedAt = e.updatedAt; changed = true; }
+    // A heartbeat is not a gameplay change: avoid cloning/saving/redrawing the
+    // entire live battle every ten seconds when only updatedAt has changed.
+    if (e.updatedAt) battle.onlineOppUpdatedAt = e.updatedAt;
     if (e.status === 'finished' && !battle.onlineOppFinished) {
         battle.onlineOppFinished = true;
         changed = true;

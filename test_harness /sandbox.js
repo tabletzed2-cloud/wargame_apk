@@ -168,12 +168,13 @@ function createSandbox(appData) {
     vm.runInContext('function rollD6() { return Math.floor(Math.random() * 6) + 1; }\n' +
                     'function rollD10() { return Math.floor(Math.random() * 10) + 1; }\n' +
                     'const OPERATIONAL_MORALE_MAX = 100; const OPERATIONAL_MORALE_ROUT_THRESHOLD = 25; const OPERATIONAL_MORALE_RALLY_THRESHOLD = 50;\n' +
-                    'var APP_VERSION = "v13.173"; // дубль глобала из index.html (вне извлечения FNS)', ctx);
+                    'var APP_VERSION = "v13.175"; // дубль глобала из index.html (вне извлечения FNS)', ctx);
     // Shared dependencies for isolated function extraction.
     const htmlSource = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
     for (const name of ['escapeCardHtml', 'supplyDangerKeys', 'getOpHexNeighbors', 'operationalAmmoSquads',
         'supplySquadTemplate', 'supplySquadCapacity', 'supplyAmmoSquads', 'supplyRecipientIconHtml',
-        'renderCampaignFieldStatus', 'campaignPrisonerCount', 'showCampaignFieldNotice', 'recordEnemyPrisoners']) {
+        'renderCampaignFieldStatus', 'campaignPrisonerCount', 'showCampaignFieldNotice', 'recordEnemyPrisoners',
+        'tacticalHexIconLayout', 'tacticalCellIconLayout', 'recordOperationalShelling']) {
         vm.runInContext(sliceFunction(htmlSource, name), ctx);
     }
     vm.runInContext('var supplyDangerPicking = false;', ctx);

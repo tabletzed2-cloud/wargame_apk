@@ -15,7 +15,7 @@ const context = vm.createContext({
 });
 // Use a lexical reference, like the actual game's global overlay store.
 vm.runInContext('getHexOverlay = () => ov;', context);
-for (const name of ['countHexTrenchCells', 'countHexPrepCells', 'grantTrenchPoints', 'grantPrepPoints']) {
+for (const name of ['countHexTrenchCells', 'countHexPrepCells', 'hexEditClaimUnitAllowance', 'grantTrenchPoints', 'grantPrepPoints']) {
     vm.runInContext(sliceFunction(hex, name), context);
 }
 for (const [kind, fn, budget, type] of [
