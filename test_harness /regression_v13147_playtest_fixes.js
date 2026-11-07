@@ -184,13 +184,13 @@ const AMMO_HELPERS = [
         'к старому бою «по участникам» присоединяемся только при живых юнитах на его гексе');
     ok(/function onlineFindLocalBattleByParticipants/.test(UI_ONLINE),
         'онлайн: бой ищется и по составу участников');
-    ok(/onlineReanchorBattleToHex\(sameClash, e\.hexKey\)/.test(UI_ONLINE),
+    ok(/onlineReanchorBattleToHex\(battle, authority\.hexKey\)/.test(UI_ONLINE),
         'онлайн: гекс боя согласуется с оппонентом');
     ok(/repairAllBattleHexAnchors\(\{ silentSave: true \}\)/.test(UI_ONLINE),
         'онлайн: после приёма снимков гекс боя и состав сверяются');
     // ⚡ v13.147 (п.10): зеркальный бой ставим на гекс, где стороны реально сошлись
-    ok(/sidesMeetOnHex/.test(UI_ONLINE) && /mirrorHexKey/.test(UI_ONLINE),
-        'онлайн: зеркальный бой ищет гекс, где стоят обе стороны');
+    ok(/e\.authority && e\.authority\.hexKey \|\| e\.hexKey/.test(UI_ONLINE) && /mirrorHexKey/.test(UI_ONLINE),
+        'онлайн: зеркальный бой использует единый гекс инициатора, а не устаревшие позиции');
     ok(/startTacticalBattle\(myUnits, oppUnits, \{ silent: true, mirrorOf: e, battleHexKey: mirrorHexKey \}\)/.test(UI_ONLINE),
         'онлайн: зеркалу передаётся явный battleHexKey');
     ok(/b\.hexKey === mirrorHexKey/.test(UI_ONLINE),
