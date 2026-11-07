@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.172 — операция</title>
+  <title>Боевой модуль v13.173 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -19,7 +19,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.172</h1>
+    <h1>⚔️ Боевой модуль v13.173</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -32,7 +32,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.172</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.173</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -84,7 +84,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.172 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.173 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -541,7 +541,8 @@ function safeLocalStorage(method, ...args) {
 //    без радиста и вне радиуса связи вызов недоступен); новое правило телефона:
 //    линия тянется за юнитом до 7 гексов кабеля от штаба (дальше приказ на
 //    движение не выдаётся), при смещении штаба связисты прокладывают линии заново.
-var APP_VERSION = 'v13.172';
+var APP_VERSION = 'v13.173';
+// v13.173: battalion recon picker, armored-car commands, mortar crews, vehicle supply and prisoner notices.
 // v13.172: full recon routes/observation marks, safe supply corridors, unit card editor, review fixes.
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
@@ -999,6 +1000,39 @@ function supplySquadRenamed(name) {
     return SUPPLY_SQUAD_RENAMES[key] || key;
 }
 // Шаблоны отделений снабжения A.I.R.F. (TG-41 и «Викунья») из data.js.
+// Medium mortar template keys remain 82 mm for compatibility. Add only the
+// two previously absent ammunition bearers; never replace injured/dead crew.
+function migrateMediumMortarCrews() {
+    const seen = new Set();
+    let added = 0;
+    const visit = node => {
+        if (!node || typeof node !== 'object' || seen.has(node)) return;
+        seen.add(node);
+        if (Array.isArray(node)) { node.forEach(visit); return; }
+        const medium = /мином[её]т.*8[12]\s*[- ]?\s*мм/i.test(String(node.templateName || node.name || ''));
+        if (medium && Array.isArray(node.fighters) && !node.mediumMortarCrewVersion) {
+            if (node.fighters.length === 3 && !node.isDestroyed && !node.isSurrendered &&
+                node.fighters.some(f => f && Number(f.hp) > 0)) {
+                const weapon = (node.fighters.find(f => f && /заряжа/i.test(f.name || '')) || node.fighters[0] || {}).weapon;
+                node.fighters.push(...[1, 2].map(n => ({ name: 'Подносчик №' + n, weapon, hp: 3, maxHp: 3 })));
+                if (Number.isFinite(node.tacticalOriginalRosterSize)) node.tacticalOriginalRosterSize += 2;
+                added += 2;
+            }
+            if (node.fighters.length === 5) {
+                if (node.fighters[0] && node.fighters[0].isCommander) node.fighters[0].name = 'Командир';
+                (node.crewInstances || []).forEach(crew => {
+                    if (/мином[её]т.*8[12]/i.test(crew.weaponName || '')) crew.fighterIndices = [0, 1, 2, 3, 4];
+                });
+                node.mediumMortarCrewVersion = 1;
+            }
+        }
+        ['templates', 'squads', 'units', 'opUnits', 'enemyOpUnits', 'playerSquads', 'enemySquads', 'platoons',
+            'vehicleList', 'activeBattles', 'campaign', 'battalions', 'player', 'enemy'].forEach(key => visit(node[key]));
+    };
+    visit(appData);
+    return added;
+}
+
 function syncSupplySquadTemplates() {
     if (typeof appData === 'undefined' || !appData) return 0;
     if (!Array.isArray(appData.templates)) appData.templates = [];
@@ -1821,6 +1855,10 @@ function generateBattalion(faction, supportIds) {
     return null;
   }
   const squad = JSON.parse(JSON.stringify(tmpl));
+  squad.templateName = tmpl.name;
+  if (tmpl.armor) ['ammoSmall', 'grenades', 'ammoOrdnance'].forEach(kind => {
+      if (Number.isFinite(Number(tmpl[kind]))) squad[kind + 'Full'] = Math.max(0, Number(tmpl[kind]));
+  });
   squad.name = name;
   squad.currentMorale = squad.baseMorale;
   squad.hidden = false;
@@ -2863,6 +2901,7 @@ function getBattalionSignature(battalion) {
 }
 
 function buildOperationalUnits() {
+    try { migrateMediumMortarCrews(); } catch (e) { console.warn('medium mortar crews:', e.message); }
     let battalion = appData.campaign.battalions.player;
     if (!battalion) return;
     // ⚡ v13.149: в старых сейвах нет шаблонов новых отделений снабжения —
@@ -4681,6 +4720,7 @@ function drawShellHighlightOnMap(ctx, size) {
     ctx.restore();
 }
 function redrawOperationalMapNow() {
+    renderCampaignFieldStatus();
     try { if (typeof resolveBicycleParkCaptures === 'function') resolveBicycleParkCaptures(); } catch (e) { console.warn('bicycle park capture:', e); }
     try { if (typeof syncSupplyRearConnection === 'function') syncSupplyRearConnection(); } catch (e) { console.warn('rear connection:', e); }
     try { if (typeof renderCampaignObjectivesPanel === 'function') renderCampaignObjectivesPanel(); } catch (e) { console.warn('campaign objectives:', e); }
@@ -9170,6 +9210,7 @@ function migrateHQPersonnelOnLoad() {
     try { touched += ensureHQStaffComposition(); } catch (e) { console.warn('ensureHQStaffComposition:', e.message); }
     try { ensureSupplyState(); syncSupplyAssetsFromPlatoon(); } catch (e) { console.warn('supply:', e.message); }
     // ⚡ v13.149: переименование отделения снабжения и шаблоны TG-41/«Викунья»
+    try { touched += migrateMediumMortarCrews(); } catch (e) { console.warn('medium mortar crews:', e.message); }
     try { touched += migrateSupplySquadNames(); } catch (e) { console.warn('migrateSupplySquadNames:', e.message); }
     try { touched += migrateSupplyGuardSquads(); } catch (e) { console.warn('migrateSupplyGuardSquads:', e.message); }
     try { syncSupplySquadTemplates(); } catch (e) { console.warn('syncSupplySquadTemplates:', e.message); }
@@ -12783,7 +12824,9 @@ function opRefreshEncirclementFlags(options) {
         if (!unit.encircledTurn) unit.encircledTurn = turn;
         if (was !== unit.encircled) {
             changed++;
-            logLines.push(`⭕ ${unit.name} окружён: ${unit.encirclementReasons.join('; ')}.`);
+            const message = `⭕ ${unit.name} окружён: ${unit.encirclementReasons.join('; ')}.`;
+            logLines.push(message);
+            showCampaignFieldNotice(message, 'encirclement');
         }
         if (opts.applyMorale && Number(unit.encirclementMoraleTurn) !== turn) {
             unit.encirclementMoraleTurn = turn;
@@ -13113,7 +13156,9 @@ function opRefreshCutPathsEncirclement(options) {
         if (!was) {
             changed++;
             enemy.cutPathsEncircledTurn = turn;
-            logLines.push(`✂️ ${enemy.name || 'взвод противника'} окружён: пути перерезаны кольцом из ${inside.hexes.length} гексов.`);
+            const message = `✂️ ${enemy.detected === true ? enemy.name : 'Подразделение противника'} окружено: пути перерезаны кольцом из ${inside.hexes.length} гексов.`;
+            logLines.push(message);
+            showCampaignFieldNotice(message, 'encirclement');
         }
         if (opts.applyMorale && Number(enemy.cutPathsMoraleTurn) !== turn) {
             enemy.cutPathsMoraleTurn = turn;
@@ -13593,6 +13638,7 @@ function updateTacticalEncirclement(options) {
             let penalty = 0;
             if (!was) {
                 squad.tacticalEncirclementTurn = phase;
+                showCampaignFieldNotice(`⭕ ${side === 'enemy' && squad.detected !== true ? 'Подразделение противника' : '«' + (squad.name || 'отряд') + '»'} в окружении: пути отхода перекрыты.`, 'encirclement');
                 try { log(`⭕ «${squad.name || 'отряд'}» окружён: кольцо противника сомкнуто, пути отхода перекрыты.`); } catch (e) {}
                 // −10 сразу, как только кольцо замкнулось.
                 penalty = TACTICAL_ENCIRCLE_MORALE_FIRST;
@@ -14055,8 +14101,87 @@ function markOpUnitDestroyed(unit, markerType) {
         } catch (e) {}
     }
 }
+// Persist notices and captured headcounts with the campaign; the ledger uses
+// platoon/squad identity rather than battle IDs so reconciliation is idempotent.
+function showCampaignFieldNotice(message, kind) {
+    const c = appData && appData.campaign;
+    if (!c) return;
+    if (!Array.isArray(c.fieldNotifications)) c.fieldNotifications = [];
+    c.fieldNoticeSequence = (Number(c.fieldNoticeSequence) || 0) + 1;
+    c.fieldNotifications.push({ id: c.fieldNoticeSequence, message, kind: kind || 'info' });
+    c.fieldNotifications = c.fieldNotifications.slice(-30);
+    renderCampaignFieldStatus();
+    if (typeof document !== 'undefined' && document.body) {
+        let toast = document.getElementById('campaignFieldToast');
+        if (!toast) {
+            toast = document.createElement('div'); toast.id = 'campaignFieldToast';
+            toast.className = 'campaign-field-toast'; toast.setAttribute('role', 'status');
+            document.body.appendChild(toast);
+        }
+        toast.textContent = message; toast.style.display = 'block';
+        clearTimeout(showCampaignFieldNotice.timer);
+        showCampaignFieldNotice.timer = setTimeout(() => { toast.style.display = 'none'; }, 8000);
+    }
+    try { saveData(); } catch (e) {}
+}
+function dismissCampaignFieldNotice(id) {
+    const c = appData && appData.campaign;
+    if (!c) return;
+    c.fieldNotifications = (c.fieldNotifications || []).filter(n => n.id !== Number(id));
+    renderCampaignFieldStatus();
+    try { saveData(); } catch (e) {}
+}
+function campaignPrisonerCount() {
+    const ledger = appData && appData.campaign && appData.campaign.prisonerLedger;
+    return Object.values(ledger || {}).reduce((sum, entry) => sum + Math.max(0, Number(entry.count) || 0), 0);
+}
+function recordEnemyPrisoners(subject, parentName) {
+    const c = appData && appData.campaign;
+    if (!c || !subject) return 0;
+    if (!c.prisonerLedger || typeof c.prisonerLedger !== 'object') c.prisonerLedger = {};
+    const entries = operationalAmmoSquads(subject);
+    const ownerUnit = !parentName && !subject.opUnitName && (c.enemyOpUnits || []).find(unit =>
+        unit === subject || operationalAmmoSquads(unit).some(squad => squad === subject ||
+            (squad.name === subject.name && (!subject.faction || !squad.faction || squad.faction === subject.faction))));
+    const owner = parentName || subject.opUnitName || (ownerUnit && ownerUnit.name) || subject.name || '';
+    let added = 0;
+    entries.forEach(squad => {
+        const key = JSON.stringify([owner, squad.name || 'экипаж']);
+        if (Object.prototype.hasOwnProperty.call(c.prisonerLedger, key)) return;
+        const count = (squad.fighters || []).filter(f => f && Number(f.hp) > 0 && !f.isAway).length;
+        c.prisonerLedger[key] = { count, name: squad.name || subject.name || 'Отряд' };
+        added += count;
+    });
+    if (added > 0) showCampaignFieldNotice(`🏳️ Противник сдался: ${subject.name || 'отряд'}. Взято в плен: ${added}. Всего пленных: ${campaignPrisonerCount()}.`, 'surrender');
+    return added;
+}
+function syncCampaignPrisonerLedger() {
+    const c = appData && appData.campaign;
+    if (!c) return;
+    (c.enemyOpUnits || []).forEach(unit => {
+        if (!unit) return;
+        if (unit.isSurrendered) recordEnemyPrisoners(unit);
+        else operationalAmmoSquads(unit).forEach(squad => {
+            if (squad.isSurrendered || squad.status === 'surrendered') recordEnemyPrisoners(squad, unit.name);
+        });
+    });
+    (c.activeBattles || []).forEach(battle => (battle.enemySquads || []).forEach(squad => {
+        if (squad && (squad.isSurrendered || squad.status === 'surrendered')) recordEnemyPrisoners(squad);
+    }));
+}
+function renderCampaignFieldStatus() {
+    const host = typeof document !== 'undefined' ? document.getElementById('opCampaignFieldStatus') : null;
+    const c = appData && appData.campaign;
+    if (!host || !c) return;
+    const notices = (c.fieldNotifications || []).slice(-5);
+    host.innerHTML = `<div class="campaign-prisoner-count">🏳️ Пленные бойцы противника: <strong>${campaignPrisonerCount()}</strong></div>` +
+        notices.map(n => `<div class="campaign-field-notice"><span>${escapeCardHtml(n.message)}</span>` +
+            `<button type="button" onclick="dismissCampaignFieldNotice(${Number(n.id)})" aria-label="Закрыть уведомление">×</button></div>`).join('');
+}
+
 function markOpUnitSurrendered(unit, markerType, reason) {
     if (!unit) return;
+    if (markerType === 'surrenderedEnemy' || ((appData.campaign.enemyOpUnits || []).includes(unit))) recordEnemyPrisoners(unit);
     unit.isSurrendered = true;
     unit.surrenderedAt = unit.surrenderedAt || Date.now();
     unit.operationalAmmoRouted = false;
@@ -14086,6 +14211,9 @@ function mergeMissingFightersIntoBattleSquad(battleSquad, campaignSquad) {
 function syncBattleLossesToCampaign(battleId) {
     const battle = appData.campaign.activeBattles.find(b => b.id === battleId);
     if (!battle) return;
+    (battle.enemySquads || []).forEach(sq => {
+        if (sq && (sq.isSurrendered || sq.status === 'surrendered')) recordEnemyPrisoners(sq);
+    });
 
     // ====== ОБРАБОТКА СВОИХ ОТРЯДОВ ======
     if (appData.campaign.opUnits) {
@@ -16077,6 +16205,7 @@ function tacticalSurrenderUnit(squad, side, index, reason) {
   }
   const living = (squad.fighters || []).some(f => f && Number(f.hp) > 0);
   if (!living) { squad.isDestroyed = true; return false; }
+  if (side === 'enemy') recordEnemyPrisoners(squad);
   squad.isRouting = false;
   squad.isSurrendered = true;
   squad.status = 'surrendered';
@@ -30261,6 +30390,8 @@ function rotateSelectedHex(delta) {
   try { if (typeof renderPlacementPanel === 'function') renderPlacementPanel(); } catch (e) {}
 }
    function showOperationalMap() {
+    syncCampaignPrisonerLedger();
+    renderCampaignFieldStatus();
     // ⚡ v13.088: экран операции всегда показываем целиком — раньше «⚡ Быстрый старт»
     //    из главного меню оставлял #campaignApp скрытым, и игрок видел пустой экран.
     const mmEl = document.getElementById('mainMenu');
@@ -34799,12 +34930,18 @@ function operationalAmmoField(kind) {
 }
 
 function operationalAmmoSquads(unit) {
-    const squads = [];
-    if (unit && Array.isArray(unit.squads)) squads.push(...unit.squads);
-    if (unit && unit.isGroup && Array.isArray(unit.vehicleList)) {
-        unit.vehicleList.forEach(v => { if (v && Array.isArray(v.squads)) squads.push(...v.squads); });
-    }
-    return squads.filter(Boolean);
+    const squads = [], seen = new Set();
+    const visit = (node, leaf) => {
+        if (!node || seen.has(node)) return;
+        seen.add(node);
+        const children = Array.isArray(node.squads) ? node.squads.filter(Boolean) : [];
+        const vehicles = Array.isArray(node.vehicleList) ? node.vehicleList.filter(Boolean) : [];
+        if (children.length) children.forEach(child => visit(child, true));
+        else if (!vehicles.length && (leaf || Array.isArray(node.fighters))) squads.push(node);
+        vehicles.forEach(child => visit(child, false));
+    };
+    visit(unit);
+    return squads;
 }
 
 // Сумма боеприпасов только по отделениям (без общего резерва взвода).
@@ -35133,27 +35270,58 @@ function supplyAssetsMobility(assets) {
 }
 
 // ── боезапас юнита: сколько есть и сколько «полный комплект» ──
-function supplyOrdnanceFull(squad) {
+function supplySquadTemplate(squad) {
+    const name = squad && (squad.templateName || squad.name);
+    const templates = (appData.templates || []).concat(typeof SQUAD_TEMPLATES !== 'undefined' ? SQUAD_TEMPLATES : []);
+    return templates.find(t => t && t.name === name && (!squad.faction || t.faction === squad.faction)) || null;
+}
+function supplySquadCapacity(squad, kind) {
     if (!squad) return 0;
-    if (Number.isFinite(squad.ammoOrdnanceFull)) return squad.ammoOrdnanceFull;
-    const cur = Number(squad.ammoOrdnance) || 0;
-    const tmpl = (appData.templates || []).find(t => t && t.name === squad.name && (Number(t.ammoOrdnance) || 0) > 0);
-    const full = tmpl ? Number(tmpl.ammoOrdnance) : cur;
-    if (full > 0) squad.ammoOrdnanceFull = full;
-    return full;
+    const full = Number(squad[kind + 'Full']);
+    if (squad[kind + 'Full'] != null && Number.isFinite(full) && full >= 0) return full;
+    const template = supplySquadTemplate(squad);
+    const vehicle = !!(squad.armor || squad.isVehicle || (template && template.armor));
+    let capacity;
+    if (kind === 'ammoOrdnance' || vehicle) {
+        capacity = template && Number.isFinite(Number(template[kind])) ? Number(template[kind]) : (Number(squad[kind]) || 0);
+    } else {
+        capacity = (kind === 'ammoSmall' ? SUPPLY_AMMO_PER_MAN : SUPPLY_GREN_PER_MAN) * (squad.fighters || []).length;
+    }
+    capacity = Math.max(0, capacity, Number(squad[kind]) || 0);
+    if (vehicle || kind === 'ammoOrdnance') squad[kind + 'Full'] = capacity;
+    return capacity;
+}
+function supplyOrdnanceFull(squad) {
+    return supplySquadCapacity(squad, 'ammoOrdnance');
+}
+function supplyAmmoSquads(unit) {
+    const inactive = new Set();
+    (unit && unit.vehicleList || []).forEach(vehicle => {
+        if (vehicle && (vehicle.isDestroyed || vehicle.destroyed || vehicle.isSurrendered)) {
+            operationalAmmoSquads(vehicle).forEach(squad => inactive.add(squad));
+        }
+    });
+    return operationalAmmoSquads(unit).filter(sq => !inactive.has(sq) && !sq.isDestroyed && !sq.isSurrendered && sq.status !== 'surrendered');
+}
+function supplyRecipientIconHtml(unit) {
+    const squads = operationalAmmoSquads(unit);
+    const icon = unit.icon || (squads.find(sq => sq.icon) || {}).icon ||
+        ((unit.vehicleList || []).find(v => v && v.icon) || {}).icon;
+    return icon ? `<img class="supply-recipient-icon" src="${escapeCardHtml(icon)}" alt="${escapeCardHtml(unit.name || 'Подразделение')}" loading="lazy">`
+        : '<span class="supply-recipient-icon supply-recipient-fallback" aria-hidden="true">🎖️</span>';
 }
 
 function unitAmmoStatus(unit) {
     const status = { ammoSmall: { cur: 0, max: 0 }, grenades: { cur: 0, max: 0 }, ammoOrdnance: { cur: 0, max: 0 } };
-    if (!unit || !Array.isArray(unit.squads)) return status;
-    unit.squads.forEach(sq => {
+    if (!unit) return status;
+    supplyAmmoSquads(unit).forEach(sq => {
         if (!sq || !Array.isArray(sq.fighters)) return;
         const men = sq.fighters.length;
         status.ammoSmall.cur += Number(sq.ammoSmall) || 0;
         status.grenades.cur += Number(sq.grenades) || 0;
         status.ammoOrdnance.cur += Number(sq.ammoOrdnance) || 0;
-        status.ammoSmall.max += SUPPLY_AMMO_PER_MAN * men;
-        status.grenades.max += SUPPLY_GREN_PER_MAN * men;
+        status.ammoSmall.max += supplySquadCapacity(sq, 'ammoSmall');
+        status.grenades.max += supplySquadCapacity(sq, 'grenades');
         status.ammoOrdnance.max += supplyOrdnanceFull(sq);
     });
     return status;
@@ -35164,6 +35332,7 @@ function supplyAmmoPercent(unit) {
     const parts = [];
     if (st.ammoSmall.max > 0) parts.push(st.ammoSmall.cur / st.ammoSmall.max);
     if (st.grenades.max > 0) parts.push(st.grenades.cur / st.grenades.max);
+    if (st.ammoOrdnance.max > 0) parts.push(st.ammoOrdnance.cur / st.ammoOrdnance.max);
     if (!parts.length) return 1;
     return Math.max(0, Math.min(1, parts.reduce((a, b) => a + b, 0) / parts.length));
 }
@@ -35171,11 +35340,11 @@ function supplyAmmoPercent(unit) {
 // Разложить груз по отделениям юнита; вернуть остаток (не влез)
 function supplyDistributeCargo(unit, cargo) {
     const left = { ammoSmall: cargo.ammoSmall || 0, grenades: cargo.grenades || 0, ammoOrdnance: cargo.ammoOrdnance || 0 };
-    if (!unit || !Array.isArray(unit.squads)) return left;
-    unit.squads.forEach(sq => {
+    if (!unit) return left;
+    supplyAmmoSquads(unit).forEach(sq => {
         if (!sq || !Array.isArray(sq.fighters)) return;
         const men = sq.fighters.length;
-        const ammoCap = SUPPLY_AMMO_PER_MAN * men, grenCap = SUPPLY_GREN_PER_MAN * men, ordCap = supplyOrdnanceFull(sq);
+        const ammoCap = supplySquadCapacity(sq, 'ammoSmall'), grenCap = supplySquadCapacity(sq, 'grenades'), ordCap = supplyOrdnanceFull(sq);
         const takeAmmo = Math.min(left.ammoSmall, Math.max(0, ammoCap - (Number(sq.ammoSmall) || 0)));
         const takeGren = Math.min(left.grenades, Math.max(0, grenCap - (Number(sq.grenades) || 0)));
         const takeOrd = ordCap > 0 ? Math.min(left.ammoOrdnance, Math.max(0, ordCap - (Number(sq.ammoOrdnance) || 0))) : 0;
@@ -35183,6 +35352,11 @@ function supplyDistributeCargo(unit, cargo) {
         sq.grenades = (Number(sq.grenades) || 0) + takeGren;
         sq.ammoOrdnance = (Number(sq.ammoOrdnance) || 0) + takeOrd;
         left.ammoSmall -= takeAmmo; left.grenades -= takeGren; left.ammoOrdnance -= takeOrd;
+    });
+    (unit.vehicleList || []).forEach(vehicle => {
+        if (!vehicle || !Array.isArray(vehicle.squads) || vehicle.squads.length !== 1) return;
+        const sq = vehicle.squads[0];
+        if (sq) ['ammoSmall', 'grenades', 'ammoOrdnance'].forEach(kind => { vehicle[kind] = sq[kind]; });
     });
     return left;
 }
@@ -36425,7 +36599,7 @@ function renderSupplyPanel() {
         const rowBg = unreachable ? 'background:#3a1a1a;' : (isSelected ? 'background:#243b53;' : '');
         html += `<div style="margin-top:2px; cursor:pointer; border-radius:4px; padding:2px 4px;${rowBg}" ` +
             `onclick="selectSupplyTarget(${x.idx})" title="Нажмите в любом месте строки, чтобы выбрать получателя"><label style="font-size:0.85rem; cursor:pointer;">` +
-            `<input type="radio" name="supplyTarget" value="${x.idx}"${checkedAttr} onchange="selectSupplyTarget(${x.idx})"> ${x.unit.name}` +
+            `<input type="radio" name="supplyTarget" value="${x.idx}"${checkedAttr} onchange="selectSupplyTarget(${x.idx})"> ${supplyRecipientIconHtml(x.unit)} ${escapeCardHtml(x.unit.name)}` +
             (isSelected ? ' <span style="color:#5dade2; font-weight:bold;">✔ выбран</span>' : '') +
             (needsAmmo ? '' : ' <span style="color:#2ecc71;" title="Боезапас полный: доставка возможна, но не требуется">✅ боезапас полный</span>') +
             reachNote +
@@ -48378,6 +48552,7 @@ function onlineOnSnapshotSync() {
          чипы доступных ему действий — без предварительного выбора режима. Строку
          заполняет uxRenderActionBar(); старые кнопки фаз ниже остаются на месте. -->
     <div id="uxActionBar" class="ux-action-bar" role="toolbar" aria-label="Действия выбранного отряда" style="display:none;"></div>
+    <div id="opCampaignFieldStatus" aria-live="polite"></div>
     <div id="opSetupWizard" role="status" aria-live="polite"></div>
     <div id="opOnboardingPanel" style="margin-top:6px; display:flex; gap:14px; flex-wrap:wrap; font-size:.82rem; color:#bdc3c7;"></div>
   </div>
