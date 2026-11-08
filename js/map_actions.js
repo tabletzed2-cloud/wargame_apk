@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.176
+// ⚡ BUILD-МАРКЕР: v13.177
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -202,7 +202,9 @@ function mapActionSelectedIdx() {
 //      бронетехнике не показываем.
 const MAP_EXTRA_BLOCKED_LABELS = [
     'проверить обнаружение', 'обнаружить вручную', 'навестись', 'показать сектор',
-    'выбрать цель и стрелять', 'обычный ход', 'скрытный темп'
+    'выбрать цель и стрелять', 'обычный ход', 'скрытный темп',
+    'стрелковое/пулеметы', 'стрелковое / пулеметы', 'стрелковое/пулемёты',
+    'стрелковое / пулемёты', 'бросок гранат', 'рукопашная', 'связка гранат', 'тяжелая/камни', 'тяжёлая/камни'
 ];
 const MAP_EXTRA_BLOCKED_TERRAIN = ['открытая', 'лес', 'дорога', 'тяжёлая', 'тяжелая', 'бег (откр.)', 'переползание'];
 const MAP_EXTRA_DIRECTION_LABELS = ['→ В', '↘ ЮВ', '↙ ЮЗ', '← З', '↖ СЗ', '↗ СВ'];
@@ -306,6 +308,7 @@ function mapUndoButtonMarkup() {
     return `<button type="button" onclick="${available ? 'undoLastTacticalAction()' : 'return false'}" ${available ? '' : 'disabled'} style="background:${available ? '#8e44ad' : '#555'};" title="${available ? 'Вернуть состояние боя до последнего действия (ОД, боеприпасы, урон, потери)' : 'В этой фазе ещё нет действия, которое можно отменить'}">↩️ Отменить последнее действие</button>`;
 }
 
+const mapActionPanelRenderCache = new WeakMap();
 function renderMapActionPanel() {
     const panel = (typeof document !== 'undefined') ? document.getElementById('battleMapActionPanel') : null;
     if (!panel) return;
@@ -455,10 +458,16 @@ function renderMapActionPanel() {
         if (Number(squad.flares) > 0) {
             html += `<button onclick="mapFireFlare(${idx})" ${utilityDisabled} title="Запустить осветительную ракету; действует до конца хода">🚀 Осветительная ракета (${Number(squad.flares)} шт.)</button>`;
         }
-        // ⚡ v13.094 (п.13): БТР — высадить десант в гекс машины
-        if (squad.embarkedSquadIndex !== null && squad.embarkedSquadIndex !== undefined &&
-            typeof appData !== 'undefined' && appData.squads && appData.squads[squad.embarkedSquadIndex]) {
-            html += `<button onclick="selectSquad(${idx}); disembarkSquad(); renderMapActionPanel();" ${utilityDisabled} title="Десант высаживается в тот же гекс, где стоит БТР">🚌 Высадить десант</button>`;
+        // Boarding uses the actual load cost, not the unrelated utility 2 AP threshold.
+        const loadCost = typeof getActionCost === 'function' ? getActionCost(squad, 'load') : 1;
+        const loadDisabled = (ap < loadCost || routed || !pos || phaseLocked || meleeEngaged || !utilityAllowed) ? 'disabled' : '';
+        if (squad.embarkedSquadIndex != null && appData.squads[squad.embarkedSquadIndex]) {
+            html += `<button onclick="selectSquad(${idx}); disembarkSquad(); renderMapActionPanel();" ${loadDisabled}>🚌 Высадить десант</button>`;
+        } else if (typeof tacticalBtrBoardingCandidates === 'function') {
+            tacticalBtrBoardingCandidates(idx).forEach(passengerIdx => {
+                const name=String(appData.squads[passengerIdx].name || 'Отряд').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+                html += `<button onclick="selectSquad(${idx}); embarkSelectedSquad(${passengerIdx}); renderMapActionPanel();" ${loadDisabled}>🚌 Посадить: ${name}</button>`;
+            });
         }
         // ⚡ v13.094 (п.9): способности от бонусных карточек — в возможных действиях отряда
         if ((squad.thermiteCharges || 0) > 0) {
@@ -509,16 +518,23 @@ function renderMapActionPanel() {
     if (last && last.text) {
         html += `<div style="margin-top:6px; padding:6px; background:#1e2a1e; border:1px solid #27ae60; border-radius:6px; font-size:0.9rem;">${last.text}</div>`;
     }
+    const sourceIds = ['shootingPanel', 'movementPanel', 'specialPanel', 'fieldVehiclePanel'];
+    const canCopyExtras = typeof renderActiveCardButtons === 'function' && typeof currentSquadIndex !== 'undefined' &&
+        currentSquadIndex === idx && typeof currentSquad !== 'undefined' && currentSquad === squad;
+    if (canCopyExtras) { try { renderActiveCardButtons(); } catch(e) { console.warn('field action buttons:', e); } }
+    const sourceSignature = canCopyExtras ? sourceIds.map(id => {
+        const source = document.getElementById(id); return source ? source.innerHTML : '';
+    }).join('\n') : '';
+    const signature = html + '\n' + sourceSignature;
+    const previous = mapActionPanelRenderCache.get(panel);
     panel.style.display = 'block';
+    if (previous && previous.signature === signature && previous.firstChild === panel.firstChild) return;
     panel.innerHTML = html;
     // Дополняем кнопки карты всеми динамическими действиями, которые уже
     // доступны для выбранного отряда во вкладках стрельбы/движения/особых
     // действий, включая способности карт и управление техникой.
     try {
-        if (typeof renderActiveCardButtons === 'function' && typeof currentSquadIndex !== 'undefined' &&
-            currentSquadIndex === idx && typeof currentSquad !== 'undefined' && currentSquad === squad) {
-            renderActiveCardButtons();
-            const sourceIds = ['shootingPanel', 'movementPanel', 'specialPanel', 'fieldVehiclePanel'];
+        if (canCopyExtras) {
             const visibleLabels = new Set(Array.from(panel.querySelectorAll('button')).map(b => b.textContent.replace(/\s+/g, ' ').trim()));
             const addedLabels = new Set();
             const extras = [];
@@ -555,6 +571,7 @@ function renderMapActionPanel() {
             }
         }
     } catch (e) { console.warn('field action buttons:', e); }
+    mapActionPanelRenderCache.set(panel, {signature,firstChild:panel.firstChild});
 }
 
 var mapQuickMenuOutsideHandler = null;

@@ -99,7 +99,7 @@ const root = path.resolve(__dirname, '..');
       camp.enemyOpUnits=[{name:'BB',col:7,row:9,detected:true,squads:[]}];
       camp.opZoomLevel=1;
       const op=operationalUnitIconLayout(45,18);
-      check(op.length===2 && Math.hypot(op[0].x-op[1].x,op[0].y-op[1].y)>=40,'opposing operational icons separated');
+      check(op.length===2 && (Math.abs(op[0].x-op[1].x)>=1.1*(op[0].radius+op[1].radius) || Math.abs(op[0].y-op[1].y)>=1.1*(op[0].radius+op[1].radius)),'opposing operational icons separated');
       // Two independent originals, stale coordinates, 4 squads: elect same
       // authority on both clients and do not flip it on repeated snapshots.
       ONLINE.role='p1';
