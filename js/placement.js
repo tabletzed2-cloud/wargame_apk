@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.178
+// ⚡ BUILD-МАРКЕР: v13.180
 // v13.062: fixed DOT coordinates and no placement bypass for eliminated squads.
 // ⚡ v13.061: current release tactical deployment rules.
 // ============================================================
@@ -277,7 +277,7 @@ function placementSideAllowed(battle, side, key, squad) {
     }
     // ⚡ v13.099 (п.18): подкрепление обороны входит со своим подразделением
     //    с той стороны, откуда оно пришло на гекс боя (полоса у соответствующего края).
-    if (squad && squad.placementArrivalDir && side !== p.attackerSide) {
+    if (squad && squad.placementArrivalDir) {
         const arrivalZone = placementZoneKeys(squad.placementArrivalDir, placementMapSize(battle));
         return arrivalZone.includes(key);
     }
@@ -482,6 +482,7 @@ function installBattlePlacementTray() {
         drag = null;
         removeGhost();
         if (!d) return;
+        appData.map.placementSquadIdx = d.idx;
         const select = document.getElementById('squadToPlace');
         if (!d.moved) {
             // короткий тап — просто выбираем отряд в списке «Отряд» (резервный способ)
@@ -586,12 +587,15 @@ function placementReinforcementPending(battle) {
 // иначе — тыл (напротив стороны входа атакующего).
 function placementReinforcementZone(battle, squad) {
     const p = battle && battle.placement;
-    const dir = (squad && squad.placementArrivalDir) || (p ? placementOppositeDir(p.entryDir) : null) || 'W';
+    if (squad && !squad.placementArrivalDir && typeof tacticalSetReinforcementArrival === 'function') {
+        const unit = ((appData.campaign && appData.campaign.opUnits) || []).find(u=>u && u.name===squad.opUnitName);
+        if (unit) tacticalSetReinforcementArrival(squad, unit, battle);
+    }
+    const dir = (squad && squad.placementArrivalDir) || (p ? (p.attackerSide === 'player' ? p.entryDir : placementOppositeDir(p.entryDir)) : null) || 'W';
     let keys = placementZoneKeys(dir, placementMapSize(battle));
     const grid = placementBattleGrid(battle) || {};
     const free = keys.filter(key => grid[key] && !((grid[key].squadIds || []).length) && !((grid[key].enemySquadIds || []).length));
-    if (!free.length) keys = Object.keys(grid).filter(key => !((grid[key].squadIds || []).length) && !((grid[key].enemySquadIds || []).length));
-    return { dir, keys: free.length ? free : keys };
+    return { dir, keys: free };
 }
 // Автоматически выставить подкрепление в его полосе: игрок не обязан водить
 // каждый отряд руками посреди боя.
@@ -637,12 +641,16 @@ function renderPlacementPanel() {
     const p = battle && battle.placement;
     const selectorWrap = document.getElementById('battleSquadToPlaceWrap');
     const selectorSlot = document.getElementById('squadToPlaceToolbarSlot');
+    // Never destroy the persistent selector while replacing panel markup.
+    if (selectorSlot && selectorWrap && selectorWrap.parentNode !== selectorSlot) selectorSlot.appendChild(selectorWrap);
     if (!p || p.phase === 'done') {
         // ⚡ v13.156 (п.34): бой идёт, но в него вошёл новый взвод — показываем
         //    компактное меню размещения подкрепления (а не пустоту).
         const reinforcements = placementReinforcementPending(battle) ? placementReinforcementUnplaced(battle) : [];
         if (!reinforcements.length) {
             if (selectorSlot && selectorWrap && selectorWrap.parentNode !== selectorSlot) selectorSlot.appendChild(selectorWrap);
+            const tray = document.getElementById('battlePlacementTray');
+            if (tray) { tray.innerHTML = ''; tray.style.display = 'none'; }
             el.style.display = 'none'; el.innerHTML = ''; return;
         }
         const names = reinforcements.map(x => x.s && x.s.name).filter(Boolean);
@@ -763,11 +771,6 @@ function renderPlacementPanel() {
     }
     el.innerHTML = html + cardHtml;
     try { if (typeof installBattlePlacementTray === 'function') installBattlePlacementTray(); } catch (e) {}
-    if (selectorWrap && selectorWrap.parentNode !== el && typeof el.insertBefore === 'function' && typeof document.createElement === 'function') {
-        const selectorBox = document.createElement('div');
-        selectorBox.style.cssText = 'margin:4px 0;padding:4px;background:#322b19;border:1px solid #8a773a;border-radius:5px;';
-        selectorBox.appendChild(selectorWrap); el.insertBefore(selectorBox, el.firstChild);
-    }
     el.style.display = 'block';
 }
 

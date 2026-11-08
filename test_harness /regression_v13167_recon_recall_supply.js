@@ -259,12 +259,12 @@ console.log('— п.3/п.8: если обхода нет, актив всё ра
       appData.campaign.currentTurn = 2; advanceReconMissions();
       appData.campaign.currentTurn = 3; advanceReconMissions();
     `);
-    ok(s.evalCtx("(appData.campaign.reconMissions.find(m => m.id === 'm-isolated') || {}).status") === 'completed',
-        'после невозможного обхода миссия не висит в «возвращается»');
-    ok(s.evalCtx('!!appData.campaign.opUnits[1].reconHidden') === false, 'юнит перестал быть скрытым');
-    ok(s.evalCtx("appData.campaign.opUnits[1].col + ',' + appData.campaign.opUnits[1].row") === '3,3',
-        'юнит поставлен в своё расположение', s.evalCtx("appData.campaign.opUnits[1].col + ',' + appData.campaign.opUnits[1].row"));
-    ok(/обхода к точке отзыва нет/.test(s.logs.join('\n')), 'в логе объясняется, почему вернулся «своим ходом»');
+    ok(s.evalCtx("(appData.campaign.reconMissions.find(m => m.id === 'm-isolated') || {}).status") === 'returning',
+        'v13.180: перекрытый путь не завершает миссию телепортацией');
+    ok(s.evalCtx('!!appData.campaign.opUnits[1].reconHidden') === true, 'актив остаётся на миссии и виден через её значок');
+    ok(s.evalCtx("appData.campaign.opUnits[1].col + ',' + appData.campaign.opUnits[1].row") === '5,3',
+        'актив остаётся в реальном гексе, а не телепортируется к штабу', s.evalCtx("appData.campaign.opUnits[1].col + ',' + appData.campaign.opUnits[1].row"));
+    ok(/путь к точке отзыва перекрыт/.test(s.logs.join('\n')), 'в логе объясняется ожидание проходимого пути');
 }
 
 console.log('— п.6: развед-актив при штабе выбирается как юнит —');
@@ -288,7 +288,7 @@ console.log('— п.6: развед-актив при штабе выбирае�
         'актив можно «выбрать как юнит»');
     ok(s.evalCtx('appData.campaign.selectedReconMissionId') !== null, 'выбранный актив запоминается для подсветки');
     const html = s.evalCtx("String(document.getElementById('reconAssetPopup').innerHTML)");
-    ok(/recallReconMission\(/.test(html), 'в карточке актива есть «Отозвать»');
+    ok(!/onclick="recallReconMission\(/.test(html), 'v13.180: нет дублирующего отзыва в старую точку');
     ok(/reconStartRecallPointPick\(/.test(html), 'в карточке актива есть «Отозвать в точку»');
     ok(/reconNewOrderForMission\(/.test(html), 'в карточке актива есть «Новый приказ»');
     ok(/Мотоциклист-разведчик/.test(html), 'карточка показывает имя развед-отряда');

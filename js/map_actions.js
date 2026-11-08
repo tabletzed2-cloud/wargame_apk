@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.178
+// ⚡ BUILD-МАРКЕР: v13.180
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -211,14 +211,14 @@ const MAP_EXTRA_DIRECTION_LABELS = ['→ В', '↘ ЮВ', '↙ ЮЗ', '← З', 
 const MAP_EXTRA_INFANTRY_ONLY = ['бросок гранат', 'связка гранат', 'рукопашная', 'снайперский выстрел',
     'орудия / миномёты', 'атака пто', 'подавить', 'дымовая завеса'];
 function mapExtraButtonBlocked(squad, label) {
-    const text = String(label || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const text = String(label || '').toLowerCase().replace(/\s*\/\s*/g, '/').replace(/\s+/g, ' ').trim();
     if (!text) return true;
-    if (MAP_EXTRA_BLOCKED_LABELS.some(pattern => text.indexOf(pattern) >= 0)) return true;
+    if (MAP_EXTRA_BLOCKED_LABELS.some(pattern => text.indexOf(pattern.replace(/\s*\/\s*/g, '/')) >= 0)) return true;
     // подписи кнопок местности идут с эмодзи («🌲 Лес») — сравниваем по вхождению
     if (MAP_EXTRA_BLOCKED_TERRAIN.some(pattern => text === pattern || text.endsWith(' ' + pattern))) return true;
     if (MAP_EXTRA_DIRECTION_LABELS.indexOf(String(label || '').trim()) >= 0) return true;
     const armored = !!(squad && (squad.armor || squad.isVehicle));
-    if (armored && MAP_EXTRA_INFANTRY_ONLY.some(pattern => text.indexOf(pattern) >= 0)) return true;
+    if (armored && MAP_EXTRA_INFANTRY_ONLY.some(pattern => text.indexOf(pattern.replace(/\s*\/\s*/g, '/')) >= 0)) return true;
     return false;
 }
 
@@ -837,12 +837,15 @@ function mapBeginAmmoRun() {
     if (type === null) return;
     if (!['1', '2', '3'].includes(String(type).trim())) { mapActionInfo('Выберите тип боеприпаса: 1, 2 или 3.', '#e67e22'); return; }
     const runner = runners[Math.floor(Math.random() * runners.length)].fighter;
+    const supply = nearestSupplyPoint(appData.map,pos.key,'player');
+    if (!supply) {mapActionInfo('⛔ Действующий пункт боепитания недостижим.','#e74c3c');return;}
     runner.isAway = true;
     runner.turnsToReturn = turns;
     runner.ammoType = String(type).trim();
-    runner.ammoSupplyHex = nearestSupplyPoint(appData.map, pos.key, 'player')?.key || null;
+    runner.ammoSupplyHex = supply.key;
+    runner.ammoRun = {hex:pos.key,stage:'outbound',loaded:false,distance:supply.distance};
     const ammoName = runner.ammoType === '1' ? 'патронами (+30)' : runner.ammoType === '2' ? 'снарядами (+10)' : 'гранатами (+5)';
-    const message = `📦 ${runner.name} из отряда «${squad.name}» отправился за ${ammoName} к пункту ${runner.ammoSupplyHex}; ETA ${turns} такт. фаз(ы) / ${turns * 2} мин.`;
+    const message = `📦 ${runner.name} из отряда «${squad.name}» отправился за ${ammoName} к пункту ${runner.ammoSupplyHex}; ETA ${turns} собственных ход(а) / ${turns * 2} мин.`;
     if (typeof log === 'function') log(message);
     mapActionInfo(message, '#27ae60');
     if (typeof updateUI === 'function') updateUI();

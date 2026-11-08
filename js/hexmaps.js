@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.178 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.180 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -3223,27 +3223,73 @@ function activeSupplyPointKeys(mapLike, side) {
         return !!(cell && Array.isArray(cell.markers) && cell.markers.includes(SUPPLY_POINT_MARKER));
     });
 }
-function nearestSupplyPoint(mapLike, fromKey, side) {
-    const from = String(fromKey || '').split(',').map(Number);
-    if (from.length !== 2 || !from.every(Number.isFinite)) return null;
-    let best = null;
-    activeSupplyPointKeys(mapLike, side || 'player').forEach(key => {
-        const to = String(key).split(',').map(Number);
-        if (to.length !== 2 || !to.every(Number.isFinite)) return;
-        const distance = (typeof hexGridDistance === 'function')
-            ? hexGridDistance(from[0], from[1], to[0], to[1])
-            : Math.max(Math.abs(from[0] - to[0]), Math.abs(from[1] - to[1]));
-        if (!best || distance < best.distance) best = { key, distance };
-    });
-    return best;
+// Unit-independent BFS: a runner is on foot, not on the squad's bicycle.
+// Missing cells, water, impassable swamp, burning cells and live enemies block it.
+function ammoRunnerFindPath(mapLike, fromKey, goalKeys, side) {
+    const grid = mapLike && mapLike.grid;
+    const goals = new Set(Array.isArray(goalKeys) ? goalKeys : [goalKeys]);
+    if (!grid || !grid[fromKey] || !goals.size) return null;
+    const opposing = side === 'enemy' ? (mapLike.playerSquads || []) : (mapLike.enemySquads || []);
+    const occupancy = side === 'enemy' ? 'squadIds' : 'enemySquadIds';
+    const passable = key => {
+        const cell = grid[key];
+        if (!cell || !['grass','road','bushes','trenches','forest','swamp_passable','hill','rocks','craters','fallen_forest','shelled_forest'].includes(cell.type || 'grass')) return false;
+        if (typeof tacticalFireFieldAt === 'function' && tacticalFireFieldAt(key,mapLike)) return false;
+        return !(cell[occupancy] || []).some(i=>{
+            const sq = opposing[i];
+            return sq && !sq.isDestroyed && !sq.isRetreated && sq.status !== 'retreated' && (sq.fighters || []).some(f=>f && f.hp>0);
+        });
+    };
+    const previous = new Map([[String(fromKey),null]]), queue = [String(fromKey)];
+    for (let head=0; head<queue.length; head++) {
+        const key = queue[head];
+        if (goals.has(key) && passable(key)) {
+            const path=[]; let step=key;
+            while (step!=null) { path.push(step); step=previous.get(step); }
+            return path.reverse();
+        }
+        const [col,row] = key.split(',').map(Number);
+        const offsets = row%2 ? [[1,0],[1,1],[0,1],[-1,0],[0,-1],[1,-1]] : [[1,0],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1]];
+        offsets.forEach(([dc,dr])=>{
+            const next=`${col+dc},${row+dr}`;
+            if (!previous.has(next) && passable(next)) { previous.set(next,key);queue.push(next); }
+        });
+    }
+    return null;
 }
-// Боец идёт пешком к ближайшему пункту и возвращается. Обычная пехота
-// проходит до трёх травяных гексов за фазу (6 полу-ОД, по 2 на гекс);
-// одна фаза тактики длится 2 минуты.
+function nearestSupplyPoint(mapLike, fromKey, side) {
+    const path = ammoRunnerFindPath(mapLike,String(fromKey),activeSupplyPointKeys(mapLike,side || 'player'),side || 'player');
+    return path ? {key:path[path.length-1],distance:path.length-1,path} : null;
+}
+// Advance actual saved position by at most four adjacent hexes per own turn.
+function advanceTacticalAmmoRunner(fighter, squadIndex) {
+    const run = fighter.ammoRun, map = appData.map;
+    if (!run || fighter.hp<=0) return true;
+    run.blocked=false;
+    if (run.stage==='outbound' && !activeSupplyPointKeys(map,'player').includes(fighter.ammoSupplyHex)) {
+        run.stage='returning'; run.loaded=false;
+    }
+    const home = getBattleSquadHex(map.grid,squadIndex,false);
+    const target = run.stage==='outbound' ? fighter.ammoSupplyHex : (home && home.key);
+    const path = target && ammoRunnerFindPath(map,run.hex,target,'player');
+    if (!path) {run.blocked=true;return false;}
+    run.hex=path[Math.min(4,path.length-1)];
+    if (run.hex===target) {
+        if (run.stage==='returning') return true;
+        run.loaded=true; run.stage='returning';
+        if (home && home.key===run.hex) return true;
+    }
+    const back = home && ammoRunnerFindPath(map,run.hex,home.key,'player');
+    if (run.stage==='returning') fighter.turnsToReturn=back ? Math.max(1,Math.ceil((back.length-1)/4)) : Math.max(1,Number(fighter.turnsToReturn)||1);
+    else fighter.turnsToReturn=Math.max(1,Math.ceil(Math.max(0,path.length-5)/4)) + Math.max(1,Math.ceil((fighter.ammoRun.distance || 0)/4));
+    return false;
+}
+// Посыльный проходит 4 гекса за собственный ход: отдельно путь до
+// действующего пункта боепитания и обратный путь; чужая фаза ETA не уменьшает.
 function estimateAmmoDeliveryTurns(mapLike, fromKey, side) {
     const point = nearestSupplyPoint(mapLike, fromKey, side || 'player');
     if (!point) return null;
-    return Math.max(1, Math.ceil((point.distance * 2) / 3));
+    return Math.max(1, Math.ceil(point.distance / 4) * 2);
 }
 function syncBattleRecordSupplyPoints(battle) {
     if (!battle || !battle.tacticalMap) return;
