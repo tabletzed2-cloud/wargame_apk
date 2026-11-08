@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.177 — операция</title>
+  <title>Боевой модуль v13.178 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -19,7 +19,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.177</h1>
+    <h1>⚔️ Боевой модуль v13.178</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -32,7 +32,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.177</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.178</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -84,7 +84,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.177 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.178 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -586,8 +586,8 @@ const SUPPLY_DEPOT_MAX = { ammoSmall: 1200, grenades: 300, ammoOrdnance: 80 };
 //    каждой стороне отдельно: у A.I.R.F. — 0,11, у BeVe — 7,0.
 const SUPPLY_EVAC_POINTS = { 'BeVe': { col: 7, row: 0 }, 'A.I.R.F.': { col: 0, row: 11 } };
 
-var APP_VERSION = 'v13.177';
-// v13.177: bound encirclement search; pause only completed battles; compact shared icon layout.
+var APP_VERSION = 'v13.178';
+// v13.178: bound encirclement search; pause only completed battles; compact shared icon layout.
 // v13.172: full recon routes/observation marks, safe supply corridors, unit card editor, review fixes.
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
@@ -5902,41 +5902,34 @@ if (typeof document !== 'undefined' && !window.__opUnitDrawerDismissInstalled) {
         if (drawer && !drawer.hidden && !drawer.contains(event.target) && !event.target.closest('#opMapCanvas')) closeOpUnitInfoPopup();
     }, true);
 }
-// ⚡ v13.163: ближайший СВОЙ юнит под точкой клика (с тем же смещением стопки,
-//    что и в findUnitAtClick внутри handleOpMapClick). Нужен, чтобы клик по
-//    другому отряду выбирал его, а не двигал ранее выбранный отряд на его гекс.
-function opOwnUnitAtPoint(clickX, clickY, size) {
+// Picking must use the exact same mixed-side layout as drawing. Rebuilding a
+// separate own-only stack (or the old circular offsets) selects the wrong unit.
+function operationalUnitAtPoint(clickX, clickY, size, units) {
     const camp = appData && appData.campaign;
     if (!camp) return null;
     const zoom = camp.opZoomLevel || 1;
-    const hexSize = size || (OP_HEX_SIZE * zoom);
-    const iconRadius = 18 * zoom;
-    const groups = new Map();
-    (camp.opUnits || []).forEach(unit => {
-        if (!unit || unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
-        const key = unit.col + ',' + unit.row;
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(unit);
-    });
+    const hexSize = size || OP_HEX_SIZE * zoom;
+    const candidates = new Set(units || []);
     let best = null, minDist = Infinity;
-    groups.forEach((group, key) => {
-        const parts = key.split(',');
-        const col = Number(parts[0]), row = Number(parts[1]);
-        const baseX = col * Math.sqrt(3) * hexSize + (row % 2) * Math.sqrt(3) * hexSize / 2 + Math.sqrt(3) * hexSize / 2;
-        const baseY = row * 1.5 * hexSize + hexSize;
-        group.forEach((unit, idx) => {
-            let x = baseX, y = baseY;
-            if (group.length > 1) {
-                const angleStep = (2 * Math.PI) / group.length;
-                const offsetDist = 25 * zoom;
-                x += Math.cos(idx * angleStep) * offsetDist;
-                y += Math.sin(idx * angleStep) * offsetDist;
-            }
-            const dist = Math.sqrt((clickX - x) ** 2 + (clickY - y) ** 2);
-            if (dist < minDist) { minDist = dist; best = unit; }
-        });
+    operationalUnitIconLayout(hexSize, 18 * zoom).forEach(entry => {
+        if (!candidates.has(entry.unit)) return;
+        if (typeof isHexRemovedFromOperationalMap === 'function' &&
+            isHexRemovedFromOperationalMap(camp.scenario, entry.unit.col, entry.unit.row)) return;
+        const dx = clickX - entry.x, dy = clickY - entry.y;
+        // Icons are square; using a large fixed circle catches neighbouring
+        // icons after a dense stack has shrunk. Include only the drawn footprint.
+        const radius = (entry.radius || 18 * zoom) * 1.15;
+        const distance = dx * dx + dy * dy;
+        if (Math.abs(dx) <= radius && Math.abs(dy) <= radius && distance < minDist) {
+            best = entry.unit;
+            minDist = distance;
+        }
     });
-    return (best && minDist < iconRadius * 2) ? best : null;
+    return best;
+}
+function opOwnUnitAtPoint(clickX, clickY, size) {
+    return operationalUnitAtPoint(clickX, clickY, size,
+        (appData && appData.campaign && appData.campaign.opUnits) || []);
 }
 function handleOpMapClick(e) {
   const canvas = document.getElementById('opMapCanvas');
@@ -6067,58 +6060,7 @@ function handleOpMapClick(e) {
 
   // ====== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ПОИСКА ЮНИТА ПО КЛИКУ ======
   function findUnitAtClick(units, clickX, clickY) {
-    if (!units || units.length === 0) return null;
-
-    let closestUnit = null;
-    let minDist = Infinity;
-
-    // Группируем юниты по гексам
-    const groupedByHex = new Map();
-    units.forEach(unit => {
-      if (unit.col === null || unit.col === undefined || unit.row === null || unit.row === undefined) return;
-      const key = `${unit.col},${unit.row}`;
-      if (!groupedByHex.has(key)) {
-        groupedByHex.set(key, []);
-      }
-      groupedByHex.get(key).push(unit);
-    });
-
-    // Ищем ближайший юнит с учетом смещения для групп
-    groupedByHex.forEach((group, hexKey) => {
-      const [col, row] = hexKey.split(',').map(Number);
-      const baseX = col * Math.sqrt(3) * size + (row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
-      const baseY = row * 1.5 * size + size;
-
-      if (group.length === 1) {
-        const dist = Math.sqrt((clickX - baseX) ** 2 + (clickY - baseY) ** 2);
-        if (dist < minDist) {
-          minDist = dist;
-          closestUnit = group[0];
-        }
-      } else {
-        const angleStep = (2 * Math.PI) / group.length;
-        const offsetDist = 25 * (appData.campaign.opZoomLevel || 1);
-
-        group.forEach((unit, idx) => {
-          const offsetX = Math.cos(idx * angleStep) * offsetDist;
-          const offsetY = Math.sin(idx * angleStep) * offsetDist;
-          const unitX = baseX + offsetX;
-          const unitY = baseY + offsetY;
-
-          const dist = Math.sqrt((clickX - unitX) ** 2 + (clickY - unitY) ** 2);
-          if (dist < minDist) {
-            minDist = dist;
-            closestUnit = unit;
-          }
-        });
-      }
-    });
-
-    if (closestUnit && minDist < iconRadius * 2) {
-      return closestUnit;
-    }
-
-    return null;
+    return operationalUnitAtPoint(clickX, clickY, size, units);
   }
 
   // Находим ближайший гекс
