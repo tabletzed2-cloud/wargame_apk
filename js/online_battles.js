@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.178
+// ⚡ BUILD-МАРКЕР: v13.180
 // v13.062: monotonic turn handoff; synchronize routing and melee without stale phase rollback.
 // ⚡ v13.061: sync retreat state and attacker/defender phase in online battle snapshots.
 // ============================================================
@@ -689,6 +689,10 @@ function onlineAcceptBattlePhase(battle, e, live) {
     const phaseSignature = `${Number.isFinite(revision) ? revision : 'x'}:${Number.isFinite(remoteDone) ? remoteDone : 'x'}`;
     if (battle.lastAcceptedOppPhase === phaseSignature) return false;
     if (!revisionFresh && !counterFresh) return false;
+    if (Number.isFinite(remoteDone) && remoteDone <= localDone) return false;
+    // Absolute tactical turn never resets when an operational window resets.
+    // An old window's larger phase counter is not a new end-of-phase event.
+    if (e.turn != null && Number.isFinite(Number(e.turn)) && Number(e.turn) <= Number(battle.currentTurn || 1)) return false;
     const attackerIsPlayer = !battle.placement || battle.placement.attackerSide !== 'enemy';
     const localSide = battle.activeSide || (attackerIsPlayer ? 'player' : 'enemy');
     const nextSide = ((e.activeSide === 'attacker') === attackerIsPlayer) ? 'player' : 'enemy';
@@ -846,7 +850,8 @@ function onlineMergeOppBattle(battle, e) {
     if (acceptedPlayerPhase) changed = true;
     const oppRev = Number(e.phaseRevision);
     const curRev = Number(battle.phaseRevision || 0);
-    if (Number.isFinite(Number(e.tacticalPhasesCompleted)) &&
+    if ((acceptedPlayerPhase || (e.turn != null && Number(e.turn) > Number(battle.currentTurn || 1))) &&
+        Number.isFinite(Number(e.tacticalPhasesCompleted)) &&
         (!Number.isFinite(oppRev) || oppRev >= curRev) &&
         !(e.pausedForOrders && !battle.pausedForOrders && curRev >= 10 && Number(battle.tacticalPhasesCompleted) === 0)) {
         const phases = Math.max(0, Math.floor(Number(e.tacticalPhasesCompleted)));
