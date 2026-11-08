@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.175 — операция</title>
+  <title>Боевой модуль v13.176 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -19,7 +19,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.175</h1>
+    <h1>⚔️ Боевой модуль v13.176</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -32,7 +32,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.175</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.176</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -84,7 +84,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.175 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.176 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -552,8 +552,42 @@ function safeLocalStorage(method, ...args) {
 //    без радиста и вне радиуса связи вызов недоступен); новое правило телефона:
 //    линия тянется за юнитом до 7 гексов кабеля от штаба (дальше приказ на
 //    движение не выдаётся), при смещении штаба связисты прокладывают линии заново.
-var APP_VERSION = 'v13.175';
-// v13.175: stable online battle authority, independent dig drafts, mixed-side layouts and shelling history.
+// Supply configuration must exist before loading saved Hard Mode triggers
+// initHardMode -> ensureSupplyState / syncSupplyAssetsFromPlatoon.
+const SUPPLY_ASSET_TYPES = {
+    // mode: 'men' — единица пула = человек (носильщик/погонщик ламы),
+    //       'squads' — единица пула = отделение-средство (мул, повозка, машина).
+    porter: { name: 'Носильщик',          icon: '🎒', mobility: 'foot',    mode: 'men',    squadMatch: /Носильщик/i,
+              cargo: { ammoSmall: 40,  grenades: 8,  ammoOrdnance: 0 } },
+    llama:  { name: 'Лама',               icon: '🦙', mobility: 'foot',    mode: 'men',    squadMatch: /Ламы с бойцами/i,
+              cargo: { ammoSmall: 60,  grenades: 12, ammoOrdnance: 0 } },
+    // ⚡ v13.149: полугусеничный мотоцикл-вездеход A.I.R.F. — заезжает на холмы и
+    //    камни, идёт быстрее пеших и везёт в 1,5 раза больше ламы.
+    tg41:   { name: 'Горный транспортёр TG-41 «Лама»', icon: '🏍️', mobility: 'halftrack', mode: 'squads',
+              squadMatch: /TG-41|Горный транспорт[её]р/i,
+              cargo: { ammoSmall: 90,  grenades: 18, ammoOrdnance: 0 } },
+    mule:   { name: 'Мул/лошадь',         icon: '🐴', mobility: 'foot',    mode: 'squads', squadMatch: /Мул с бойцом/i,
+              cargo: { ammoSmall: 100, grenades: 20, ammoOrdnance: 2 } },
+    cart:   { name: 'Конная повозка',     icon: '🛒', mobility: 'foot',    mode: 'squads', squadMatch: /Конная повозка/i,
+              cargo: { ammoSmall: 200, grenades: 40, ammoOrdnance: 6 } },
+    // ⚡ v13.150: BeVe — плавающий автомобиль DAF MC-V: переправляется через
+    //    воду и непроходимые болота (медленно) и берёт груза как 1,5 мула.
+    car:    { name: 'Автомобиль DAF MC-V', icon: '🚙', mobility: 'amphibious', mode: 'squads',
+              squadMatch: /(Легковой автомобиль|DAF MC-V)/i,
+              cargo: { ammoSmall: 150, grenades: 30, ammoOrdnance: 3 } },
+    truck:  { name: 'Грузовик DAF Trado II', icon: '🚚', mobility: 'vehicle', mode: 'squads',
+              squadMatch: /(Грузовик|Л[её]гкий грузовик)/i,
+              cargo: { ammoSmall: 400, grenades: 80, ammoOrdnance: 12 } }
+};
+const SUPPLY_ORDER = ['porter', 'llama', 'tg41', 'mule', 'cart', 'car', 'truck'];
+// ⚡ v13.068: средняя ёмкость склада (по заявке)
+const SUPPLY_DEPOT_MAX = { ammoSmall: 1200, grenades: 300, ammoOrdnance: 80 };
+// ⚡ v13.069 (R48#1): точка эвакуации (дорога в тыл к полковому складу) задана
+//    каждой стороне отдельно: у A.I.R.F. — 0,11, у BeVe — 7,0.
+const SUPPLY_EVAC_POINTS = { 'BeVe': { col: 7, row: 0 }, 'A.I.R.F.': { col: 0, row: 11 } };
+
+var APP_VERSION = 'v13.176';
+// v13.176: initialize supply configuration before saved Hard Mode startup.
 // v13.172: full recon routes/observation marks, safe supply corridors, unit card editor, review fixes.
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
@@ -34540,37 +34574,6 @@ function executeFireAtWillOrder(unit, order) {
 // средства недоступны, пока не вернутся на склад. Когда запас склада на исходе,
 // можно послать колонну к полковому складу за краем карты (точка выхода в тыл) —
 // если путь перерезан противником, пополнить склад нельзя.
-const SUPPLY_ASSET_TYPES = {
-    // mode: 'men' — единица пула = человек (носильщик/погонщик ламы),
-    //       'squads' — единица пула = отделение-средство (мул, повозка, машина).
-    porter: { name: 'Носильщик',          icon: '🎒', mobility: 'foot',    mode: 'men',    squadMatch: /Носильщик/i,
-              cargo: { ammoSmall: 40,  grenades: 8,  ammoOrdnance: 0 } },
-    llama:  { name: 'Лама',               icon: '🦙', mobility: 'foot',    mode: 'men',    squadMatch: /Ламы с бойцами/i,
-              cargo: { ammoSmall: 60,  grenades: 12, ammoOrdnance: 0 } },
-    // ⚡ v13.149: полугусеничный мотоцикл-вездеход A.I.R.F. — заезжает на холмы и
-    //    камни, идёт быстрее пеших и везёт в 1,5 раза больше ламы.
-    tg41:   { name: 'Горный транспортёр TG-41 «Лама»', icon: '🏍️', mobility: 'halftrack', mode: 'squads',
-              squadMatch: /TG-41|Горный транспорт[её]р/i,
-              cargo: { ammoSmall: 90,  grenades: 18, ammoOrdnance: 0 } },
-    mule:   { name: 'Мул/лошадь',         icon: '🐴', mobility: 'foot',    mode: 'squads', squadMatch: /Мул с бойцом/i,
-              cargo: { ammoSmall: 100, grenades: 20, ammoOrdnance: 2 } },
-    cart:   { name: 'Конная повозка',     icon: '🛒', mobility: 'foot',    mode: 'squads', squadMatch: /Конная повозка/i,
-              cargo: { ammoSmall: 200, grenades: 40, ammoOrdnance: 6 } },
-    // ⚡ v13.150: BeVe — плавающий автомобиль DAF MC-V: переправляется через
-    //    воду и непроходимые болота (медленно) и берёт груза как 1,5 мула.
-    car:    { name: 'Автомобиль DAF MC-V', icon: '🚙', mobility: 'amphibious', mode: 'squads',
-              squadMatch: /(Легковой автомобиль|DAF MC-V)/i,
-              cargo: { ammoSmall: 150, grenades: 30, ammoOrdnance: 3 } },
-    truck:  { name: 'Грузовик DAF Trado II', icon: '🚚', mobility: 'vehicle', mode: 'squads',
-              squadMatch: /(Грузовик|Л[её]гкий грузовик)/i,
-              cargo: { ammoSmall: 400, grenades: 80, ammoOrdnance: 12 } }
-};
-const SUPPLY_ORDER = ['porter', 'llama', 'tg41', 'mule', 'cart', 'car', 'truck'];
-// ⚡ v13.068: средняя ёмкость склада (по заявке)
-const SUPPLY_DEPOT_MAX = { ammoSmall: 1200, grenades: 300, ammoOrdnance: 80 };
-// ⚡ v13.069 (R48#1): точка эвакуации (дорога в тыл к полковому складу) задана
-//    каждой стороне отдельно: у A.I.R.F. — 0,11, у BeVe — 7,0.
-const SUPPLY_EVAC_POINTS = { 'BeVe': { col: 7, row: 0 }, 'A.I.R.F.': { col: 0, row: 11 } };
 
 // Scenario goals for Valencia. Primary goals determine the scenario result;
 // completed optional goals are saved separately as future-campaign bonuses.
