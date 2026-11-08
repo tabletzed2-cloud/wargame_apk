@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.176 — tactical grenade-area fire, commissioner card limit, unified rules.
+// ⚡ BUILD-МАРКЕР: v13.177 — tactical grenade-area fire, commissioner card limit, unified rules.
 (function () {
   'use strict';
 
@@ -438,15 +438,11 @@
     const size = (typeof OP_HEX_SIZE === 'number' ? OP_HEX_SIZE : 40) * zoom;
     let x = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
     let y = unit.row * 1.5 * size + size;
-    const group = units().filter(u => u && !u.isDestroyed && u.col === unit.col && u.row === unit.row);
-    if (group.length > 1) {
-      const index = group.indexOf(unit);
-      const spread = Math.max(25 * zoom, (36 * zoom + 4 * zoom) / (2 * Math.sin(Math.PI / group.length)));
-      x += Math.cos(index * 2 * Math.PI / group.length) * spread;
-      y += Math.sin(index * 2 * Math.PI / group.length) * spread;
-    }
-    return { x, y, radius: 20 * zoom };
+    const entry = typeof operationalUnitIconLayout === 'function'
+      ? operationalUnitIconLayout(size, 18 * zoom).find(entry => entry.unit === unit) : null;
+    return entry ? {x:entry.x,y:entry.y,radius:(entry.radius || 18 * zoom) * 1.15} : {x,y,radius:20 * zoom};
   }
+
   function hitPlacedUnit(point) {
     let best = null, bestDistance = Infinity;
     units().forEach((u, i) => {
@@ -1359,13 +1355,8 @@
     const size = (typeof OP_HEX_SIZE === 'number' ? OP_HEX_SIZE : 40) * zoom;
     let x = unit.col * Math.sqrt(3) * size + (unit.row % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2;
     let y = unit.row * 1.5 * size + size;
-    const group = units().filter(u => u && !u.isDestroyed && u.col === unit.col && u.row === unit.row);
-    if (group.length > 1) {
-      const index = group.indexOf(unit);
-      const spread = Math.max(25 * zoom, (36 * zoom + 4 * zoom) / (2 * Math.sin(Math.PI / group.length)));
-      x += Math.cos(index * 2 * Math.PI / group.length) * spread;
-      y += Math.sin(index * 2 * Math.PI / group.length) * spread;
-    }
+    const center = unitIconCenter(unit);
+    x = center.x; y = center.y;
     const rect = canvas.getBoundingClientRect();
     const scale = (typeof canvasBackingScale === 'function') ? canvasBackingScale(canvas) : 1;
     const px = rect.left + x * rect.width / (canvas.width / scale);
@@ -2469,6 +2460,8 @@
     restoreCardStage();
     setInterval(() => {
       if (!campaign() || !campaign().active) return;
+      const tacticalScreen = document.getElementById('battleApp');
+      if (appData.currentBattleId && tacticalScreen && tacticalScreen.style.display !== 'none') return;
       if (!state.finishPatched) patchFinishPlacement();
       if (!window.handleOpMapClick || !window.handleOpMapClick.__opCommandWrapper) patchMapClick();
       if (!state.hardModeTogglePatched) patchHardModeToggle();

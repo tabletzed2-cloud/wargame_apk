@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.176
+// ⚡ BUILD-МАРКЕР: v13.177
 // v13.062: monotonic turn handoff; synchronize routing and melee without stale phase rollback.
 // ⚡ v13.061: sync retreat state and attacker/defender phase in online battle snapshots.
 // ============================================================
@@ -61,7 +61,12 @@ function onlineBattleIsLive(battle) {
 }
 
 function onlineBattleMySquads(battle) {
-    return onlineBattleIsLive(battle) ? (appData.squads || []) : (battle.playerSquads || []);
+    const live=onlineBattleIsLive(battle);
+    const squads=live ? (appData.squads || []) : (battle.playerSquads || []);
+    if (typeof reconcileOwnDestroyedOperationalVehicles === 'function') {
+        reconcileOwnDestroyedOperationalVehicles(squads,live ? appData.map : battle.tacticalMap);
+    }
+    return squads;
 }
 function onlineBattleEnemySquads(battle) {
     if (onlineBattleIsLive(battle)) {
@@ -341,10 +346,10 @@ function onlineHandleGlobalTacticalPause(pause) {
         pauseSourceBattleId: pause.sourceBattleId,
         publish: false
     });
-    if (typeof showTacticalOrdersPauseNotice === 'function') showTacticalOrdersPauseNotice();
+    if (!alreadyPaused && typeof showTacticalOrdersPauseNotice === 'function') showTacticalOrdersPauseNotice();
     const liveBattle = appData.currentBattleId
         ? (appData.campaign.activeBattles || []).find(b => b && b.id === appData.currentBattleId) : null;
-    if (liveBattle && !__onlineReturningToCampaignForTacticalPause && typeof returnToCampaign === 'function') {
+    if (liveBattle && liveBattle.pausedForOrders && !__onlineReturningToCampaignForTacticalPause && typeof returnToCampaign === 'function') {
         __onlineReturningToCampaignForTacticalPause = true;
         try {
             log('⏸ После пяти тактических раундов бои приостановлены. Завершите оперативный ход, чтобы продолжить бой в следующем оперативном ходу.');

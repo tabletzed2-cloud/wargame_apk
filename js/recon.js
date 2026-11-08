@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.176 — разведывательные миссии и приказ «Наблюдение»
+// ⚡ BUILD-МАРКЕР: v13.177 — разведывательные миссии и приказ «Наблюдение»
 // ═══════════════════════════════════════════════════════════════════════
 // ⚡ v13.157: НОВАЯ РАЗВЕДКА (заменяет подсветку радиуса v13.018…v13.099)
 //
@@ -127,11 +127,11 @@ function reconStandaloneKeyForUnit(unit) {
     if (unit.reconAssetKey && RECON_ASSET_TYPES[unit.reconAssetKey]) return unit.reconAssetKey;
     // ⚡ v13.164: бронеавтомобиль Landsverk 183 — самостоятельный развед-актив BeVe
     //    (отдельная машина поддержки, в миссию уходит она сама).
-    //    Слитые группы машин («Отряд Бронеавтомобиль (2шт)») активом не считаем.
-    if (unit.isGroup && (Number(unit.groupSize) > 1 || !Array.isArray(unit.vehicleList) || unit.vehicleList.length !== 1 || !unit.vehicleList[0].name)) return null;
-    if (Array.isArray(unit.vehicleList) && unit.vehicleList.length > 1) return null;
-    const unitName = String(unit.name || '') + ' ' + String((unit.vehicleList && unit.vehicleList[0] && unit.vehicleList[0].name) || '');
-    if (/Landsverk|Бронеавтомобил/i.test(unitName)) return 'beve_armored_car';
+    // A merged BeVe armored-car detachment is one asset: the whole unit goes.
+    const vehicles = Array.isArray(unit.vehicleList) ? unit.vehicleList : [];
+    const liveVehicles = vehicles.filter(v => v && !v.destroyed && !v.isDestroyed);
+    const unitName = String(unit.name || '') + ' ' + liveVehicles.map(v => v.name || '').join(' ');
+    if (/Landsverk|Бронеавтомобил/i.test(unitName) && (!vehicles.length || liveVehicles.length)) return 'beve_armored_car';
     // ⚡ v13.160: разделённый развед. взвод — каждое отделение со своим гексом
     //    становится отдельным активом; штаб развед. взвода активом не считается.
     const hasReconSquad = ((unit && unit.squads) || [])
@@ -549,7 +549,7 @@ function observeInRange(observer, mission, range, opts) {
     // «Шум» — обезличенные маркеры в гексе цели и соседних
     noise.forEach(enemy => {
         try {
-            if (typeof addOperationalArtilleryNoise === 'function') addOperationalArtilleryNoise(enemy, `recon:${enemy.name}`, 'enemy');
+            if (typeof addOperationalArtilleryNoise === 'function') addOperationalArtilleryNoise(enemy, `recon:${enemy.name}`, 'player');
         } catch (e) {}
     });
     if (found.length && typeof reportFindings === 'function') reportFindings(mission, found, opts);
