@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.180 — tactical grenade-area fire, commissioner card limit, unified rules.
+// ⚡ BUILD-МАРКЕР: v13.181 — tactical grenade-area fire, commissioner card limit, unified rules.
 (function () {
   'use strict';
 
@@ -1319,9 +1319,23 @@
       if (state.mapPick === 'target') body += mapPickHint();
     }
 
+    let arrivalPreview='';
+    if (typeof previewOperationalArrival==='function' && draft.category!=='artillery') {
+      try {
+        const parsed=parseDraftOptions(draft,unit);
+        const options={...parsed.options};
+        if (!options.waypoints.length && options.targetHex && ['attack','retreat','dig_in','prep_positions','disembark','ambush'].includes(parsed.type)) {
+          const [col,row]=options.targetHex.split(',').map(Number);options.waypoints=[{col,row}];
+        }
+        if (options.waypoints.length) {
+          const estimate=previewOperationalArrival(unit,options,typeof getCommandingHQUnit==='function' ? getCommandingHQUnit() : units()[findBattalionHq()]);
+          arrivalPreview=`<div class="op-cmd-note op-arrival-preview" role="status">🕓 ${esc(estimate.message)}</div>`;
+        }
+      } catch (error) { /* incomplete drafts are validated on submit */ }
+    }
     const submitText = draft.category === 'move' ? '✅ Отдать приказ' :
       draft.category === 'artillery' ? '💣 Назначить обстрел' : '✅ Отдать приказ';
-    return head + back + `<div class="op-cmd-form">${body}</div>` +
+    return head + back + `<div class="op-cmd-form">${body}</div>` + arrivalPreview +
       (state.error ? `<div class="op-cmd-error">${esc(state.error)}</div>` : '') +
       `<div class="op-cmd-buttons"><button type="button" class="op-cmd-wide" data-cmd="submit">${submitText}</button></div>`;
   }

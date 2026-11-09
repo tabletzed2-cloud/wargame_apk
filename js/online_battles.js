@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.180
+// ⚡ BUILD-МАРКЕР: v13.181
 // v13.062: monotonic turn handoff; synchronize routing and melee without stale phase rollback.
 // ⚡ v13.061: sync retreat state and attacker/defender phase in online battle snapshots.
 // ============================================================
