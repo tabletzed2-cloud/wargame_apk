@@ -17,6 +17,11 @@ function check(name, cond) {
 // ── песочница с подменяемой картой ─────────────────────────────────────────
 function makeEnv(grid, roadEdges) {
     const code = [
+        sliceFunction('opHexSourcePoint'),
+        sliceFunction('opLayersReady'),
+        sliceFunction('opPointInPolygon'),
+        sliceFunction('opZoneCovers'),
+        sliceFunction('opZoneLevelAt'),
         sliceFunction('getOpHexBaseTypes'),
         sliceFunction('getOpHexLevel'),
         sliceFunction('opHasRoadData'),
@@ -28,6 +33,7 @@ function makeEnv(grid, roadEdges) {
     const ctx = {
         appData,
         console: { log() {}, warn() {} },
+        OP_HEX_SIZE: 55, OP_MAP_COLS: 20, OP_MAP_ROWS: 15,
         getOpHexTypes: (c, r) => {
             const cell = grid[`${c},${r}`];
             if (!cell) return ['grass'];
@@ -114,8 +120,9 @@ const supplyCode = [
     'function supplyAssetMobilityClass(id) { return SUPPLY_ASSET_TYPES[id].mobility; }'
 ].join('\n');
 const supCtx = {
-    appData: { campaign: { opMapGrid: grid, opRoadEdges: edges, scenario: 'valencia' } },
+    appData: { campaign: { opMapGrid: grid, opRoadEdges: edges, scenario: 'valencia', opLayers: null } },
     console: { log() {}, warn() {} },
+    OP_HEX_SIZE: 55, OP_MAP_COLS: 20, OP_MAP_ROWS: 15,
     isHexInPlayableArea: () => true,
     getOpHexTypes: (c, r) => {
         const cell = grid[`${c},${r}`];
@@ -123,10 +130,13 @@ const supCtx = {
     }
 };
 vm.createContext(supCtx);
-vm.runInContext(ctx.getOpHexBaseTypes.toString() + '\n' +
-    ctx.getOpHexLevel.toString() + '\n' +
-    ctx.opHasRoadData.toString() + '\n' +
-    ctx.opRoadConnected.toString() + '\n' + supplyCode, supCtx);
+vm.runInContext([
+    sliceFunction('opHexSourcePoint'), sliceFunction('opLayersReady'),
+    sliceFunction('opPointInPolygon'), sliceFunction('opZoneCovers'),
+    sliceFunction('opZoneLevelAt'), sliceFunction('getOpHexBaseTypes'),
+    sliceFunction('getOpHexLevel'), sliceFunction('opHasRoadData'),
+    sliceFunction('opRoadConnected'), supplyCode
+].join('\n'), supCtx);
 
 check('снабжение: дорога по связи в лес — 1', supCtx.supplyMoveCost('vehicle', 1, 0, 0, 0) === 1);
 check('снабжение: лес вне дороги — Infinity', supCtx.supplyMoveCost('vehicle', 1, 0, 0, 1) === Infinity);
@@ -141,15 +151,24 @@ check('снабжение: смешанная колонна — минимум'
 const terrain = JSON.parse(fs.readFileSync(path.join(ROOT, 'maps', 'valencia_terrain.json'), 'utf8'));
 const roadsFile = JSON.parse(fs.readFileSync(path.join(ROOT, 'maps', 'valencia_roads.json'), 'utf8'));
 const roads = Array.isArray(roadsFile) ? roadsFile : roadsFile.edges;
+const layerFile = JSON.parse(fs.readFileSync(path.join(ROOT, 'maps', 'valencia_layers.json'), 'utf8'));
 check('Валенсия: 280 гексов', Object.keys(terrain).length === 280);
-check('Валенсия: 175 объектных гексов с уровнем/маркерами', Object.values(terrain).filter(c => !Array.isArray(c)).length === 175);
-check('Валенсия: 27 рёбер', roads.length === 27);
+check('Валенсия: гексы в объектном формате {types, markers}', Object.values(terrain).every(c => !Array.isArray(c) && Array.isArray(c.types)));
+check('Валенсия: 23 ребра дороги', roads.length === 23);
 const levels = {};
-Object.values(terrain).filter(c => !Array.isArray(c))
-    .forEach(cell => { const l = cell.level || 0; levels[l] = (levels[l] || 0) + 1; });
-check('Валенсия: уровни среди объектных гексов 0/1/2/3 = 143/19/9/4',
-    levels[0] === 143 && levels[1] === 19 && levels[2] === 9 && levels[3] === 4);
 const realCtx = makeEnv(terrain, roads);
+realCtx.appData.campaign.opMapScaleX = 0.61;
+realCtx.appData.campaign.opMapScaleY = 0.62;
+realCtx.appData.campaign.opMapOffsetX = -380;
+realCtx.appData.campaign.opMapOffsetY = -45;
+realCtx.appData.campaign.opLayers = layerFile;
+Object.keys(terrain).forEach(k => {
+    const [c, r] = k.split(',').map(Number);
+    const l = realCtx.getOpHexLevel(c, r);
+    levels[l] = (levels[l] || 0) + 1;
+});
+check('Валенсия: уровни по центрам 248/19/9/4',
+    levels[0] === 248 && levels[1] === 19 && levels[2] === 9 && levels[3] === 4);
 check('Валенсия: рёбра читаются', realCtx.opHasRoadData() === true);
 check('Валенсия: первое ребро связано', realCtx.opRoadConnected(
     ...roads[0][0].split(',').map(Number), ...roads[0][1].split(',').map(Number)));

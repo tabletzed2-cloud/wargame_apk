@@ -47,13 +47,20 @@ const root = path.resolve(process.env.WARGAME_ROOT || path.join(__dirname, '..')
       });
       const c = appData.campaign;
       check(typeof c.opRoadEdges !== 'undefined', 'поле opRoadEdges отсутствует');
-      check(Array.isArray(c.opRoadEdges) && c.opRoadEdges.length === 27, 'рёбра дороги не загрузились: ' + (c.opRoadEdges && c.opRoadEdges.length));
+      check(Array.isArray(c.opRoadEdges) && c.opRoadEdges.length === 23, 'рёбра дороги не загрузились: ' + (c.opRoadEdges && c.opRoadEdges.length));
+      check(!!(c.opLayers && c.opLayers.layers), 'зоны не загрузились');
+      check(Object.keys(c.opLayers.layers).length === 8, 'ожидалось 8 групп зон');
       check(Object.keys(c.opMapGrid).length === 280, 'гексов: ' + Object.keys(c.opMapGrid).length);
       // уровни
       const lv = {}; Object.keys(c.opMapGrid).forEach(k => {
         const v = getOpHexLevel(...k.split(',').map(Number)); lv[v] = (lv[v] || 0) + 1;
       });
       check(lv[0] === 248 && lv[1] === 19 && lv[2] === 9 && lv[3] === 4, 'уровни: ' + JSON.stringify(lv));
+      // зоны: уровни считаются по контурам, а не по гексам
+      check(getOpHexLevel(3, 1) === 1 || getOpHexLevel(3, 1) === 0, 'уровень вне ожидаемого');
+      check(typeof opZoneCovers === 'function' && opZoneCovers('forest', 0, 0), 'зона леса не читается');
+      // карта кампании: из новых слоёв ничего не рисуется
+      check(!/ff54cb/.test(document.documentElement.innerHTML), 'в разметке остался розовый слой');
       // дорога по связи
       const e0 = c.opRoadEdges[0], a = e0[0].split(',').map(Number), b = e0[1].split(',').map(Number);
       check(opRoadConnected(a[0], a[1], b[0], b[1]), 'первое ребро не связывает');
@@ -69,10 +76,10 @@ const root = path.resolve(process.env.WARGAME_ROOT || path.join(__dirname, '..')
       const tank = { name: 'Танк', type: 'tank_platoon', mobility: 'vehicle', maxAp: 4, col: a[0], row: a[1] };
       check(getOpMoveCost(tank, a[0], a[1], b[0], b[1]) === 1, 'дорога: ' + getOpMoveCost(tank, a[0], a[1], b[0], b[1]));
       const foot = { name: 'Пехота', mobility: 'foot', maxAp: 4 };
-      check(getOpMoveCost(foot, a[0], a[1], b[0], b[1]) === 2, 'пехота по дороге: ' + getOpMoveCost(foot, a[0], a[1], b[0], b[1]));
+      check(getOpMoveCost(foot, a[0], a[1], b[0], b[1]) === 1, 'пехота по дороге: ' + getOpMoveCost(foot, a[0], a[1], b[0], b[1]));
       // снабжение читает слои
       check(supplyMoveCost('vehicle', b[0], b[1], a[0], a[1]) === 1, 'снабжение по дороге');
-      check(supplyMoveCost('foot', b[0], b[1], a[0], a[1]) === 2, 'пешее снабжение');
+      check(supplyMoveCost('foot', b[0], b[1], a[0], a[1]) === 1, 'пешее снабжение');
       return { n, edges: c.opRoadEdges.length, hexes: Object.keys(c.opMapGrid).length, levels: lv };
     });
     checkNoErrors(errors);

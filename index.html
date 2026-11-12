@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.182 — операция</title>
+  <title>Боевой модуль v13.183 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -19,7 +19,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.182</h1>
+    <h1>⚔️ Боевой модуль v13.183</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -32,7 +32,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.182</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.183</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -84,7 +84,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.182 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.183 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -586,9 +586,9 @@ const SUPPLY_DEPOT_MAX = { ammoSmall: 1200, grenades: 300, ammoOrdnance: 80 };
 //    каждой стороне отдельно: у A.I.R.F. — 0,11, у BeVe — 7,0.
 const SUPPLY_EVAC_POINTS = { 'BeVe': { col: 7, row: 0 }, 'A.I.R.F.': { col: 0, row: 11 } };
 
-var APP_VERSION = 'v13.182';
-// v13.182: layered Valencia terrain — height levels, roads as hex edges, plus
-//          supply/combat rules reading base types, level and road links.
+var APP_VERSION = 'v13.183';
+// v13.183: terrain layers as ZONES (contours), road links cost 1 with no penalty,
+//          no layer graphics on the campaign map; supply/combat read zones.
 // v13.172: full recon routes/observation marks, safe supply corridors, unit card editor, review fixes.
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
@@ -955,7 +955,7 @@ function startFreshCampaignProgress() {
     activeBattles: [], onlineFinishedBattles: {}, hexOverlays: {},
     opMapMode: 'view', selectedPlaceUnitId: null,
     opMapImage: null, opMapScaleX: 1.0, opMapScaleY: 1.0, opMapOffsetX: 0, opMapOffsetY: 0,
-    opMapGrid: null, opRoadEdges: null, opUnits: null, enemyOpUnits: null, selectedOpUnit: null, opZoomLevel: 1
+    opMapGrid: null, opRoadEdges: null, opLayers: null, opUnits: null, enemyOpUnits: null, selectedOpUnit: null, opZoomLevel: 1
   };
   appData.currentBattleId = null;
 }
@@ -2087,31 +2087,28 @@ function selectScenario(scenarioId, opts) {
       })
       .then(data => {
         appData.campaign.opMapGrid = data;
-        // ⚡ v13.182: дорожные связи (рёбра) — отдельно, best-effort:
-        //    без файла движение по дороге идёт по старому правилу (тип гекса).
-        return fetch('maps/valencia_roads.json')
-          .then(r => (r.ok ? r.json() : null))
-          .then(roads => {
-            // ⚡ v13.182: файл — {edges:[["c,r","c,r"], ...]}; на всякий случай
-            //    принимаем и «голый» массив.
-            const edgeList = Array.isArray(roads) ? roads : (roads && Array.isArray(roads.edges) ? roads.edges : null);
-            appData.campaign.opRoadEdges = edgeList;
-            saveData();
-            initOperationalMap(); // перерисовываем
-            finishSelect(data);
-          })
-          .catch(() => {
-            appData.campaign.opRoadEdges = null;
-            saveData();
-            initOperationalMap();
-            finishSelect(data);
-          });
+        // ⚡ v13.183: ЗОНЫ местности (высоты 1–3, лес, кусты, болота, вода) и
+        //    дорожные связи — отдельными файлами, best-effort. Без них игра
+        //    откатывается на прежние правила по типам гексов.
+        return Promise.all([
+          fetch('maps/valencia_layers.json').then(r => (r.ok ? r.json() : null)).catch(() => null),
+          fetch('maps/valencia_roads.json').then(r => (r.ok ? r.json() : null)).catch(() => null)
+        ]).then(([layers, roads]) => {
+          appData.campaign.opLayers = (layers && layers.layers && layers.gameTransform) ? layers : null;
+          // файл дороги — {edges:[["c,r","c,r"], ...]}; принимаем и «голый» массив
+          const edgeList = Array.isArray(roads) ? roads : (roads && Array.isArray(roads.edges) ? roads.edges : null);
+          appData.campaign.opRoadEdges = edgeList;
+          saveData();
+          initOperationalMap(); // перерисовываем
+          finishSelect(data);
+        });
       })
       .catch(() => {
         // Если файл не загрузился – создаём пустую сетку (все траву)
         console.warn('Файл местности не найден, создаю пустую карту.');
         appData.campaign.opMapGrid = null;
         appData.campaign.opRoadEdges = null;
+        appData.campaign.opLayers = null;
         saveData();
         initOperationalMap();
         finishSelect(null);
@@ -4233,31 +4230,187 @@ function hasOpTerrain(col, row, terrainType) {
   return getOpHexTypes(col, row).includes(terrainType);
 }
 
-// ⚡ v13.182: БАЗОВЫЕ типы гекса БЕЗ меток (метки вроде окопов не должны
-//    переопределять местность при движении). getOpHexTypes() сливает метки
-//    в типы — для движения нужен именно базовый набор.
-function getOpHexBaseTypes(col, row) {
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.183: ЗОНЫ МЕСТНОСТИ, А НЕ МЕТКИ НА ГЕКСАХ.
+//
+//    Раньше (v13.183) слой сводился к гексу: «этот гекс — высота 2», и игрок
+//    видел грубые подписи ▲2 и розовую линию дороги поверх карты. Но слои,
+//    присланные для карты Валенсии, — это ОБЛАСТИ: горы уровня 1/2/3, лес,
+//    кусты, болота, вода и дорога уже нарисованы на самой подложке.
+//
+//    Теперь геометрия зон хранится в maps/valencia_layers.json в координатах
+//    картинки, а правила проверяют, накрывает ли зона конкретный ПЕРЕХОД
+//    (середину ребра между центрами гексов + допуск на точность контуров).
+//      • граница высоты или болота проходит там, где она нарисована, а не по
+//        краю гекса, поэтому нет «ступенек» и грубых квадратов;
+//      • на карте кампании не рисуется НИЧЕГО: игрок видит исходную подложку;
+//      • техника не «стоит на высоте 2» — она просто не может пересечь обрыв.
+//
+//    Без файла зон (старые сохранения) работают прежние правила по гексам.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Точка картинки для перехода между гексами (или для гекса, если from нет).
+// Обратное преобразование к drawImage в redrawOperationalMapNow().
+function opHexSourcePoint(col, row, fromCol, fromRow) {
+    const L = appData.campaign && appData.campaign.opLayers;
+    const T = L && L.gameTransform;
+    if (!T) return null;
+    const size = (typeof OP_HEX_SIZE === 'number') ? OP_HEX_SIZE : 55;
+    const baseW = ((typeof OP_MAP_COLS === 'number' ? OP_MAP_COLS : 20) + 0.5) * Math.sqrt(3) * size;
+    const baseH = ((typeof OP_MAP_ROWS === 'number' ? OP_MAP_ROWS : 15) + 0.5) * 1.5 * size;
+    const imageW = (L.imageSize && L.imageSize[0]) || T.columns * size;
+    const imageH = (L.imageSize && L.imageSize[1]) || T.rows * size;
+    // размер отрисованной подложки (см. redrawOperationalMapNow)
+    const scaleX = appData.campaign.opMapScaleX || 1;
+    const scaleY = appData.campaign.opMapScaleY || 1;
+    const offsetX = appData.campaign.opMapOffsetX || 0;
+    const offsetY = appData.campaign.opMapOffsetY || 0;
+    const imgRatio = imageW / imageH, baseRatio = baseW / baseH;
+    let drawWidth, drawHeight;
+    if (imgRatio > baseRatio) { drawHeight = baseH; drawWidth = baseH * imgRatio; }
+    else { drawWidth = baseW; drawHeight = baseW / imgRatio; }
+    const finalWidth = drawWidth * scaleX, finalHeight = drawHeight * scaleY;
+    const dx = (baseW - finalWidth) / 2 + offsetX;
+    const dy = (baseH - finalHeight) / 2 + offsetY;
+    const centerOf = (c, r) => ({
+        x: c * Math.sqrt(3) * size + (r % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2,
+        y: r * 1.5 * size + size
+    });
+    const a = centerOf(col, row);
+    let gx = a.x, gy = a.y;
+    if (Number.isFinite(fromCol) && Number.isFinite(fromRow)) {
+        const b = centerOf(Number(fromCol), Number(fromRow));
+        gx = (a.x + b.x) / 2; gy = (a.y + b.y) / 2;
+    }
+    return { x: (gx - dx) / finalWidth * imageW, y: (gy - dy) / finalHeight * imageH };
+}
+
+function opLayersReady() {
+    const L = appData.campaign && appData.campaign.opLayers;
+    return !!(L && L.layers && (L.layers.height1 || L.layers.water));
+}
+
+// Точка внутри полигона (луч слева направо) — быстро и без зависимостей.
+function opPointInPolygon(px, py, points) {
+    let inside = false;
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const xi = points[i][0], yi = points[i][1];
+        const xj = points[j][0], yj = points[j][1];
+        if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+}
+
+// Накрывает ли слой переход/гекс. Допуск: точка попала в зону либо не дальше
+// tolerance от её границы — зона действует (точность контуров ±6 px).
+function opZoneCovers(layerId, col, row, fromCol, fromRow, tolOverride) {
+    if (!opLayersReady()) return false;
+    const polys = appData.campaign.opLayers.layers[layerId];
+    if (!Array.isArray(polys) || !polys.length) return false;
+    const tol = (tolOverride != null)
+        ? Number(tolOverride)
+        : (Number(appData.campaign.opLayers.transferTolerancePixels) || 10);
+    // Проверяем ДВЕ точки: середину перехода (с допуском контуров) и центр
+    // входимого гекса (строго). Центр — чтобы нельзя было пройти сквозь воду
+    // или топь, стоящую ровно на гексе; середина — чтобы граница гор и лесов
+    // шла по нарисованному контуру, а не по краю гекса.
+    const points = [];
+    const p = opHexSourcePoint(col, row, fromCol, fromRow);
+    if (!p) return false;
+    if (fromCol != null && fromRow != null) {
+        const center = opHexSourcePoint(col, row);
+        points.push({ x: p.x, y: p.y, tol: tol });
+        if (center) points.push({ x: center.x, y: center.y, tol: 0 });
+    } else {
+        points.push({ x: p.x, y: p.y, tol: tol });
+    }
+    for (const poly of polys) {
+        const pts = poly && poly.points;
+        if (!Array.isArray(pts) || pts.length < 3) continue;
+        for (const pt of points) {
+            if (opPointInPolygon(pt.x, pt.y, pts)) return true;
+            if (!pt.tol) continue;
+            const tol2 = pt.tol * pt.tol;
+            for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+                const ax = pts[j][0], ay = pts[j][1], bx = pts[i][0], by = pts[i][1];
+                const vx = bx - ax, vy = by - ay;
+                const len2 = vx * vx + vy * vy;
+                let t = len2 > 0 ? ((pt.x - ax) * vx + (pt.y - ay) * vy) / len2 : 0;
+                t = Math.max(0, Math.min(1, t));
+                const ex = pt.x - (ax + t * vx), ey = pt.y - (ay + t * vy);
+                if (ex * ex + ey * ey <= tol2) return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Уровень высоты, который накрывает переход: 1..3 (0 — ни одна зона).
+//    Для перехода учитывается допуск контуров; для самого гекса (без from) —
+//    строгое попадание центра, чтобы высота для обзора не «раздувалась».
+function opZoneLevelAt(col, row, fromCol, fromRow) {
+    if (!opLayersReady()) return 0;
+    const tol = (fromCol != null && fromRow != null) ? undefined : 0;
+    let best = 0;
+    for (const [id, lvl] of [['height1', 1], ['height2', 2], ['height3', 3]]) {
+        if (lvl > best && opZoneCovers(id, col, row, fromCol, fromRow, tol)) best = lvl;
+    }
+    return best;
+}
+
+// ⚡ v13.183: базовые типы гекса. С зонами «типы» перехода собираются из зон —
+//    лес/кусты/вода/болото тоже действуют по настоящей границе, а не по гексу.
+//    Стартовая местность (markers, road, grass) по-прежнему из opMapGrid.
+function getOpHexBaseTypes(col, row, fromCol, fromRow) {
+    const key = `${col},${row}`;
+    const grid = appData.campaign && appData.campaign.opMapGrid;
+    const cell = grid ? grid[key] : null;
+    let types;
+    if (!cell) types = ['grass'];
+    else if (Array.isArray(cell)) types = cell.slice();
+    else if (Array.isArray(cell.types)) types = cell.types.slice();
+    else types = [cell];
+
+    if (opLayersReady()) {
+        // зоны заменяют «гексовую» растительность и воду
+        types = types.filter(t => ['forest', 'bushes', 'swamp_passable',
+            'swamp_impassable', 'water', 'hill', 'rocks'].indexOf(t) < 0);
+        const zoneMap = [['water', 'water'], ['swamp_impassable', 'swamp_impassable'],
+            ['swamp_passable', 'swamp_passable'], ['forest', 'forest'],
+            ['bushes', 'bushes']];
+        const tol = (fromCol != null && fromRow != null) ? undefined : 0;
+        zoneMap.forEach(([zoneId, type]) => {
+            if (opZoneCovers(zoneId, col, row, fromCol, fromRow, tol)) types.push(type);
+        });
+        if (!types.length) types = ['grass'];
+    }
+    return types;
+}
+
+// Переход/гекс в зоне растительности или воды/болота.
+function opZoneHas(layerId, col, row, fromCol, fromRow) {
+    return opZoneCovers(layerId, col, row, fromCol, fromRow);
+}
+function opHexZoneHas(layerId, col, row) {
+    return opZoneCovers(layerId, col, row);
+}
+
+// ⚡ v13.183 → v13.183: уровень высоты гекса. Сначала зоны (настоящие границы),
+//    затем (для старых сохранений без зон) прежнее поле level, затем холм = 1.
+function getOpHexLevel(col, row, fromCol, fromRow) {
+    if (opLayersReady()) return opZoneLevelAt(col, row, fromCol, fromRow);
     const key = `${col},${row}`;
     const grid = appData.campaign.opMapGrid;
     const cell = grid ? grid[key] : null;
-    if (!cell) return ['grass'];
-    if (Array.isArray(cell)) return cell.slice();
-    if (cell && Array.isArray(cell.types)) return cell.types.slice();
-    return [cell];
+    if (cell && !Array.isArray(cell)) {
+        const lvl = Number(cell.level);
+        if (Number.isFinite(lvl) && lvl > 0) return Math.max(0, Math.min(3, Math.round(lvl)));
+    }
+    const base = (typeof getOpHexBaseTypes === 'function') ? getOpHexBaseTypes(col, row) : [];
+    return (base && base.includes('hill')) ? 1 : 0;
 }
 
-// ⚡ v13.182: уровень высоты оперативного гекса (0–3; 15 м на уровень).
-//    Старые сохранения без поля — 0.
-function getOpHexLevel(col, row) {
-    const key = `${col},${row}`;
-    const grid = appData.campaign.opMapGrid;
-    const cell = grid ? grid[key] : null;
-    if (!cell || Array.isArray(cell)) return 0;
-    const lvl = Number(cell.level);
-    return Number.isFinite(lvl) ? Math.max(0, Math.min(3, Math.round(lvl))) : 0;
-}
-
-// ⚡ v13.182: дорожные связи оперативной карты (maps/valencia_roads.json).
+// ⚡ v13.183: дорожные связи оперативной карты (maps/valencia_roads.json).
 //    opRoadConnected — есть ли ребро дороги между соседними гексами.
 //    opHasRoadData — загружены ли рёбра (новые кампании); без данных движение
 //    по дороге идёт по старому правилу (тип гекса 'road').
@@ -4926,60 +5079,11 @@ function redrawOperationalMapNow() {
             ctx.fillText(`${col},${row}`, x, y + size * 0.8);
         }
     }
-    // ⚡ v13.182: слои местности из контуров — уровни высоты и дорога.
-    //    Уровень: тёплая тонировка + подпись ▲N (15 м на уровень).
-    //    Дорога: розовые линии между связанными гексами (как в просмотре).
-    try {
-        const opCenterOf = (c, r) => ({
-            x: c * Math.sqrt(3) * size + (r % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2,
-            y: r * 1.5 * size + size
-        });
-        const levelFill = { 1: 'rgba(215,184,76,0.22)', 2: 'rgba(229,129,55,0.26)', 3: 'rgba(227,70,114,0.30)' };
-        for (let row = 0; row < OP_MAP_ROWS; row++) {
-            for (let col = 0; col < OP_MAP_COLS; col++) {
-                if (typeof isHexRemovedFromOperationalMap === 'function' &&
-                    isHexRemovedFromOperationalMap(appData.campaign && appData.campaign.scenario, col, row)) continue;
-                const lvl = (typeof getOpHexLevel === 'function') ? getOpHexLevel(col, row) : 0;
-                if (!lvl) continue;
-                const c = opCenterOf(col, row);
-                ctx.beginPath();
-                for (let i = 0; i < 6; i++) {
-                    const angle = Math.PI / 180 * (60 * i - 30);
-                    const xi = c.x + size * Math.cos(angle);
-                    const yi = c.y + size * Math.sin(angle);
-                    if (i === 0) ctx.moveTo(xi, yi); else ctx.lineTo(xi, yi);
-                }
-                ctx.closePath();
-                ctx.fillStyle = levelFill[lvl] || levelFill[1];
-                ctx.fill();
-                ctx.fillStyle = 'rgba(255,255,255,0.9)';
-                ctx.font = `bold ${Math.max(9, size * 0.26)}px Arial`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'top';
-                ctx.fillText(`▲${lvl}`, c.x, c.y - size * 0.62);
-            }
-        }
-        const roadEdges = appData.campaign && appData.campaign.opRoadEdges;
-        if (Array.isArray(roadEdges) && roadEdges.length) {
-            ctx.save();
-            ctx.strokeStyle = '#ff54cb';
-            ctx.lineWidth = Math.max(2, size * 0.09);
-            ctx.lineCap = 'round';
-            ctx.globalAlpha = 0.85;
-            roadEdges.forEach(e => {
-                if (!Array.isArray(e) || e.length !== 2) return;
-                const [c1, r1] = String(e[0]).split(',').map(Number);
-                const [c2, r2] = String(e[1]).split(',').map(Number);
-                if (![c1, r1, c2, r2].every(Number.isFinite)) return;
-                const a = opCenterOf(c1, r1), b = opCenterOf(c2, r2);
-                ctx.beginPath();
-                ctx.moveTo(a.x, a.y);
-                ctx.lineTo(b.x, b.y);
-                ctx.stroke();
-            });
-            ctx.restore();
-        }
-    } catch (e) { console.warn('op terrain layers:', e); }
+    // ⚡ v13.183: слои местности (высоты 1–3, лес, кусты, болота, вода, дорога)
+    //    НЕ рисуются на карте кампании. Игрок видит только исходную подложку —
+    //    зоны высот и дороги считываются по ней самой, как на топокарте.
+    //    Данные слоёв остаются в maps/valencia_terrain.json и
+    //    maps/valencia_roads.json и работают только в правилах движения.
     // ⚡ v13.061: выделенные для начальной фортификации оперативные гексы.
     const fortificationSetup = appData.campaign.initialFortificationSetup;
     if (fortificationSetup && fortificationSetup.phase === 'select') {
@@ -6374,7 +6478,7 @@ function handleOpMapClick(e) {
     }
 
     // Если меток не осталось — возвращаем компактный формат (массив типов).
-    // ⚡ v13.182: уровень высоты сохраняем — массив его теряет, поэтому
+    // ⚡ v13.183: уровень высоты сохраняем — массив его теряет, поэтому
     //    гекс с уровнем остаётся объектным.
     if (markers.length === 0 && !(cell.level > 0)) {
         appData.campaign.opMapGrid[closestKey] = cell.types.slice();
@@ -7719,9 +7823,11 @@ try {
     if (appData.campaign.opMapOffsetY === undefined) appData.campaign.opMapOffsetY = 0;
     if (!appData.campaign.opMapImage) appData.campaign.opMapImage = null;
     if (!appData.campaign.opMapGrid) appData.campaign.opMapGrid = null;
-    // ⚡ v13.182: дорожные связи оперативной карты (maps/valencia_roads.json).
+    // ⚡ v13.183: дорожные связи оперативной карты (maps/valencia_roads.json).
     //    Старые сохранения без поля — null: движение по дороге идёт по старому
     //    правилу (тип гекса), новые кампании получают рёбра из файла.
+    // ⚡ v13.183: зоны местности — из файла, в сейв их геометрию не тащим.
+    if (!('opLayers' in appData.campaign)) appData.campaign.opLayers = null;
     if (!appData.campaign.opRoadEdges) appData.campaign.opRoadEdges = null;
     if (!appData.campaign.opUnits) appData.campaign.opUnits = null;
     if (!appData.campaign.selectedOpUnit) appData.campaign.selectedOpUnit = null;
@@ -36016,12 +36122,12 @@ function supplyRearRouteBlocked() {
 function supplyMoveCost(mobility, toCol, toRow, fromCol, fromRow) {
     if (typeof isHexInPlayableArea === 'function' &&
         !isHexInPlayableArea(appData.campaign && appData.campaign.scenario, toCol, toRow)) return Infinity;
-    // ⚡ v13.182: многослойная местность (базовые типы + уровень + рёбра).
-    //    fromCol/fromRow опциональны: без них дорога — по типу гекса.
+    // ⚡ v13.183 → v13.183: слои — зонами, на переходе (середина ребра).
+    //    fromCol/fromRow опциональны: без них правила по центру гекса.
     const baseTypes = (typeof getOpHexBaseTypes === 'function')
-        ? getOpHexBaseTypes(toCol, toRow)
+        ? getOpHexBaseTypes(toCol, toRow, fromCol, fromRow)
         : ((typeof getOpHexTypes === 'function') ? getOpHexTypes(toCol, toRow) : ['grass']);
-    const level = (typeof getOpHexLevel === 'function') ? getOpHexLevel(toCol, toRow) : 0;
+    const level = (typeof getOpHexLevel === 'function') ? getOpHexLevel(toCol, toRow, fromCol, fromRow) : 0;
     const hasWater = baseTypes.includes('water');
     const hasSwampImp = baseTypes.includes('swamp_impassable');
     const hasSwampPass = baseTypes.includes('swamp_passable');
@@ -36037,8 +36143,11 @@ function supplyMoveCost(mobility, toCol, toRow, fromCol, fromRow) {
     // ⚡ v13.150: вода и непроходимое болото закрыты для всех, КРОМЕ амфибии
     //    (автомобиль DAF MC-V) — её стоимость считается в ветке ниже.
     if ((hasWater || hasSwampImp) && mobility !== 'amphibious') return Infinity;
+    // ⚡ v13.183: дорога без штрафов. Колонна идёт по связи за 1 ОД на любой
+    //    технике и за 1 ОД пешими; высоты и болото вдоль дороги не мешают.
+    if (onRoad && !hasWater) return 1;
     if (mobility === 'vehicle') {
-        // Колёсная машина: дорога по связи — 1; вне дороги только чистая трава.
+        // Колёсная машина вне дороги: только чистая трава.
         if (onRoad) return 1;
         if (effLevel > 0 || hasForest || hasSwampPass || hasRocks || hasTrenches || hasBushes) return Infinity;
         return 1;
@@ -36073,7 +36182,7 @@ function supplyMoveCost(mobility, toCol, toRow, fromCol, fromRow) {
     //    ровно как пехотинец: 2 «ОД» за гекс обычной местности, 3 — холм и
     //    проходимое болото. При бюджете 4 ОД это 2 гекса за ход (а не 4, как
     //    было, когда гекс стоил 1).
-    if (onRoad) return 2;
+    if (onRoad) return 1;
     if (effLevel > 0) return 3;
     if (hasSwampPass) return 3;
     return 2;
@@ -39564,19 +39673,21 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
             if (cutting && cutting(Number(toCol), Number(toRow))) return Infinity;
         }
     } catch (e) {}
-    // ⚡ v13.182: многослойная местность из контуров (valencia_terrain.json):
+    // ⚡ v13.183: многослойная местность из контуров (valencia_terrain.json):
     //    базовые типы БЕЗ меток + уровень высоты 0–3 + дорожные рёбра.
     //    Правила — по проверочной модели (tools/terrain_diagnostics.js):
     //    дорога по связи даёт полную дорожную скорость (кроме воды),
     //    техника вне дороги не входит в высоты и болота, талреп — только
     //    уровень 1, колёсная вне дороги не входит в лес, амфибия (DAF MC-V)
     //    плавает и проходит болота с большим штрафом.
-    //    Старые сохранения без рёбер/уровней: дорога — по типу гекса,
-    //    холм без уровня считается уровнем 1.
+    //    ⚡ v13.183: слои проверяются на ПЕРЕХОДЕ (середина ребра), поэтому
+    //    высота, болото и лес действуют там, где нарисованы, а не «весь гекс».
+    //    Старые сохранения без зон/рёбер: правила по типу гекса и полю level.
     const baseTypes = (typeof getOpHexBaseTypes === 'function')
-        ? getOpHexBaseTypes(toCol, toRow) : getOpHexTypes(toCol, toRow);
+        ? getOpHexBaseTypes(toCol, toRow, fromCol, fromRow) : getOpHexTypes(toCol, toRow);
     if (!baseTypes || baseTypes.length === 0) return Infinity;
-    const level = (typeof getOpHexLevel === 'function') ? getOpHexLevel(toCol, toRow) : 0;
+    const level = (typeof getOpHexLevel === 'function')
+        ? getOpHexLevel(toCol, toRow, fromCol, fromRow) : 0;
     const hasWater = baseTypes.includes('water');
     const hasSwampImp = baseTypes.includes('swamp_impassable');
     const hasSwampPass = baseTypes.includes('swamp_passable');
@@ -39603,6 +39714,17 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
     const isBicycle = mobility === 'bicycle' && !dismounted;
     const isMotorcycle = mobility === 'motorcycle' && !dismounted;
 
+    // ⚡ v13.183: ДОРОГА — БЕЗ ШТРАФОВ. Если между гексами есть дорожная связь,
+    //    переход стоит ровно 1 ОД для любой техники и мотоцикла и 1 ОД для
+    //    пехоты и вьючных. Высоты, лес, кусты и болото вдоль дороги не мешают:
+    //    она сама обходит рельеф. Единственное исключение — вода: дорога не мост.
+    if (onRoad && !hasWater) {
+        if (isVehicle) return 1;    // танк, БТР, САУ, полугусеничная, амфибия
+        if (isMotorcycle) return 1;
+        if (isBicycle) return 1;
+        return 1;                   // пехота и вьючные
+    }
+
     // Вода: только амфибия (DAF MC-V); дорога сама по себе не означает мост.
     if (hasWater && !isAmphibious) return Infinity;
     // Непроходимое болото: только амфибия (DAF MC-V, с большим штрафом).
@@ -39614,14 +39736,6 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
     if (isAmphibious) {
         if (hasWater) return 4;         // DAF MC-V: переправа
         if (hasSwampImp) return 5;      // топь: «гораздо медленнее»
-    }
-
-    // Дорога по связи: полная дорожная скорость, включая высоты и болота.
-    if (onRoad) {
-        if (isMotorcycle) return 1;
-        if (isBicycle) return 1;
-        if (isVehicle) return 1;
-        return 2;
     }
 
     // Высота вне дороги.
@@ -39730,8 +39844,10 @@ function opPlacementHexSafety(unit, col, row) {
     if (typeof isHexInPlayableArea === 'function' && !isHexInPlayableArea(scenario, col, row)) {
         return { ok: false, reason: 'гекс за пределами игровой карты' };
     }
-    const types = (typeof getOpHexTypes === 'function') ? getOpHexTypes(col, row) : ['grass'];
-    // ⚡ v13.182: многослойная местность — проверяем все типы, а не первый.
+    // ⚡ v13.183: непроходимость — по зонам (вода, топь) и по типам гекса.
+    const types = (typeof getOpHexBaseTypes === 'function')
+        ? getOpHexBaseTypes(col, row)
+        : ((typeof getOpHexTypes === 'function') ? getOpHexTypes(col, row) : ['grass']);
     if (types && (types.includes('water') || types.includes('swamp_impassable'))) return { ok: false, reason: 'непроходимая местность' };
     if (typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit)) return { ok: true, reason: '' };
     if (typeof getOpMoveCost !== 'function' || typeof getOpHexNeighbors !== 'function') return { ok: true, reason: '' };
@@ -42312,12 +42428,12 @@ function opLineOfSightBlocked(col1, row1, col2, row2) {
         if (col < 0 || row < 0) continue;
         const types = (typeof getOpHexTypes === 'function') ? getOpHexTypes(col, row) : ['grass'];
         const opCellHeight = (c, r, terrainTypes) => {
+            // ⚡ v13.183: высота — из зон (настоящие контуры), иначе поле level.
+            const zoneLevel = (typeof getOpHexLevel === 'function') ? getOpHexLevel(c, r) : 0;
             const cell = appData.campaign && appData.campaign.opMapGrid && appData.campaign.opMapGrid[`${c},${r}`];
-            // `hill` is a terrain class, not automatically a blocking elevation.
-            // Explicit level (and legacy mountain terrain) carries the height.
             const explicit = cell && !Array.isArray(cell) && Number.isFinite(Number(cell.level)) ? Number(cell.level) : 0;
             const mountain = (terrainTypes || []).some(t => /mountain/i.test(String(t))) ? 2 : 0;
-            return Math.max(explicit, mountain);
+            return Math.max(zoneLevel, explicit, mountain);
         };
         const eyeHeight = opCellHeight(col1, row1, (typeof getOpHexTypes === 'function') ? getOpHexTypes(col1, row1) : []);
         const blockHeight = opCellHeight(col, row, types);
@@ -42889,12 +43005,17 @@ function executeOpShoot(targets, distance) {
     if (infantryTargets.length > 0) {
         const target = infantryTargets[0];
         if (target.col !== null && target.row !== null) {
-            const types = getOpHexTypes(target.col, target.row);
-            if (types && types.length > 0) {
-                // ⚡ v13.182: многослойная местность — защита по лучшему укрытию.
-                if (types.includes('trenches')) terrainMod = 0.3;
-                else if (types.includes('forest')) terrainMod = 0.6;
-                else if (types.includes('bushes') || types.includes('rocks') || types.includes('hill')) terrainMod = 0.7;
+            // ⚡ v13.183: укрытие — метки гекса + ЗОНЫ (лес/кусты по контуру).
+            const marked = getOpHexTypes(target.col, target.row);
+            const zoned = (typeof getOpHexBaseTypes === 'function')
+                ? getOpHexBaseTypes(target.col, target.row) : [];
+            const types = (marked || []).concat(zoned);
+            const level = (typeof getOpHexLevel === 'function') ? getOpHexLevel(target.col, target.row) : 0;
+            if (types.length > 0) {
+                if (types.includes('trenches') || types.includes('building')) terrainMod = 0.3;
+                else if (types.includes('forest') || types.includes('shelled_forest') || types.includes('fallen_forest')) terrainMod = 0.6;
+                else if (types.includes('bushes') || types.includes('rocks')) terrainMod = 0.7;
+                else if (level > 0) terrainMod = 0.7;
                 else terrainMod = 1;
             }
         }
@@ -43185,22 +43306,23 @@ function calculateOpShootDamage(shooter, target, distance) {
         // Модификатор местности цели
     let terrainMod = 1;
     if (target.col !== null && target.row !== null) {
-        const types = getOpHexTypes(target.col, target.row);
+        // ⚡ v13.183: метки гекса + зоны (лес, кусты, высота) — по контуру.
+        const marked = getOpHexTypes(target.col, target.row);
+        const zoned = (typeof getOpHexBaseTypes === 'function')
+            ? getOpHexBaseTypes(target.col, target.row) : [];
+        const types = (marked || []).concat(zoned);
+        const zoneLevel = (typeof getOpHexLevel === 'function') ? getOpHexLevel(target.col, target.row) : 0;
         if (types && types.length > 0) {
-            // Проверяем метки (дают лучшую защиту)
             if (types.includes('trenches')) {
                 terrainMod = 0.3; // Окопы - отличная защита
             } else if (types.includes('building')) {
                 terrainMod = 0.4; // Здание - хорошая защита
             } else if (types.includes('forest')) {
                 terrainMod = 0.6; // Лес - средняя защита
-            } else if (types.includes('bushes')) {
-                terrainMod = 0.7; // Кусты - небольшая защита
-            } else if (types.includes('rocks')) {
-                terrainMod = 0.7; // Камни - небольшая защита
+            } else if (types.includes('bushes') || types.includes('rocks')) {
+                terrainMod = 0.7; // Кусты и камни - небольшая защита
             } else {
-                // Без меток - обычная местность (v13.182: все типы, не первый)
-                terrainMod = types.includes('hill') ? 0.7 : 1;
+                terrainMod = zoneLevel > 0 ? 0.7 : 1; // высота даёт укрытие
             }
         }
     }
