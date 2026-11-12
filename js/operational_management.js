@@ -1,4 +1,4 @@
-// v13.181 — automatic logistics, platoon consolidation and read-only order ETA.
+// v13.182 — automatic logistics, platoon consolidation and read-only order ETA.
 'use strict';
 const AUTO_SUPPLY_KINDS = ['ammoSmall', 'grenades', 'ammoOrdnance'];
 function autoSupplyNeeds(unit, index) {
