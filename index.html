@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.181 — операция</title>
+  <title>Боевой модуль v13.182 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -19,7 +19,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.181</h1>
+    <h1>⚔️ Боевой модуль v13.182</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -32,7 +32,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.181</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.182</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -84,7 +84,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.181 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.182 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -586,8 +586,9 @@ const SUPPLY_DEPOT_MAX = { ammoSmall: 1200, grenades: 300, ammoOrdnance: 80 };
 //    каждой стороне отдельно: у A.I.R.F. — 0,11, у BeVe — 7,0.
 const SUPPLY_EVAC_POINTS = { 'BeVe': { col: 7, row: 0 }, 'A.I.R.F.': { col: 0, row: 11 } };
 
-var APP_VERSION = 'v13.181';
-// v13.181: automatic supply, same-hex platoon consolidation and draft movement ETA.
+var APP_VERSION = 'v13.182';
+// v13.182: layered Valencia terrain — height levels, roads as hex edges, plus
+//          supply/combat rules reading base types, level and road links.
 // v13.172: full recon routes/observation marks, safe supply corridors, unit card editor, review fixes.
 // ⚡ v13.109 (п.1): запас дымовых снарядов ампуломёта (отдельный боекомплект,
 //    основной ammoOrdnance не расходуется). Константа — ВЫШЕ миграций сейвов,
@@ -954,7 +955,7 @@ function startFreshCampaignProgress() {
     activeBattles: [], onlineFinishedBattles: {}, hexOverlays: {},
     opMapMode: 'view', selectedPlaceUnitId: null,
     opMapImage: null, opMapScaleX: 1.0, opMapScaleY: 1.0, opMapOffsetX: 0, opMapOffsetY: 0,
-    opMapGrid: null, opUnits: null, enemyOpUnits: null, selectedOpUnit: null, opZoomLevel: 1
+    opMapGrid: null, opRoadEdges: null, opUnits: null, enemyOpUnits: null, selectedOpUnit: null, opZoomLevel: 1
   };
   appData.currentBattleId = null;
 }
@@ -2086,14 +2087,31 @@ function selectScenario(scenarioId, opts) {
       })
       .then(data => {
         appData.campaign.opMapGrid = data;
-        saveData();
-        initOperationalMap(); // перерисовываем
-        finishSelect(data);
+        // ⚡ v13.182: дорожные связи (рёбра) — отдельно, best-effort:
+        //    без файла движение по дороге идёт по старому правилу (тип гекса).
+        return fetch('maps/valencia_roads.json')
+          .then(r => (r.ok ? r.json() : null))
+          .then(roads => {
+            // ⚡ v13.182: файл — {edges:[["c,r","c,r"], ...]}; на всякий случай
+            //    принимаем и «голый» массив.
+            const edgeList = Array.isArray(roads) ? roads : (roads && Array.isArray(roads.edges) ? roads.edges : null);
+            appData.campaign.opRoadEdges = edgeList;
+            saveData();
+            initOperationalMap(); // перерисовываем
+            finishSelect(data);
+          })
+          .catch(() => {
+            appData.campaign.opRoadEdges = null;
+            saveData();
+            initOperationalMap();
+            finishSelect(data);
+          });
       })
       .catch(() => {
         // Если файл не загрузился – создаём пустую сетку (все траву)
         console.warn('Файл местности не найден, создаю пустую карту.');
         appData.campaign.opMapGrid = null;
+        appData.campaign.opRoadEdges = null;
         saveData();
         initOperationalMap();
         finishSelect(null);
@@ -4215,6 +4233,47 @@ function hasOpTerrain(col, row, terrainType) {
   return getOpHexTypes(col, row).includes(terrainType);
 }
 
+// ⚡ v13.182: БАЗОВЫЕ типы гекса БЕЗ меток (метки вроде окопов не должны
+//    переопределять местность при движении). getOpHexTypes() сливает метки
+//    в типы — для движения нужен именно базовый набор.
+function getOpHexBaseTypes(col, row) {
+    const key = `${col},${row}`;
+    const grid = appData.campaign.opMapGrid;
+    const cell = grid ? grid[key] : null;
+    if (!cell) return ['grass'];
+    if (Array.isArray(cell)) return cell.slice();
+    if (cell && Array.isArray(cell.types)) return cell.types.slice();
+    return [cell];
+}
+
+// ⚡ v13.182: уровень высоты оперативного гекса (0–3; 15 м на уровень).
+//    Старые сохранения без поля — 0.
+function getOpHexLevel(col, row) {
+    const key = `${col},${row}`;
+    const grid = appData.campaign.opMapGrid;
+    const cell = grid ? grid[key] : null;
+    if (!cell || Array.isArray(cell)) return 0;
+    const lvl = Number(cell.level);
+    return Number.isFinite(lvl) ? Math.max(0, Math.min(3, Math.round(lvl))) : 0;
+}
+
+// ⚡ v13.182: дорожные связи оперативной карты (maps/valencia_roads.json).
+//    opRoadConnected — есть ли ребро дороги между соседними гексами.
+//    opHasRoadData — загружены ли рёбра (новые кампании); без данных движение
+//    по дороге идёт по старому правилу (тип гекса 'road').
+function opHasRoadData() {
+    const edges = appData.campaign && appData.campaign.opRoadEdges;
+    return Array.isArray(edges) && edges.length > 0;
+}
+function opRoadConnected(fromCol, fromRow, toCol, toRow) {
+    const edges = appData.campaign && appData.campaign.opRoadEdges;
+    if (!Array.isArray(edges) || !edges.length) return false;
+    const a = `${Number(fromCol)},${Number(fromRow)}`;
+    const b = `${Number(toCol)},${Number(toRow)}`;
+    return edges.some(e => Array.isArray(e) && e.length === 2 &&
+        ((e[0] === a && e[1] === b) || (e[0] === b && e[1] === a)));
+}
+
 
 // ⚡ v13.021: ячейка гекса в объектной форме {types, markers}
 //    (для меток местности). Местность гекса при этом сохраняется.
@@ -4867,6 +4926,60 @@ function redrawOperationalMapNow() {
             ctx.fillText(`${col},${row}`, x, y + size * 0.8);
         }
     }
+    // ⚡ v13.182: слои местности из контуров — уровни высоты и дорога.
+    //    Уровень: тёплая тонировка + подпись ▲N (15 м на уровень).
+    //    Дорога: розовые линии между связанными гексами (как в просмотре).
+    try {
+        const opCenterOf = (c, r) => ({
+            x: c * Math.sqrt(3) * size + (r % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2,
+            y: r * 1.5 * size + size
+        });
+        const levelFill = { 1: 'rgba(215,184,76,0.22)', 2: 'rgba(229,129,55,0.26)', 3: 'rgba(227,70,114,0.30)' };
+        for (let row = 0; row < OP_MAP_ROWS; row++) {
+            for (let col = 0; col < OP_MAP_COLS; col++) {
+                if (typeof isHexRemovedFromOperationalMap === 'function' &&
+                    isHexRemovedFromOperationalMap(appData.campaign && appData.campaign.scenario, col, row)) continue;
+                const lvl = (typeof getOpHexLevel === 'function') ? getOpHexLevel(col, row) : 0;
+                if (!lvl) continue;
+                const c = opCenterOf(col, row);
+                ctx.beginPath();
+                for (let i = 0; i < 6; i++) {
+                    const angle = Math.PI / 180 * (60 * i - 30);
+                    const xi = c.x + size * Math.cos(angle);
+                    const yi = c.y + size * Math.sin(angle);
+                    if (i === 0) ctx.moveTo(xi, yi); else ctx.lineTo(xi, yi);
+                }
+                ctx.closePath();
+                ctx.fillStyle = levelFill[lvl] || levelFill[1];
+                ctx.fill();
+                ctx.fillStyle = 'rgba(255,255,255,0.9)';
+                ctx.font = `bold ${Math.max(9, size * 0.26)}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillText(`▲${lvl}`, c.x, c.y - size * 0.62);
+            }
+        }
+        const roadEdges = appData.campaign && appData.campaign.opRoadEdges;
+        if (Array.isArray(roadEdges) && roadEdges.length) {
+            ctx.save();
+            ctx.strokeStyle = '#ff54cb';
+            ctx.lineWidth = Math.max(2, size * 0.09);
+            ctx.lineCap = 'round';
+            ctx.globalAlpha = 0.85;
+            roadEdges.forEach(e => {
+                if (!Array.isArray(e) || e.length !== 2) return;
+                const [c1, r1] = String(e[0]).split(',').map(Number);
+                const [c2, r2] = String(e[1]).split(',').map(Number);
+                if (![c1, r1, c2, r2].every(Number.isFinite)) return;
+                const a = opCenterOf(c1, r1), b = opCenterOf(c2, r2);
+                ctx.beginPath();
+                ctx.moveTo(a.x, a.y);
+                ctx.lineTo(b.x, b.y);
+                ctx.stroke();
+            });
+            ctx.restore();
+        }
+    } catch (e) { console.warn('op terrain layers:', e); }
     // ⚡ v13.061: выделенные для начальной фортификации оперативные гексы.
     const fortificationSetup = appData.campaign.initialFortificationSetup;
     if (fortificationSetup && fortificationSetup.phase === 'select') {
@@ -6260,8 +6373,10 @@ function handleOpMapClick(e) {
         document.getElementById('mapInfo').innerHTML = `✅ Метка "${markerType}" установлена на гекс ${closestKey}`;
     }
 
-    // Если меток не осталось — возвращаем компактный формат (массив типов)
-    if (markers.length === 0) {
+    // Если меток не осталось — возвращаем компактный формат (массив типов).
+    // ⚡ v13.182: уровень высоты сохраняем — массив его теряет, поэтому
+    //    гекс с уровнем остаётся объектным.
+    if (markers.length === 0 && !(cell.level > 0)) {
         appData.campaign.opMapGrid[closestKey] = cell.types.slice();
     }
 
@@ -7604,6 +7719,10 @@ try {
     if (appData.campaign.opMapOffsetY === undefined) appData.campaign.opMapOffsetY = 0;
     if (!appData.campaign.opMapImage) appData.campaign.opMapImage = null;
     if (!appData.campaign.opMapGrid) appData.campaign.opMapGrid = null;
+    // ⚡ v13.182: дорожные связи оперативной карты (maps/valencia_roads.json).
+    //    Старые сохранения без поля — null: движение по дороге идёт по старому
+    //    правилу (тип гекса), новые кампании получают рёбра из файла.
+    if (!appData.campaign.opRoadEdges) appData.campaign.opRoadEdges = null;
     if (!appData.campaign.opUnits) appData.campaign.opUnits = null;
     if (!appData.campaign.selectedOpUnit) appData.campaign.selectedOpUnit = null;
     if (!appData.campaign.opZoomLevel) appData.campaign.opZoomLevel = 1;
@@ -35894,63 +36013,70 @@ function supplyRearRouteBlocked() {
 }
 
 // ── движение колонны (пешие/вьючные — как пехота, машины — только дорога/трава) ──
-function supplyMoveCost(mobility, toCol, toRow) {
+function supplyMoveCost(mobility, toCol, toRow, fromCol, fromRow) {
     if (typeof isHexInPlayableArea === 'function' &&
         !isHexInPlayableArea(appData.campaign && appData.campaign.scenario, toCol, toRow)) return Infinity;
-    const types = (typeof getOpHexTypes === 'function') ? getOpHexTypes(toCol, toRow) : ['grass'];
-    const terrain = (types && types[0]) || 'grass';
+    // ⚡ v13.182: многослойная местность (базовые типы + уровень + рёбра).
+    //    fromCol/fromRow опциональны: без них дорога — по типу гекса.
+    const baseTypes = (typeof getOpHexBaseTypes === 'function')
+        ? getOpHexBaseTypes(toCol, toRow)
+        : ((typeof getOpHexTypes === 'function') ? getOpHexTypes(toCol, toRow) : ['grass']);
+    const level = (typeof getOpHexLevel === 'function') ? getOpHexLevel(toCol, toRow) : 0;
+    const hasWater = baseTypes.includes('water');
+    const hasSwampImp = baseTypes.includes('swamp_impassable');
+    const hasSwampPass = baseTypes.includes('swamp_passable');
+    const hasForest = baseTypes.includes('forest');
+    const hasRocks = baseTypes.includes('rocks');
+    const hasTrenches = baseTypes.includes('trenches');
+    const hasBushes = baseTypes.includes('bushes');
+    const effLevel = level > 0 ? level : (baseTypes.includes('hill') ? 1 : 0);
+    const roadData = (typeof opHasRoadData === 'function') ? opHasRoadData() : false;
+    const roadLinked = roadData && fromCol != null && fromRow != null &&
+        (typeof opRoadConnected === 'function') && opRoadConnected(fromCol, fromRow, toCol, toRow);
+    const onRoad = roadLinked || (!roadData && baseTypes.includes('road'));
     // ⚡ v13.150: вода и непроходимое болото закрыты для всех, КРОМЕ амфибии
     //    (автомобиль DAF MC-V) — её стоимость считается в ветке ниже.
-    if ((terrain === 'water' || terrain === 'swamp_impassable') && mobility !== 'amphibious') return Infinity;
+    if ((hasWater || hasSwampImp) && mobility !== 'amphibious') return Infinity;
     if (mobility === 'vehicle') {
-        return (terrain === 'road' || terrain === 'grass') ? 1 : Infinity;
+        // Колёсная машина: дорога по связи — 1; вне дороги только чистая трава.
+        if (onRoad) return 1;
+        if (effLevel > 0 || hasForest || hasSwampPass || hasRocks || hasTrenches || hasBushes) return Infinity;
+        return 1;
     }
     // ⚡ v13.150 → v13.167: автомобиль-амфибия DAF MC-V (BeVe). По дорогам и
     //    траве — как машина; переправляется через воду и непроходимое болото, но
     //    «гораздо медленнее»: вода — 4, непроходимое болото — 5 «ОД» за гекс.
     if (mobility === 'amphibious') {
-        switch (terrain) {
-            case 'road': return 1;
-            case 'grass': return 1;
-            case 'bushes': return 2;
-            case 'trenches': return 2;
-            case 'water': return 4;
-            case 'swamp_impassable': return 5;
-            case 'swamp_passable': return 4;
-            default: return Infinity;
-        }
+        if (onRoad && !hasWater) return 1;
+        if (hasWater) return 4;
+        if (hasSwampImp) return 5;
+        if (hasSwampPass) return 4;
+        if (effLevel > 0 || hasForest) return Infinity;
+        if (hasTrenches) return 2;
+        if (hasBushes) return 2;
+        return 1;
     }
     // ⚡ v13.149 → v13.167: горный транспортёр TG-41 «Лама» — полугусеничный
     //    вездеход. По дорогам и траве идёт вдвое быстрее пеших (1 «ОД» против
     //    2), лес и кусты проходит пешим темпом, на холмы и камни заезжает.
     if (mobility === 'halftrack') {
-        switch (terrain) {
-            case 'road': return 1;
-            case 'grass': return 1;
-            case 'bushes': return 2;
-            case 'hill': return 2;
-            case 'rocks': return 2;
-            case 'forest': return 3;
-            case 'trenches': return 3;
-            case 'swamp_passable': return 4;
-            default: return Infinity;
-        }
+        if (onRoad) return 1;
+        if (effLevel > 0) return 2;
+        if (hasRocks) return 2;
+        if (hasForest) return 3;
+        if (hasTrenches) return 3;
+        if (hasSwampPass) return 4;
+        if (hasBushes) return 2;
+        return 1;
     }
     // ⚡ v13.167 (п.1): пешие и вьючные (носильщик, мул, лама, повозка) ходят
     //    ровно как пехотинец: 2 «ОД» за гекс обычной местности, 3 — холм и
     //    проходимое болото. При бюджете 4 ОД это 2 гекса за ход (а не 4, как
     //    было, когда гекс стоил 1).
-    switch (terrain) {
-        case 'hill': return 3;
-        case 'swamp_passable': return 3;
-        case 'road': return 2;
-        case 'grass': return 2;
-        case 'bushes': return 2;
-        case 'forest': return 2;
-        case 'trenches': return 2;
-        case 'rocks': return 2;
-        default: return 2;
-    }
+    if (onRoad) return 2;
+    if (effLevel > 0) return 3;
+    if (hasSwampPass) return 3;
+    return 2;
 }
 
 // ⚡ v13.167 (п.9): у колонны может быть НЕСКОЛЬКО типов транспорта. Раньше
@@ -35971,11 +36097,11 @@ function supplyDeliveryMobilityClasses(delivery) {
     if (!classes.length) return [String((delivery && delivery.mobility) || 'foot')];
     return classes;
 }
-function supplyDeliveryMoveCost(delivery, toCol, toRow) {
+function supplyDeliveryMoveCost(delivery, toCol, toRow, fromCol, fromRow) {
     const classes = supplyDeliveryMobilityClasses(delivery);
     let best = Infinity;
     classes.forEach(cls => {
-        const cost = supplyMoveCost(cls, toCol, toRow);
+        const cost = supplyMoveCost(cls, toCol, toRow, fromCol, fromRow);
         if (Number.isFinite(cost) && cost < best) best = cost;
     });
     return best;
@@ -36081,8 +36207,8 @@ function findSupplyRoute(delivery, toCol, toRow, opts) {
             if (typeof isHexInPlayableArea === 'function' &&
                 !isHexInPlayableArea(appData.campaign.scenario, next.col, next.row)) return;
             const stepCost = (typeof supplyDeliveryMoveCost === 'function')
-                ? supplyDeliveryMoveCost(delivery, next.col, next.row)
-                : supplyMoveCost(delivery.mobility || 'foot', next.col, next.row);
+                ? supplyDeliveryMoveCost(delivery, next.col, next.row, current.col, current.row)
+                : supplyMoveCost(delivery.mobility || 'foot', next.col, next.row, current.col, current.row);
             if (!Number.isFinite(stepCost)) return;
             const cost = current.cost + stepCost;
             if (cost < (best.get(key) ?? Infinity)) {
@@ -36100,9 +36226,14 @@ function findSupplyRoute(delivery, toCol, toRow, opts) {
     return key === start ? route.reverse() : null;
 }
 function supplyRouteCost(delivery, route) {
-    return (route || []).reduce((sum, hex) => sum + ((typeof supplyDeliveryMoveCost === 'function')
-        ? supplyDeliveryMoveCost(delivery, hex.col, hex.row)
-        : supplyMoveCost(delivery && delivery.mobility || 'foot', hex.col, hex.row)), 0);
+    let prevCol = delivery && delivery.col, prevRow = delivery && delivery.row;
+    return (route || []).reduce((sum, hex) => {
+        const cost = (typeof supplyDeliveryMoveCost === 'function')
+            ? supplyDeliveryMoveCost(delivery, hex.col, hex.row, prevCol, prevRow)
+            : supplyMoveCost(delivery && delivery.mobility || 'foot', hex.col, hex.row, prevCol, prevRow);
+        prevCol = hex.col; prevRow = hex.row;
+        return sum + cost;
+    }, 0);
 }
 // ═══════════════════════════════════════════════════════════════════════════
 // ⚡ v13.169: «А ДОЕДЕТ ЛИ ЭТО СРЕДСТВО?» — проверка ДО отправки.
@@ -36179,8 +36310,8 @@ function supplyStepToward(delivery, toCol, toRow) {
     let budget = SUPPLY_CONVOY_BUDGET;
     for (const next of route) {
         const cost = (typeof supplyDeliveryMoveCost === 'function')
-            ? supplyDeliveryMoveCost(delivery, next.col, next.row)
-            : supplyMoveCost(delivery.mobility || 'foot', next.col, next.row);
+            ? supplyDeliveryMoveCost(delivery, next.col, next.row, delivery.col, delivery.row)
+            : supplyMoveCost(delivery.mobility || 'foot', next.col, next.row, delivery.col, delivery.row);
         if (!Number.isFinite(cost) || cost > budget) break;
         delivery.col = next.col; delivery.row = next.row; budget -= cost;
         if (delivery.col === toCol && delivery.row === toRow) break;
@@ -39433,121 +39564,138 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
             if (cutting && cutting(Number(toCol), Number(toRow))) return Infinity;
         }
     } catch (e) {}
-    const types = getOpHexTypes(toCol, toRow);
-    if (!types || types.length === 0) return Infinity;
-    const terrain = types[0];
-    const nameForMovement = String((unit && unit.name) || '');
-    if ((unit.type === 'armored_vehicle_platoon' || unit.type === 'btr_platoon' || /бронеавтомобиль|\bБТР\b/i.test(nameForMovement)) &&
-        ['hill', 'rocks'].includes(terrain)) return Infinity;
-
-    // Непроходимые для всех
-    if (terrain === 'water' || terrain === 'swamp_impassable') return Infinity;
-
-    // ⚡ v13.073: «Талреп-якорь» — техника с якорем ЗАЕЗЖАЕТ на холм,
-    //    подъём на 1 уровень высоты стоит ВСЕГО ход (цена = все ОД отряда)
-    // ⚡ v13.078: проверка «нет низменности (level<2) в тактической карте гекса —
-    //    заезжать нельзя». Если карта не загружена (unknown) — разрешаем заезд,
-    //    чтобы юнит не «застревал» до загрузки; реальный запрет сработает, как
-    //    только карта прогрузится (UI пересчитает маршрут в getOpReachableHexesForUnit).
-    if (terrain === 'hill' && unit.winch) {
-        // ⚡ v13.087: талреп-якорь — только ОДИН горный гекс подряд: из горы
-        //    в гору заезжать нельзя (уже стоящий на холме может уйти на равнину).
-        const fromTerrain = (fromCol != null && fromRow != null)
-            ? (getOpHexTypes(fromCol, fromRow) || [])[0] : null;
-        if (fromTerrain === 'hill') return Infinity;
-        // ⚡ v13.079/v13.087: скрытный ход — лебёдка шумит, но подъём на 1 гекс
-        //    разрешён (стоимость = запас скрытного хода), а не блокируется.
-        if (unit.stealthMove) return OP_STEALTH_HILL_COST;
-        const sublevel = (typeof tacticalHexHasSublevel2 === 'function')
-            ? tacticalHexHasSublevel2(toCol + ',' + toRow) : 'unknown';
-        if (sublevel === false) return Infinity; // нет низин на тактической карте — заехать нельзя
-        return Math.max(3, unit.maxAp || 4);
-    }
+    // ⚡ v13.182: многослойная местность из контуров (valencia_terrain.json):
+    //    базовые типы БЕЗ меток + уровень высоты 0–3 + дорожные рёбра.
+    //    Правила — по проверочной модели (tools/terrain_diagnostics.js):
+    //    дорога по связи даёт полную дорожную скорость (кроме воды),
+    //    техника вне дороги не входит в высоты и болота, талреп — только
+    //    уровень 1, колёсная вне дороги не входит в лес, амфибия (DAF MC-V)
+    //    плавает и проходит болота с большим штрафом.
+    //    Старые сохранения без рёбер/уровней: дорога — по типу гекса,
+    //    холм без уровня считается уровнем 1.
+    const baseTypes = (typeof getOpHexBaseTypes === 'function')
+        ? getOpHexBaseTypes(toCol, toRow) : getOpHexTypes(toCol, toRow);
+    if (!baseTypes || baseTypes.length === 0) return Infinity;
+    const level = (typeof getOpHexLevel === 'function') ? getOpHexLevel(toCol, toRow) : 0;
+    const hasWater = baseTypes.includes('water');
+    const hasSwampImp = baseTypes.includes('swamp_impassable');
+    const hasSwampPass = baseTypes.includes('swamp_passable');
+    const hasSwamp = hasSwampImp || hasSwampPass;
+    const hasForest = baseTypes.includes('forest');
+    const hasRocks = baseTypes.includes('rocks');
+    const hasTrenches = baseTypes.includes('trenches');
+    const effLevel = level > 0 ? level : (baseTypes.includes('hill') ? 1 : 0);
+    const roadData = (typeof opHasRoadData === 'function') ? opHasRoadData() : false;
+    const roadLinked = roadData && fromCol != null && fromRow != null &&
+        (typeof opRoadConnected === 'function') && opRoadConnected(fromCol, fromRow, toCol, toRow);
+    const onRoad = roadLinked || (!roadData && baseTypes.includes('road'));
 
     const unitName = String((unit && unit.name) || '');
     const mobility = unit.mobility || 'foot';
     const dismounted = unit.dismounted || false;
+    const isAmphibious = mobility === 'amphibious';
+    const isTracked = mobility === 'vehicle' &&
+        (unit.type === 'tank_platoon' || unit.type === 'sau_battery' ||
+         unitName.includes('САУ') || unitName.includes('CL/39') || unitName.includes('Танк'));
+    const isWheeledVehicle = mobility === 'vehicle' && !isTracked;
+    const isHalftrack = mobility === 'halftrack';
+    const isVehicle = isTracked || isWheeledVehicle || isAmphibious || isHalftrack;
+    const isBicycle = mobility === 'bicycle' && !dismounted;
+    const isMotorcycle = mobility === 'motorcycle' && !dismounted;
 
-    // ---- ТАНКИ, САУ ----
-    if (mobility === 'vehicle' && (unit.type === 'tank_platoon' || unit.type === 'sau_battery' || unitName.includes('САУ') || unitName.includes('CL/39') || unitName.includes('Танк'))) {
-        if (terrain === 'hill' || terrain === 'swamp_passable' || terrain === 'rocks') return Infinity;
-        switch (terrain) {
-            case 'road': return 1;    // 3 гекса за 1 ОД (было 1)
-            case 'grass': return 1.3;      // 3 гекса за 1 ОД (было 1)
-            case 'bushes': return 1.3;     // 3 гекса за 1 ОД (было 1)
-            case 'forest': return 2;     // 1.5 гекса за 1 ОД (было 3)
-            case 'trenches': return 1.5; // 2 гекса за 1 ОД (было 2)
-            default: return Infinity;
-        }
-    }
+    // Вода: только амфибия (DAF MC-V); дорога сама по себе не означает мост.
+    if (hasWater && !isAmphibious) return Infinity;
+    // Непроходимое болото: только амфибия (DAF MC-V, с большим штрафом).
+    if (hasSwampImp && !isAmphibious) return Infinity;
 
-    // ---- БРОНЕАВТОМОБИЛИ, БТР ----
-    if (mobility === 'vehicle' && (unit.type === 'armored_vehicle_platoon' || unit.type === 'btr_platoon' || unit.type === 'vehicle' || unitName.includes('БТР') || unitName.includes('Бронеавтомобиль'))) {
-        // ⚡ v13.078: BeVe — «Болотоход» — бронетехника BeVe может заехать на КРАЙНИЙ
-        //    1 гекс проходимого болота (стоимость 4 ОД = весь ход), но не на
-        //    «внутреннее» болото (где все 6 соседей тоже болото). Холмы и камни —
-        //    по-прежнему непроходимы.
-        if (terrain === 'swamp_passable' && isBeveSwampTraversable(unit, toCol, toRow)) {
-            return 4; // весь ход — как подъём на холм с талрепом
-        }
-        if (terrain === 'hill' || terrain === 'swamp_passable' || terrain === 'rocks') return Infinity;
-        switch (terrain) {
-            case 'road': return 1;
-            case 'grass': return 1.3;
-            case 'bushes': return 1.3;
-            case 'forest': return 2;
-            case 'trenches': return 2;
-            default: return Infinity;
-        }
-    }
-    // ---- ВЕЛОСИПЕДИСТЫ (НЕ спешены) ----
-    if (mobility === 'bicycle' && !dismounted) {
-        if (terrain === 'hill' || terrain === 'swamp_passable' || terrain === 'rocks') return Infinity;
-        switch (terrain) {
-            case 'road': return 1;
-            case 'grass': return 2;
-            case 'bushes': return 2;
-            case 'forest': return 2;
-            case 'trenches': return 2;
-            default: return Infinity;
-        }
-    }
-    // ---- МОТОЦИКЛЕТНЫЙ ВЗВОД (НЕ спешен) ----
-    // ⚡ v13.159: скорость мотоциклетного взвода — 4 гекса по дороге (1 ОД),
-    //    2 по траве и кустам (2 ОД), 1 по лесу (4 ОД — весь ход). Холм, болото
-    //    и камни непроходимы; спешенный взвод ходит со скоростью пехоты.
-    if (mobility === 'motorcycle' && !dismounted) {
-        if (terrain === 'hill' || terrain === 'swamp_passable' || terrain === 'rocks') return Infinity;
-        switch (terrain) {
-            case 'road': return 1;
-            case 'grass': return 2;
-            case 'bushes': return 2;
-            case 'forest': return 4;
-            case 'trenches': return 2;
-            default: return Infinity;
-        }
+    // Амфибия на воде и в непроходимом болоте плавает — это НЕ дорожный
+    // режим, поэтому проверяется раньше дороги: штраф сохраняется и на
+    // гексе с дорожной связью (моста через воду нет).
+    if (isAmphibious) {
+        if (hasWater) return 4;         // DAF MC-V: переправа
+        if (hasSwampImp) return 5;      // топь: «гораздо медленнее»
     }
 
-    // ---- ПЕХОТА (включая спешенных велосипедистов/мотоциклистов) ----
-    // mobility === 'foot' или dismounted === true
-    // ⚡ v13.079: скрытное движение (stealthMove) урезает ОД до 2 — подъём на холм
-    //    (3 ОД) или с талрепом (4 ОД) не помещается в лимит. Лебёдка талрепа
-    //    тоже шумит — подъём на холм несовместим со скрытностью.
-    if (terrain === 'hill') {
-        // ⚡ v13.087: при скрытном ходе подъём на холм = весь запас (минимум 1 гекс)
+    // Дорога по связи: полная дорожная скорость, включая высоты и болота.
+    if (onRoad) {
+        if (isMotorcycle) return 1;
+        if (isBicycle) return 1;
+        if (isVehicle) return 1;
+        return 2;
+    }
+
+    // Высота вне дороги.
+    if (effLevel > 0) {
+        // ⚡ v13.073/v13.087: талреп-якорь — только уровень 1 (15 м), один
+        //    горный гекс подряд, цена — весь ход; уровни 2/3 с якорем закрыты.
+        if (isVehicle && unit.winch && effLevel === 1) {
+            const fromLevel = (fromCol != null && fromRow != null &&
+                (typeof getOpHexLevel === 'function')) ? getOpHexLevel(fromCol, fromRow) : 0;
+            const fromTypes = (fromCol != null && fromRow != null)
+                ? ((typeof getOpHexBaseTypes === 'function')
+                    ? getOpHexBaseTypes(fromCol, fromRow) : getOpHexTypes(fromCol, fromRow)) : [];
+            const fromEff = fromLevel > 0 ? fromLevel : (fromTypes.includes('hill') ? 1 : 0);
+            if (fromEff > 0) return Infinity; // из горы в гору нельзя
+            if (unit.stealthMove) return OP_STEALTH_HILL_COST;
+            const sublevel = (typeof tacticalHexHasSublevel2 === 'function')
+                ? tacticalHexHasSublevel2(toCol + ',' + toRow) : 'unknown';
+            if (sublevel === false) return Infinity; // нет низин на тактической карте
+            return Math.max(3, unit.maxAp || 4);
+        }
+        if (isVehicle && !isHalftrack) return Infinity;
+        if (isBicycle || isMotorcycle) return Infinity;
+        if (isHalftrack) return 2; // горный транспортёр TG-41
+        // Пехота: подъём на любую высоту — 3 ОД (скрытно — весь запас).
         if (unit.stealthMove) return OP_STEALTH_HILL_COST;
         return 3;
     }
-    if (terrain === 'swamp_passable') return 3;
-    switch (terrain) {
-        case 'road': return 2;
-        case 'grass': return 2;
-        case 'bushes': return 2;
-        case 'forest': return 2;
-        case 'trenches': return 2;
-        case 'rocks': return 2;
-        default: return Infinity;
+
+    // Болото проходимое вне дороги.
+    if (hasSwampPass) {
+        if (isAmphibious) return 4; // DAF MC-V: большой штраф
+        // ⚡ v13.078: BeVe «Болотоход» — крайний гекс болота за весь ход.
+        if (isWheeledVehicle && isBeveSwampTraversable(unit, toCol, toRow)) return 4;
+        if (isVehicle && !isHalftrack) return Infinity;
+        if (isBicycle || isMotorcycle) return Infinity;
+        if (isHalftrack) return 4;
+        return 3; // пехота: с замедлением
     }
+
+    // Лес вне дороги: гусеничная и полугусеничная проходят, колёсная — нет.
+    if (hasForest) {
+        if (isTracked) return 2;
+        if (isHalftrack) return 3;
+        if (isWheeledVehicle || isAmphibious || isBicycle || isMotorcycle) return Infinity;
+        return 2; // пехота
+    }
+
+    // Камни: техника не заходит, пехота — как по траве.
+    if (hasRocks) {
+        if (isHalftrack) return 2;
+        if (isVehicle || isBicycle || isMotorcycle) return Infinity;
+        return 2;
+    }
+
+    // ---- Обычное движение (трава, кусты, окопы) ----
+    if (isTracked) {
+        if (hasTrenches) return 1.5;
+        return 1.3; // трава/кусты
+    }
+    if (isWheeledVehicle) {
+        if (hasTrenches) return 2;
+        return 1.3;
+    }
+    if (isAmphibious) {
+        if (hasTrenches) return 2;
+        return 1.3;
+    }
+    if (isHalftrack) {
+        if (hasTrenches) return 3;
+        return 1; // трава/кусты — вдвое быстрее пеших
+    }
+    if (isMotorcycle) return 2;
+    if (isBicycle) return 2;
+    return 2; // пехота
 }
 // ⚡ v13.046 (R31#7) → v13.051 (R36#2): юнит, посаженный на БТР (который стоит
 //    на поле), считается РАЗМЕЩЁННЫМ — общая проверка для «Завершить
@@ -39583,8 +39731,8 @@ function opPlacementHexSafety(unit, col, row) {
         return { ok: false, reason: 'гекс за пределами игровой карты' };
     }
     const types = (typeof getOpHexTypes === 'function') ? getOpHexTypes(col, row) : ['grass'];
-    const terrain = types && types[0];
-    if (terrain === 'water' || terrain === 'swamp_impassable') return { ok: false, reason: 'непроходимая местность' };
+    // ⚡ v13.182: многослойная местность — проверяем все типы, а не первый.
+    if (types && (types.includes('water') || types.includes('swamp_impassable'))) return { ok: false, reason: 'непроходимая местность' };
     if (typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit)) return { ok: true, reason: '' };
     if (typeof getOpMoveCost !== 'function' || typeof getOpHexNeighbors !== 'function') return { ok: true, reason: '' };
     const neighbors = getOpHexNeighbors(col, row) || [];
@@ -42743,14 +42891,11 @@ function executeOpShoot(targets, distance) {
         if (target.col !== null && target.row !== null) {
             const types = getOpHexTypes(target.col, target.row);
             if (types && types.length > 0) {
-                const terrain = types[0];
-                switch (terrain) {
-                    case 'grass': case 'road': case 'swamp_passable': terrainMod = 1; break;
-                    case 'bushes': case 'rocks': case 'hill': terrainMod = 0.7; break;
-                    case 'forest': terrainMod = 0.6; break;
-                    case 'trenches': terrainMod = 0.3; break;
-                    default: terrainMod = 1;
-                }
+                // ⚡ v13.182: многослойная местность — защита по лучшему укрытию.
+                if (types.includes('trenches')) terrainMod = 0.3;
+                else if (types.includes('forest')) terrainMod = 0.6;
+                else if (types.includes('bushes') || types.includes('rocks') || types.includes('hill')) terrainMod = 0.7;
+                else terrainMod = 1;
             }
         }
     }
@@ -43054,13 +43199,8 @@ function calculateOpShootDamage(shooter, target, distance) {
             } else if (types.includes('rocks')) {
                 terrainMod = 0.7; // Камни - небольшая защита
             } else {
-                // Без меток - обычная местность
-                const terrain = types[0];
-                switch (terrain) {
-                    case 'grass': case 'road': case 'swamp_passable': terrainMod = 1; break;
-                    case 'hill': terrainMod = 0.7; break;
-                    default: terrainMod = 1;
-                }
+                // Без меток - обычная местность (v13.182: все типы, не первый)
+                terrainMod = types.includes('hill') ? 0.7 : 1;
             }
         }
     }
