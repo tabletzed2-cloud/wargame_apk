@@ -154,7 +154,7 @@ const roads = Array.isArray(roadsFile) ? roadsFile : roadsFile.edges;
 const layerFile = JSON.parse(fs.readFileSync(path.join(ROOT, 'maps', 'valencia_layers.json'), 'utf8'));
 check('Валенсия: 280 гексов', Object.keys(terrain).length === 280);
 check('Валенсия: гексы в объектном формате {types, markers}', Object.values(terrain).every(c => !Array.isArray(c) && Array.isArray(c.types)));
-check('Валенсия: 27 рёбер', roads.length === 27);
+check('Валенсия: 23 ребра дороги', roads.length === 23);
 const levels = {};
 const realCtx = makeEnv(terrain, roads);
 realCtx.appData.campaign.opMapScaleX = 0.61;

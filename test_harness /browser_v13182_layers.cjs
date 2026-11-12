@@ -47,7 +47,7 @@ const root = path.resolve(process.env.WARGAME_ROOT || path.join(__dirname, '..')
       });
       const c = appData.campaign;
       check(typeof c.opRoadEdges !== 'undefined', 'поле opRoadEdges отсутствует');
-      check(Array.isArray(c.opRoadEdges) && c.opRoadEdges.length === 27, 'рёбра дороги не загрузились: ' + (c.opRoadEdges && c.opRoadEdges.length));
+      check(Array.isArray(c.opRoadEdges) && c.opRoadEdges.length === 23, 'рёбра дороги не загрузились: ' + (c.opRoadEdges && c.opRoadEdges.length));
       check(!!(c.opLayers && c.opLayers.layers), 'зоны не загрузились');
       check(Object.keys(c.opLayers.layers).length === 8, 'ожидалось 8 групп зон');
       check(Object.keys(c.opMapGrid).length === 280, 'гексов: ' + Object.keys(c.opMapGrid).length);

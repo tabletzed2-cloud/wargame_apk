@@ -64,26 +64,14 @@ def extract(path):
     return polygons, stroke
 
 
-def road_edges(paths,centers):
-    edges=set()
-    def cell(x,y):
-        return min(centers,key=lambda c:(c['x']-x)**2+(c['y']-y)**2)
-    def distance(a,b):
-        aq=a['col']-(a['row']-(a['row']%2))//2
-        bq=b['col']-(b['row']-(b['row']%2))//2
-        dq,dr=aq-bq,a['row']-b['row']
-        return max(abs(dq),abs(dr),abs(dq+dr))
-    for path in paths:
-        previous=None
-        for a,b in zip(path,path[1:]):
-            steps=max(1,int(math.hypot(b[0]-a[0],b[1]-a[1])/2))
-            for t in np.linspace(0,1,steps+1):
-                current=cell(a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t)
-                if previous and distance(previous,current)==1:
-                    edge=sorted([f"{previous['col']},{previous['row']}",f"{current['col']},{current['row']}"])
-                    edges.add(tuple(edge))
-                previous=current
-    return [list(e) for e in sorted(edges)]
+def road_edges(paths,centers,transform=None,image_size=None):
+    """Дорога → цепочки гексов. Логика одна на весь проект (см. build_valencia_terrain)."""
+    from build_valencia_terrain import road_chains
+    if transform is None:
+        transform = {'hexSize': 55,'columns':20,'rows':15,'drawWidth':1191.26,'drawHeight':1196.47}
+    if image_size is None:
+        image_size = [1184,1170]
+    return road_chains(paths, centers, transform, image_size)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -197,7 +185,10 @@ def main():
             metadata['centers'].append(center)
             center_svg.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="3"><title>Гекс {col},{row}: {elevation*15} м; {", ".join(vegetation) or "открыто"}</title></circle>')
             draw.ellipse((x-2,y-2,x+2,y+2),fill='white',outline='black',width=1)
-    metadata['road']['edges']=road_edges(roads['paths'],metadata['centers'])
+    _chains,_edges=road_edges(roads['paths'],metadata['centers'],
+        metadata['gameTransform'],metadata['imageSize'])
+    metadata['road']['chains']=_chains
+    metadata['road']['edges']=_edges
     # Keep the actual game centers separate from the hex grid printed in the artwork.
     metadata['validation']=dict(layerRegionCounts={l['id']:len(l['polygons']) for l in metadata['layers']},
         centersOnImage=len(metadata['centers']),vegetationOverlapCenters=[c for c in metadata['centers'] if len(c['vegetation'])>1])

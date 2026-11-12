@@ -170,6 +170,31 @@ check('в отрисовке карты нет слоёв местности',
 check('нет надписи ▲N для уровней кампании',
     !HTML.includes('`▲${lvl}`'));
 
+// ── 4b. Дорога идёт по гексам, а не зигзагом через ряд ────────────────────
+const chainFile = fs.readFileSync(path.join(ROOT, 'maps', 'valencia_roads.json'), 'utf8');
+const chains = JSON.parse(chainFile).chains || [];
+const mainChain = chains.find(ch => ch.includes('9,8') && ch.includes('10,8')) || [];
+check('цепочки дороги сохранены (' + chains.length + ')', chains.length >= 3);
+// 12,8 лежит в отдельной короткой цепочке, но связь 11,8→12,8 обязана быть
+const hasEdge = (a, b) => realEdges.some(e =>
+    (String(e[0]) === a && String(e[1]) === b) || (String(e[0]) === b && String(e[1]) === a));
+check('дорога по ряду 8: 9,8 → 10,8 → 11,8',
+    mainChain[mainChain.indexOf('9,8') + 1] === '10,8' &&
+    mainChain[mainChain.indexOf('10,8') + 1] === '11,8');
+check('дорога продолжается на 12,8', hasEdge('11,8', '12,8'));
+check('нет зигзага 9,8 ↔ 9,9 ↔ 10,8',
+    !(mainChain.includes('9,9') && mainChain.includes('10,9')));
+const zigzag = realEdges.filter(e => {
+    const [a, b] = e.map(v => String(v));
+    return (a === '9,8' && b === '9,9') || (a === '10,8' && b === '10,9') ||
+           (a === '9,9' && b === '9,8') || (a === '10,9' && b === '10,8');
+});
+check('рёбер-ступенек между рядами 8 и 9 нет', zigzag.length === 0);
+// северная ветка не делает крюк 7,0 → 6,1 → 7,0
+const northChain = chains.find(ch => ch[0] === '6,0' || ch[0] === '7,0') || [];
+const northJumps = northChain.reduce((n, k, i) => n + (i > 0 && k === northChain[i - 2] ? 1 : 0), 0);
+check('северная ветка без крюка на старте', northJumps === 0);
+
 // ── 5. Реальные дороги: все переходы стоят 1 ОД ───────────────────────────
 let roadBad = 0;
 realEdges.forEach(e => {
@@ -177,7 +202,7 @@ realEdges.forEach(e => {
     if (realCtx.getOpMoveCost(foot, a[0], a[1], b[0], b[1]) !== 1) roadBad++;
     if (realCtx.getOpMoveCost(tank, a[0], a[1], b[0], b[1]) !== 1) roadBad++;
 });
-check('все 27 рёбер: по 1 ОД для пехоты и танка', realEdges.length === 27 && roadBad === 0);
+check('все рёбра: по 1 ОД для пехоты и танка (' + realEdges.length + ')', realEdges.length === 23 && roadBad === 0);
 
 console.log(`\nИтог v13.183 (зоны местности: контуры, дорога без штрафов, без графики): ` +
     `${fail === 0 ? 'PASS' : 'FAIL'} ${pass} · FAIL ${fail}`);
