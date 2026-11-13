@@ -439,6 +439,65 @@ function placementTrayUnplacedSquads(battle) {
         !placedIdx.has(x.i));
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.184 (п.2): панель расстановки — отряды СГРУППИРОВАНЫ ПО ВЗВОДАМ.
+//
+//    Раньше резерв был одним длинным списком фишек, и в бою с участием
+//    нескольких взводов было непонятно, кто чей. Теперь каждая группа — свой
+//    взвод (поле squad.opUnitName; без него — «Без привязки к взводу»),
+//    с заголовком, цветной меткой и счётчиком отрядов.
+// ═══════════════════════════════════════════════════════════════════════════
+function placementPlatoonLabel(squad) {
+    return String((squad && squad.opUnitName) || 'Без привязки к взводу');
+}
+
+// Устойчивый порядок групп: по первому появлению в списке отрядов боя.
+function placementGroupByPlatoon(entries) {
+    const groups = [];
+    const index = new Map();
+    (entries || []).forEach(entry => {
+        if (!entry || !entry.s) return;
+        const label = placementPlatoonLabel(entry.s);
+        if (!index.has(label)) {
+            index.set(label, groups.length);
+            groups.push({ label, entries: [] });
+        }
+        groups[index.get(label)].entries.push(entry);
+    });
+    return groups;
+}
+
+function placementEscape(value) {
+    return String(value === null || value === undefined ? '' : value)
+        .replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+// HTML панели: группы по взводам, в каждой — свои фишки.
+function placementTrayGroupsHtml(entries, options) {
+    const opts = options || {};
+    const groups = placementGroupByPlatoon(entries);
+    if (!groups.length) {
+        return `<div style="color:#9ad3a8;">${opts.emptyText || 'Все отряды размещены.'}</div>`;
+    }
+    const colorOf = (typeof window !== 'undefined' && typeof window.tacticalPlatoonColor === 'function')
+        ? window.tacticalPlatoonColor : null;
+    return groups.map((group, groupIdx) => {
+        const color = colorOf ? colorOf(group.label, groupIdx) : null;
+        const border = color || '#3f7a54';
+        return `<div class="battle-placement-group" style="border-left-color:${border};">` +
+            `<div class="battle-placement-group-title">` +
+            (color ? `<span class="battle-placement-group-dot" style="background:${color};"></span>` : '') +
+            `${placementEscape(group.label)}<span class="battle-placement-group-count">${group.entries.length}</span></div>` +
+            `<div class="battle-placement-tray-units">` +
+            group.entries.map(x =>
+                `<button type="button" class="battle-placement-chip" data-battle-place-unit="${x.i}" ` +
+                `style="border-color:${border};" title="${placementEscape(x.s.name)}">` +
+                (x.s.icon ? `<img src="${placementEscape(x.s.icon)}" alt="">` : '') +
+                `<span>${placementEscape(x.s.name)}</span></button>`).join('') +
+            `</div></div>`;
+    }).join('');
+}
+
 // ⚡ v13.129 (п.5): перетаскивание карточек отрядов из панели на тактическую карту
 function installBattlePlacementTray() {
     if (typeof window === 'undefined' || window.__battlePlacementTrayBound) return;
@@ -667,9 +726,7 @@ function renderPlacementPanel() {
         if (trayElR) {
             trayElR.style.display = 'block';
             trayElR.innerHTML = `<div class="battle-placement-tray-title">🗂 Подкрепление — перетащите на карту (или тап — выбор в списке «Отряд»)</div>` +
-                `<div class="battle-placement-tray-units">` + reinforcements.map(x =>
-                    `<button type="button" class="battle-placement-chip" data-battle-place-unit="${x.i}" title="${String(x.s.name).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}">` +
-                    (x.s.icon ? `<img src="${x.s.icon}" alt="">` : '') + `<span>${x.s.name}</span></button>`).join('') + `</div>`;
+                placementTrayGroupsHtml(reinforcements, { emptyText: 'Подкрепление выставлено.' });
         }
         el.innerHTML = reinforcementHtml;
         el.style.display = 'block';
@@ -760,13 +817,9 @@ function renderPlacementPanel() {
         } else {
             trayEl.style.display = 'block';
             trayEl.innerHTML = `<div class="battle-placement-tray-title">🗂 Отряды в резерве — перетащите на карту (или тап — выбор в списке «Отряд», затем клик по гексу)</div>` +
-                (traySquads.length
-                    ? `<div class="battle-placement-tray-units">` + traySquads.map(x =>
-                        `<button type="button" class="battle-placement-chip" data-battle-place-unit="${x.i}" title="${escapeText(x.s.name)}">` +
-                        (x.s.icon ? `<img src="${escapeText(x.s.icon)}" alt="">` : '') +
-                        `<span>${escapeText(x.s.name)}</span></button>`
-                    ).join('') + `</div>`
-                    : `<div style="color:#9ad3a8;">Все отряды размещены — нажмите «✅ Размещение завершено».</div>`);
+                placementTrayGroupsHtml(traySquads, {
+                    emptyText: 'Все отряды размещены — нажмите «✅ Размещение завершено».'
+                });
         }
     }
     el.innerHTML = html + cardHtml;

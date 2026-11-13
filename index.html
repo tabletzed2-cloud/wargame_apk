@@ -274,6 +274,11 @@
     </div>
     <!-- ⚡ v13.077: подпись рельефа — где подъём, а где спуск (без цифр на гексах) -->
     <div id="tacticalReliefNote">⛰️ <b>Рельеф:</b> чем теплее оттенок — тем выше местность; у границ уровней — полосы света и тени (свет с северо-запада) и тонкая линия границы высот.</div>
+    <!-- ⚡ v13.184 (п.2): панель расстановки ВПЛОТНУЮ к карте (сразу под холстом),
+         отряды сгруппированы по взводам. Раньше панели были ниже журнала боя
+         и уезжали за пределы экрана. -->
+    <div id="battlePlacementTray" style="display:none; margin:6px 0; padding:8px; background:#1d2b1f; border:1px solid #376244; border-radius:8px;"></div>
+    <div id="battlePlacementPanel" style="display:none; margin:6px 0; padding:8px; background:#2a2314; border:1px solid #f1c40f; border-radius:8px; font-size:0.92rem;"></div>
     <!-- ⚡ v13.054 (R39#4): панель действий выбранного на карте отряда (стрельба, подавление,
          гранаты, рукопашная…) — те же функции, что во вкладке «⚡ Бой»; цель выбирается кликом
          по противнику на карте, урон применяется к цели автоматически (js/map_actions.js) -->
@@ -298,8 +303,6 @@
          расставить окопы и вернуться в бой кнопкой «✅ Готово — вернуться в бой» -->
     <!-- ⚡ v13.055 (R39#3): фаза размещения перед боем — роль (атакующий/обороняющийся), зона, готовность -->
     <!-- ⚡ v13.136 (п.4): отдельное меню отрядов для перетаскивания на карту боя -->
-    <div id="battlePlacementTray" style="display:none; margin:6px 0; padding:8px; background:#1d2b1f; border:1px solid #376244; border-radius:8px;"></div>
-    <div id="battlePlacementPanel" style="display:none; margin:6px 0; padding:8px; background:#2a2314; border:1px solid #f1c40f; border-radius:8px; font-size:0.92rem;"></div>
     <div id="battleHexEditsPanel" style="display:none; margin:6px 0; padding:8px; background:#12241a; border:1px solid #27ae60; border-radius:8px; font-size:0.9rem;"></div>
     <!-- ⚡ v13.066: миникарта кампании при открытом меню тактической карты
          (бой или редактор карты гекса — окопы, подготовка позиций).
@@ -586,7 +589,7 @@ const SUPPLY_DEPOT_MAX = { ammoSmall: 1200, grenades: 300, ammoOrdnance: 80 };
 //    каждой стороне отдельно: у A.I.R.F. — 0,11, у BeVe — 7,0.
 const SUPPLY_EVAC_POINTS = { 'BeVe': { col: 7, row: 0 }, 'A.I.R.F.': { col: 0, row: 11 } };
 
-var APP_VERSION = 'v13.183';
+var APP_VERSION = 'v13.184';
 // v13.183: terrain layers as ZONES (contours), road links cost 1 with no penalty,
 //          no layer graphics on the campaign map; supply/combat read zones.
 // v13.172: full recon routes/observation marks, safe supply corridors, unit card editor, review fixes.
@@ -4724,6 +4727,202 @@ function drawOperationalDotFireSectors(ctx, size) {
     ctx.restore();
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.184 (п.3): ЦВЕТ ПОДСВЕТКИ ВЫБРАННОГО ОТРЯДА — ПО ЕГО ВЗВОДУ.
+//
+//    Раньше выбранный отряд на тактической карте всегда обводился жёлтым.
+//    Теперь каждый взвод, участвующий в КОНКРЕТНОМ бою, получает свой цвет,
+//    и подсветка показывает, к какому взводу относится выбранный отряд.
+//
+//    Цвета назначаются на бой заново, по порядку появления взводов в составе
+//    боя, и НЕ закреплены за номером взвода: в одном бою взвод №3 красный, а
+//    в другом красным окажется взвод №1. Порядок сохраняется в сейве боя
+//    (battle.platoonColorOrder), чтобы после перезагрузки цвета не «прыгали».
+// ═══════════════════════════════════════════════════════════════════════════
+const TACTICAL_PLATOON_COLORS = ['#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#3498db', '#9b59b6', '#1abc9c', '#e84393'];
+
+function tacticalCurrentBattleRecordSafe() {
+    try {
+        return (typeof getTacticalBattleRecord === 'function') ? getTacticalBattleRecord() : null;
+    } catch (e) { return null; }
+}
+
+// Список взводов КОНКРЕТНОГО боя в порядке появления.
+// Берём именно состав боя (battle.playerSquads + battle.enemySquads), а не
+// всю армию: цвета назначаются в пределах одного боя.
+function tacticalBattlePlatoonOrder(extraSquad) {
+    const order = [];
+    const seen = new Set();
+    const push = label => {
+        const text = String(label || '');
+        if (!text || seen.has(text)) return;
+        seen.add(text);
+        order.push(text);
+    };
+    const battle = tacticalCurrentBattleRecordSafe();
+    const collect = list => (Array.isArray(list) ? list : []).forEach(squad => {
+        if (!squad || squad.hidden) return;
+        push(squad.opUnitName);
+    });
+    const battleHasSquads = !!(battle && ((battle.playerSquads || []).length || (battle.enemySquads || []).length));
+    if (battleHasSquads) { collect(battle.playerSquads); collect(battle.enemySquads); }
+    else { collect(appData && appData.squads); collect(appData && appData.map && appData.map.enemySquads); }
+    // «Без привязки к взводу» — в самом конце, чтобы не занимать первый цвет
+    const pool = battleHasSquads
+        ? (battle.playerSquads || []).concat(battle.enemySquads || [])
+        : ((appData && appData.squads) || []).concat((appData && appData.map && appData.map.enemySquads) || []);
+    const hasUnassigned = pool.some(squad => squad && !squad.hidden && !squad.opUnitName);
+    if (hasUnassigned) push('Без привязки к взводу');
+    if (extraSquad && extraSquad.opUnitName) push(extraSquad.opUnitName);
+    // Сохранённый порядок боя приоритетнее: цвета не должны «прыгать» после сейва.
+    const saved = battle && Array.isArray(battle.platoonColorOrder) ? battle.platoonColorOrder : null;
+    if (saved && saved.length) {
+        const merged = [];
+        saved.forEach(label => {
+            const text = String(label);
+            if (seen.has(text)) { merged.push(text); seen.delete(text); }
+        });
+        order.forEach(label => { if (seen.has(label)) merged.push(label); });
+        return merged;
+    }
+    if (battle && order.length) battle.platoonColorOrder = order.slice();
+    return order;
+}
+
+// Цвет взвода по его названию. index — подсказка, если взвод ещё не в списке.
+function tacticalPlatoonColor(label, index) {
+    const text = String(label || 'Без привязки к взводу');
+    const order = tacticalBattlePlatoonOrder({ opUnitName: text === 'Без привязки к взводу' ? null : text });
+    let position = order.indexOf(text);
+    if (position < 0) position = Number.isFinite(Number(index)) && Number(index) >= 0 ? Number(index) : order.length;
+    return TACTICAL_PLATOON_COLORS[position % TACTICAL_PLATOON_COLORS.length];
+}
+
+// Цвет подсветки конкретного отряда = цвет его взвода.
+function tacticalSquadHighlightColor(squad) {
+    if (!squad) return TACTICAL_PLATOON_COLORS[2];
+    const label = squad.opUnitName || 'Без привязки к взводу';
+    // Взвод самого отряда обязан попасть в порядок, даже если отряд ещё не в
+    // списке состава боя (например, только что выбран в панели).
+    const order = tacticalBattlePlatoonOrder(squad);
+    const position = order.indexOf(label);
+    return TACTICAL_PLATOON_COLORS[(position < 0 ? order.length : position) % TACTICAL_PLATOON_COLORS.length];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.184: ЗОНА ВИДИМОСТИ ВЫБРАННОГО ЮНИТА НА ОПЕРАТИВНОЙ КАРТЕ.
+//
+//    При выделении юнита игрок видит, что именно этот юнит просматривает:
+//      • радиус обзора — 3 гекса днём, 1 гекс ночью (те же значения, что
+//        используются в обнаружении: opUnitInPlayerSight и проверка техники);
+//      • каждый гекс в радиусе проверяется линией видимости opLineOfSightBlocked
+//        (та же функция, что в обнаружении): лес, кусты и высоты перекрывают
+//        обзор, если они выше наблюдателя или это лес на его уровне;
+//      • перекрытые гексы НЕ подсвечиваются вовсе — видно ровно то, что юнит
+//        реально видит, поэтому зона получается «рваной», как на местности.
+//    Подсветка — только читаемость: обнаружение по-прежнему решают проверки
+//    d10 + модификаторы (opCheckUnitDetection / opDetectionModifier).
+// ═══════════════════════════════════════════════════════════════════════════
+const OP_VISION_RANGE_DAY = 3;
+const OP_VISION_RANGE_NIGHT = 1;
+
+function opUnitVisionRange(unit) {
+    const night = (typeof isNightTime === 'function') && isNightTime();
+    return night ? OP_VISION_RANGE_NIGHT : OP_VISION_RANGE_DAY;
+}
+
+// Гексы, которые юнит реально просматривает: {keys:Set, radius, blocked:number}
+function opUnitVisionHexes(unit) {
+    const result = { keys: new Set(), radius: 0, blocked: 0, night: false };
+    if (!unit || unit.isDestroyed || unit.isSurrendered) return result;
+    const col = Number(unit.col), row = Number(unit.row);
+    if (!Number.isFinite(col) || !Number.isFinite(row)) return result;
+    const radius = opUnitVisionRange(unit);
+    result.radius = radius;
+    result.night = (typeof isNightTime === 'function') && isNightTime();
+    const scenario = appData.campaign && appData.campaign.scenario;
+    for (let r = Math.max(0, row - radius); r <= Math.min(OP_MAP_ROWS - 1, row + radius); r++) {
+        for (let c = Math.max(0, col - radius); c <= Math.min(OP_MAP_COLS - 1, col + radius); c++) {
+            if (typeof isHexInPlayableArea === 'function' && !isHexInPlayableArea(scenario, c, r)) continue;
+            if (typeof isHexRemovedFromOperationalMap === 'function' &&
+                isHexRemovedFromOperationalMap(scenario, c, r)) continue;
+            const distance = (typeof getOpHexDistance === 'function')
+                ? getOpHexDistance(col, row, c, r)
+                : Math.max(Math.abs(col - c), Math.abs(row - r));
+            if (distance > radius) continue;
+            if (distance === 0) { result.keys.add(`${c},${r}`); continue; }
+            let blocked = false;
+            try { blocked = opLineOfSightBlocked(col, row, c, r); } catch (e) { blocked = false; }
+            if (blocked) { result.blocked++; continue; }
+            result.keys.add(`${c},${r}`);
+        }
+    }
+    return result;
+}
+
+// Рисуется ПОД иконками юнитов, чтобы не мешать чтению карты.
+function drawSelectedUnitVisionZone(ctx, size) {
+    const campaign = appData && appData.campaign;
+    if (!ctx || !campaign) return;
+    const unit = campaign.selectedOpUnit;
+    if (!unit || unit.isDestroyed) return;
+    // В бою у юнита своя тактическая карта — оперативная зона не нужна.
+    if (unit.isInBattle) return;
+    let vision;
+    try { vision = opUnitVisionHexes(unit); } catch (e) { return; }
+    if (!vision.keys.size) return;
+    ctx.save();
+    const centerOf = (c, r) => ({
+        x: c * Math.sqrt(3) * size + (r % 2) * Math.sqrt(3) * size / 2 + Math.sqrt(3) * size / 2,
+        y: r * 1.5 * size + size
+    });
+    const traceHex = (c, r) => {
+        const p = centerOf(c, r);
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+            const angle = Math.PI / 180 * (60 * i - 30);
+            const px = p.x + size * Math.cos(angle), py = p.y + size * Math.sin(angle);
+            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+    };
+    // 1) заливка просматриваемых гексов
+    ctx.fillStyle = vision.night ? 'rgba(120, 170, 235, 0.26)' : 'rgba(120, 210, 255, 0.22)';
+    vision.keys.forEach(key => {
+        const [c, r] = key.split(',').map(Number);
+        traceHex(c, r);
+        ctx.fill();
+    });
+    // 2) граница зоны: только внешние рёбра просматриваемых гексов.
+    //    Гексы «pointy-top»: общая стенка двух соседей — отрезок, перпендикулярный
+    //    линии центров, длиной в сторону гекса и с серединой на полпути.
+    ctx.strokeStyle = vision.night ? 'rgba(150, 190, 245, 0.95)' : 'rgba(130, 220, 255, 0.95)';
+    ctx.lineWidth = Math.max(2, size * 0.06);
+    ctx.lineCap = 'round';
+    const neighborOffsets = (r) => (r % 2 === 0
+        ? [[1, 0], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1]]
+        : [[1, 0], [1, 1], [0, 1], [-1, 0], [0, -1], [1, -1]]);
+    ctx.beginPath();
+    vision.keys.forEach(key => {
+        const [c, r] = key.split(',').map(Number);
+        const p1 = centerOf(c, r);
+        neighborOffsets(r).forEach(([dc, dr]) => {
+            if (vision.keys.has(`${c + dc},${r + dr}`)) return;
+            const p2 = centerOf(c + dc, r + dr);
+            const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+            const vx = p2.x - p1.x, vy = p2.y - p1.y;
+            const len = Math.hypot(vx, vy) || 1;
+            // единичная нормаль к линии центров
+            const nx = -vy / len, ny = vx / len;
+            const half = size / 2;
+            ctx.moveTo(mx + nx * half, my + ny * half);
+            ctx.lineTo(mx - nx * half, my - ny * half);
+        });
+    });
+    ctx.stroke();
+    ctx.restore();
+}
+
 function drawOperationalSectorDraftHighlights(ctx, size) {
     if (!ctx || typeof window === 'undefined' || typeof window.uxGetSectorDraftHexes !== 'function') return;
     let hexes = [];
@@ -5489,6 +5688,9 @@ if (pickingTargetHex) {
     // Scenario objectives and rear-connection/evacuation points are marked under the unit icons.
     drawCampaignObjectiveMarkers(ctx, size);
 
+    // ⚡ v13.184: зона видимости ВЫБРАННОГО юнита — под иконками, чтобы не мешать.
+    try { drawSelectedUnitVisionZone(ctx, size); } catch (e) { console.warn('vision zone:', e.message); }
+
     // Рисуем юниты (свои и вражеские)
     drawOperationalUnits(ctx);
 
@@ -5712,6 +5914,15 @@ function opVehicleStatusMarkup(unit) {
             `<div style="margin-top:5px;color:#f1c40f;font-size:.82rem;">${text}</div></div>`;
     } catch (e) { return ''; }
 }
+// ⚡ v13.184 (п.5): русское склонение для коротких сводок («1 отделение», «2 отделения»).
+function pluralRu(count, one, few, many) {
+    const n = Math.abs(Number(count) || 0) % 100;
+    const n1 = n % 10;
+    if (n > 10 && n < 20) return many;
+    if (n1 === 1) return one;
+    if (n1 >= 2 && n1 <= 4) return few;
+    return many;
+}
 function showOpUnitInfoPopup(unit) {
     if (!unit) return;
     let popup = document.getElementById('opUnitInfoPopup');
@@ -5764,7 +5975,27 @@ function showOpUnitInfoPopup(unit) {
     } catch (e) {}
     // ⚡ v13.132 (п.4): сводка по каждому отделению — название, боевой дух отделения,
     //    бойцы в строю, патроны/гранаты, снаряды.
-    const squadRows = squads.map(squad => {
+    // ⚡ v13.184 (п.5): ПЛЕННЫЕ и полностью выбитые отделения больше не занимают
+    //    строки в карточке взвода — они свернуты в одну итоговую строку вида
+    //    «🏳️ 2 отделения в плену · 1 уничтожено». Детали по ним не нужны, но
+    //    сам факт потерь виден командиру.
+    const squadIsPrisoner = squad => !!(squad && (squad.isPrisoner || squad.isSurrendered ||
+        squad.status === 'surrendered' || squad.isCaptured));
+    const squadIsWipedOut = squad => !!(squad && !squadIsPrisoner(squad) &&
+        ((squad.isDestroyed || squad.status === 'destroyed') ||
+         (!(squad.fighters || []).some(f => f && f.hp > 0 && !f.isAway) && (squad.fighters || []).length > 0)));
+    const prisonerSquads = squads.filter(squadIsPrisoner);
+    const wipedSquads = squads.filter(squadIsWipedOut);
+    const prisonerLossNote = (prisonerSquads.length || wipedSquads.length)
+        ? `<div style="margin:4px 0;padding:5px 8px;border-radius:8px;background:rgba(255,255,255,.04);` +
+          `border-left:3px solid #95a5a6;font-size:.76rem;color:#b9c3c8;">🏳️ ` +
+          (prisonerSquads.length ? `${prisonerSquads.length} ${pluralRu(prisonerSquads.length, 'отделение', 'отделения', 'отделений')} в плену` : '') +
+          (prisonerSquads.length && wipedSquads.length ? ' · ' : '') +
+          (wipedSquads.length ? `${wipedSquads.length} ${pluralRu(wipedSquads.length, 'уничтожено', 'уничтожено', 'уничтожено')}` : '') +
+          `</div>`
+        : '';
+    const activeSquads = squads.filter(squad => squad && !squadIsPrisoner(squad) && !squadIsWipedOut(squad));
+    const squadRows = activeSquads.map(squad => {
         if (!squad) return '';
         const sAlive = (squad.fighters || []).filter(f => f && f.hp > 0).length;
         const sTotal = (squad.fighters || []).length;
@@ -5783,7 +6014,7 @@ function showOpUnitInfoPopup(unit) {
           `<div style="color:#bbb;">🫡 Дух: <b style="color:#eee;">${mPct === null ? '—' : `${mPct}/100`}</b> · 👥 В строю: <b style="color:#eee;">${sAlive}/${sTotal}</b></div>` +
           `<div style="color:#bbb;">🔫 Патроны: <b style="color:#eee;">${sSmall}</b> · 🧨 Гранаты: <b style="color:#eee;">${sGren}${sPhos > 0 ? ` (+${sPhos} фосф.)` : ''}</b> · 💥 Снаряды: <b style="color:#eee;">${sOrdn}</b></div>` +
           `</div>`;
-    }).join('') || '<div style="color:#888;">Нет отделений</div>';
+    }).join('') || (prisonerLossNote ? '' : '<div style="color:#888;">Нет отделений</div>');
     // ⚡ v13.156 (п.13): карточка отряда бронетехники на опкарте — какие машины,
     //    живая сила, патроны/снаряды и состояние каждой машины (модули, экипаж).
     const vehicleSquads = squads.filter(sq => sq && (sq.armor || sq.isVehicle ||
@@ -5966,7 +6197,7 @@ function showOpUnitInfoPopup(unit) {
       `<div class="op-unit-drawer-stats"><span>👥 Живые / всего</span><b>${alive}/${total}</b><span>🫡 Боевой дух</span><b>${morale === null ? '—' : `${esc(morale)}/100`}</b><span>🔫 Патроны</span><b>${ammo.small}${ammoReserve.small ? ` <span style="color:#8fd3ff;">(+${ammoReserve.small} в запасе)</span>` : ''}</b><span>💥 Снаряды</span><b>${ammo.ordnance}${ammoReserve.ordnance ? ` <span style="color:#8fd3ff;">(+${ammoReserve.ordnance} в запасе)</span>` : ''}</b><span>🧨 Гранаты</span><b>${ammo.grenades}</b><span>📍 Позиция</span><b>${esc(unit.col)}, ${esc(unit.row)}</b></div>` +
       (typeof opVehicleStatusMarkup === 'function' ? opVehicleStatusMarkup(unit) : '') +
       vehicleBlock +
-      `<div class="op-unit-drawer-cards"><b>📋 Отделения (сводка)</b><div style="margin-top:5px;">${squadRows}</div></div>` +
+      `<div class="op-unit-drawer-cards"><b>📋 Отделения (сводка)</b><div style="margin-top:5px;">${squadRows}${prisonerLossNote}</div></div>` +
       `<div class="op-unit-drawer-cards"><b>✨ Активированные бонусы и дебаффы</b><div style="margin-top:5px;">${cardMarkup}</div></div>` +
       supplyMarkup +
       (typeof platoonMergeMarkup==='function' ? platoonMergeMarkup(unit) : '') +
@@ -13902,6 +14133,133 @@ function tacticalChainCycles(isEnemySide) {
     return cycles;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚡ v13.184 (п.6): ВОРВАВШИЙСЯ В ОКОПЫ НЕ ОКРУЖЁН.
+//
+//    Геометрическое кольцо (tacticalChainEncirclementForSide) само по себе
+//    ошибочно: отряд, который ворвался в окопы противника, стоит ВНУТРИ его
+//    расположения и почти всегда попадает внутрь вражеского кольца — хотя
+//    он не отрезан, а наоборот, прорвал оборону.
+//
+//    Правило игрока:
+//      • пока отряд, стоящий в окопе/на позиции противника, сохраняет связь
+//        со своими (есть путь по проходимым гексам до своего отряда) —
+//        окружения НЕТ, кольцо игнорируется;
+//      • если после контратаки связь потеряна И ближайший свой отряд дальше
+//        TACTICAL_CUTOFF_MIN_DISTANCE гексов — отряд считается окружённым.
+//    Оба условия обязательны (ответ пользователя по п.6).
+// ═══════════════════════════════════════════════════════════════════════════
+const TACTICAL_CUTOFF_MIN_DISTANCE = 4;   // «ближайший свой дальше N гексов»
+const TACTICAL_CUTOFF_PATH_LIMIT = 60;    // радиус поиска пути к своим (гексы)
+
+function tacticalHexKeyOf(col, row) { return `${col},${row}`; }
+
+// Проходим ли гекс для пехоты (для поиска пути «к своим»).
+function tacticalHexPassableForCutoff(hexKey, ctx) {
+    if (!ctx || !ctx.map || !ctx.map.grid) return false;
+    const cell = ctx.map.grid[hexKey];
+    if (!cell) return false;
+    const type = String(cell.type || 'grass');
+    if (/water|impassable/i.test(type)) return false;
+    if (type === 'swamp_impassable') return false;
+    return true;
+}
+
+// Есть ли путь по проходимым гексам от позиции отряда до любого СВОЕГО
+// боеспособного отряда (кроме него самого), включая отряды на своей стороне
+// окопов. Возвращает { linked, nearest }.
+function tacticalSquadConnectionToOwn(ctx, squad, sideIsEnemy) {
+    const result = { linked: false, nearest: Infinity };
+    if (!ctx || !squad) return result;
+    if (typeof getBattleSquadHex !== 'function' || typeof getHexNeighbors !== 'function') return result;
+    const start = getBattleSquadHex(ctx.map.grid, (sideIsEnemy ? ctx.enemies : ctx.players).indexOf(squad), sideIsEnemy);
+    if (!start) return result;
+    const list = sideIsEnemy ? ctx.enemies : ctx.players;
+    const allies = [];
+    list.forEach((ally, idx) => {
+        if (!ally || ally === squad) return;
+        if (!tacticalSquadIsCombatCapable(ally)) return;
+        const pos = getBattleSquadHex(ctx.map.grid, idx, sideIsEnemy);
+        if (!pos) return;
+        allies.push(pos);
+        if (typeof hexGridDistance === 'function') {
+            result.nearest = Math.min(result.nearest, hexGridDistance(start.col, start.row, pos.col, pos.row));
+        } else {
+            result.nearest = Math.min(result.nearest, Math.abs(start.col - pos.col) + Math.abs(start.row - pos.row));
+        }
+    });
+    if (!allies.length) return result;
+    const allyKeys = new Set(allies.map(pos => pos.key || tacticalHexKeyOf(pos.col, pos.row)));
+    // BFS по проходимым гексам; враги блокируют проход (они и создают отсечку).
+    const enemySide = !sideIsEnemy;
+    const enemyList = enemySide ? ctx.enemies : ctx.players;
+    const blocked = new Set();
+    enemyList.forEach((foe, idx) => {
+        if (!tacticalSquadIsCombatCapable(foe)) return;
+        const pos = getBattleSquadHex(ctx.map.grid, idx, enemySide);
+        if (pos) blocked.add(pos.key || tacticalHexKeyOf(pos.col, pos.row));
+    });
+    // getHexNeighbors принимает ключ «col,row» и возвращает массив ключей.
+    const startKey = start.key || tacticalHexKeyOf(start.col, start.row);
+    const visited = new Set([startKey]);
+    let frontier = [startKey];
+    for (let step = 0; step < TACTICAL_CUTOFF_PATH_LIMIT && frontier.length; step++) {
+        const next = [];
+        for (const key of frontier) {
+            const neighbors = getHexNeighbors(key) || [];
+            for (const nbKey of neighbors) {
+                const nKey = String(nbKey);
+                if (visited.has(nKey)) continue;
+                visited.add(nKey);
+                if (nKey !== startKey && !tacticalHexPassableForCutoff(nKey, ctx)) continue;
+                if (allyKeys.has(nKey)) { result.linked = true; return result; }
+                if (blocked.has(nKey)) continue;   // враг перекрывает проход
+                next.push(nKey);
+            }
+        }
+        frontier = next;
+    }
+    return result;
+}
+
+// Кто в текущем бою ворвался на позицию противника (в окопы/на его объект).
+function tacticalSquadInEnemyPosition(squad, isEnemySide) {
+    if (!squad) return false;
+    if (squad.inEnemyTrenches || squad.holdsEnemyPosition) return true;
+    if (typeof getBattleSquadHex !== 'function' || !appData.map || !appData.map.grid) return false;
+    const list = isEnemySide ? (appData.map.enemySquads || []) : (appData.squads || []);
+    const idx = list.indexOf(squad);
+    if (idx < 0) return false;
+    const pos = getBattleSquadHex(appData.map.grid, idx, isEnemySide);
+    if (!pos) return false;
+    const cell = appData.map.grid[pos.key || tacticalHexKeyOf(pos.col, pos.row)] || {};
+    const type = String(cell.type || '');
+    if (type === 'trenches') return true;
+    // Гекс в тылу противника: ближе к его краю карты, чем к своему.
+    const T = (typeof TACTICAL_MAP_SIZE !== 'undefined' && TACTICAL_MAP_SIZE) ? TACTICAL_MAP_SIZE : 30;
+    if (!isEnemySide) return Number(pos.row) <= Math.floor(T * 0.25);
+    return Number(pos.row) >= Math.ceil(T * 0.75);
+}
+
+// Основная проверка: снимает ли прорыв окружение отряда.
+// Возвращает { exempt, reason, linked, nearest }.
+function tacticalBreachExemptsEncirclement(squad, isEnemySide) {
+    const none = { exempt: false, reason: '', linked: false, nearest: Infinity };
+    if (!squad) return none;
+    if (!tacticalSquadInEnemyPosition(squad, isEnemySide)) return none;
+    const ctx = tacticalLiveEncirclementContext();
+    if (!ctx) return none;
+    const conn = tacticalSquadConnectionToOwn(ctx, squad, isEnemySide);
+    if (conn.linked) {
+        return { exempt: true, reason: 'в окопах противника, связь со своими есть', linked: true, nearest: conn.nearest };
+    }
+    if (!(conn.nearest > TACTICAL_CUTOFF_MIN_DISTANCE)) {
+        // Связи нет, но свои рядом — ещё не отрезан.
+        return { exempt: true, reason: 'свои рядом', linked: false, nearest: conn.nearest };
+    }
+    return { exempt: false, reason: 'отрезан после контратаки', linked: false, nearest: conn.nearest };
+}
+
 // Что именно окружено кольцами стороны: { encircled:Set(индексы жертв), cycles }.
 function tacticalChainEncirclementForSide(isEnemySide) {
     const ctx = tacticalLiveEncirclementContext();
@@ -13979,7 +14337,21 @@ function updateTacticalEncirclement(options) {
     sides.forEach(({ side, list, state }) => {
         list.forEach((squad, idx) => {
             if (!squad) return;
-            const encircled = state.encircled.has(idx);
+            let encircled = state.encircled.has(idx);
+            // ⚡ v13.184 (п.6): ворвавшийся в окопы не окружён, пока держит связь
+            //    со своими. Окружение возможно только после отсечения.
+            if (encircled) {
+                const breach = tacticalBreachExemptsEncirclement(squad, side === 'enemy');
+                if (breach.exempt) {
+                    encircled = false;
+                    squad.tacticalBreachExempt = breach.reason;
+                } else {
+                    squad.tacticalBreachExempt = null;
+                    if (breach.reason) squad.tacticalCutoffReason = breach.reason;
+                }
+            } else {
+                squad.tacticalBreachExempt = null;
+            }
             const was = !!squad.tacticalEncircled;
             squad.tacticalEncircled = encircled;
             if (!encircled) {
@@ -28717,22 +29089,44 @@ function setupTacticalMapPanning() {
       // mountain cells retain an implicit high elevation.
       return Math.max(explicit, /mountain/i.test(type) ? 2 : 0);
     }
+    // ⚡ v13.184 (п.4): ОБЗОР ИЗ-ПОД ХОЛМА.
+    //    Боец, стоящий ниже уровня, раньше видел только кромку склона: любой
+    //    промежуточный гекс выше его глаз обрывал линию обзора. Но с нижней
+    //    террасы склон и ближайшая кромка плато реально просматриваются —
+    //    поэтому гребень не «глухая стена»: за ним открыто ещё
+    //    TACTICAL_SLOPE_SIGHT_DEPTH гекса в глубину (по умолчанию 2). Дальше
+    //    плато снова закрывает обзор, как и раньше.
+    const TACTICAL_SLOPE_SIGHT_DEPTH = 2;
     function tacticalHasLineOfSight(observer, target) {
       const line = tacticalHexLine(observer, target);
       const sourceCell = appData.map.grid[`${observer.col},${observer.row}`] || {};
       const eye = tacticalCellHeight(sourceCell);
-      for (let i=1; i<line.length-1; i++) {
+      const lastIdx = line.length - 1;
+      let ridgeIdx = -1, ridgeHeight = 0;
+      for (let i=1; i<lastIdx; i++) {
         const p=line[i], key=`${p.col},${p.row}`;
         const cell=appData.map.grid[key] || {};
         const type=String(cell.type || 'grass');
         const height=tacticalCellHeight(cell);
         const forest=(type === 'forest' || type === 'shelled_forest');
-        const elevated=height > eye;
-        // Высота блокирует обзор только если она выше позиции наблюдателя.
-        // Сам гекс на высоте виден (конечная клетка не входит в промежуточную линию).
-        if (elevated || (forest && height >= eye)) return false;
+        // Лес закрывает обзор всегда (высота тут не спасает).
+        if (forest && height >= eye) return false;
+        if (height > eye) {
+          // Первый гребень запоминаем; всё, что за ним выше гребня — стена.
+          if (ridgeIdx < 0) { ridgeIdx = i; ridgeHeight = height; continue; }
+          if (height > ridgeHeight) return false;
+          // Даже равное плато глубже допустимой полосы закрывает обзор.
+          if (i - ridgeIdx > TACTICAL_SLOPE_SIGHT_DEPTH) return false;
+        }
       }
-      return true;
+      if (ridgeIdx < 0) return true;
+      // Цель за гребнем: видна, если она на плато не глубже допустимой полосы.
+      const targetCell = appData.map.grid[`${target.col},${target.row}`] || {};
+      const targetType = String(targetCell.type || 'grass');
+      if (targetType === 'forest' || targetType === 'shelled_forest') {
+        if (tacticalCellHeight(targetCell) >= eye) return false;
+      }
+      return (lastIdx - ridgeIdx) <= TACTICAL_SLOPE_SIGHT_DEPTH;
     }
     window.tacticalHasLineOfSight = tacticalHasLineOfSight;
     function buildTacticalVisibleHexes() {
@@ -29406,9 +29800,17 @@ if (squadIds.length > 0) {
       drawTacticalVehicleFacingArrow(ctx, drawX, drawY, size, squad);
     }
     if (appData.map.selectedMoveSquadIdx === squadId) {
-      ctx.strokeStyle = '#ff0';
+      // ⚡ v13.184 (п.3): подсветка — цветом ВЗВОДА этого отряда в текущем бою.
+      const platoonColor = (typeof tacticalSquadHighlightColor === 'function')
+        ? tacticalSquadHighlightColor(squad) : '#ff0';
+      ctx.save();
+      // мягкое свечение под цвет, чтобы выделение читалось на любой подложке
+      ctx.shadowColor = platoonColor;
+      ctx.shadowBlur = Math.max(6, size * 0.22);
+      ctx.strokeStyle = platoonColor;
       ctx.lineWidth = Math.max(3, size * 0.08);
       ctx.strokeRect(drawX - iconSize/2 - 4, drawY - iconSize/2 - 4, iconSize + 8, iconSize + 8);
+      ctx.restore();
       if (squad.armor) {
         ctx.save();
         ctx.font = `bold ${Math.max(10, size * 0.19)}px Arial`;
