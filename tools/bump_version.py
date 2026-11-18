@@ -7,7 +7,7 @@
   • index.html          — `var APP_VERSION = 'vX.YYZ';`
   • manifest.json       — `"short_name": "БМ vX.YYZ"`
   • service-worker.js   — `const CACHE_NAME = 'wargame-vX.YYZ';` + BUILD-МАРКЕР в шапке
-  • js/*.js (10 файлов) — BUILD-МАРКЕР в первой строке
+  • js/*.js (11 файлов) — BUILD-МАРКЕР в первой строке
 
 v13.184 вышла с APP_VERSION = v13.184 и маркерами v13.183. Из-за этого
 service-worker отменял установку (verifyCachedBuild), а приложение уходило
@@ -33,7 +33,7 @@ VERSION_RE = re.compile(r'v(\d+)\.(\d{3})')
 MODULES = [
     'js/data.js', 'js/hexmaps.js', 'js/templates.js', 'js/operational_ui.js',
     'js/cards.js', 'js/map_actions.js', 'js/online_battles.js', 'js/placement.js',
-    'js/recon.js', 'js/weapons.js',
+    'js/recon.js', 'js/weapons.js', 'js/enemy_ai.js',
 ]
 
 

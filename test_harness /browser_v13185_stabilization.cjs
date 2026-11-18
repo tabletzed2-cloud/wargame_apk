@@ -41,7 +41,8 @@ const root = path.resolve(process.env.WARGAME_ROOT || path.join(__dirname, '..')
       const check = (name, ok, extra) => checks.push({name, ok: !!ok, extra});
 
       // версия на экране
-      check('APP_VERSION = v13.185', APP_VERSION === 'v13.185', APP_VERSION);
+      // версия не должна быть зашита в тест — иначе он краснеет при каждом релизе
+      check('APP_VERSION в формате vX.YYY', /^v\d+\.\d{3}$/.test(APP_VERSION), APP_VERSION);
       check('#appVersionBadge показывает APP_VERSION',
         (document.getElementById('appVersionBadge') || {}).textContent === APP_VERSION,
         (document.getElementById('appVersionBadge') || {}).textContent);

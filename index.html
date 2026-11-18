@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.185 — операция</title>
+  <title>Боевой модуль v13.186 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -19,7 +19,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.185</h1>
+    <h1>⚔️ Боевой модуль v13.186</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -32,7 +32,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.185</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.186</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -84,7 +84,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.185 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.186 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -364,6 +364,7 @@
     <script src="js/hexmaps.js"></script>
     <!-- ⚡ v13.157: разведывательные миссии и приказ «Наблюдение» -->
     <script src="js/recon.js"></script>
+    <script src="js/enemy_ai.js"></script>
     <script src="js/online_battles.js"></script>
     <script src="js/map_actions.js"></script>
     <!-- ⚡ v13.055 (R39#3): размещение в начале боя (зоны атакующего/обороняющегося) -->
@@ -589,7 +590,7 @@ const SUPPLY_DEPOT_MAX = { ammoSmall: 1200, grenades: 300, ammoOrdnance: 80 };
 //    каждой стороне отдельно: у A.I.R.F. — 0,11, у BeVe — 7,0.
 const SUPPLY_EVAC_POINTS = { 'BeVe': { col: 7, row: 0 }, 'A.I.R.F.': { col: 0, row: 11 } };
 
-var APP_VERSION = 'v13.185';
+var APP_VERSION = 'v13.186';
 // v13.183: terrain layers as ZONES (contours), road links cost 1 with no penalty,
 //          no layer graphics on the campaign map; supply/combat read zones.
 // v13.172: full recon routes/observation marks, safe supply corridors, unit card editor, review fixes.
@@ -12947,7 +12948,24 @@ function finishBattle() {
         updateTacticalTurnUI();
         return;
     }
-    if (!forcedDraw && unresolved.length > 0 && !battle.onlineOppFinished) {
+    // ⚡ v13.186: ЛИМИТ РАУНДОВ. До этой версии бой мог тянуться бесконечно —
+    //    единственным выходом было уничтожить всех. Теперь после
+    //    TACTICAL_BATTLE_ROUND_LIMIT раундов бой закрывается по счёту VP.
+    if (!forcedDraw && unresolved.length > 0 && typeof tacticalBattleReachedRoundLimit === 'function' &&
+        tacticalBattleReachedRoundLimit(battle)) {
+        const outcome = (typeof tacticalBattleLimitOutcome === 'function')
+            ? tacticalBattleLimitOutcome(battle)
+            : { result: 'draw', reason: 'лимит раундов', points: { player: 0, enemy: 0, detail: [] } };
+        const pts = outcome.points || {};
+        const msg = `⏱ Бой на гексе (${battle.hexKey || '?'}) достиг лимита раундов — ${outcome.reason}: ` +
+            `очки ${pts.player || 0} : ${pts.enemy || 0}.`;
+        try { log(msg); } catch (e) {}
+        if ((pts.detail || []).length) { try { log('   ' + pts.detail.join('; ')); } catch (e) {} }
+        battle.result = outcome.result;
+        battle.limitReached = true;
+        battle.limitPoints = pts;
+    }
+    if (!forcedDraw && unresolved.length > 0 && !battle.onlineOppFinished && !battle.limitReached) {
         const msg = `⛔ Бой продолжается: должны быть уничтожены или отступить все противники (${unresolved.length} осталось).`;
         try { alert(msg); } catch (e) {}
         try { log(msg + ' ' + unresolved.map(e => e.name).join(', ')); } catch (e) {}
@@ -12955,13 +12973,21 @@ function finishBattle() {
         return;
     }
 
-    const battleWon = !forcedDraw && unresolved.length === 0;
+    const battleWon = forcedDraw ? false
+        : (battle.limitReached ? battle.result === 'victory' : unresolved.length === 0);
     if (forcedDraw) battle.result = 'draw';
     else if (!battle.result) battle.result = battleWon ? 'victory' : 'defeat';
     try {
         if (battle.beveFirstTankAttack && !forcedDraw) resolveFirstBeVeTankBattle(battle, battleWon, false);
         if (!forcedDraw && !battle.onlineMirror) checkAndGrantTacticalAwards(battle, appData.squads, battleWon);
         if (!forcedDraw) updateCampaignObjectives(false);
+        // ⚡ v13.186: оцифровка исхода боя — VP по уничтоженным отрядам и полю боя.
+        if (typeof tacticalBattleVictoryPoints === 'function') {
+            battle.victoryPoints = tacticalBattleVictoryPoints(battle);
+            if (battle.victoryPoints.detail && battle.victoryPoints.detail.length) {
+                log(`🏅 Очки боя: ${battle.victoryPoints.player} : ${battle.victoryPoints.enemy} (${battle.victoryPoints.detail.join('; ')}).`);
+            }
+        }
     } catch (e) { console.warn('battle objective/award resolution:', e); }
 
     // СОХРАНЯЕМ ТЕКУЩЕЕ СОСТОЯНИЕ БОЯ В ОБЪЕКТ БОЯ
@@ -23257,6 +23283,12 @@ function tacticalFlareRecheckDetection(flareSide) {
 }
 
 function resolveTacticalMeleesForTurn(side) {
+  // ⚡ v13.186: рукопашная симметрична. Раньше здесь обходились ТОЛЬКО отряды
+  //    игрока, поэтому вражеский отряд, в чей гекс вошли, не наносил ударов
+  //    вообще. Второй проход — за противника (реализация в js/enemy_ai.js).
+  try {
+    if (typeof resolveTacticalMeleesForEnemySide === 'function') resolveTacticalMeleesForEnemySide();
+  } catch (e) { console.warn('enemy melee pass:', e && e.message); }
   const players = appData.squads || [];
   players.forEach((p, pi) => {
     if (!p || p.armor || p.meleeResolvedTurn === currentTurn) return;
@@ -31465,6 +31497,25 @@ function endOperationalTurn() {
     if (hardMode.enabled && !(appData.campaign.online && typeof ONLINE !== 'undefined' && ONLINE.started)) {
         processOrders();
     }
+    // ⚡ v13.186 (этап B): ФАЗА ПРОТИВНИКА. До этой версии враг на оперативной
+    //    карте не двигался вообще. Теперь он действует по доктрине своего
+    //    отряда (удержание / контратака / отход / засада), видя только
+    //    ОБНАРУЖЕННЫЕ отряды игрока — теми же правилами, что и игрок.
+    try {
+        if (typeof enemyAiAssignDoctrines === 'function') enemyAiAssignDoctrines();
+        if (typeof runEnemyOperationalPhase === 'function') {
+            const enemyReport = runEnemyOperationalPhase();
+            if (enemyReport && enemyReport.details && enemyReport.details.length) {
+                window.__lastEnemyAiReport = enemyReport;
+                if (enemyReport.battles && enemyReport.battles.length) {
+                    log(`⚔️ Противник начал бой: ${enemyReport.battles.map(b => `${b.enemy} против ${b.player.join(', ')} (${b.hex})`).join('; ')}.`);
+                }
+                enemyReport.details.filter(d => d.action === 'move').slice(0, 6).forEach(d => {
+                    log(`🎯 «${d.name}» (${ENEMY_DOCTRINES[d.doctrine] ? ENEMY_DOCTRINES[d.doctrine].label : d.doctrine}) → (${d.col},${d.row}): ${d.reason}.`);
+                });
+            }
+        }
+    } catch (e) { console.warn('enemy AI phase:', e.message); }
     try { processOperationalRetreats(); } catch (e) { console.warn('operational morale retreat:', e.message); }
     try { advanceSignalTransfers(); } catch (e) { console.warn('signal transfers:', e.message); }
     // ⚡ v13.152 (п.4): вражеский кабель под нашими отрядами и его восстановление
@@ -35634,7 +35685,9 @@ function updateCampaignObjectives(advanceTime) {
             c.scenarioOutcome = victory ? 'victory' : 'defeat';
             c.scenarioCompletedAt = now;
             const resultText = victory ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ';
-            log(`🏁 Сценарий «${c.scenario || 'Valencia'}»: ${resultText}. Основные задачи ${victory ? 'выполнены' : 'провалены'}.`);
+            const vpNow = (typeof campaignObjectiveVpScore === 'function') ? campaignObjectiveVpScore() : null;
+            const vpSuffix = vpNow ? ` Победные очки: ${vpNow.player} из ${vpNow.max}.` : '';
+            log(`🏁 Сценарий «${c.scenario || 'Valencia'}»: ${resultText}. Основные задачи ${victory ? 'выполнены' : 'провалены'}.${vpSuffix}`);
         }
     }
     return state;
