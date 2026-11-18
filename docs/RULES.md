@@ -1,8 +1,13 @@
 # Правила и механики игры — справочник для разработки
 
-> **Состояние:** версия игры **v13.104** (справочник составлен 2026-10-17).
+> **Состояние:** версия игры **v13.185** (справочник сверен 2026-11-18).
 > Документ собран по коду (`index.html`, `js/*.js`), журналу изменений `changelogs/` и игровой справке `rules.html`.
 > Используйте его как точку отсчёта перед добавлением новых механик: сначала найдите, что уже задано, затем вносите изменения и обновляйте этот файл.
+>
+> **Что изменилось после v13.104.** Разделы 1–16 описывают механики, которые с тех пор
+> не переписывались, и остаются верными. Всё, что добавилось в v13.105…v13.185, собрано
+> в разделе 20 (журнал) и в разделе 21 (сводка «что где искать в коде»). Перед правкой
+> механики сверяйтесь с кодом: журнал отражает решения, но не детали реализации.
 
 ---
 
@@ -1181,9 +1186,43 @@ node 'test_harness /regression_v13100.js'   # скрытность, подавл
 node 'test_harness /regression_v13097.js'   # высадка, карты, раунды
 ```
 
-Полный набор — все `regression_*.js`. Браузерные сценарии требуют Playwright и Chromium (`CHROMIUM_PATH`).
+### Единый раннер (v13.185)
 
-Состояние на v13.104 — см. changelog'и последних версий. Некоторые старые UI-регрессии (например, `regression_v13071.js`, `regression_v13075.js`) по-прежнему содержат ожидания, не совпадающие с текущим интерфейсом.
+```sh
+node "test_harness /run_all.js"          # ЯДРО — обязано быть зелёным перед релизом
+node "test_harness /run_all.js" --all    # ядро + известные устаревшие (legacy)
+node "test_harness /run_all.js" --list   # что входит в core / legacy / browser
+```
+
+Разделение появилось потому, что к v13.185 из 122 скриптов 63 были красными: часть — устаревшие
+ожидания (номера версий в тексте, удалённые константы вроде `SUPPLY_SHOT_SPEND`, переименованные
+функции), часть — реальные расхождения. В общем шуме новая регрессия терялась.
+
+* Список ядра и причины по legacy — `test_harness /test-status.json`.
+* Свежий отчёт по прогону — `docs/test-status.md`.
+* Новую регрессию **добавляйте в `core`** того же файла, иначе она не запустится раннером.
+
+Правило: релиз не выпускается, пока `run_all.js` не даёт «ядро N/N зелёных». Legacy-тесты
+разбирают по одному — переписывают на текущий API или удаляют.
+
+### Версия сборки (v13.185)
+
+Версия живёт в 17 местах: `APP_VERSION`, `manifest.json`, `CACHE_NAME` и BUILD-МАРКЕР
+в service-worker, BUILD-МАРКЕР в 10 модулях `js/`, и — отдельно — в интерфейсе (`<title>`,
+`<h1>`, `#battleModuleTitle`, `#appVersionBadge`). Руками её больше не правят:
+
+```sh
+python3 tools/bump_version.py v13.186   # проставить во всех местах
+python3 tools/bump_version.py --check   # проверить (код 1, если рассинхрон)
+```
+
+Почему это критично: `service-worker.js` сверяет `CACHE_NAME` с маркерами файлов и **отменяет
+установку** при расхождении, а `index.html` при несовпадении запускает `forceDeepUpdate()`
+(unregister + чистка всех кэшей + reload). В v13.184 маркеры остались на v13.183 — офлайн-режим
+и PWA-установка на этой версии не работали, интерфейс показывал v13.183.
+
+Браузерные сценарии (`*.cjs`) требуют Playwright и Chromium (`CHROMIUM_PATH`) и раннером
+по умолчанию не запускаются.
 
 ---
 
@@ -1235,4 +1274,44 @@ node 'test_harness /regression_v13097.js'   # высадка, карты, рау
 | v13.166 | Окопы и расчистка: лимит считается по ЖИВЫМ БОЙЦАМ отряда — 8 бойцов = 1 гекс, у сапёров 5 бойцов = 1 гекс (округление вниз), одинаково для `dig_in` и `prep_positions`; повторные приказы на гексе не накапливают правки сверх лимита. Исправлены две ошибки: в черновик лимит писался объектом `{kind, limit, unitName}`, поэтому проверка «отмечено ≥ лимита» не срабатывала и окопов можно было поставить сколько угодно; баннер редактора не перерисовывался после клика по клетке, из-за чего кнопки «🔄 Поворот окопа» оставались недоступными (disabled). Поворот клетки черновика пишется только в черновик |
 | v13.165 | Маршрут приказа снова виден при отдаче: `drawOrderRoute` учитывает не только классическую панель `#hardModePanel`, но и компактное меню `#opCommandMenu` (иначе `isPlanningRoute` сбрасывался первым же кликом и пунктир не рисовался). Иконки техники снабжения крупнее: плашка колонны на карте `size*0.70` (без файла 0.52), картинка в панели снабжения 42px, в списке «Колонны в пути» — 38px. Меню разведки — третья вкладка левого дока (`showReconPanel` → `openOperationalSidePanel('recon')`, `#reconPanel` переносится в `#opLeftPanelContent`), вкладка видна только при Hard Mode и наличии активов. На карте у актива на миссии — его иконка (`reconMissionIcon` + `reconAssetImage`), «лупа» только как заглушка. Приказ движения доводится до конца: после двух «стоячих» ходов завершается на рубеже, недостижимая цель объясняется в журнале. Рация конкретному разведоргану при штабе: `requestSignalIssueToReconOrgan` / `returnReconOrganRadio`, `radios.reconOrgans` в полевом запасе, `hasSquadRadio` → `reconOrganHasRadio` в задержке доклада |
 | v13.164 | Разведприказы: пул активов пересчитывается из состава перед каждым обращением (`syncReconAssetPool`) и после чистки состава при загрузке; отряды штаба собираются по шаблону, поэтому у AL-41 Hidalgo снова 2 бойца (водитель + наблюдатель) и иконка; карточка юнита показывает только СВОИ активы (`getOwnReconAssetList`), у взвода без разведчиков блока «🔍 Разведка» нет; бронеавтомобилю BeVe (Landsverk 183, отдельная машина) снова можно отдать приказ на разведку — дорога/трава/кусты 4, лес нельзя, слитые группы и танки активом не считаются |
+| v13.172 | Разведка и снабжение: точка отзыва разведки выбирается кликом; потеря актива — «недоступно до конца операции»; состав взвода снабжения показывается в карточке |
+| v13.173 | Playtest-правки: устойчивость онлайн-снимков, порядок приказов, отображение карточек и снабжения |
+| v13.174 | Кампания: устранены зависания при повторном приёме снимка оппонента — бой сопоставляется по спискам участников, `updatedAt` без игровых изменений не пересобирает бой, журнал ограничен 600 записями (см. `docs/diagnostics/campaign-freeze-replay.md`) |
+| v13.175 | Черновики окопов и расчистки разделены по гексу, виду работ и имени отряда; выполнение приказа применяет только черновик своего отряда; персональная квота отряда вместо суммарной |
+| v13.176–v13.181 | Управление и интерфейс: панели оперативной карты, формы приказов с ETA до отправки, мобильные элементы (радио выбора цели, доки), карточки и мораль |
+| v13.182 | **Многослойная местность.** Слои (высоты 1–3, лес, кусты, болота, вода, дорога) применяются к карте, но игроку не показываются; дорога читается невидимо по гексам и не даёт штрафов |
+| v13.183 | **Зоны местности по контурам, а не метки на гексах.** Уровень и типы перехода считаются по полигонам `maps/valencia_layers.json` (`opZoneCovers`, `opZoneLevelAt`) с допуском 10 px; дорога — по связям `maps/valencia_roads.json` (23 ребра, 3 цепочки, `road_chains` в `tools/build_valencia_terrain.py`); никаких подписей `▲N` и розовых линий на карте кампании |
+| v13.184 | **Шесть дополнений.** (1) Зона видимости выбранного юнита на опкарте: 3 гекса днём / 1 ночью по `opLineOfSightBlocked`, перекрытые гексы вырезаны, `opUnitVisionHexes()` отдаёт набор для правил обнаружения. (2) Панель расстановки поднята вплотную к карте, отряды сгруппированы по взводам. (3) Подсветка выбранного отряда в бою — цветом взвода, назначение в пределах конкретного боя (`battle.platoonColorOrder`). (4) Обзор из-под холма: за первым гребнем открыто 2 гекса в глубину (`TACTICAL_SLOPE_SIGHT_DEPTH`). (5) Пленные и отделения с 0 живых — одной строкой в карточке взвода. (6) Ворвавшийся в окопы не окружён, пока есть путь к своим; окружение — только после отсечения (нет пути **и** ближайший свой дальше 4 гексов, `TACTICAL_CUTOFF_MIN_DISTANCE`) |
+| v13.185 | **Стабилизация (без новых механик).** Версия синхронизирована во всех местах и вынесена в `tools/bump_version.py`; снят дубль `tacticalSquadHexPosition` (короткая копия перекрывала полную и теряла `isEnemy`/`idx` — из-за этого `tacticalSquadsInSameHex` строил выборку противников по `undefined`); снят дубль `useAdrenaline`; `checkhtml.js` ловит дубли определений; появился раннер `run_all.js` с разделением core/legacy |
 | — (справка) | `rules.html` переписан по коду: порог попадания вводит игрок; дистанция −floor((d−r)/2); гранаты 6+; обнаружение 9+ (шум на 8); мораль; бронетехника; КО отмечены как нереализованные. Раздел 17 обновлён |
+
+---
+
+## 21. Карта кода: где что искать (сверено на v13.185)
+
+| Механика | Где смотреть |
+|---|---|
+| Версия сборки | `index.html: APP_VERSION`, `manifest.json`, `service-worker.js: CACHE_NAME`, все `js/*.js` (первая строка) |
+| Слои и зоны местности | `index.html`: `opHexSourcePoint`, `opLayersReady`, `opZoneCovers`, `opZoneLevelAt`, `getOpHexBaseTypes`, `getOpHexLevel`; данные — `maps/valencia_layers.json`, `maps/valencia_roads.json`, `maps/valencia_terrain.json` |
+| Дорога без штрафов | `opHasRoadData`, `opRoadConnected`, `getOpMoveCost`; построение — `tools/build_valencia_terrain.py: road_chains` |
+| Зона видимости юнита (опкарта) | `opUnitVisionRange`, `opUnitVisionHexes`, `drawSelectedUnitVisionZone` (вызов в `redrawOperationalMap`) |
+| Линия видимости (опкарта) | `opLineOfSightBlocked` |
+| Тактический туман и LOS | `tacticalHasLineOfSight`, `buildTacticalVisibleHexes`, `tacticalCellHeight`, `tacticalFogIsActive` |
+| Обзор из-под холма | `TACTICAL_SLOPE_SIGHT_DEPTH` (2 гекса за первым гребнем) |
+| Подсветка выбранного отряда в бою | `TACTICAL_PLATOON_COLORS`, `tacticalBattlePlatoonOrder`, `tacticalPlatoonColor`, `tacticalSquadHighlightColor` |
+| Панель расстановки | `js/placement.js`: `placementPlatoonLabel`, `placementGroupByPlatoon`, `placementTrayGroupsHtml`, `installBattlePlacementTray` |
+| Пленные | `recordEnemyPrisoners`, `campaignPrisonerCount`, `syncCampaignPrisonerLedger`, `markOpUnitSurrendered`; в карточке — `prisonerLossNote` (в `showOpUnitInfoPopup`) |
+| Окружение в бою | `tacticalChainEncirclementForSide`, `tacticalBreachExemptsEncirclement`, `tacticalSquadConnectionToOwn`, `updateTacticalEncirclement` |
+| Окружение на опкарте | `operationalEncirclementReasons`, `opEnemyCutPathHexes` |
+| Мораль и подавление | `tacticalChangeMorale`, `tacticalMoraleIsSuppressed`, `tacticalMoraleIsCritical`, `clearTacticalSuppressionForSide` |
+| Приказы и маршруты | `submitOrder`, `executeSeriesOrder`, `buildOrderRoute`, `operationalMoveChainStart`, `renderActiveOrders` |
+| Снабжение | `ensureSupplyState`, `sendSupplyDelivery`, `advanceSupplyDeliveries`, `supplyMoveCost`, `requireOperationalAmmo`, `consumeOperationalAmmo` |
+| Связь (рация/телефон) | `requestSignalIssueToReconOrgan`, `phoneCableCheckForDestination`, `beginEnemyPhoneLineRepairs`, `processEnemyPhoneLineRepairs` |
+| Разведка | `js/recon.js`: `syncReconAssetPool`, `reconFindPath`, `scheduleReveal`; панель — `showReconPanel` |
+| Карточки | `js/cards.js`: `GLOBAL_CARDS`, `BEVE_CARDS`, `AIRF_CARDS`; применение — `applyCardToPlatoon` |
+| Оружие и расчёты | `js/weapons.js`: `BEVE_WEAPONS`, `BEVE_CREW_WEAPONS`, `AIRF_WEAPONS`, `AIRF_CREW_WEAPONS`, `BEVE_AWARDS`, `AIRF_AWARDS` |
+| Карта тактического гекса | `js/hexmaps.js`: `TACTICAL_HEX_MAPS`, `loadTacticalHexMap`, `getBattleSquadHex`, `tacticalSquadHexPosition` (единственная реализация — полная, с `isEnemy`/`idx`) |
+| Действия на карте боя | `js/map_actions.js` |
+| Онлайн-матч | `js/online_battles.js`, `js/firebase-offline.js`, `onlineOnSnapshotSync` |
+| Проверки | `test_harness /run_all.js`, `test-status.json`, `docs/test-status.md` |
+| Версия/релиз | `tools/bump_version.py`, `changelogs/CHANGELOG-vXXX.md` |
