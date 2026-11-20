@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.183 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.185 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -46,7 +46,10 @@ function tacticalHexHasSublevel2(hexKey, includeOverlay) {
 
 const HEX_MAP_DIR = 'maps/Карты Валенсия/';
 const HEX_MAP_DIR_ALT = 'maps/';
-const HEX_MAP_INDEX_FILES = [HEX_MAP_DIR + 'index.json', HEX_MAP_DIR_ALT + 'index.json'];
+// maps/index.json — единый проверенный индекс, который также прекэширует service worker.
+// Не запрашиваем отсутствующий maps/Карты Валенсия/index.json перед fallback: это
+// создавало лишний HTTP 404 при каждом запуске игры.
+const HEX_MAP_INDEX_FILES = [HEX_MAP_DIR_ALT + 'index.json'];
 
 let TACTICAL_HEX_INDEX = null;          // [{name, file}]
 let tacticalHexIndexPromise = null;
