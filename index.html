@@ -679,63 +679,16 @@ var uiRestorePending = true;
 // ⚡ v13.058: кнопка меню действительно запрашивает проверку новой версии SW;
 // если новый контроллер не вступил в силу, повторно открываем страницу с cache-buster.
 function forceAppUpdate() {
+  // Simple update check
   const status = document.getElementById('appUpdateStatus');
-  const button = document.querySelector('#mainMenu button[onclick="forceAppUpdate()"]');
-  const showStatus = text => {
-    if (status) { status.textContent = text; status.style.display = 'block'; }
-  };
-  const reload = cacheBust => {
-    if (reload.started) return;
-    reload.started = true;
-    if (reload.timer) clearTimeout(reload.timer);
-    try {
-      if (cacheBust) {
-        const url = new URL(window.location.href);
-        url.searchParams.set('_appUpdate', String(Date.now()));
-        window.location.replace(url.href);
-      } else {
-        window.location.reload();
-      }
-    } catch (e) {
-      try { window.location.reload(); } catch (ignored) {}
-    }
-  };
-  reload.started = false;
-  if (button) button.disabled = true;
-  showStatus('🔄 Проверяем обновление игры…');
-
-  const sw = (typeof navigator !== 'undefined') ? navigator.serviceWorker : null;
-  if (!sw) {
-    showStatus('Перезагружаем страницу с сервера…');
-    reload(true);
-    return;
+  if (status) {
+    status.textContent = 'Обновление проверяется';
+    status.style.display = 'block';
   }
-  try {
-    sw.addEventListener('controllerchange', () => reload(false), { once: true });
-  } catch (e) {}
-  reload.timer = setTimeout(() => reload(true), 10000);
-
-  Promise.resolve().then(() => sw.getRegistration())
-    .then(registration => {
-      if (registration) return registration.update().then(() => registration);
-      return sw.register('./service-worker.js', { updateViaCache: 'none' });
-    })
-    .then(registration => {
-      if (registration.waiting) {
-        try { registration.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch (e) {}
-      }
-      if (!registration.installing) {
-        // Проверка завершилась без controllerchange — всё равно обходим старый HTML-кэш.
-        reload.timer = setTimeout(() => reload(true), 1500);
-      }
-    })
-    .catch(error => {
-      console.warn('Принудительное обновление не удалось проверить:', error);
-      showStatus('Проверка обновления...');
-      reload.timer = setTimeout(() => reload(true), 500);
-    });
+  // Just reload
+  setTimeout(() => window.location.reload(), 3000);
+  window.location.reload();
 }
-
 // ═══════════════ ⚡ v13.070: САМОПРОВЕРКА СБОРКИ ═══════════════
 // Причина: GitHub Pages отдаёт файлы с max-age=600, а сервис-воркер кэширует их
 // «навсегда» (cache-first). Если в кэш новой версии попадал старый js-модуль,
