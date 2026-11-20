@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.183 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.185 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.061: current release data and terrain definitions; absent texture variants no longer referenced.
 // ==================== КОНСТАНТЫ И ДАННЫЕ ==================== 
 // Типы местности
@@ -603,25 +603,25 @@ const GROUP_ICONS = {
 //    эмодзи-fallback'ами (как окопы/здания/лес); если появится свой PNG —
 //    достаточно заполнить поле icon у нужной метки.
 const markerIconMap = {
-  'detected':               { icon: 'images/markers/detected.png',              fallback: '👁️', width: 30, height: 30 },
-  'noise':                  { icon: 'images/markers/noise.png',                 fallback: '🔊', width: 30, height: 30 },
-  'artillery':              { icon: 'images/markers/artillery.png',             fallback: '💥', width: 30, height: 30 },
+  'detected':               { icon: null,              fallback: '👁️', width: 30, height: 30 },
+  'noise':                  { icon: null,                 fallback: '🔊', width: 30, height: 30 },
+  'artillery':              { icon: null,             fallback: '💥', width: 30, height: 30 },
   'fireField':              { icon: 'images/BeVe/горящее поле.png',             fallback: '🔥', width: 30, height: 30 },
   'fireFieldBurning':       { icon: 'images/BeVe/горящее поле.png',             fallback: '🔥', width: 30, height: 30 },
   'bicyclePark':            { icon: 'images/BeVe/велостоянка метка.png',        fallback: '🚲', width: 30, height: 30 },
-  'ammoPoint':              { icon: 'images/markers/ammoPoint.png',             fallback: '📦', width: 30, height: 30 },
+  'ammoPoint':              { icon: null,             fallback: '📦', width: 30, height: 30 },
   'destroyedVehicle':       { icon: 'images/подбитый танк аирф.png',            fallback: '🔥', width: 30, height: 30 },
-  'destroyedSquadFriendly': { icon: 'images/markers/destroyedSquadFriendly.png',fallback: '💀', width: 30, height: 30 },
-  'destroyedSquadEnemy':    { icon: 'images/markers/destroyedSquadEnemy.png',   fallback: '☠️', width: 30, height: 30 },
+  'destroyedSquadFriendly': { icon: null,fallback: '💀', width: 30, height: 30 },
+  'destroyedSquadEnemy':    { icon: null,   fallback: '☠️', width: 30, height: 30 },
   'surrenderedFriendly':    { icon: null, fallback: '🏳️', width: 30, height: 30 },
   'surrenderedEnemy':       { icon: null, fallback: '🏳️', width: 30, height: 30 },
-  'dot':                    { icon: 'images/markers/dot.png',                   fallback: '🏰', width: 30, height: 30 },
+  'dot':                    { icon: null,                   fallback: '🏰', width: 30, height: 30 },
   'trenches':               { icon: 'images/окоп оп.png',                       fallback: '🕳️', width: 30, height: 30 },
-  'building':               { icon: 'images/markers/building.png',              fallback: '🏠', width: 30, height: 30 },
-  'forest':                 { icon: 'images/markers/forest.png',                fallback: '🌲', width: 30, height: 30 },
-  'bushes':                 { icon: 'images/markers/bushes.png',                fallback: '🌳', width: 30, height: 30 },
+  'building':               { icon: null,              fallback: '🏠', width: 30, height: 30 },
+  'forest':                 { icon: null,                fallback: '🌲', width: 30, height: 30 },
+  'bushes':                 { icon: null,                fallback: '🌳', width: 30, height: 30 },
   'rocks':                  { icon: 'images/валуны.png',                        fallback: '🪨', width: 30, height: 30 },
-  'crater':                 { icon: 'images/markers/crater.png',                fallback: '💥', width: 30, height: 30 }
+  'crater':                 { icon: null,                fallback: '💥', width: 30, height: 30 }
 };
 
 // Функции доступа к данным

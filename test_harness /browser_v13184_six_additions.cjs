@@ -1,6 +1,6 @@
 'use strict';
 // NODE_PATH=/tmp/browsertest/node_modules LD_LIBRARY_PATH=/tmp/chromlibs/lib node this-file
-// Реальная проверка v13.184: зона видимости на опкарте, панель расстановки по взводам,
+// Проверка дополнений v13.184 на текущей версии: зона видимости на опкарте, панель расстановки по взводам,
 // цвет подсветки по взводу, обзор из-под холма, пленные в карточке, окружение в окопах.
 const {chromium} = require('playwright-core');
 const chromiumPackage = require('@sparticuz/chromium');
@@ -48,7 +48,7 @@ const root = path.resolve(process.env.WARGAME_ROOT || path.join(__dirname, '..')
         }, 50);
       });
 
-      check('версия v13.184', APP_VERSION === 'v13.184', APP_VERSION);
+      check('версия v13.185', APP_VERSION === 'v13.185', APP_VERSION);
 
       // ── п.1 зона видимости ─────────────────────────────────────────────
       const unit = {name: 'тест', col: 5, row: 7, squads: []};
@@ -197,7 +197,7 @@ const root = path.resolve(process.env.WARGAME_ROOT || path.join(__dirname, '..')
     const pageErrors = errors.filter(e => !/ResizeObserver|favicon/i.test(e));
     if (pageErrors.length) { failures++; console.log('FAIL ошибки страницы: ' + pageErrors.slice(0, 5).join(' | ')); }
     else console.log('PASS нет ошибок JS на странице');
-    console.log(`\nИтог v13.184: PASS ${result.checks.filter(c => c.ok).length} · FAIL ${result.checks.filter(c => !c.ok).length}`);
+    console.log(`\nИтог проверки дополнений v13.184 на APP_VERSION v13.185: PASS ${result.checks.filter(c => c.ok).length} · FAIL ${result.checks.filter(c => !c.ok).length}`);
   } catch (e) {
     failures++;
     console.log('CRASH ' + (e && e.message));
