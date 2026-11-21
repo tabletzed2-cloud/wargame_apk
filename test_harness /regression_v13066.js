@@ -92,7 +92,7 @@ test('R44#1: пункт боепитания встаёт в гекс штаба
   assert.ok(!s.evalCtx("appData.map.grid['0,0'].markers").includes('ammoPoint'), 'пехотное отделение — без метки');
 });
 
-test('R44#1 / п.19: метка остаётся на исходном гексе и снимается при уничтожении', () => {
+test('R44#1 / п.19: метка остаётся на исходном гексе и действует после уничтожения штаба', () => {
   const s = sandbox();
   s.run(`
     appData.squads = [{ name: 'Штаб взвода №2 Голландцы', fighters: [{ hp: 3, maxHp: 3 }] }];
@@ -110,8 +110,8 @@ test('R44#1 / п.19: метка остаётся на исходном гекс�
   assert.ok(s.evalCtx('__afterMove.grid["4,4"].markers').includes('ammoPoint'), 'пункт остаётся на исходном гексе');
   assert.ok(!s.evalCtx('__afterMove.grid["7,7"].markers').includes('ammoPoint'), 'метка не переезжает вместе со штабом');
   eq(s, '__afterMove.autoSupplyKeysPlayer', ['4,4'], 'активный пункт сохраняет исходные координаты');
-  eq(s, '__afterDeath.grid["4,4"].markers', [], 'у уничтоженного штаба исходная метка снимается');
-  eq(s, 'appData.map.autoSupplyKeysPlayer', []);
+  assert.ok(s.evalCtx('__afterDeath.grid["4,4"].markers').includes('ammoPoint'), 'действующий пункт остаётся на исходном гексе после уничтожения штаба');
+  eq(s, 'appData.map.autoSupplyKeysPlayer', ['4,4']);
 });
 
 test('R44#1: скрытые отряды противника метку не получают, видимые — получают', () => {
@@ -287,9 +287,9 @@ test('R44#2: в бою на этом гексе ДОТ уже стоит на з
 
 test('R44#2: ДОТы одного юнита могут стоять на двух гексах — в бою каждый свой', () => {
   // юнит со закреплённым ДОТом попадает в бой на гексе ДОТа
-  assert.match(HTML, /const unitBelongsToHex = \(u, col, row\) => \{/);
-  assert.match(HTML, /s\.fixedTacticalPosition\.hexKey\.split\(','\)\[0\]/);
-  assert.match(HTML, /s\.fixedTacticalPosition\.hexKey\.split\(','\)\[1\]/);
+  assert.match(HTML, /const squadBelongsToHex = \(squad, units\) => \{/);
+  assert.match(HTML, /const fixedHex = squad\.fixedTacticalPosition && squad\.fixedTacticalPosition\.hexKey;/);
+  assert.match(HTML, /return String\(fixedHex\) === String\(hexKey\)/);
   // в «чужом» бою отряд ДОТа не заперт на постоянной позиции
   assert.match(PLACE, /String\(squad\.fixedTacticalPosition\.hexKey\) === String\(battle\.hexKey\)/);
   // правило «ДОТы одного юнита — только один оперативный гекс» снято
@@ -313,8 +313,8 @@ test('R44#2: старые окопы начальной расстановки �
 test('R44#2: в бою на чужом гексе второй расчёт ДОТа не участвует', () => {
   // фильтр startTacticalBattle: отряды, закреплённые на другом оперативном гексе,
   // в этот бой не попадают (остаются на своей позиции)
-  assert.match(HTML, /playerSquads = playerSquads\.filter\(squadBelongsToHex\)/);
-  assert.match(HTML, /enemySquads = enemySquads\.filter\(squadBelongsToHex\)/);
+  assert.match(HTML, /playerSquads = playerSquads\.filter\(s => squadBelongsToHex\(s, playerUnits\)\)/);
+  assert.match(HTML, /enemySquads = enemySquads\.filter\(s => squadBelongsToHex\(s, enemyUnits\)\)/);
 });
 
 test('R44#2: гейт «Завершить размещение» смотрит на расстановку ДОТов', () => {

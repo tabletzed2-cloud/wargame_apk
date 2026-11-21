@@ -80,17 +80,17 @@ ok('BUILD-маркеры модулей, service-worker и manifest на акт�
     'manifest short_name = ' + manifest.short_name);
 });
 
-// ─── самопроверка сборки найдёт маркеры (иначе forceDeepUpdate на каждом старте) ───
-ok('самопроверка сборки сверяет те же модули, что несут маркер', () => {
-  const m = /const BUILD_MARKED_MODULES = \[([^\]]+)\]/.exec(HTML);
-  assert(m, 'BUILD_MARKED_MODULES найден');
-  const listed = m[1].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
-  assert(listed.length >= 4, 'ожидалось не менее 4 модулей, найдено ' + listed.length);
-  listed.forEach(f => {
-    const txt = fs.readFileSync(path.join(ROOT, f), 'utf8');
-    assert(txt.indexOf('BUILD-МАРКЕР: ' + VERSION) >= 0,
-      f + ': маркер не совпадает с APP_VERSION — игра уйдёт в принудительное обновление');
+// ─── service worker сверяет маркеры кэшируемых файлов ───
+ok('самопроверка service worker сверяет модули сборки с APP_VERSION', () => {
+  const sw = fs.readFileSync(path.join(ROOT, 'service-worker.js'), 'utf8');
+  const marked = ['js/data.js', 'js/hexmaps.js', 'js/templates.js', 'js/operational_ui.js'];
+  marked.forEach(file => {
+    assert(sw.includes(`{ url: './${file}', needle: BUILD_MARKER }`), `${file} участвует в проверке кэша`);
+    const first = fs.readFileSync(path.join(ROOT, file), 'utf8').split('\\n')[0];
+    assert(first.includes('BUILD-МАРКЕР: ' + VERSION), `${file}: marker matches APP_VERSION`);
   });
+  assert(sw.includes(`{ url: './index.html', needle: "var APP_VERSION = '" + CACHE_VERSION + "';" }`),
+    'index.html APP_VERSION участвует в проверке кэша');
 });
 
 console.log(fail ? `\nv13.142 (версия в меню): FAIL ${fail}` : `\nv13.142 (версия в меню): PASS (${pass})`);

@@ -133,7 +133,7 @@ test('3: Счётчик раундов тактического боя корр�
   assert.equal(s.elements.turnCounter.innerText, 1);
   assert.equal(s.elements.turnCounterMax.innerText, 5);
   assert.match(s.elements.tacticalRoundLabel.textContent, /Раунд 1\/5/);
-  assert.match(s.elements.turnCounterMap.textContent, /Раунд: 1\/5/);
+  assert.match(s.elements.turnCounterMap.textContent, /Сыграно раундов: 0\/5 · идёт раунд 1 · фаза атакующего/);
 
   // Проходим фазы 1..9 и проверяем номер раунда в шапке, на полосе и на карте
   for (let phase = 1; phase <= 9; phase++) {
@@ -147,7 +147,9 @@ test('3: Счётчик раундов тактического боя корр�
     const expectedRound = Math.min(5, Math.floor(phase / 2) + 1);
     assert.equal(Number(s.elements.turnCounter.innerText), expectedRound, `шапка на фазе ${phase}`);
     assert.match(s.elements.tacticalRoundLabel.textContent, new RegExp(`Раунд ${expectedRound}/5`), `полоса на фазе ${phase}`);
-    assert.match(s.elements.turnCounterMap.textContent, new RegExp(`Раунд: ${expectedRound}/5`), `карта на фазе ${phase}`);
+    const playedRounds = Math.floor(phase / 2);
+    assert.match(s.elements.turnCounterMap.textContent,
+      new RegExp(`Сыграно раундов: ${playedRounds}/5 · идёт раунд ${expectedRound}`), `карта на фазе ${phase}`);
   }
 
   // Одиночный бой даже после перезагрузки (inStandaloneBattle === false, battle === null)
@@ -164,10 +166,10 @@ test('3: Счётчик раундов тактического боя корр�
   assert.match(s.elements.tacticalRoundLabel.textContent, /Раунд 2\/5/);
 });
 
-// ─── 4. Боевой дух снайперов и миномётов = 5 ───
-test('4: У снайперов и миномётов базовый и тактический боевой дух равен 5', () => {
+// ─── 4. Старый масштаб специалистов = 5, текущий боевой дух нормализован до 100 ───
+test('4: Снайперы и миномёты сохраняют legacy-шкалу 5 при нормализованном духе 100', () => {
   const s = createSandbox(freshAppData());
-  for (const fn of ['tacticalIsSniperOrMortarSquad', 'tacticalMarkStartingMoraleCasualties', 'tacticalInitializeSquadMorale']) {
+  for (const fn of ['tacticalFindOperationalMoraleOwner', 'isArmoredTacticalSquad', 'tacticalIsSniperOrMortarSquad', 'tacticalMarkStartingMoraleCasualties', 'tacticalInitializeSquadMorale']) {
     s.run(sliceFunction(HTML, fn));
   }
   const templates = s.evalCtx("SQUAD_TEMPLATES.filter(t => /Снайперское звено|Минометный расч[её]т/i.test(t.name || ''))");
@@ -183,12 +185,14 @@ test('4: У снайперов и миномётов базовый и такт�
     tacticalInitializeSquadMorale(sniper, 'b-1');
     tacticalInitializeSquadMorale(mortar, 'b-1');
   `);
-  assert.equal(s.evalCtx('sniper.baseMorale'), 5);
-  assert.equal(s.evalCtx('sniper.currentMorale'), 5);
-  assert.equal(s.evalCtx('sniper.tacticalMoraleMax'), 5);
-  assert.equal(s.evalCtx('mortar.baseMorale'), 5);
-  assert.equal(s.evalCtx('mortar.currentMorale'), 5);
-  assert.equal(s.evalCtx('mortar.tacticalMoraleMax'), 5);
+  assert.equal(s.evalCtx('sniper.tacticalMoraleLegacyScale'), 5);
+  assert.equal(s.evalCtx('sniper.baseMorale'), 100);
+  assert.equal(s.evalCtx('sniper.currentMorale'), 100);
+  assert.equal(s.evalCtx('sniper.tacticalMoraleMax'), 100);
+  assert.equal(s.evalCtx('mortar.tacticalMoraleLegacyScale'), 5);
+  assert.equal(s.evalCtx('mortar.baseMorale'), 100);
+  assert.equal(s.evalCtx('mortar.currentMorale'), 100);
+  assert.equal(s.evalCtx('mortar.tacticalMoraleMax'), 100);
 });
 
 // ─── 5. Два отряда противника в одном гексе: гранаты, орудия/миномёты и подавление ───
@@ -254,8 +258,8 @@ test('5: При 2 отрядах противника в одном гексе �
   assert.equal(s.evalCtx('e2.fighters.reduce((sum, f) => sum + f.hp, 0)'), 4, 'подавление не снимает HP второго отряда');
 });
 
-// ─── 6. Отображение иконки карточки заменённого боеприпаса на кнопке гранат ───
-test('6: При замене гранат карточкой на кнопке броска гранат отображается иконка и название карточки', () => {
+// ─── 6. Иконка заменяющей карточки и отдельный запас фосфорных гранат ───
+test('6: Кнопка гранат показывает иконку замены, а фосфорные гранаты не подменяют обычные', () => {
   const s = createSandbox(freshAppData());
   for (const fn of ['escapeCardHtml', 'getSquadGrenadeReplacementInfo']) {
     s.run(sliceFunction(HTML, fn));
@@ -275,9 +279,8 @@ test('6: При замене гранат карточкой на кнопке �
   assert.match(mInfo.icon, /Бутылки с зажигательной смесью\.png$/);
   assert.match(mInfo.buttonLabel, /Бутылки с зажигательной смесью/);
 
-  const pInfo = s.evalCtx('getSquadGrenadeReplacementInfo(phosSquad)');
-  assert.equal(pInfo.cardName, 'Фосфорные гранаты');
-  assert.match(pInfo.icon, /Фосфорные гранаты\.png$/);
+  assert.equal(s.evalCtx('getSquadGrenadeReplacementInfo(phosSquad)'), null,
+    'фосфорные гранаты остаются отдельным боеприпасом, не заменяют обычные');
 
   const dInfo = s.evalCtx('getSquadGrenadeReplacementInfo(dynSquad)');
   assert.equal(dInfo.cardName, 'Шахтерский динамит');

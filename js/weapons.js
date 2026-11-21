@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.185
+// ⚡ BUILD-МАРКЕР: v13.187
 // v13.091: both factions use a four-hex effective range for 82-mm mortars.
 // ⚡ v13.059: current release weapons and awards.
 // ==================== ОРУЖИЕ И НАГРАДЫ ====================
@@ -9,7 +9,7 @@ const BEVE_WEAPONS = [
 { "name": "Пистолет Browning Hi-Power", "values": [0,1,1,2,2,3], "effectiveRange": 2, "meleeBonus": 0, "icon": "images/BeVe/браунинг хай пауэр.png", "iconSize": "30px", "isAutomatic": true},
 { "name": "Ручной пулемет FN model D", "values": [0,1,1,2,2,3], "effectiveRange": 5, "meleeBonus": 0, "icon": "images/BeVe/fn md.png", "iconSize": "45px", "isAutomatic": true},
 { "name": "Ручной пулемет FN model D-exp", "values": [0,2,3,4,5,0], "effectiveRange": 5, "meleeBonus": 0, "icon": "images/BeVe/fn d exp.png", "iconSize": "45px", "isAutomatic": true},
-{ "name": "Geweer OIP M.38", "values": [1,1,1,1,1,2], "effectiveRange": 5, "meleeBonus": 0, "sniper": true, "accuracyBonus": 3, "damagePerHit": 3, "icon": "images/BeVe/OIP.png", "iconSize": "45px"}
+{ "name": "Geweer OIP M.38", "values": [1,1,1,1,1,2], "effectiveRange": 5, "meleeBonus": 0, "sniper": true, "accuracyBonus": 3, "damagePerHit": 3, "icon": "images/BeVe/OIP.png", "iconSize": "56px"}
             ];
 
 const BEVE_CREW_WEAPONS  = [
