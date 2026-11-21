@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.187 — BeVe OIP sniper artwork and fighter icon fallback.
+// ⚡ BUILD-МАРКЕР: v13.188 — offline enemy visibility follows detection rules.
 (function () {
   'use strict';
 
@@ -968,8 +968,7 @@
   function enemyOptions(selectedId) {
     const c = campaign();
     return ((c && c.enemyOpUnits) || []).map((enemy, id) => {
-      if (!enemy || enemy.isDestroyed || enemy.col == null || enemy.row == null || enemy.hidden) return '';
-      if (c.online && typeof onlineEnemyVisible === 'function' && !onlineEnemyVisible(enemy)) return '';
+      if (!enemy || enemy.isDestroyed || enemy.col == null || enemy.row == null || enemy.hidden || !enemyVisibleToPlayer(enemy)) return '';
       return `<option value="${id}"${Number(selectedId) === id ? ' selected' : ''}>${esc(enemy.name)} (${enemy.col},${enemy.row})</option>`;
     }).join('');
   }
@@ -1813,7 +1812,8 @@
   function enemyVisibleToPlayer(enemy) {
     if (!enemy || enemy.isDestroyed || enemy.col == null || enemy.row == null) return false;
     const c = campaign();
-    return !(c && c.online && typeof onlineEnemyVisible === 'function' && !onlineEnemyVisible(enemy));
+    if (c && c.online) return !(typeof onlineEnemyVisible === 'function' && !onlineEnemyVisible(enemy));
+    return typeof opEnemyVisibleToPlayer !== 'function' || opEnemyVisibleToPlayer(enemy);
   }
   function operationalWeaponRange(unit) {
     if (typeof isMediumArtillery === 'function' && isMediumArtillery(unit)) {

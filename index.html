@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.187 — операция</title>
+  <title>Боевой модуль v13.188 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -19,7 +19,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.187</h1>
+    <h1>⚔️ Боевой модуль v13.188</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -32,7 +32,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.187</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.188</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -84,7 +84,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.187 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.188 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -604,7 +604,7 @@ const SUPPLY_DEPOT_MAX = { ammoSmall: 1200, grenades: 300, ammoOrdnance: 80 };
 //    каждой стороне отдельно: у A.I.R.F. — 0,11, у BeVe — 7,0.
 const SUPPLY_EVAC_POINTS = { 'BeVe': { col: 7, row: 0 }, 'A.I.R.F.': { col: 0, row: 11 } };
 
-var APP_VERSION = 'v13.187';
+var APP_VERSION = 'v13.188';
 // v13.183: terrain layers as ZONES (contours), road links cost 1 with no penalty,
 //          no layer graphics on the campaign map; supply/combat read zones.
 // v13.172: full recon routes/observation marks, safe supply corridors, unit card editor, review fixes.
@@ -3397,7 +3397,9 @@ function createEnemyOperationalUnits() {
             dismounted: false,
             faction: enemyBattalion.faction || 'A.I.R.F.',
             icon: icon,
-            detected: true,
+            // В одиночной кампании враг не раскрыт игроку при создании; стандартная
+            // проверка обнаружения выставит detected/noiseMarker после расстановки.
+            detected: !!(appData.campaign && appData.campaign.online),
             noiseMarker: false,
             modules: {
                 turret: { name: 'Башня', status: 'ok', weapons: [] },
@@ -31464,6 +31466,16 @@ function rotateSelectedHex(delta) {
     if (appData.campaign && !appData.campaign.online && typeof ensureEnemyPhoneLines === 'function') ensureEnemyPhoneLines(true);
   } catch (e) { console.warn('enemy AI phone network setup:', e && e.message); }
   initOperationalMap();
+  // Initial offline contacts are rolled once after both armies occupy their
+  // scenario positions; opening the map again must not reroll known detections.
+  if (appData.campaign && !appData.campaign.online && !appData.campaign.offlineEnemyInitialDetectionDone &&
+      typeof checkAllUnitsDetection === 'function') {
+    try {
+      checkAllUnitsDetection();
+      appData.campaign.offlineEnemyInitialDetectionDone = true;
+      saveData();
+    } catch (e) { console.warn('initial offline detection:', e && e.message); }
+  }
   renderActiveBattlesList();
   try { if (typeof renderInitialFortificationStatus === 'function') renderInitialFortificationStatus(); } catch (e) {}
      appData.campaign.selectedOpUnit = null;
@@ -41281,16 +41293,35 @@ function checkAllUnitsDetection() {
     if (outcome && outcome.result === 'detected') detected++;
     if (outcome && outcome.result === 'noise') noise++;
   });
-  // Offline AI armor contacts use the same direct-LOS/range rules from the
-  // player's viewpoint. Online enemy contacts are authoritative on the host.
-  if (!appData.campaign.online) (appData.campaign.enemyOpUnits || []).filter(opDetectionIsArmored).forEach(unit => {
-    unit.hidden = false;
+  // Offline enemy units are checked symmetrically from the player's viewpoint;
+  // online enemy visibility remains authoritative on the host. Fixed fortifications
+  // retain their scenario-known visibility rule in opEnemyVisibleToPlayer().
+  if (!appData.campaign.online) (appData.campaign.enemyOpUnits || []).forEach(unit => {
+    if (!unit || (typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit))) return;
     const outcome = opCheckUnitDetection(unit, { log: false });
     if (outcome && outcome.result === 'detected') detected++;
     if (outcome && outcome.result === 'noise') noise++;
   });
   log(`🔎 Автоматическое обнаружение: обнаружено ${detected}, шум ${noise}.`);
   saveData(); redrawOperationalMap();
+}
+
+// Re-run detection after the offline opponent's movement, so detection evaluated
+// before its orders cannot reveal an out-of-date hex after the AI advances.
+function refreshOfflineEnemyDetectionAfterAI() {
+  const camp = appData && appData.campaign;
+  if (!camp || camp.online || !Array.isArray(camp.enemyOpUnits)) return 0;
+  const turn = Number(camp.currentTurn) || 1;
+  let checked = 0;
+  camp.enemyOpUnits.forEach(unit => {
+    if (!unit || unit.isDestroyed || unit.isInBattle || unit.col == null || unit.row == null || unit.hidden ||
+        (typeof isStaticOpUnit === 'function' && isStaticOpUnit(unit))) return;
+    if (unit.movedThisTurn && !unit.firedThisTurn && Number(unit.fireDetectionResolvedTurn) === turn) {
+      delete unit.fireDetectionResolvedTurn;
+    }
+    try { opCheckUnitDetection(unit, { log: false }); checked++; } catch (e) {}
+  });
+  return checked;
 }
 
 function openTerrainEditor(hexKey) {
@@ -45099,8 +45130,9 @@ function createEnemyVehicleGroup(vehicles) {
     mobility: 'vehicle',
     dismounted: false,
     icon: firstVehicle.icon,
-    detected: true,
-    noiseMarker: false,
+    detected: vehicles.some(vehicle => vehicle && vehicle.detected === true),
+    noiseMarker: !vehicles.some(vehicle => vehicle && vehicle.detected === true) &&
+      vehicles.some(vehicle => vehicle && vehicle.noiseMarker === true),
     isGroup: true,
     groupMembers: [],
     groupSize: vehicles.length,
@@ -45208,8 +45240,8 @@ function splitEnemyVehicleGroup(group) {
         dismounted: false,
         icon: v.icon || vehicleIcon,
         faction: faction,
-        detected: true,
-        noiseMarker: false,
+        detected: group.detected === true,
+        noiseMarker: group.noiseMarker === true,
         isGroup: false,
         groupMembers: [],
         groupSize: 1,
@@ -45232,8 +45264,8 @@ function splitEnemyVehicleGroup(group) {
         dismounted: false,
         icon: vehicleIcon,
         faction: faction,
-        detected: true,
-        noiseMarker: false,
+        detected: group.detected === true,
+        noiseMarker: group.noiseMarker === true,
         isGroup: false,
         groupMembers: [],
         groupSize: 1,
@@ -46498,7 +46530,11 @@ function operationalUnitIconLayout(size, iconRadius) {
     const allVisible = [
         ...(appData.campaign.opUnits || []).filter(u => u && !u.isDestroyed && !u.reconMissionId && !u.embarkedInBtr).map(unit => ({unit,isEnemy:false})),
         ...(appData.campaign.enemyOpUnits || []).filter(u => u && !u.isDestroyed &&
-            (typeof onlineEnemyVisible !== 'function' || onlineEnemyVisible(u))).map(unit => ({unit,isEnemy:true}))
+            (appData.campaign.online
+                ? (typeof onlineEnemyVisible !== 'function' || onlineEnemyVisible(u))
+                : (typeof opEnemyVisibleToPlayer === 'function'
+                    ? opEnemyVisibleToPlayer(u)
+                    : (u.hidden !== true && (u.detected === true || u.noiseMarker === true))))).map(unit => ({unit,isEnemy:true}))
     ];
     // Recon assets share slots with ordinary units, including picking geometry.
     if (typeof reconActiveMissions === 'function') reconActiveMissions().forEach(mission=>{
