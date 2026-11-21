@@ -928,6 +928,10 @@ function processOfflineCampaignAI() {
         // this turn unless it has just joined a tactical battle.
         if (!operationalUnitInTacticalBattle(unit) && operationalAIEngage(unit, targets.visible)) fired++;
     });
+    // Re-evaluate enemy visibility after orders: the detection check at the
+    // beginning of the operational phase refers to the units' old positions.
+    try { if (typeof refreshOfflineEnemyDetectionAfterAI === 'function') refreshOfflineEnemyDetectionAfterAI(); }
+    catch (e) { console.warn('Enemy AI detection refresh:', e && e.message); }
     if (moved || fired || improved) {
         try { log(`🧠 Противник: перемещено ${moved} гекс(ов), обстрелов: ${fired}, действий по укреплению позиции: ${improved}.`); } catch (e) {}
         try { saveData(); } catch (e) {}
