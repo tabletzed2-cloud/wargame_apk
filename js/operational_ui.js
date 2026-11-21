@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.185 — tactical grenade-area fire, commissioner card limit, unified rules.
+// ⚡ BUILD-МАРКЕР: v13.187 — BeVe OIP sniper artwork and fighter icon fallback.
 (function () {
   'use strict';
 

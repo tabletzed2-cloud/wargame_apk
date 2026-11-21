@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.185 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.187 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1042,23 +1042,39 @@ function operationalDotSectorAllows(unit, targetCol, targetRow) {
         });
     });
 }
-function tacticalDotWeaponCanTarget(squadIndex, targetIndex, crewIndex) {
-    const squad = (appData && appData.squads || [])[squadIndex];
-    const target = (appData && appData.map && appData.map.enemySquads || [])[targetIndex];
+function tacticalDotWeaponCanTarget(squadIndex, targetIndex, crewIndex, shooterSide) {
+    if (shooterSide !== 'enemy' && shooterSide !== 'player') {
+        shooterSide = (typeof currentSquad !== 'undefined' && typeof mapActionSideOfSquad === 'function' && mapActionSideOfSquad(currentSquad) === 'enemy') ? 'enemy' : 'player';
+    }
+    const squads = shooterSide === 'enemy'
+        ? ((appData && appData.map && appData.map.enemySquads) || [])
+        : ((appData && appData.squads) || []);
+    const targets = shooterSide === 'enemy'
+        ? ((appData && appData.squads) || [])
+        : ((appData && appData.map && appData.map.enemySquads) || []);
+    const squad = squads[squadIndex];
+    const target = targets[targetIndex];
     const sector = tacticalWeaponFireSector(squad, crewIndex);
     if (!sector) return true; // старые сохранения без направления остаются совместимы
     if (!squad || !target || !appData.map || !appData.map.grid) return false;
-    const from = getBattleSquadHex(appData.map.grid, squadIndex, false);
-    const to = getBattleSquadHex(appData.map.grid, targetIndex, true);
+    const shooterIsEnemy = shooterSide === 'enemy';
+    const from = getBattleSquadHex(appData.map.grid, squadIndex, shooterIsEnemy);
+    const to = getBattleSquadHex(appData.map.grid, targetIndex, !shooterIsEnemy);
     return !!(from && to && tacticalHexInFireSector(from.key, to.key, sector, dotSectorWidthDeg(squad, crewIndex)));
 }
-function tacticalDotCanFireAtTarget(squadIndex, targetIndex, crewIndices) {
-    const squad = (appData && appData.squads || [])[squadIndex];
+function tacticalDotCanFireAtTarget(squadIndex, targetIndex, crewIndices, shooterSide) {
+    if (shooterSide !== 'enemy' && shooterSide !== 'player') {
+        shooterSide = (typeof currentSquad !== 'undefined' && typeof mapActionSideOfSquad === 'function' && mapActionSideOfSquad(currentSquad) === 'enemy') ? 'enemy' : 'player';
+    }
+    const squads = shooterSide === 'enemy'
+        ? ((appData && appData.map && appData.map.enemySquads) || [])
+        : ((appData && appData.squads) || []);
+    const squad = squads[squadIndex];
     const indices = Array.isArray(crewIndices) ? crewIndices : [];
     if (!tacticalDotHasConfiguredSectors(squad)) return true;
     if (!indices.length) return false;
     return indices.some(index => !tacticalWeaponFireSector(squad, index) ||
-        tacticalDotWeaponCanTarget(squadIndex, targetIndex, index));
+        tacticalDotWeaponCanTarget(squadIndex, targetIndex, index, shooterSide));
 }
 
 function isForestHexType(type) { return (typeof FOREST_LIKE_TYPES !== 'undefined') && FOREST_LIKE_TYPES.indexOf(type) >= 0; }
@@ -1087,10 +1103,14 @@ function tacticalForestDepth(grid, sc, sr, tc, tr) {
 }
 
 // Стрельба из стрелкового оружия по цели в лесу глубже 2 гексов — запрещена
-function smallArmsBlockedByForest(grid, shooterIdx, targetIdx) {
+function smallArmsBlockedByForest(grid, shooterIdx, targetIdx, shooterSide) {
     if (!grid) return null;
-    const s = getBattleSquadHex(grid, shooterIdx, false);
-    const t = getBattleSquadHex(grid, targetIdx, true);
+    if (shooterSide !== 'enemy' && shooterSide !== 'player') {
+        shooterSide = (typeof currentSquad !== 'undefined' && typeof mapActionSideOfSquad === 'function' && mapActionSideOfSquad(currentSquad) === 'enemy') ? 'enemy' : 'player';
+    }
+    const shooterIsEnemy = shooterSide === 'enemy';
+    const s = getBattleSquadHex(grid, shooterIdx, shooterIsEnemy);
+    const t = getBattleSquadHex(grid, targetIdx, !shooterIsEnemy);
     if (!s || !t) return null;
     const d = tacticalForestDepth(grid, s.col, s.row, t.col, t.row);
     if (d > 2) return { depth: d, from: s, to: t };
@@ -1105,34 +1125,41 @@ function getTacticalCoverMod(type) {
     return 0;
 }
 
-function getTacticalCoverInfoForEnemy(grid, enemyIdx) {
-    const pos = getBattleSquadHex(grid, enemyIdx, true);
+function getTacticalCoverInfoForSquad(grid, targetIdx, targetSide) {
+    targetSide = targetSide === 'player' ? 'player' : 'enemy';
+    const pos = getBattleSquadHex(grid, targetIdx, targetSide === 'enemy');
     if (!pos) return null;
     const cell = grid[pos.key];
     let mod = getTacticalCoverMod(cell ? cell.type : 'grass');
-    // v13.108: лес в глубине 2+ гекса — дополнительное укрытие (+1), если отряд ещё не скрыт (не hidden)
-    // Глубину считаем от ближайшего стрелка игрока; если стрелка нет — берём максимальную оценку
+    // Глубокий лес даёт дополнительное укрытие, оцениваем его со стороны противника.
     try {
         if (isForestHexType(cell ? cell.type : null) && grid) {
             let bestDepth = 0;
-            const enemySquads = (typeof appData !== 'undefined' && appData && appData.map && appData.map.enemySquads) || [];
-            const enemy = enemySquads[enemyIdx];
-            const isHidden = !!(enemy && enemy.hidden);
-            if (!isHidden) {
-                const playerSquads = (typeof appData !== 'undefined' && appData && Array.isArray(appData.squads)) ? appData.squads : [];
-                for (let si = 0; si < playerSquads.length; si++) {
-                    const sp = getBattleSquadHex(grid, si, false);
+            const targets = targetSide === 'player'
+                ? ((typeof appData !== 'undefined' && appData && appData.squads) || [])
+                : ((typeof appData !== 'undefined' && appData && appData.map && appData.map.enemySquads) || []);
+            const target = targets[targetIdx];
+            if (!(target && target.hidden)) {
+                const opposingSquads = targetSide === 'player'
+                    ? ((typeof appData !== 'undefined' && appData && appData.map && appData.map.enemySquads) || [])
+                    : ((typeof appData !== 'undefined' && appData && Array.isArray(appData.squads)) ? appData.squads : []);
+                const opposingAreEnemy = targetSide === 'player';
+                for (let si = 0; si < opposingSquads.length; si++) {
+                    const sp = getBattleSquadHex(grid, si, opposingAreEnemy);
                     if (!sp) continue;
                     const d = tacticalForestDepth(grid, sp.col, sp.row, pos.col, pos.row);
                     if (d > bestDepth) bestDepth = d;
                 }
-                if (bestDepth >= 2) mod += 1; // 2 гекса вглубь леса — +1 к укрытию
+                if (bestDepth >= 2) mod += 1;
             }
         }
     } catch (e) {}
     const names = { rocks: 'камни', craters: 'воронки', forest: 'лес', shelled_forest: 'обстрелянный лес',
                     bushes: 'кусты', trenches: 'окопы' };
     return { pos, mod, type: cell ? cell.type : 'grass', label: names[cell ? cell.type : 'grass'] || (cell ? cell.type : '') };
+}
+function getTacticalCoverInfoForEnemy(grid, enemyIdx) {
+    return getTacticalCoverInfoForSquad(grid, enemyIdx, 'enemy');
 }
 
 // ─────────────────── ВОРОНКИ ОТ АРТИЛЛЕРИЙСКОГО ОБСТРЕЛА ───────────────────
@@ -2731,12 +2758,14 @@ function checkSmallArmsForestBlock() {
         if (!appData.map || !appData.map.grid) return null;
         // ⚡ v13.054 (R39#4): цель, выбранная на карте/в модалке (attackTargetEnemyIdx) — приоритет
         const ti = appData.map.attackTargetEnemyIdx;
+        const shooterSide = (typeof currentSquad !== 'undefined' && typeof mapActionSideOfSquad === 'function')
+            ? mapActionSideOfSquad(currentSquad) : 'player';
         if (ti !== null && ti !== undefined && ti >= 0) {
-            return smallArmsBlockedByForest(appData.map.grid, currentSquadIndex, ti);
+            return smallArmsBlockedByForest(appData.map.grid, currentSquadIndex, ti, shooterSide);
         }
         const sel = document.getElementById('modalTargetSelect');
         if (!sel || parseInt(sel.value, 10) < 0) return null;
-        return smallArmsBlockedByForest(appData.map.grid, currentSquadIndex, parseInt(sel.value, 10));
+        return smallArmsBlockedByForest(appData.map.grid, currentSquadIndex, parseInt(sel.value, 10), shooterSide);
     } catch (e) { return null; }
 }
 

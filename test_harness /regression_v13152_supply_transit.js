@@ -23,6 +23,8 @@ function ok(condition, label, detail) {
 {
     const s = createSandbox(freshAppData());
     s.run(sliceFunction(HTML, 'cloneTemplate'));
+    try { s.run(sliceFunction(HTML, 'infantryAmmoEligible')); } catch (e) {}
+    try { s.run(sliceFunction(HTML, 'initializeInfantryAmmo')); } catch (e) {}
     try { s.run(sliceFunction(HTML, 'assignUniqueCrewKeys')); } catch (e) {}
     // шаблоны отделений лежат в js/templates.js (SQUAD_TEMPLATES)
     s.run('appData.templates = JSON.parse(JSON.stringify(SQUAD_TEMPLATES));');

@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.185
+// ⚡ BUILD-МАРКЕР: v13.187
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -150,6 +150,12 @@ function mapActionCanUseBinoculars(squad) {
         (squad && squad.faction === 'BeVe' && /снайперское звено OIP/i.test(String(squad.name || '')));
 }
 
+// Общая классификация стороны для симметричных тактических действий.
+function mapActionSideOfSquad(squad) {
+    if (appData && appData.map && Array.isArray(appData.map.enemySquads) && appData.map.enemySquads.includes(squad)) return 'enemy';
+    if (appData && Array.isArray(appData.squads) && appData.squads.includes(squad)) return 'player';
+    return null;
+}
 function mapActionEnemyAlive(enemy) {
     if (!enemy || enemy.isDestroyed || enemy.isRetreated || enemy.status === 'retreated') return 0;
     return (enemy.fighters || []).filter(f => f && f.hp > 0).length;
@@ -223,28 +229,39 @@ function mapExtraButtonBlocked(squad, label) {
 }
 
 // Цель по индексу: дистанция/укрытие/причина недопустимости для действия
-function mapActionEvalTarget(def, shooterIdx, enemyIdx, extra) {
+function mapActionEvalTarget(def, shooterIdx, enemyIdx, extra, shooterSide) {
+    shooterSide = shooterSide === 'enemy' ? 'enemy' : 'player';
+    const shooterIsEnemy = shooterSide === 'enemy';
     const grid = appData.map.grid;
-    const enemy = (appData.map.enemySquads || [])[enemyIdx];
+    const shooters = shooterIsEnemy ? (appData.map.enemySquads || []) : (appData.squads || []);
+    const targets = shooterIsEnemy ? (appData.squads || []) : (appData.map.enemySquads || []);
+    const enemy = targets[enemyIdx];
     const out = { idx: enemyIdx, enemy, ok: false, reason: '', dist: null, cover: null, hexKey: null };
     if (!enemy) { out.reason = 'нет отряда'; return out; }
     if (enemy.hidden === true || !enemy.detected) { out.reason = 'не обнаружен'; return out; }
     if (mapActionEnemyAlive(enemy) === 0) { out.reason = 'уничтожен'; return out; }
-    const sPos = getBattleSquadHex(grid, shooterIdx, false);
-    const tPos = getBattleSquadHex(grid, enemyIdx, true);
-    if (!sPos) { out.reason = 'ваш отряд не на карте'; return out; }
+    const sPos = getBattleSquadHex(grid, shooterIdx, shooterIsEnemy);
+    const tPos = getBattleSquadHex(grid, enemyIdx, !shooterIsEnemy);
+    if (!sPos) { out.reason = shooterIsEnemy ? 'отряд противника не на карте' : 'ваш отряд не на карте'; return out; }
     if (!tPos) { out.reason = 'не на карте'; return out; }
     out.hexKey = tPos.key;
     if (def.id !== 'melee' && typeof tacticalSmokeBlocksSight === 'function' && tacticalSmokeBlocksSight(sPos.key, tPos.key, appData.map)) {
         out.reason = 'линия обстрела перекрыта дымом'; return out;
     }
     out.dist = hexGridDistance(sPos.col, sPos.row, tPos.col, tPos.row);
-    out.cover = getTacticalCoverInfoForEnemy(grid, enemyIdx);
-    const shooterSquad = appData.squads[shooterIdx];
-    // ⚡ v13.065 (R43#7): в гексе цели стоит свой отряд — стрелять нельзя (не бей своих)
-    if (def.id !== 'melee' && typeof tacticalEnemyHexHasFriendlies === 'function') {
-        const friend = tacticalEnemyHexHasFriendlies(enemy);
-        if (friend && friend !== shooterSquad) { out.reason = 'в гексе свои — бить нельзя'; return out; }
+    out.cover = typeof getTacticalCoverInfoForSquad === 'function'
+        ? getTacticalCoverInfoForSquad(grid, enemyIdx, shooterIsEnemy ? 'player' : 'enemy')
+        : getTacticalCoverInfoForEnemy(grid, enemyIdx);
+    const shooterSquad = shooters[shooterIdx];
+    // Проверяем, что в целевом гексе нет другого своего отряда (не бить своих).
+    if (def.id !== 'melee') {
+        const ownTargets = shooterIsEnemy ? (appData.squads || []) : (appData.map.enemySquads || []);
+        const friend = ownTargets.find((squad, index) => {
+            if (!squad || squad === enemy || squad.isDestroyed || squad.isRetreated) return false;
+            const pos = getBattleSquadHex(grid, index, !shooterIsEnemy);
+            return !!pos && pos.key === tPos.key;
+        });
+        if (friend) { out.reason = 'в гексе цели стоят свои — огонь запрещён'; return out; }
     }
     if (def.id !== 'melee' && typeof tacticalIsMeleeEngaged === 'function' && tacticalIsMeleeEngaged(enemy)) { out.reason = 'цель связана рукопашной'; return out; }
     if (def.id === 'melee' && tacticalIsMeleeEngaged(shooterSquad) && shooterSquad.meleeOpponentName && shooterSquad.meleeOpponentName !== enemy.name) { out.reason = 'продолжайте текущую рукопашную'; return out; }
@@ -255,18 +272,18 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx, extra) {
         out.reason = 'подавление ДОТа недоступно'; return out;
     }
     let maxDist = def.maxDist;
-    const shooter = (appData.squads || [])[shooterIdx];
+    const shooter = shooters[shooterIdx];
     if (shooter && /ДОТ/i.test(String(shooter.name || '')) && typeof tacticalDotCanFireAtTarget === 'function') {
         if (def.id === 'ordnance') {
             const crewIndices = mapActionDotCrewIndices(shooter, ['at_gun', 'mortar', 'tank_gun']);
-            if (crewIndices.length && !tacticalDotCanFireAtTarget(shooterIdx, enemyIdx, crewIndices)) {
+            if (crewIndices.length && !tacticalDotCanFireAtTarget(shooterIdx, enemyIdx, crewIndices, shooterSide)) {
                 out.reason = 'цель вне сектора орудий ДОТа'; return out;
             }
         } else if (def.id === 'dotmg') {
             const crewIndices = mapActionDotCrewIndices(shooter, ['mg']);
             const selectedCrew = Number.isInteger(Number(extra)) ? Number(extra) : null;
             const relevant = selectedCrew === null ? crewIndices : crewIndices.filter(i => i === selectedCrew);
-            if (relevant.length && !tacticalDotCanFireAtTarget(shooterIdx, enemyIdx, relevant)) {
+            if (relevant.length && !tacticalDotCanFireAtTarget(shooterIdx, enemyIdx, relevant, shooterSide)) {
                 out.reason = 'цель вне сектора пулемётной амбразуры'; return out;
             }
         }
@@ -280,13 +297,13 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx, extra) {
         if (!Number.isInteger(firstIdx) || firstIdx < 0 || firstIdx === Number(enemyIdx)) {
             out.reason = 'нужно выбрать другую цель'; return out;
         }
-        const firstPos = getBattleSquadHex(grid, firstIdx, true);
+        const firstPos = getBattleSquadHex(grid, firstIdx, !shooterIsEnemy);
         if (!firstPos || mapActionHexDistance(firstPos, tPos) > 1) {
             out.reason = 'вторая цель должна стоять на том же или смежном гексе с первой'; return out;
         }
     }
     if (def.small) {
-        const blocked = smallArmsBlockedByForest(grid, shooterIdx, enemyIdx);
+        const blocked = smallArmsBlockedByForest(grid, shooterIdx, enemyIdx, shooterSide);
         if (blocked) { out.reason = `лес глубиной ${blocked.depth} (>2)`; return out; }
     }
     out.ok = true;
@@ -300,6 +317,17 @@ function mapActionDefById(id) {
         targets: 'infantry', small: true
     };
     return MAP_ACTION_DEFS.find(d => d.id === id) || null;
+}
+
+// Единый набор законных целей для UI и ИИ; расчёт дальности, укрытия,
+// обнаружения, дыма, леса, секторов и запрета огня по своим остаётся общим.
+function mapActionAvailableTargetsForSide(shooterIdx, actionId, extra, shooterSide) {
+    const side = shooterSide === 'enemy' ? 'enemy' : 'player';
+    const def = mapActionDefById(actionId);
+    if (!def || !appData || !appData.map || !appData.map.grid) return [];
+    const targets = side === 'enemy' ? (appData.squads || []) : (appData.map.enemySquads || []);
+    return targets.map((squad, idx) => ({ squad, idx, evaluation: mapActionEvalTarget(def, shooterIdx, idx, extra, side) }))
+        .filter(item => item.squad && item.evaluation.ok);
 }
 
 // ───────────────────────── ПАНЕЛЬ ПОД КАРТОЙ ─────────────────────────
@@ -1151,7 +1179,7 @@ function mapRunAttack(type, extra) {
         case 'atGrenade': return useATGrenade();
         case 'suppressiveFire': return suppressiveFire();
         case 'grenades': return throwGrenades();
-        case 'satchel': return satchelCharge();
+        case 'satchel': return satchelCharge(extra);
         case 'melee': return meleeAttack();
         case 'dotmg': return fireDOTMG(extra);
         default: throw new Error('неизвестное действие ' + type);
@@ -1161,9 +1189,7 @@ function mapRunAttack(type, extra) {
 // ───────────────────── ПРИМЕНЕНИЕ РЕЗУЛЬТАТА К ЦЕЛИ ─────────────────────
 
 function mapActionTacticalSide(squad) {
-    if (appData && Array.isArray(appData.squads) && appData.squads.includes(squad)) return 'player';
-    if (appData && appData.map && Array.isArray(appData.map.enemySquads) && appData.map.enemySquads.includes(squad)) return 'enemy';
-    return 'enemy';
+    return mapActionSideOfSquad(squad) || 'enemy';
 }
 
 // Урон «по единице» случайным живым бойцам отряда противника
@@ -1213,8 +1239,8 @@ function applyDamagePointsToEnemy(enemy, points, res, options) {
         try {
             if (typeof tacticalApplyHeadquartersLossMoralePenalty === 'function') tacticalApplyHeadquartersLossMoralePenalty(enemy, side);
         } catch (e) {}
-        res.notes.push('💀 отряд противника уничтожен');
-        try { log(`💀 Отряд противника «${enemy.name}» уничтожен!`); } catch (e) {}
+        res.notes.push(side === 'enemy' ? '💀 отряд противника уничтожен' : '💀 отряд игрока уничтожен');
+        try { log(`💀 Отряд ${side === 'enemy' ? 'противника' : 'игрока'} «${enemy.name}» уничтожен!`); } catch (e) {}
     }
     return applied;
 }
@@ -1330,13 +1356,21 @@ function reportAttackOutcome(kind, data) {
     data = data || {};
     if (!appData || !appData.map) return null;
     const idx = appData.map.attackTargetEnemyIdx;
-    if (idx === null || idx === undefined || idx < 0) return null;
-    const enemy = (appData.map.enemySquads || [])[idx];
+    if (!Number.isInteger(idx) || idx < 0) return null;
+    const shooter = (typeof currentSquad !== 'undefined' && currentSquad) ? currentSquad : null;
+    const shooterSide = shooter ? mapActionTacticalSide(shooter) : 'player';
+    const targetSide = shooterSide === 'enemy' ? 'player' : 'enemy';
+    const targets = targetSide === 'player' ? (appData.squads || []) : (appData.map.enemySquads || []);
+    const enemy = targets[idx];
     if (!enemy) return null;
-    // ⚡ v13.099 (п.21): дым в гексе ЦЕЛИ блокирует обстрел, но очередь, выпущенная
-    //    в завесу, наносит половину попаданий (минимум одно, если выстрелы были).
+    // Общая проверка дыма для обоих направлений огня.
     let smokeBlocked = false;
-    if (kind !== 'melee' && typeof currentSquadIndex === 'number' && typeof tacticalSmokeBlocksAttack === 'function' && tacticalSmokeBlocksAttack(currentSquadIndex, idx)) {
+    const shooterPos = shooter && typeof getBattleSquadHex === 'function'
+        ? getBattleSquadHex(appData.map.grid, currentSquadIndex, shooterSide === 'enemy') : null;
+    const targetPos = typeof getBattleSquadHex === 'function'
+        ? getBattleSquadHex(appData.map.grid, idx, targetSide === 'enemy') : null;
+    if (kind !== 'melee' && shooterPos && targetPos && typeof tacticalSmokeBlocksSight === 'function' &&
+        tacticalSmokeBlocksSight(shooterPos.key, targetPos.key, appData.map)) {
         smokeBlocked = true;
         const blockedShots = Number(data.shots || 0) || Number(data.hits || 0);
         const partial = blockedShots > 0 ? Math.max(1, Math.floor(blockedShots / 2)) : 0;
@@ -1402,7 +1436,7 @@ function reportAttackOutcome(kind, data) {
                 enemy.currentMorale = Math.max(0, m - 100 / scale);
             }
             const battle = typeof getTacticalBattleRecord === 'function' ? getTacticalBattleRecord() : null;
-            if (battle) { battle.onlineMoraleOut = battle.onlineMoraleOut || {}; battle.onlineMoraleOut[enemy.name] = (battle.onlineMoraleOut[enemy.name] || 0) + 1; }
+            if (battle && shooterSide === 'player') { battle.onlineMoraleOut = battle.onlineMoraleOut || {}; battle.onlineMoraleOut[enemy.name] = (battle.onlineMoraleOut[enemy.name] || 0) + 1; }
             if (mapActionEnemyAlive(enemy) > 0 && typeof currentSquad !== 'undefined' && currentSquad) {
                 currentSquad.meleeOpponentName = enemy.name;
                 currentSquad.meleeOpponentEnemyIdx = idx;
@@ -1423,17 +1457,17 @@ function reportAttackOutcome(kind, data) {
                 const supOccupants = mapActionAreaOccupantsAtTarget(idx).filter(u => !mapActionEnemyIsVehicle(u) && !mapActionEnemyIsDot(u) && mapActionEnemyAlive(u) > 0);
                 const supTargets = supOccupants.length ? supOccupants : (!mapActionEnemyIsVehicle(enemy) && !mapActionEnemyIsDot(enemy) ? [enemy] : []);
                 supTargets.forEach(targetEnemy => {
-                    if (typeof markTacticalSuppressed === 'function') markTacticalSuppressed(targetEnemy, 'player');
+                    if (typeof markTacticalSuppressed === 'function') markTacticalSuppressed(targetEnemy, shooterSide);
                     else {
                         targetEnemy.suppressed = true;
                         targetEnemy.suppressedTurn = (typeof currentTurn !== 'undefined') ? currentTurn : 1;
-                        targetEnemy.suppressedBySide = 'player';
+                        targetEnemy.suppressedBySide = shooterSide;
                     }
                     mapActionMarkSuppressOut(targetEnemy.name);
                 });
                 if (supTargets.length > 1) {
                     const targetPos = (appData && appData.map && appData.map.grid && typeof getBattleSquadHex === 'function')
-                        ? getBattleSquadHex(appData.map.grid, idx, true) : null;
+                        ? getBattleSquadHex(appData.map.grid, idx, targetSide === 'enemy') : null;
                     const hexKey = (typeof tacticalSelectedTargetHexKey === 'function' ? tacticalSelectedTargetHexKey(typeof currentSquad !== 'undefined' ? currentSquad : null) : null) || (targetPos && targetPos.key) || '';
                     res.areaFire = true;
                     res.target = `гекс ${hexKey} (${supTargets.map(u => u.name).join(', ')})`.trim();
@@ -1466,16 +1500,18 @@ function reportAttackOutcome(kind, data) {
     const affectedList = (Array.isArray(res.affectedSquads) && res.affectedSquads.length) ? res.affectedSquads : [enemy];
     affectedList.forEach(targetSquad => {
         if (!targetSquad) return;
-        const targetIdxInMap = (appData.map.enemySquads || []).indexOf(targetSquad);
+        const targetIdxInMap = targets.indexOf(targetSquad);
         if (targetSquad.isDestroyed) {
             if (typeof tacticalClearMeleeEngagement === 'function') tacticalClearMeleeEngagement(targetSquad);
         } else if (typeof tacticalMaybeAutoRetreat === 'function') {
-            const retreated = tacticalMaybeAutoRetreat(targetSquad, 'enemy', targetIdxInMap >= 0 ? targetIdxInMap : idx);
-            if (retreated) res.notes.push('🏳️ противник автоматически отступил из-за низкого боевого духа');
+            const retreated = tacticalMaybeAutoRetreat(targetSquad, targetSide, targetIdxInMap >= 0 ? targetIdxInMap : idx);
+            if (retreated) res.notes.push(targetSide === 'enemy'
+                ? '🏳️ противник автоматически отступил из-за низкого боевого духа'
+                : '🏳️ свои автоматически отступили из-за низкого боевого духа');
         }
     });
     const after = mapActionEnemyAlive(enemy);
-    if (typeof currentSquad !== 'undefined' && currentSquad) {
+    if (shooterSide === 'player' && typeof currentSquad !== 'undefined' && currentSquad) {
         if (typeof recordTacticalAwardCombatEvent === 'function' && (kind === 'melee' || kind === 'grenades')) {
             recordTacticalAwardCombatEvent(currentSquad, kind, enemy);
         }
