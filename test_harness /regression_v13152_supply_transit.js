@@ -189,11 +189,17 @@ function enemyLineSandbox() {
         appData.campaign.opUnits.push({ name: 'Засада', type: 'infantry_platoon', col: 2, row: 0, isDestroyed: false });
         processEnemyPhoneLineRepairs();
         processEnemyPhoneLineRepairs();
+        appData.campaign.currentTurn = 2;
+        processEnemyPhoneLineRepairs();
+        appData.campaign.currentTurn = 3;
+        processEnemyPhoneLineRepairs();
         globalThis.__stillCut = hardMode.enemyPhoneLines.some(l => l.intact === false);
-        globalThis.__dead = logs.some(m => /Связисты противника.*убиты/.test(m));
+        globalThis.__deathCount = logs.filter(m => /Связисты противника.*убиты/.test(m)).length;
+        globalThis.__dead = globalThis.__deathCount > 0;
     `);
     ok(s2.evalCtx('__stillCut') === true, 'пока отряд игрока на гексе кабеля, линия остаётся перерезанной');
     ok(s2.evalCtx('__dead') === true, 'связисты противника погибают на гексе с отрядом игрока');
+    ok(s2.evalCtx('__deathCount') === 1, 'пока гекс разрыва удерживает игрок, ИИ не посылает новые пары и не повторяет сообщения о потерях');
 }
 
 // ─────────────────── 7. Помехи и дальность рации ───────────────────

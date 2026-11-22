@@ -739,12 +739,29 @@ function operationalAIMove(unit, route) {
         if (contact) {
             try {
                 log(`⚔️ Противник (${unit.name}) вступил в бой с ${contact.name}.`);
-                startTacticalBattle([contact], [unit]);
+                startTacticalBattle([contact], [unit], operationalAIBattleEntry(unit));
             } catch (e) { console.warn('Operational enemy AI contact:', e && e.message); }
             break;
         }
     }
     return moved;
+}
+
+function operationalAIBattleEntry(unit) {
+    const hexCol = Number(unit && unit.col), hexRow = Number(unit && unit.row);
+    let entryDir = null;
+    if (unit && unit.movedThisTurn === true && unit.prevCol !== null && unit.prevCol !== undefined &&
+        unit.prevRow !== null && unit.prevRow !== undefined && Number.isFinite(Number(unit.prevCol)) &&
+        Number.isFinite(Number(unit.prevRow)) && (Number(unit.prevCol) !== hexCol || Number(unit.prevRow) !== hexRow) &&
+        typeof opDirectionBetween === 'function') {
+        entryDir = opDirectionBetween(hexCol, hexRow, Number(unit.prevCol), Number(unit.prevRow));
+    }
+    if (!entryDir && typeof placementFallbackDir === 'function') {
+        entryDir = placementFallbackDir('enemy', hexCol, hexRow,
+            (appData && appData.campaign && appData.campaign.enemyOpUnits) || [],
+            (appData && appData.campaign && appData.campaign.opUnits) || []);
+    }
+    return { entry: { attackerSide: 'enemy', entryDir: entryDir || 'W', source: 'offline-ai' } };
 }
 
 function operationalAIPlaceEnemyBattleSquads(battle) {
@@ -888,7 +905,7 @@ function processOfflineCampaignAI() {
         if (sameHexContact) {
             try {
                 log(`⚔️ Противник (${unit.name}) вступил в бой с ${sameHexContact.name}.`);
-                startTacticalBattle([sameHexContact], [unit]);
+                startTacticalBattle([sameHexContact], [unit], operationalAIBattleEntry(unit));
             } catch (e) { console.warn('Operational enemy AI contact:', e && e.message); }
             return;
         }
