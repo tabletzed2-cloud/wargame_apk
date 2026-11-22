@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.188
+// ⚡ BUILD-МАРКЕР: v13.189
 // v13.062: fixed DOT coordinates and no placement bypass for eliminated squads.
 // ⚡ v13.061: current release tactical deployment rules.
 // ============================================================
@@ -189,7 +189,9 @@ function placementMapSize(battle) {
 function resolveBattleEntry(playerUnits, enemyUnits, hexKey, opts) {
     opts = opts || {};
     if (opts.entry && opts.entry.attackerSide) {
-        return { attackerSide: opts.entry.attackerSide, entryDir: PLACEMENT_DIRS.includes(opts.entry.entryDir) ? opts.entry.entryDir : 'W', source: 'manual' };
+        return { attackerSide: opts.entry.attackerSide === 'enemy' ? 'enemy' : 'player',
+            entryDir: PLACEMENT_DIRS.includes(opts.entry.entryDir) ? opts.entry.entryDir : 'W',
+            source: opts.entry.source || 'explicit' };
     }
     const parts = String(hexKey || '').split(',').map(Number);
     const hc = parts[0], hr = parts[1];
@@ -921,6 +923,34 @@ function placementFinish() {
     return true;
 }
 
+function placementRevealOfflineCombatants(battle) {
+    if (!battle || !appData || !appData.campaign || appData.campaign.online ||
+        !battle.placement || battle.placement.phase !== 'done' || battle.placement.ambush) return false;
+    let changed = false;
+    const reveal = squads => (squads || []).forEach(squad => {
+        if (!squad || squad.isDestroyed || squad.isRetreated || squad.status === 'retreated' ||
+            (squad.hidden && squad.embarkedSquadIndex != null)) return;
+        if (squad.hidden) { squad.hidden = false; changed = true; }
+        if (!squad.detected) { squad.detected = true; changed = true; }
+    });
+    reveal(battle.playerSquads);
+    reveal(battle.enemySquads);
+    reveal((battle.tacticalMap && battle.tacticalMap.enemySquads) || []);
+    if (appData.currentBattleId === battle.id) {
+        reveal(appData.squads);
+        reveal(appData.map && appData.map.enemySquads);
+    }
+    return changed;
+}
+function placementScheduleOfflineAI(battle) {
+    if (!battle || !appData || !appData.campaign || appData.campaign.online ||
+        !battle.placement || battle.placement.phase !== 'done' || battle.cardsChosen !== true ||
+        battle.placement.attackerSide !== 'enemy') return false;
+    const ai = typeof window !== 'undefined' && window.tacticalEnemyAI;
+    if (!ai || typeof ai.schedulePhase !== 'function') return false;
+    return !!ai.schedulePhase();
+}
+
 // Оба готовы (вызывается и из onlineMergeOppBattle, когда готов оппонент)
 function placementAnnounceDone(battle) {
     battle = battle || getCurrentBattleRecord();
@@ -935,8 +965,9 @@ function placementAnnounceDone(battle) {
         }
         if (typeof tacticalInitializeBattleMorale === 'function' && battle.cardsChosen !== false) tacticalInitializeBattleMorale(battle);
     } catch (e) {}
+    if (placementRevealOfflineCombatants(battle)) capturedStartHexes = true;
     if (capturedStartHexes) { try { if (typeof saveData === 'function') saveData(); } catch (e) {} }
-    if (p.announced) return;
+    if (p.announced) { placementScheduleOfflineAI(battle); return; }
     p.announced = true;
     const hp = String(battle.hexKey || '').split(',');
     const msg = `⚔️ Размещение завершено — бой на гексе (${hp[0]},${hp[1]}) начинается!` +
@@ -949,6 +980,7 @@ function placementAnnounceDone(battle) {
         try { if (typeof updateTacticalTurnUI === 'function') updateTacticalTurnUI(); else if (typeof updateTacticalRoundUI === 'function') updateTacticalRoundUI(battle); } catch (e) {}
         try { if (typeof redrawMap === 'function') redrawMap(); } catch (e) {}
     }
+    placementScheduleOfflineAI(battle);
 }
 
 // ---------- отрисовка зоны на карте боя ----------
