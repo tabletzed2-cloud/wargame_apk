@@ -60,7 +60,7 @@ const infantry = { name: 'Пехота', detected: true, fighters: [{ hp: 2 }] }
   const player = { name: 'Целевая пехота', detected: true, fighters: [{ hp: 2 }], hexPos: [1, 0] };
   const grid = { '0,0': { enemySquadIds: [0] }, '1,0': { squadIds: [0] }, '0,1': {} };
   const context = {
-    appData: { squads: [player], campaign: { online: false }, map: { grid, enemySquads: [enemy] } },
+    appData: { squads: [player], campaign: { online: false }, map: { grid, enemySquads: [enemy], attackerSide: 'enemy' } },
     getBattleSquadHex: (_grid, index, isEnemy) => {
       const unit = (isEnemy ? context.appData.map.enemySquads : context.appData.squads)[index];
       return unit && { key: unit.hexPos.join(','), col: unit.hexPos[0], row: unit.hexPos[1] };
