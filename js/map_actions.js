@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.189
+// ⚡ BUILD-МАРКЕР: v13.190
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -914,6 +914,48 @@ function mapSelectSquadOnMap(i, key) {
     try { if (typeof showTacticalSquadSummary === 'function') showTacticalSquadSummary(appData.squads[i]); } catch (e) {}
     mapActionsOnSelect(i);
     if (typeof redrawMap === 'function') redrawMap();
+}
+
+// Non-interactive binocular use for the offline tactical AI. Shares the same
+// visibility, smoke, AP and detection rules as the map-click action below.
+function mapActionUseBinocularsForSide(idx, key, side) {
+    side = side === 'enemy' ? 'enemy' : 'player';
+    const map = appData && appData.map;
+    const squads = side === 'enemy' ? (map && map.enemySquads || []) : (appData && appData.squads || []);
+    const targets = side === 'enemy' ? (appData && appData.squads || []) : (map && map.enemySquads || []);
+    const squad = squads[Number(idx)];
+    if (!map || !map.grid || !squad || !mapActionCanUseBinoculars(squad) || !map.grid[String(key)]) return false;
+    const context = { side, ai: side === 'enemy', index: Number(idx), squad };
+    if (typeof tacticalActionAllowed === 'function' && !tacticalActionAllowed(squad, 'utility', true, context)) return false;
+    const ap = side === 'enemy'
+        ? (typeof getTacticalSideAP === 'function' ? getTacticalSideAP(squad, 'enemy') : Number(squad.tacticalAP) || 0)
+        : (typeof getAP === 'function' ? getAP(Number(idx)) : 0);
+    if (ap < 2) return false;
+    const observer = getBattleSquadHex(map.grid, Number(idx), side === 'enemy');
+    if (!observer) return false;
+    if (typeof tacticalSmokeBlocksSight === 'function' && tacticalSmokeBlocksSight(observer.key, String(key), map)) return false;
+    const [col, row] = String(key).split(',').map(Number);
+    const sight = typeof tacticalHasLineOfSight === 'function' ? tacticalHasLineOfSight
+        : (typeof window !== 'undefined' && window.tacticalHasLineOfSight);
+    if (observer && typeof sight === 'function' && !sight({ col: observer.col, row: observer.row }, { col, row })) return false;
+    const found = targets.filter(target => {
+        if (!target || target.camouflaged || (typeof tacticalEnemyIsNeutralized === 'function' && tacticalEnemyIsNeutralized(target)) || mapActionEnemyAlive(target) <= 0) return false;
+        const targetIndex = targets.indexOf(target);
+        let pos = getBattleSquadHex(map.grid, targetIndex, side !== 'enemy');
+        if (!pos && Array.isArray(target.hexPos)) pos = { key: target.hexPos.join(',') };
+        return !!pos && String(pos.key) === String(key) && (target.hidden === true || target.detected !== true);
+    });
+    const paid = side === 'enemy'
+        ? (typeof spendTacticalSideAP === 'function' && spendTacticalSideAP(squad, 2, 'utility', context))
+        : (typeof spendAP === 'function' && spendAP(Number(idx), 2, 'utility'));
+    if (!paid) return false;
+    found.forEach(target => { target.hidden = false; target.detected = true; target.binocularsDetectedTurn = (typeof currentTurn !== 'undefined') ? currentTurn : 1; });
+    map.reconRevealedHexes = Array.isArray(map.reconRevealedHexes) ? map.reconRevealedHexes : [];
+    const turn = (typeof currentTurn !== 'undefined' ? Number(currentTurn) : 1) || 1;
+    map.reconRevealedHexes = map.reconRevealedHexes.filter(item => item && Number(item.expiresTurn) >= turn && String(item.key) !== String(key));
+    map.reconRevealedHexes.push({ key: String(key), expiresTurn: turn + 1 });
+    try { log(`🔭 Бинокль «${squad.name || 'отряд'}»: ${found.length ? `обнаружены ${found.map(x => x.name).join(', ')}` : `проверен гекс ${key}, скрытых целей нет`}.`); } catch (e) {}
+    return true;
 }
 
 function mapBeginBinoculars() {

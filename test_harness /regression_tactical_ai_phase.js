@@ -18,6 +18,7 @@ const context = {
   },
   getTacticalActiveSide: () => context.appData.map.activeSide,
   getTacticalBattleRecord: () => null,
+  hexGridDistance: (a, b, x, y) => Math.max(Math.abs(a - x), Math.abs(b - y)),
   getTacticalSideAP: squad => squad.tacticalAP,
   tacticalIsDotSquad: () => false,
   getFactionCrewWeapons: () => [],

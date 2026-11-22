@@ -1,3 +1,4 @@
+// ⚡ BUILD-МАРКЕР: v13.190
 // Offline tactical opponent AI. Uses the shared tactical target evaluator,
 // action authorization, AP accounting and existing combat routines.
 (function (root) {
@@ -40,6 +41,88 @@
       .filter(x => x.ci && x.ci.active !== false && x.ci.deployed !== false && x.ci.status !== 'destroyed' &&
         x.ci.status !== 'blinded' && x.weapon && types.includes(x.weapon.type) &&
         (x.ci.fighterIndices || []).some(i => squad.fighters[i] && squad.fighters[i].hp > 0));
+  }
+  function squadRole(squad) {
+    if (!squad) return 'rifle';
+    if (typeof tacticalIsHeadquartersSquad === 'function' && tacticalIsHeadquartersSquad(squad)) return 'headquarters';
+    if (typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(squad)) return 'fortification';
+    if (squad.armor || squad.isVehicle) return 'vehicle';
+    const name = String(squad.name || '');
+    if (/снайпер/i.test(name) || (typeof mapActionHasSniper === 'function' && mapActionHasSniper(squad))) return 'sniper';
+    const weapons = weaponCrewEntries(squad, ['mg', 'mortar', 'at_gun', 'tank_gun']);
+    if (weapons.some(x => x.weapon.type === 'mortar')) return 'mortar';
+    if (weapons.some(x => x.weapon.type === 'at_gun' || x.weapon.type === 'tank_gun') || /пто|противотанк|орудийн|артиллер/i.test(name)) return 'antiArmor';
+    if (weapons.some(x => x.weapon.type === 'mg') || /пулем[её]т|отделение поддержки/i.test(name)) return 'machineGun';
+    return 'rifle';
+  }
+  function battleIsAttacker() {
+    const map = appData && appData.map;
+    const battle = typeof getTacticalBattleRecord === 'function' ? getTacticalBattleRecord() : null;
+    const side = (battle && battle.placement && battle.placement.attackerSide) || (map && map.attackerSide) || 'player';
+    return side === 'enemy';
+  }
+  function stealthPreparationAvailable(squad) {
+    const map = appData && appData.map;
+    const pos = position(squad, 'enemy');
+    const role = squadRole(squad);
+    const round = typeof tacticalRoundNumber === 'function' ? Number(tacticalRoundNumber())
+      : (typeof currentTurn !== 'undefined' ? Number(currentTurn) || 1 : 1);
+    if (!battleIsAttacker() || !['rifle', 'sniper'].includes(role) || !map || !pos || round !== 1 ||
+        squad.camouflaged || squad.movedThisTurn || squad.firedThisTurn ||
+        (squad.actionsThisTurn && (Number(squad.actionsThisTurn.shots) > 0 || squad.actionsThisTurn.attacks))) return false;
+    const terrain = String((map.grid[pos.key] || {}).type || '').toLowerCase();
+    if (!['forest', 'shelled_forest', 'rocks', 'bushes', 'rock', 'bush'].includes(terrain)) return false;
+    const visibleTargets = (appData.squads || []).some(target => targetVisible(target));
+    return !visibleTargets && getTacticalSideAP(squad, 'enemy') >= 2;
+  }
+  function prepareStealthManeuver(squad, index) {
+    if (!stealthPreparationAvailable(squad) || !tacticalActionAllowed(squad, 'utility', true,
+        { side: 'enemy', ai: true, squad, index })) return false;
+    const pos = position(squad, 'enemy');
+    if (!pos || !spendTacticalSideAP(squad, 2, 'utility', { side: 'enemy', ai: true, squad, index })) return false;
+    squad.camouflaged = true;
+    squad.hidden = false;
+    squad.detected = false;
+    squad.camouflagedAt = { turn: Number(currentTurn) || 1, hex: pos.key };
+    log(`🎭 «${squad.name}» занял скрытую позицию для манёвра и не раскрывает себя до появления цели.`);
+    return true;
+  }
+  function squadStrength(squad) {
+    const fighters = (squad && squad.fighters || []).filter(f => f && Number(f.hp) > 0);
+    const original = Math.max(fighters.length, Number(squad && squad.tacticalOriginalRosterSize) || 0);
+    return original ? fighters.length / original : 1;
+  }
+  function squadMoraleRatio(squad) {
+    const max = Math.max(1, Number(squad && (squad.tacticalMoraleMax || squad.baseMorale)) || 100);
+    const value = squad && squad.currentMorale !== undefined && squad.currentMorale !== null
+      ? Number(squad.currentMorale) : max;
+    return Math.max(0, Number.isFinite(value) ? value : max) / max;
+  }
+  function chooseDoctrine(squad) {
+    const role = squadRole(squad);
+    const enemy = (appData && appData.squads || []).filter(alive).map(target => ({ target, pos: position(target, 'player') }))
+      .filter(x => x.pos);
+    const own = position(squad, 'enemy');
+    const nearest = own && enemy.length ? Math.min(...enemy.map(x => hexGridDistance(own.col, own.row, x.pos.col, x.pos.row))) : Infinity;
+    const threatened = nearest <= 2;
+    // A badly mauled forward unit may break contact and leave by the safest map edge.
+    // This is a survival choice, not a free battle victory.
+    const moraleAllowsWithdrawal = squadMoraleRatio(squad) >= 0.3 && squadMoraleRatio(squad) <= 0.4;
+    const pinnedByStubbornness = typeof tacticalStubbornAtStartingHex === 'function' && tacticalStubbornAtStartingHex(squad);
+    if (battleIsAttacker() && !pinnedByStubbornness && role !== 'headquarters' && role !== 'fortification' &&
+        (squadStrength(squad) <= 0.25 || moraleAllowsWithdrawal) && threatened) return 'breakthrough';
+    if (!battleIsAttacker()) {
+      if (threatened && (role !== 'rifle' || squadStrength(squad) < 0.55 || squadMoraleRatio(squad) < 0.45)) return 'fallback';
+      if (role === 'headquarters' || role === 'fortification' || role === 'machineGun' || role === 'mortar' || role === 'antiArmor' || role === 'sniper') return 'hold';
+      return threatened ? 'counterattack' : 'hold';
+    }
+    const visibleTargets = (appData.squads || []).some(targetVisible);
+    if (squad.camouflaged && !visibleTargets) return 'stealth';
+    if (stealthPreparationAvailable(squad)) return 'stealth';
+    if (role === 'headquarters' || role === 'fortification' || role === 'machineGun' || role === 'mortar' || role === 'antiArmor' || role === 'sniper') return 'support';
+    const attackersNear = ((appData && appData.map && appData.map.enemySquads) || []).filter(other => other !== squad && alive(other))
+      .some(other => { const pos = position(other, 'enemy'); return pos && enemy.some(x => hexGridDistance(pos.col, pos.row, x.pos.col, x.pos.row) <= 2); });
+    return attackersNear ? 'encircle' : 'assault';
   }
   function actionOptions(squad) {
     const out = [];
@@ -143,15 +226,64 @@
     candidates.sort((a, b) => b.score - a.score);
     return candidates[0] || null;
   }
+  function applyCoordinatedSuppression(squad, firstTarget) {
+    if (!firstTarget || !firstTarget.suppressed || typeof mapActionCanUseCoordinatedBarrage !== 'function' ||
+        !mapActionCanUseCoordinatedBarrage(squad) || (typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(firstTarget))) return false;
+    const firstPos = position(firstTarget, 'player');
+    if (!firstPos) return false;
+    const second = (appData.squads || []).map((target, idx) => ({ target, idx, pos: position(target, 'player') }))
+      .filter(x => x.target !== firstTarget && targetVisible(x.target) && !x.target.suppressed && !x.target.armor && !x.target.isVehicle &&
+        !(typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(x.target)) && x.pos &&
+        hexGridDistance(firstPos.col, firstPos.row, x.pos.col, x.pos.row) <= 1)
+      .sort((a, b) => targetPriority(squad, b.target, 1, 'suppressiveFire') - targetPriority(squad, a.target, 1, 'suppressiveFire'))[0];
+    if (!second) return false;
+    if (typeof markTacticalSuppressed === 'function') markTacticalSuppressed(second.target, 'enemy');
+    else {
+      second.target.suppressed = true;
+      second.target.suppressedTurn = (typeof currentTurn !== 'undefined') ? currentTurn : 1;
+      second.target.suppressedBySide = 'enemy';
+    }
+    try { log(`💫 Карта «Скоординированный заградительный огонь»: «${second.target.name}» подавлен вслед за первой целью.`); } catch (e) {}
+    return true;
+  }
   function movementPlan(squad, shooterIndex) {
     const map = appData && appData.map;
     const start = position(squad, 'enemy');
     if (!map || !map.grid || !start || typeof getMovementCost !== 'function' || typeof getHexNeighbors !== 'function') return null;
     const ap = getTacticalSideAP(squad, 'enemy');
     if (!(ap > 0) || !tacticalActionAllowed(squad, 'move', true, { side: 'enemy', ai: true, index: shooterIndex, squad })) return null;
+    const role = squadRole(squad);
+    const doctrine = chooseDoctrine(squad);
     const targetList = (appData.squads || []).map((target, idx) => ({ target, idx, pos: position(target, 'player') }))
       .filter(x => targetVisible(x.target) && x.pos);
-    if (!targetList.length) return null;
+    const allThreats = (appData.squads || []).map(target => ({ target, pos: position(target, 'player') }))
+      .filter(x => alive(x.target) && x.pos);
+    const exits = (typeof tacticalMapEdgeHexKeys === 'function' ? tacticalMapEdgeHexKeys(map) : []);
+    let exitKey = null;
+    if (doctrine === 'breakthrough' && exits.length) {
+      const exitScores = exits.filter(key => {
+        const cell = map.grid[key] || {};
+        const blockedByPlayer = (cell.squadIds || []).some(i => alive((appData.squads || [])[i]));
+        const blockedByAlly = (cell.enemySquadIds || []).some(i => i !== shooterIndex && alive((map.enemySquads || [])[i]));
+        return !blockedByPlayer && !blockedByAlly;
+      }).map(key => {
+        const [col, row] = key.split(',').map(Number);
+        const clearance = allThreats.length ? Math.min(...allThreats.map(x => hexGridDistance(col, row, x.pos.col, x.pos.row))) : 99;
+        const distance = hexGridDistance(start.col, start.row, col, row);
+        return { key, score: clearance * 1.5 - distance * 0.2 };
+      }).sort((a, b) => b.score - a.score);
+      exitKey = squad.tacticalAIBreakthroughExit && exitScores.some(x => x.key === squad.tacticalAIBreakthroughExit)
+        ? squad.tacticalAIBreakthroughExit : (exitScores[0] && exitScores[0].key);
+      if (exitKey) squad.tacticalAIBreakthroughExit = exitKey;
+    }
+    // Defensive support crews and command units keep their firing position unless
+    // immediate danger makes a bounded withdrawal necessary.
+    const supportRole = ['headquarters', 'fortification', 'machineGun', 'mortar', 'antiArmor', 'sniper', 'vehicle'].includes(role);
+    if (doctrine === 'hold' || doctrine === 'support' || (doctrine === 'counterattack' && supportRole)) return null;
+    if (doctrine === 'fallback' && !allThreats.some(x => hexGridDistance(start.col, start.row, x.pos.col, x.pos.row) <= 2)) return null;
+    if (doctrine !== 'fallback' && doctrine !== 'breakthrough' && !targetList.length) return null;
+    if (doctrine === 'breakthrough' && !exitKey) return null;
+
     const enemyIds = new Set();
     Object.keys(map.grid).forEach(key => (map.grid[key].enemySquadIds || []).forEach(i => { if (i !== shooterIndex && alive((map.enemySquads || [])[i])) enemyIds.add(key); }));
     const playerIds = new Set();
@@ -173,21 +305,41 @@
         queue.push({ key: next, cost: total });
       }
     }
-    const battle = typeof getTacticalBattleRecord === 'function' ? getTacticalBattleRecord() : null;
-    const aiAttacks = (battle && battle.placement && battle.placement.attackerSide === 'enemy') ||
-      (!battle && map.attackerSide === 'enemy');
+    const aiAttacks = battleIsAttacker();
     let chosen = null;
     best.forEach((spent, key) => {
       if (key === start.key) return;
       const [col, row] = key.split(',').map(Number);
-      const targetDistances = targetList.map(x => ({ target: x.target, dist: hexGridDistance(col, row, x.pos.col, x.pos.row) }));
-      const nearest = Math.min(...targetDistances.map(x => x.dist));
-      const closes = targetDistances.some(x => x.dist < (tacticalSquadsDistance(squad, x.target) ?? Infinity));
-      if (!closes) return;
       const cell = map.grid[key] || {};
       const cover = typeof getTacticalCoverMod === 'function' ? getTacticalCoverMod(cell.type) : 0;
-      const height = Number(cell.level) || 0;
-      const score = -nearest * (aiAttacks ? 1.2 : 1.7) + cover * 0.45 + Math.min(height, 2) * 0.15 - spent * 0.06;
+      const height = Math.min(Number(cell.level) || 0, 2);
+      let score = 0;
+      if (doctrine === 'fallback') {
+        const before = allThreats.length ? Math.min(...allThreats.map(x => hexGridDistance(start.col, start.row, x.pos.col, x.pos.row))) : 0;
+        const after = allThreats.length ? Math.min(...allThreats.map(x => hexGridDistance(col, row, x.pos.col, x.pos.row))) : 0;
+        if (after <= before) return;
+        const friendlySupport = ((map.enemySquads || [])).filter(other => other !== squad && alive(other)).filter(other => {
+          const pos = position(other, 'enemy'); return pos && hexGridDistance(col, row, pos.col, pos.row) <= 2;
+        }).length;
+        score = (after - before) * 2 + cover * 0.65 + height * 0.2 + Math.min(friendlySupport, 3) * 0.3 - spent * 0.08;
+      } else if (doctrine === 'breakthrough') {
+        const [exitCol, exitRow] = exitKey.split(',').map(Number);
+        const exitDistance = hexGridDistance(col, row, exitCol, exitRow);
+        const clearance = allThreats.length ? Math.min(...allThreats.map(x => hexGridDistance(col, row, x.pos.col, x.pos.row))) : 99;
+        score = -exitDistance * 2 + clearance * 0.25 + cover * 0.1 - spent * 0.04;
+      } else {
+        const targetDistances = targetList.map(x => ({ target: x.target, dist: hexGridDistance(col, row, x.pos.col, x.pos.row) }));
+        const nearest = Math.min(...targetDistances.map(x => x.dist));
+        const before = Math.min(...targetList.map(x => hexGridDistance(start.col, start.row, x.pos.col, x.pos.row)));
+        if (doctrine === 'counterattack' && (nearest < 2 || nearest >= before)) return;
+        if (nearest >= before) return;
+        const nearbyDefenders = allThreats.filter(x => hexGridDistance(col, row, x.pos.col, x.pos.row) <= 2).length;
+        // Flank/encirclement seeks an approach lane with fewer supporting defenders,
+        // while still closing distance and preferring useful terrain.
+        const exposurePenalty = nearbyDefenders * (doctrine === 'encircle' ? 0.55 : 0.28);
+        score = -nearest * (aiAttacks ? 1.25 : 0.8) - exposurePenalty + cover * (role === 'rifle' ? 0.42 : 0.55) + height * 0.16 - spent * 0.06;
+        if (doctrine === 'counterattack' && nearest <= 2) score -= 2;
+      }
       if (!chosen || score > chosen.score) chosen = { key, score, cost: spent };
     });
     if (!chosen || !previous.has(chosen.key)) return null;
@@ -196,7 +348,36 @@
       if (!previous.has(key)) return null;
       path.unshift(key);
     }
-    return { start: start.key, path, destination: chosen.key, apCost: chosen.cost };
+    return { start: start.key, path, destination: chosen.key, apCost: chosen.cost, doctrine,
+      exitKey: doctrine === 'breakthrough' ? exitKey : null };
+  }
+  function deployDefensiveSmoke(squad, index) {
+    const pos = position(squad, 'enemy');
+    const map = appData && appData.map;
+    const turn = typeof currentTurn !== 'undefined' ? Number(currentTurn) || 1 : 1;
+    if (!pos || !map || squad.armor || Number(squad.smokeGrenades) < 3 || squad.tacticalAISmokeTurn === turn ||
+        typeof tacticalCreateSmokeCloud !== 'function' || typeof tacticalSmokeWindDestination !== 'function' ||
+        typeof rollD12 !== 'function' || getTacticalSideAP(squad, 'enemy') < 3) return false;
+    const danger = (appData.squads || []).some(target => {
+      if (!targetVisible(target)) return false;
+      const targetPos = position(target, 'player');
+      return targetPos && hexGridDistance(pos.col, pos.row, targetPos.col, targetPos.row) <= 3;
+    });
+    if (!danger || !tacticalActionAllowed(squad, 'utility', true, { side: 'enemy', ai: true, index, squad })) return false;
+    const context = { side: 'enemy', ai: true, index, squad };
+    if (!spendTacticalSideAP(squad, 1, 'utility', context)) return false;
+    squad.smokeGrenades -= 3;
+    const wind = rollD12();
+    const center = tacticalSmokeWindDestination(pos.key, wind, map);
+    const cloud = tacticalCreateSmokeCloud(center, 'enemy');
+    if (!cloud) {
+      squad.smokeGrenades += 3;
+      squad.tacticalAP = (Number(squad.tacticalAP) || 0) + 1;
+      return false;
+    }
+    squad.tacticalAISmokeTurn = turn;
+    log(`💨 «${squad.name}» поставил дымовую завесу при отходе.`);
+    return true;
   }
   function moveSquad(squad, shooterIndex, plan) {
     if (!plan || !plan.path.length) return false;
@@ -226,6 +407,23 @@
       try { if (typeof tacticalCheckMaraudingOnEntry === 'function') tacticalCheckMaraudingOnEntry(squad, next, 'enemy', map); } catch (e) {}
       try { if (typeof tacticalMarkTacticalHexOccupied === 'function') tacticalMarkTacticalHexOccupied(next, 'enemy', map); } catch (e) {}
       try { if (typeof tacticalAutoEngageMelee === 'function') tacticalAutoEngageMelee(squad); } catch (e) {}
+      if (plan.doctrine === 'breakthrough' && next === plan.exitKey) {
+        let exited = false;
+        if (typeof tacticalRetreatUnit === 'function') exited = !!tacticalRetreatUnit(squad, 'enemy', shooterIndex, 'breakthrough');
+        else {
+          squad.isRetreated = true;
+          squad.status = 'retreated';
+          squad.retreatReason = 'breakthrough';
+          const exitField = map.grid[next];
+          if (exitField && Array.isArray(exitField.enemySquadIds)) exitField.enemySquadIds = exitField.enemySquadIds.filter(i => i !== shooterIndex);
+          exited = true;
+        }
+        if (exited) {
+          squad.tacticalAIBreakthroughExited = true;
+          log(`🏃 «${squad.name}» прорвался за край карты и вышел из боя.`);
+        }
+        break;
+      }
       if ((fieldResult && fieldResult.maraudingTriggered) || !alive(squad) || tacticalIsMeleeEngaged(squad)) break;
     }
     if (moved) {
@@ -235,9 +433,33 @@
     return false;
   }
   function takeSquadTurn(squad, index, stats) {
-    if (!alive(squad) || !position(squad, 'enemy')) return;
+    const squadPos = position(squad, 'enemy');
+    if (!alive(squad) || !squadPos) return;
     if (squad.retreatToHQ || squad.isRouting || squad.isRetreated || squad.isSurrendered ||
         (typeof tacticalMaraudingBlocksAction === 'function' && tacticalMaraudingBlocksAction(squad))) return;
+    if (chooseDoctrine(squad) === 'breakthrough' && typeof tacticalMapEdgeHexKeys === 'function' &&
+        tacticalMapEdgeHexKeys(appData.map).includes(squadPos.key)) {
+      const exited = typeof tacticalRetreatUnit === 'function'
+        ? !!tacticalRetreatUnit(squad, 'enemy', index, 'breakthrough') : false;
+      if (exited) {
+        squad.tacticalAIBreakthroughExited = true;
+        log(`🏃 «${squad.name}» прорвался за край карты и вышел из боя.`);
+      }
+      return;
+    }
+    if (chooseDoctrine(squad) === 'stealth') {
+      prepareStealthManeuver(squad, index);
+      return;
+    }
+    if (squadRole(squad) === 'headquarters' && typeof mapActionUseBinocularsForSide === 'function' &&
+        getTacticalSideAP(squad, 'enemy') >= 2) {
+      const ownPos = position(squad, 'enemy');
+      const hidden = (appData.squads || []).map(target => ({ target, pos: position(target, 'player') }))
+        .filter(x => alive(x.target) && x.pos && (x.target.hidden === true || x.target.detected !== true) && !x.target.camouflaged);
+      const candidate = hidden.filter(x => ownPos && hexGridDistance(ownPos.col, ownPos.row, x.pos.col, x.pos.row) <= 8)
+        .sort((a, b) => hexGridDistance(ownPos.col, ownPos.row, a.pos.col, a.pos.row) - hexGridDistance(ownPos.col, ownPos.row, b.pos.col, b.pos.row))[0];
+      if (candidate && mapActionUseBinocularsForSide(index, candidate.pos.key, 'enemy')) stats.recon++;
+    }
     let fired = 0;
     while (fired < MAX_ACTIONS_PER_SQUAD && getTacticalSideAP(squad, 'enemy') > 0 && !tacticalIsMeleeEngaged(squad)) {
       const shot = selectShot(squad, index);
@@ -246,11 +468,16 @@
       if (!result || !result.ok) break;
       stats.attacks++;
       fired++;
+      if (shot.id === 'suppressiveFire') applyCoordinatedSuppression(squad, shot.target);
       if (!result.spentAP) break;
       if (!alive(squad) || tacticalIsMeleeEngaged(squad)) break;
     }
     if (getTacticalSideAP(squad, 'enemy') > 0 && alive(squad) && !tacticalIsMeleeEngaged(squad)) {
-      const plan = movementPlan(squad, index);
+      let plan = movementPlan(squad, index);
+      if (plan && plan.doctrine === 'fallback' && deployDefensiveSmoke(squad, index)) {
+        stats.smoke++;
+        plan = movementPlan(squad, index);
+      }
       if (plan && moveSquad(squad, index, plan)) stats.moves++;
       let followup = 0;
       while (followup < 2 && getTacticalSideAP(squad, 'enemy') > 0 && !tacticalIsMeleeEngaged(squad)) {
@@ -259,9 +486,27 @@
         const result = runTacticalAIAction(squad, shot.targetIndex, shot.id, shot.extra);
         if (!result || !result.ok || !result.spentAP) break;
         stats.attacks++;
+        if (shot.id === 'suppressiveFire') applyCoordinatedSuppression(squad, shot.target);
         followup++;
       }
     }
+  }
+  function considerEnemyFlare() {
+    if (!appData || !appData.enemyFlareAvailable || Number(appData.enemyFlareTurn) !== (Number(currentTurn) || 1) ||
+        typeof enemyFlare !== 'function') return false;
+    const night = (appData.modifiers || []).some(m => m && m.active && /ночь/i.test(String(m.name || '')));
+    const hasHeadquarters = ((appData.map && appData.map.enemySquads) || []).some(s => alive(s) && squadRole(s) === 'headquarters');
+    if (!night || !hasHeadquarters) return false;
+    const stealthImportant = ((appData.map && appData.map.enemySquads) || []).some(s => alive(s) && (s.hidden || s.camouflaged));
+    if (stealthImportant) return false;
+    const enemyPositions = ((appData.map && appData.map.enemySquads) || []).filter(alive).map(s => position(s, 'enemy')).filter(Boolean);
+    const unrevealed = (appData.squads || []).some(s => {
+      if (!alive(s) || s.detected === true || s.camouflaged) return false;
+      const pos = position(s, 'player');
+      return !!pos && enemyPositions.some(observer => hexGridDistance(observer.col, observer.row, pos.col, pos.row) <= 8);
+    });
+    if (!unrevealed) return false;
+    try { enemyFlare(); return true; } catch (e) { return false; }
   }
   function runEnemyPhase() {
     if (!appData || !appData.map || !appData.map.grid || (appData.campaign && appData.campaign.online) ||
@@ -270,14 +515,15 @@
       log('📍 Тактический ИИ ждёт завершения расстановки.');
       return { skipped: true };
     }
-    const stats = { attacks: 0, moves: 0 };
+    const stats = { attacks: 0, moves: 0, recon: 0, flares: 0, smoke: 0 };
+    if (considerEnemyFlare()) stats.flares++;
     const squads = (appData.map.enemySquads || []).slice();
     log('🤖 Тактический ИИ начинает фазу противника.');
     squads.forEach((squad, index) => {
       try { takeSquadTurn(squad, index, stats); }
       catch (error) { console.warn('Tactical AI squad turn:', squad && squad.name, error); log(`⚠️ Тактический ИИ: действие «${squad && squad.name || 'отряд'}» не удалось (${error.message || error}).`); }
     });
-    log(`🤖 Фаза тактического ИИ завершена: действий огня ${stats.attacks}, перемещений ${stats.moves}.`);
+    log(`🤖 Фаза тактического ИИ завершена: действий огня ${stats.attacks}, перемещений ${stats.moves}, разведывательных действий ${stats.recon}, дымовых завес ${stats.smoke}, осветительных ракет ${stats.flares}.`);
     try { saveData(); } catch (e) {}
     try { updateUI(); redrawMap(); } catch (e) {}
     return stats;
@@ -313,6 +559,13 @@
     schedulePhase: scheduleEnemyPhase,
     isPhaseRunning,
     selectShot,
-    movementPlan
+    movementPlan,
+    squadRole,
+    chooseDoctrine,
+    prepareStealthManeuver,
+    deployDefensiveSmoke,
+    moveSquad,
+    applyCoordinatedSuppression,
+    considerEnemyFlare
   };
 })(typeof window !== 'undefined' ? window : globalThis);
