@@ -65,7 +65,7 @@ test('3: въезд бронетехники уничтожает орудие/�
   assert.equal(ctx.result, 1);
   assert.equal(ctx.appData.map.enemySquads[0].crewInstances[0].status, 'destroyed');
   assert.equal(ctx.appData.map.enemySquads[0].fighters[0].hp, 3);
-  assert.match(sliceFunction(HTML, 'getMovementCost'), /squad\.armor && squad\.isImmobilized/);
+  assert.match(sliceFunction(HTML, 'getMovementCost'), /isVehicleUnit && squad\.isImmobilized/);
 });
 
 test('4: tactical AI unloads a linked BTR passenger near player forces', () => {
@@ -95,7 +95,7 @@ test('6: окоп не добавляет штраф ПТО при стрель�
 });
 
 test('7: обездвиженная тактическая бронетехника не получает маршрут движения', () => {
-  assert.match(sliceFunction(HTML, 'getMovementCost'), /if \(squad\.armor && squad\.isImmobilized\) return Infinity/);
+  assert.match(sliceFunction(HTML, 'getMovementCost'), /if \(isVehicleUnit && squad\.isImmobilized\) return Infinity/);
   assert.match(TACTICAL_AI, /getMovementCost\(squad, current\.key, next/);
 });
 
@@ -297,11 +297,11 @@ test('15: tactical opponent-phase attacks record shooter-to-target lines for the
   assert.equal(drawnText.length,0,'renderer draws no shooter label');
 });
 
-test('17: BeVe Landsverk 37mm gun is offered as ordnance and retains vehicle sector rules', () => {
+test('17: every mounted vehicle weapon gets an individual sector-aware fire action', () => {
   const panel = sliceFunction(HTML,'renderActiveCardButtons');
-  assert.match(panel,/const hasVehicleOrdnance = !!vehicleArtillery/);
-  assert.match(panel,/const showOrdnanceButton = currentSquad\.armor\s*\?\s*hasVehicleOrdnance/);
-  assert.doesNotMatch(panel,/isBeveArmoredCar/);
+  assert.match(panel,/prepareTacticalVehicleWeaponAndFire/);
+  assert.match(panel,/\['mg', 'at_gun', 'tank_gun', 'mortar'\]/);
+  assert.doesNotMatch(panel,/Огонь артиллерией ·/);
   assert.match(sliceFunction(HTML,'vehicleWeaponSectorSpec'),/type === 'at_gun'.*deg: 360/);
   assert.match(sliceFunction(HTML,'tacticalVehicleWeaponCanTarget'),/vehicleWeaponSectorSpec/);
 });

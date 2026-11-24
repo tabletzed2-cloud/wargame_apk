@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.195 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.197 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // v13.062: AIRF reconnaissance platoon HQ icon.
 // ⚡ v13.059: current release squad templates.
 // ==================== ШАБЛОНЫ ОТРЯДОВ ====================
@@ -57,9 +57,9 @@ const SQUAD_TEMPLATES = [
           {"name":"Снайперское звено OIP №1","faction":"BeVe","subfaction":"common","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/снайпер беве 1.jpg","ammoSmall":10,"ammoOrdnance":0,"grenades":0,"fighters":[{"name":"Снайпер","weapon":"Geweer OIP M.38","hp":3,"maxHp":3,"isCommander":true},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3}],"crewInstances":[]},
           {"name":"Снайперское звено OIP №2","faction":"BeVe","subfaction":"common","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/снайпер беве 2.jpg","ammoSmall":10,"ammoOrdnance":0,"grenades":0,"fighters":[{"name":"Снайпер","weapon":"Geweer OIP M.38","hp":3,"maxHp":3,"isCommander":true},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3}],"crewInstances":[]},
           {"name":"Снайперское звено OIP №3","faction":"BeVe","subfaction":"common","baseMorale":5,"currentMorale":5,"icon":"images/BeVe/снайпер беве 3.jpg","ammoSmall":10,"ammoOrdnance":0,"grenades":0,"fighters":[{"name":"Снайпер","weapon":"Geweer OIP M.38","hp":3,"maxHp":3,"isCommander":true},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3}],"crewInstances":[]},
-          {"name":"Пулеметный расчёт №1","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль1 бель.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
-          {"name":"Пулеметный расчёт №2","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль2 бель.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
-          {"name":"Пулеметный расчёт №3","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль3 бель.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
+          {"name":"Пулеметный расчёт №1","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/mg-team-1.png","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
+          {"name":"Пулеметный расчёт №2","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/mg-team-2.png","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
+          {"name":"Пулеметный расчёт №3","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/mg-team-3.png","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
           {"name":"Пулеметный расчёт №4","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль4.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
           {"name":"Пулеметный расчёт №5","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль5.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
           {"name":"Пулеметный расчёт №6","faction":"BeVe","baseMorale":6,"currentMorale":6,"icon":"images/BeVe/отделение пуль6.jpg","fighters":[{"name":"Сержант","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3,"isCommander":true},{"name":"Наводчик","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Второй номер","weapon":"Пистолет Browning Hi-Power","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3},{"name":"Подносчик","weapon":"Винтовка Geweer M95","hp":3,"maxHp":3}],"crewInstances":[{"weaponName":"Станковый пулемет Schwarzlose M.08/15","fighterIndices":[1,2],"active":true}],"ammoSmall":48,"ammoOrdnance":0,"grenades":12},
@@ -196,7 +196,7 @@ const SQUAD_TEMPLATES = [
           "crewInstances":[
             {"weaponName": "75-мм орудие SAU Brugge", "fighterIndices": [2, 3, 4], "active": true },
             {"weaponName": "Курсовой пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
-            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [2], "active": true }
+            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [2, 3, 4], "active": true }
           ],
           "armor": { "front": 20, "side": 20, "rear": 40, "turret": 40 }},
             {"name":"САУ Brugge №2","faction":"BeVe","baseMorale":8,"currentMorale":8,"icon":"images/BeVe/САУ Brugge №2.jpg","ammoSmall":50,"ammoOrdnance":40,"grenades":0,"fighters":[
@@ -209,7 +209,7 @@ const SQUAD_TEMPLATES = [
           "crewInstances":[
             {"weaponName": "75-мм орудие SAU Brugge", "fighterIndices": [2, 3, 4], "active": true },
             {"weaponName": "Курсовой пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
-            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [2], "active": true }
+            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [2, 3, 4], "active": true }
           ],
           "armor": { "front": 20, "side": 20, "rear": 40, "turret": 40 }},
             {"name":"САУ Brugge №3","faction":"BeVe","baseMorale":8,"currentMorale":8,"icon":"images/BeVe/САУ Brugge №3.jpg","ammoSmall":50,"ammoOrdnance":40,"grenades":0,"fighters":[
@@ -222,7 +222,7 @@ const SQUAD_TEMPLATES = [
           "crewInstances":[
             {"weaponName": "75-мм орудие SAU Brugge", "fighterIndices": [2, 3, 4], "active": true },
             {"weaponName": "Курсовой пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
-            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [2], "active": true }
+            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [2, 3, 4], "active": true }
           ],
            "armor": { "front": 20, "side": 20, "rear": 40, "turret": 40 }},
           
@@ -236,7 +236,7 @@ const SQUAD_TEMPLATES = [
           "crewInstances":[
             {"weaponName": "37-мм Bofors", "fighterIndices": [3, 4], "active": true },
             {"weaponName": "Курсовой пулемёт SAU Brugge", "fighterIndices": [0], "active": true },
-            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
+            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [3, 4], "active": true },
             {"weaponName": "Кормовой пулемёт SAU Brugge", "fighterIndices": [2], "active": true }
           ],
           "armor": { "front": 20, "side": 16, "rear": 16, "turret": 20 }},
@@ -251,7 +251,7 @@ const SQUAD_TEMPLATES = [
           "crewInstances":[
             {"weaponName": "37-мм Bofors", "fighterIndices": [3, 4], "active": true },
             {"weaponName": "Курсовой пулемёт SAU Brugge", "fighterIndices": [0], "active": true },
-            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
+            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [3, 4], "active": true },
             {"weaponName": "Кормовой пулемёт SAU Brugge", "fighterIndices": [2], "active": true }
           ],
           "armor": { "front": 20, "side": 16, "rear": 16, "turret": 20 }},
@@ -266,7 +266,7 @@ const SQUAD_TEMPLATES = [
           "crewInstances":[
             {"weaponName": "37-мм Bofors", "fighterIndices": [3, 4], "active": true },
             {"weaponName": "Курсовой пулемёт SAU Brugge", "fighterIndices": [0], "active": true },
-            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [1], "active": true },
+            {"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": [3, 4], "active": true },
             {"weaponName": "Кормовой пулемёт SAU Brugge", "fighterIndices": [2], "active": true }
           ],
           "armor": { "front": 20, "side": 16, "rear": 16, "turret": 20 }},
@@ -319,7 +319,7 @@ const SQUAD_TEMPLATES = [
             {"name":"Лейтенант","weapon":"Пистолет Star M1914","hp":3,"maxHp":3}],
           "crewInstances":[
             {"weaponName": "45-мм 53К танковая", "fighterIndices": [2, 3], "active": true },
-            {"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true } ],
+            {"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": [2, 3], "active": true } ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
           
                      {"name":"Легкий танк CL/39 №2","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/лт аирф CL39 №2.png","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
@@ -330,7 +330,7 @@ const SQUAD_TEMPLATES = [
             ],
           "crewInstances":[
             {"weaponName": "45-мм 53К танковая", "fighterIndices": [2, 3], "active": true },
-            {"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
+            {"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": [2, 3], "active": true }
           ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
                      {"name":"Легкий танк CL/39 №3","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/лт аирф CL39 №3.png","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
@@ -341,7 +341,7 @@ const SQUAD_TEMPLATES = [
             ],
           "crewInstances":[
             {"weaponName": "45-мм 53К танковая", "fighterIndices": [2, 3], "active": true },
-            {"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
+            {"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": [2, 3], "active": true }
           ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
                      {"name":"Легкий танк CL/39 №4","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/лт аирф CL39 №4.png","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
@@ -352,7 +352,7 @@ const SQUAD_TEMPLATES = [
             ],
           "crewInstances":[
             {"weaponName": "45-мм 53К танковая", "fighterIndices": [2, 3], "active": true },
-            {"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
+            {"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": [2, 3], "active": true }
           ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
                      {"name":"Легкий танк CL/39 №5","faction":"A.I.R.F.","baseMorale":8,"currentMorale":8,"icon":"images/AIRF/лт аирф CL39 №5.png","ammoSmall":40,"ammoOrdnance":40,"grenades":0,"fighters":[
@@ -363,7 +363,7 @@ const SQUAD_TEMPLATES = [
             ],
           "crewInstances":[
             {"weaponName": "45-мм 53К танковая", "fighterIndices": [2, 3], "active": true },
-            {"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": [1], "active": true }
+            {"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": [2, 3], "active": true }
           ],
           "armor": { "front": 40, "side": 30, "rear": 15, "turret": 40 }},
         

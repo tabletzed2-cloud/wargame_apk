@@ -20,11 +20,13 @@ const root = path.join(__dirname, '..');
     function tacticalIsSlowWeaponCrew(){ return false; }
     function getScopedActiveCardsForSquad(){ return []; }
     function tacticalFireFieldAt(){ return false; }
+    function vehicleFamilyFor(squad){ return /Landsverk/i.test(String(squad && squad.name || '')) ? {id:'landsverk'} : null; }
     var currentTurn = 1;
   `);
   const cost = (squad, key) => s.evalCtx(`getMovementCost(${JSON.stringify(squad)}, '0,0', '${key}', false, 4)`);
   const armoredCar = { name: 'Бронеавтомобиль Landsverk 183', armor: {front:20} };
   assert.equal(cost(armoredCar, '1,0'), 1, 'armored cars can enter bushes using standard vehicle movement');
+  assert.equal(cost({name:'Бронеавтомобиль Landsverk 183'}, '1,0'), 1, 'a missing armor field does not strand a named armored car');
   const truck = { name: 'Грузовик DAF Trado II (Бельгийцы)' };
   const infantry = { name: 'Пехотное отделение' };
   for (const terrain of ['2,0', '0,0', '1,0', '3,0']) {
@@ -41,9 +43,9 @@ const root = path.join(__dirname, '..');
   assert.match(templates, /Водитель DAF Trado II", "weapon": "Винтовка Geweer M95"/);
   assert.match(templates, /Водитель DAF MC-V", "weapon": "Винтовка Geweer M95"/);
   for (let n = 1; n <= 3; n++) {
-    const image = fs.readFileSync(path.join(root, `images/BeVe/отделение пуль${n} бель.jpg`));
-    assert.equal(image[0], 0xff, `class ${n} icon is a JPEG`);
-    assert.match(templates, new RegExp(`Пулеметный расчёт №${n}[^\\n]*отделение пуль${n} бель\\.jpg`));
+    const image = fs.readFileSync(path.join(root, `images/BeVe/mg-team-${n}.png`));
+    assert.equal(image.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', `class ${n} icon is a PNG`);
+    assert.match(templates, new RegExp(`Пулеметный расчёт №${n}[^\\n]*mg-team-${n}\\.png`));
   }
 }
 
@@ -51,9 +53,12 @@ const root = path.join(__dirname, '..');
 // cascade), and selected-sector opponents are called out with a map outline.
 {
   const source = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-  assert.match(source, /передний пулемёт/);
-  assert.match(source, /параллельный пулемёт/);
-  assert.match(source, /задний пулемёт/);
+  assert.match(source, /Курсовой пулемёт/);
+  assert.match(source, /Спаренный пулемёт/);
+  assert.match(source, /Кормовой пулемёт/);
+  assert.match(source, /reach = size \* Math\.sqrt\(27\)/);
+  assert.doesNotMatch(source, /Кто попадает в сектор|Цели в секторе/);
+  assert.doesNotMatch(source.slice(source.indexOf('function renderFieldVehiclePanel'), source.indexOf('function renderActiveCardButtons')), /setTacticalVehicleFireWeapon/);
   assert.match(source, /tacticalVehicleTargetIsInSelectedSector\(enemy\)/);
   assert.match(source, /distance > 3\) return false/);
   assert.doesNotMatch(source, /openTargetModal\('smallArms'\).*Выбрать цель и стрелять/s,

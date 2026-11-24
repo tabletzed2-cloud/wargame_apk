@@ -80,22 +80,14 @@ function ok(condition, label, detail) {
     ok(d.evalCtx('keptEnemy') === true, 'свой шум остаётся в массиве для синхронизации');
 }
 
-// ─────────────── 27/31. Кнопки орудий и ПТО ───────────────
+// ─────────────── individual vehicle weapon fire actions ───────────────
 {
     const panel = sliceFunction(HTML, 'renderActiveCardButtons');
-    ok(/squadHasOrdnanceCrew/.test(panel), 'панель считает наличие орудий/миномётов в расчётах');
-    ok(/squadHasAntiTankCrew/.test(panel), 'панель считает наличие ПТО/танкового орудия');
-    ok(/isBeveArmoredCar/.test(panel), 'бронеавтомобили BeVe распознаются отдельно');
-    ok(/const showOrdnanceButton = currentSquad\.armor\s*\n?\s*\? \(hasVehicleOrdnance && !isBeveArmoredCar\)\s*\n?\s*: squadHasOrdnanceCrew;/.test(panel),
-        'кнопка «Орудия / Миномёты» — только при наличии оружия и не у БА BeVe');
-    ok(/const showAntiTankButton = currentSquad\.armor \? !!vehicleArtillery : squadHasAntiTankCrew;/.test(panel),
-        'кнопка «Атака ПТО» — только при наличии ПТО-средств');
-    ok(!/if \(!\(currentSquad\.armor && !hasVehicleOrdnance\)\) \{/.test(panel),
-        'прежняя безусловная кнопка «Орудия / Миномёты» убрана');
-    ok(!/if \(!currentSquad\.armor \|\| vehicleArtillery\) \{/.test(panel),
-        'прежняя безусловная кнопка «Атака ПТО» убрана');
-    ok(/vehicleFamilyFor\(currentSquad\) \|\| \{\}\)\.id === 'landsverk'/.test(panel),
-        'у БА BeVe (Landsverk) кнопка орудий скрыта');
+    ok(/prepareTacticalVehicleWeaponAndFire/.test(panel), 'каждое установленное орудие/пулемёт получает собственное действие');
+    ok(/const disabled = !usable \|\| !ammo \|\| !shotsLeft/.test(panel), 'оружие с погибшим расчётом, без боеприпасов или с исчерпанным лимитом отключено');
+    ok(/const showOrdnanceButton = !currentSquad\.armor && squadHasOrdnanceCrew/.test(panel), 'общая кнопка орудий остаётся только неброневым расчётам');
+    ok(!/Огонь артиллерией ·/.test(panel), 'устаревшая кнопка артиллерийского огня удалена');
+    ok(/if \(!currentSquad\.armor && currentSquad\.crewInstances/.test(panel), 'бронетехника не получает кнопку свернуть/развернуть расчёт');
 }
 
 console.log(`\nитог: passed ${pass}, failed ${fail}`);

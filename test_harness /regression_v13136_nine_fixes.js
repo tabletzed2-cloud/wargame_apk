@@ -252,7 +252,7 @@ ok('п.9 toggleDismount: отказ только не-спешиваемым (п
 });
 
 // ---------- маркеры версии ----------
-ok('маркеры версии синхронизированы на v13.195', () => {
+ok('маркеры версии синхронизированы на v13.197', () => {
   const files = [ROOT + '/index.html', ROOT + '/js/cards.js', ROOT + '/js/data.js', ROOT + '/js/hexmaps.js',
     ROOT + '/js/map_actions.js', ROOT + '/js/online_battles.js', ROOT + '/js/operational_ui.js',
     ROOT + '/js/placement.js', ROOT + '/js/templates.js', ROOT + '/js/weapons.js',
@@ -260,7 +260,7 @@ ok('маркеры версии синхронизированы на v13.195', 
   files.forEach(f => {
     const txt = fs.readFileSync(f, 'utf8');
     assert.ok(!/v13\.135/.test(txt), path.basename(f) + ' не должен содержать v13.135');
-    assert.ok(/v13\.195/.test(txt), path.basename(f) + ' должен содержать v13.195');
+    assert.ok(/v13\.197/.test(txt), path.basename(f) + ' должен содержать v13.197');
   });
 });
 
