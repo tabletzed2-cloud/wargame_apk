@@ -56,7 +56,7 @@ ok('п.2 динамит — type negative, без +1 к урону', () => {
 // ---------- п.3: панель связи открывается автоматически ----------
 ok('п.3 вход на этап связи раскрывает панель связи', () => {
   const ui = fs.readFileSync(path.join(ROOT, 'js/operational_ui.js'), 'utf8');
-  // ⚡ v13.138: панель связи раскрывается физически (showCommunicationPanel(true) с
+  // ⚡ v13.195: панель связи раскрывается физически (showCommunicationPanel(true) с
   //    force — без toggle-закрытия); правило v13.136 (commCollapsed) сохранено.
   assert.ok(/if \(stage === 'communications'\) \{[\s\S]{0,400}?state\.commCollapsed = false;[\s\S]{0,200}?showCommunicationPanel\(true\)/.test(ui),
     'setStage должен раскрывать панель на этапе communications');
@@ -184,10 +184,16 @@ ok('п.7 tacticalRoutRallyAtHQ: отряд остаётся в бою и при�
   assert.ok(s.evalCtx('sq.currentMorale') >= 50, 'дух восстановлен минимум до половины');
 });
 
-ok('п.7 processTacticalRouts: отход к штабу сохранён; v13.137 (п.2) — цель и край карты', () => {
+ok('п.7 processTacticalRouts: ралли у штаба, выход на край, противоположное направление', () => {
   assert.ok(/tacticalRoutRallyAtHQ/.test(HTML), 'механика ралли у штаба используется');
   assert.ok(/if \(!stubborn\) retreatEdges\.forEach/.test(HTML),
-    'край карты — цель отхода и по духу (v13.137 п.2)');
+    'край карты — цель отхода по духу');
+  assert.ok(/destinationInfo\.type === 'headquarters'[\s\S]*?tacticalRoutRallyAtHQ/.test(HTML),
+    'восстановление духа происходит только у штаба');
+  assert.ok(/tacticalRetreatUnit\(s, side, idx, s\.retreatReason === 'command' \? 'command' : 'morale'\)/.test(HTML),
+    'достижение края выводит отряд из боя');
+  assert.ok(/getOpHexDistance\(ec, er, c, r\) === farthest/.test(HTML),
+    'при отсутствии доступного штаба отряд выбирает край за спиной противника');
   assert.ok(/Штаба своего взвода в бою нет — отходим к ближайшему живому штабу/.test(HTML),
     'фоллбэк на любой живой штаб');
   assert.ok(!/путь сейчас перекрыт — отряд остаётся на месте/.test(HTML),
@@ -246,7 +252,7 @@ ok('п.9 toggleDismount: отказ только не-спешиваемым (п
 });
 
 // ---------- маркеры версии ----------
-ok('маркеры версии синхронизированы на v13.138', () => {
+ok('маркеры версии синхронизированы на v13.195', () => {
   const files = [ROOT + '/index.html', ROOT + '/js/cards.js', ROOT + '/js/data.js', ROOT + '/js/hexmaps.js',
     ROOT + '/js/map_actions.js', ROOT + '/js/online_battles.js', ROOT + '/js/operational_ui.js',
     ROOT + '/js/placement.js', ROOT + '/js/templates.js', ROOT + '/js/weapons.js',
@@ -254,7 +260,7 @@ ok('маркеры версии синхронизированы на v13.138', 
   files.forEach(f => {
     const txt = fs.readFileSync(f, 'utf8');
     assert.ok(!/v13\.135/.test(txt), path.basename(f) + ' не должен содержать v13.135');
-    assert.ok(/v13\.138/.test(txt), path.basename(f) + ' должен содержать v13.138');
+    assert.ok(/v13\.195/.test(txt), path.basename(f) + ' должен содержать v13.195');
   });
 });
 

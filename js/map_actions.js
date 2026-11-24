@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.194
+// ⚡ BUILD-МАРКЕР: v13.195
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -257,10 +257,13 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx, extra, shooterSide) {
     const shooterSquad = shooters[shooterIdx];
     // Проверяем, что в целевом гексе нет другого своего отряда (не бить своих).
     if (def.id !== 'melee') {
-        const ownTargets = shooterIsEnemy ? (appData.squads || []) : (appData.map.enemySquads || []);
+        // Запрещаем попадание по своим стрелка в целевом гексе. Не проверяем
+        // соседние вражеские отряды из target-списка: несколько целей могут
+        // законно делить один гекс, и игрок выбирает каждую по отдельному ID.
+        const ownTargets = shooterIsEnemy ? (appData.map.enemySquads || []) : (appData.squads || []);
         const friend = ownTargets.find((squad, index) => {
-            if (!squad || squad === enemy || squad.isDestroyed || squad.isRetreated) return false;
-            const pos = getBattleSquadHex(grid, index, !shooterIsEnemy);
+            if (!squad || squad.isDestroyed || squad.isRetreated || squad.status === 'retreated') return false;
+            const pos = getBattleSquadHex(grid, index, shooterIsEnemy);
             return !!pos && pos.key === tPos.key;
         });
         if (friend) { out.reason = 'в гексе цели стоят свои — огонь запрещён'; return out; }

@@ -281,6 +281,156 @@ test('15: tactical opponent-phase attacks record shooter-to-target lines for the
   assert.equal(ctx.appData.map.tacticalShotLines[0].target,'Танк');
   assert.equal(ctx.appData.map.tacticalShotLines[0].count,2);
   assert.match(sliceFunction(MAP_ACTIONS,'reportAttackOutcome'),/recordTacticalShotLine/);
+  const draw = sliceFunction(HTML,'drawTacticalShotLines');
+  assert.match(draw,/setLineDash\(\[/, 'shot lines are dashed');
+  assert.doesNotMatch(draw,/strokeText|fillText/, 'shot lines have no shooter/target label');
+  const renderCtx = sandbox({
+    appData:{map:{tacticalShotLines:[{from:'0,0',to:'1,0',side:'enemy',shooter:'Secret squad',target:'Target'}],centers:[{key:'0,0',x:0,y:0},{key:'1,0',x:200,y:0}]}}
+  });
+  const drawnText=[]; const dash=[];
+  renderCtx.ctx2 = { save(){},restore(){},setLineDash(v){dash.push(v)},beginPath(){},moveTo(){},lineTo(){},stroke(){},
+    fillText(v){drawnText.push(v)},strokeText(v){drawnText.push(v)},
+    set strokeStyle(v){},set fillStyle(v){},set lineWidth(v){},set font(v){},set textAlign(v){},set textBaseline(v){} };
+  vm.runInContext(draw,renderCtx);
+  vm.runInContext('drawTacticalShotLines(ctx2,40)',renderCtx);
+  assert(dash.some(v=>Array.from(v).length===2),'renderer applies a dash pattern');
+  assert.equal(drawnText.length,0,'renderer draws no shooter label');
+});
+
+test('17: BeVe Landsverk 37mm gun is offered as ordnance and retains vehicle sector rules', () => {
+  const panel = sliceFunction(HTML,'renderActiveCardButtons');
+  assert.match(panel,/const hasVehicleOrdnance = !!vehicleArtillery/);
+  assert.match(panel,/const showOrdnanceButton = currentSquad\.armor\s*\?\s*hasVehicleOrdnance/);
+  assert.doesNotMatch(panel,/isBeveArmoredCar/);
+  assert.match(sliceFunction(HTML,'vehicleWeaponSectorSpec'),/type === 'at_gun'.*deg: 360/);
+  assert.match(sliceFunction(HTML,'tacticalVehicleWeaponCanTarget'),/vehicleWeaponSectorSpec/);
+});
+
+test('18: company and battalion HQ icons receive silver and gold frames', () => {
+  assert.match(HTML,/const hqFrameColor = unit\.type === 'company_hq'[\s\S]*?'#c0c0c0'[\s\S]*?'#ffd700'/);
+});
+
+
+test('19: multiple hostile squads on one hex remain separately targetable', () => {
+  const ctx = sandbox({
+    appData:{ squads:[{name:'Friendly',fighters:[{hp:1}]}], map:{grid:{},enemySquads:[
+      {name:'Enemy A',detected:true,fighters:[{hp:1}]},{name:'Enemy B',detected:true,fighters:[{hp:1}]}
+    ]}},
+    getBattleSquadHex:(grid,index,isEnemy)=>isEnemy
+      ? {key:'4,4',col:4,row:4} : {key:'2,4',col:2,row:4},
+    hexGridDistance:(a,b,c,d)=>Math.max(Math.abs(a-c),Math.abs(b-d)),
+    getTacticalCoverInfoForSquad:()=>({}), getTacticalCoverInfoForEnemy:()=>({}),
+    tacticalSmokeBlocksSight:()=>false
+  });
+  for (const fn of ['mapActionEnemyAlive','mapActionEnemyIsVehicle','mapActionEnemyIsDot','mapActionEvalTarget']) {
+    vm.runInContext(sliceFunction(MAP_ACTIONS,fn),ctx);
+  }
+  const result = vm.runInContext(`mapActionEvalTarget({id:'smallArms',targets:'infantry'},0,1,null,'player')`,ctx);
+  assert.equal(result.ok,true);
+  assert.equal(result.enemy.name,'Enemy B');
+  const colocatedFriendly = {name:'Friendly on target hex',fighters:[{hp:1}]};
+  ctx.appData.squads.push(colocatedFriendly);
+  ctx.getBattleSquadHex=(grid,index,isEnemy)=>isEnemy
+    ? {key:'4,4',col:4,row:4} : (index===0?{key:'2,4',col:2,row:4}:{key:'4,4',col:4,row:4});
+  assert.equal(vm.runInContext(`mapActionEvalTarget({id:'smallArms',targets:'infantry'},0,0,null,'player').reason`,ctx),'в гексе цели стоят свои — огонь запрещён');
+});
+
+
+test('20: battle results include losses for both sides and allow a half-strength squad to regroup survivors', () => {
+  const ctx = sandbox({
+    appData:{campaign:{opUnits:[]}},
+    tacticalMergeSquadTypeKey:squad=>squad && squad.type || null,
+    saveData(){},initOperationalMap(){},
+    document:{body:{appendChild(node){this.child=node}},getElementById(id){return this.body.child && this.body.child.id===id ? this.body.child : null},createElement(){return {style:{},remove(){},set innerHTML(v){this.html=v}}}}
+  });
+  for(const name of ['tacticalBattleReportSquadKey','buildTacticalBattleResultReport','tacticalPostBattleRegroupOptions','regroupTacticalBattleSurvivors','closeTacticalBattleResult','showTacticalBattleResult'])
+    vm.runInContext(sliceFunction(HTML,name),ctx);
+  const battle={id:44,result:'victory',
+    awardInitialPlayerSquads:[{name:'Platoon A',opUnitName:'Unit',fighters:[{hp:1},{hp:1},{hp:1},{hp:1}]},{name:'Platoon B',opUnitName:'Unit',fighters:[{hp:1},{hp:1},{hp:1},{hp:1}]}],
+    playerSquads:[{name:'Platoon A',opUnitName:'Unit',fighters:[{hp:1},{hp:1},{hp:0},{hp:0}]},{name:'Platoon B',opUnitName:'Unit',fighters:[{hp:1},{hp:1},{hp:0},{hp:0}]}],
+    awardInitialEnemySquads:[{name:'Enemy',opUnitName:'Enemy unit',fighters:[{hp:1},{hp:1},{hp:1}]}],
+    enemySquads:[{name:'Enemy',opUnitName:'Enemy unit',fighters:[{hp:0},{hp:1},{hp:0}]}]};
+  ctx.battle=battle;
+  vm.runInContext('var report=buildTacticalBattleResultReport(battle);',ctx);
+  assert.equal(ctx.report.sides.player.losses,4);
+  assert.equal(ctx.report.sides.enemy.losses,2);
+  assert.equal(ctx.report.sides.player.squads[0].remaining,2);
+  const donor={name:'Platoon A',type:'infantry',tacticalOriginalRosterSize:4,fighters:[{hp:1},{hp:1},{hp:0},{hp:0}]};
+  const receiver={name:'Platoon B',type:'infantry',tacticalOriginalRosterSize:4,fighters:[{hp:1},{hp:1},{hp:0},{hp:0}]};
+  ctx.appData.campaign.opUnits=[{name:'Unit',squads:[donor,receiver]}];
+  ctx.appData.campaign.lastTacticalBattleReport=ctx.report;
+  assert.equal(vm.runInContext('showTacticalBattleResult()',ctx),true);
+  assert.match(ctx.document.body.child.html,/Свои: потери 4 из 8/);
+  assert.match(ctx.document.body.child.html,/Противник: потери 2 из 3/);
+  assert.match(ctx.document.body.child.html,/Перенести 2 из/);
+  assert.equal(vm.runInContext('tacticalPostBattleRegroupOptions(appData.campaign.lastTacticalBattleReport).length',ctx),2);
+  assert.equal(vm.runInContext('regroupTacticalBattleSurvivors(0,0,1)',ctx),true);
+  assert.equal(donor.fighters.filter(f=>f&&f.hp>0).length,0);
+  assert.equal(receiver.fighters.filter(f=>f&&f.hp>0).length,4);
+  assert.equal(donor.regroupedIntoSquadName,'Platoon B');
+  assert.match(ctx.document.body.child.html,/Перенесено 2: «Platoon A» → «Platoon B»/);
+});
+
+
+test('21: supply-panel route reachability is cached per mobility and destination', () => {
+  let calls=0;
+  const ctx=sandbox({supplyReachForMobility:(mobility,fromCol,fromRow,dest)=>{calls++;return {col:dest.col,row:dest.row,adjacent:false}}});
+  vm.runInContext(sliceFunction(HTML,'supplyReachForMobilityCached'),ctx);
+  vm.runInContext(`var cache=new Map(); var a=supplyReachForMobilityCached(cache,'foot',1,2,{col:8,row:9}); var b=supplyReachForMobilityCached(cache,'foot',1,2,{col:8,row:9});`,ctx);
+  assert.equal(calls,1);
+  assert.equal(ctx.cache.size,1);
+  assert.match(sliceFunction(HTML,'renderSupplyPanel'),/supplyReachForMobilityCached\(reachCache/);
+});
+
+
+test('22: selecting a DOT embrasure machine gun explicitly highlights its firing sector', () => {
+  const ctx=sandbox({
+    currentSquad:{name:'ДОТ',crewInstances:[{uniqueKey:'mg-1',weaponName:'МГ'}]},
+    appData:{squads:[],map:{selectedMoveSquadIdx:0,selectedDotFireWeaponKey:null}},
+    getFactionCrewWeapons:()=>[{name:'МГ',type:'mg'}],
+    tacticalIsDotSquad:()=>true,redrawMap(){},updateUI(){}
+  });
+  vm.runInContext(sliceFunction(HTML,'setTacticalDotFireWeapon'),ctx);
+  assert.equal(vm.runInContext("setTacticalDotFireWeapon('mg-1')",ctx),true);
+  assert.equal(ctx.appData.map.selectedDotFireWeaponKey,'mg-1');
+  assert.match(sliceFunction(HTML,'renderActiveCardButtons'),/Показать сектор/);
+  const draw = sliceFunction(HTML,'drawTacticalDotSectorLines');
+  assert.match(draw,/selectedDotFireWeaponKey/);
+  assert.match(draw,/isSelectedSector \? 1 : 0\.62/);
+});
+
+
+test('23: reinforcements use their arrival edge while the normal placement phase remains player-controlled', () => {
+  const ctx=sandbox({appData:{currentBattleId:null,map:{}}});
+  for(const name of ['PLACEMENT_STRIP_DEPTH','PLACEMENT_DIRS','placementOppositeDir','placementZoneKeys','placementMapSize','placementBattleGrid','placementReinforcementZone']) {
+    const piece=name===name.toUpperCase() ? sliceConst(PLACEMENT,name) : sliceFunction(PLACEMENT,name);
+    vm.runInContext(piece,ctx);
+  }
+  vm.runInContext(sliceFunction(HTML,'tacticalSetReinforcementArrival'),ctx);
+  const battle={id:4,hexKey:'4,4',placement:{phase:'placing',attackerSide:'player',entryDir:'W'},tacticalMap:{mapSize:8,grid:{}}};
+  for(let r=0;r<8;r++) for(let c=0;c<8;c++) battle.tacticalMap.grid[`${c},${r}`]={squadIds:[],enemySquadIds:[]};
+  const arriving={name:'Reinforcement',placementArrivalDir:'E'};
+  const zone=vm.runInContext('placementReinforcementZone(battle,arriving)',Object.assign(ctx,{battle,arriving}));
+  assert.equal(zone.dir,'E');
+  assert(zone.keys.every(key=>Number(key.split(',')[0])>=6),'east-arriving platoon is restricted to east-edge deployment strip');
+  assert.match(sliceFunction(PLACEMENT,'placementReinforcementUnplaced'),/phase === 'placing'\) return \[\]/,
+    'ordinary placement is not auto-classified as reinforcements');
+  assert.match(sliceFunction(PLACEMENT,'renderPlacementPanel'),/placementAutoPlaceReinforcements/,
+    'reinforcements have a dedicated placement operation after initial placement');
+});
+
+test('24: closing the supply tab does not perform a hidden expensive rerender', () => {
+  const ctx=sandbox();
+  let open=true,renders=0;
+  ctx.document={getElementById:()=>({style:{display:'block'}})};
+  ctx.openOperationalSidePanel=()=>{open=!open};
+  ctx.isOperationalSidePanelOpen=()=>open;
+  ctx.renderSupplyPanel=()=>{renders++};
+  vm.runInContext(sliceFunction(HTML,'showSupplyPanel'),ctx);
+  vm.runInContext('showSupplyPanel()',ctx);
+  assert.equal(renders,0,'closing an already-open supply dock does not rebuild rows/routes');
+  vm.runInContext('showSupplyPanel(true)',ctx);
+  assert.equal(renders,1,'explicitly opening still renders the supply panel');
 });
 
 test('16: relief overlay labels level differences and tactical zoom supports smaller scale', () => {

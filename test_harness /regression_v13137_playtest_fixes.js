@@ -87,6 +87,7 @@ function surrenderFixture(side) {
     'function tacticalClearMeleeEngagement() {} function tacticalIsHeadquartersSquad() { return false; }' +
     'function tacticalApplyHeadquartersLossMoralePenalty() { return false; }' +
     'function tacticalSquadHasStubbornCard() { return false; }' +
+    'function tacticalMoralePercent() { return 10; }' +
     'function tacticalHasLiveHeadquartersFor() { return false; }' +
     'function recordTacticalAwardEnemyDefeat() {}');
   s.run(sliceFunction(HTML, 'tacticalPlaceSurrenderMarker'));
@@ -138,13 +139,15 @@ ok('п.2 processTacticalRouts: перекрытый путь (штаб/край)
     'полное отсутствие целей отхода — тоже сдача');
 });
 
-ok('п.2 processTacticalRouts: цель по духу — штаб ИЛИ край карты', () => {
+ok('п.2 processTacticalRouts: у штаба ралли, на краю — выход из боя', () => {
   assert.ok(/if \(!stubborn\) retreatEdges\.forEach/.test(HTML),
     'край карты входит в цели отхода (и по духу)');
-  assert.ok(/tacticalRoutRallyAtHQ\(s, side, idx, destinationInfo\.type\)/.test(HTML),
-    'прибытие на цель по духу — ралли (остаётся в бою)');
-  assert.ok(/placeLabel = place === 'edge' \? 'к краю карты' : 'к штабу'/.test(HTML),
-    'текст ралли различает штаб и край карты');
+  assert.ok(/destinationInfo\.type === 'headquarters'[\s\S]*?tacticalRoutRallyAtHQ\(s, side, idx, destinationInfo\.type\)/.test(HTML),
+    'прибытие к штабу восстанавливает дух');
+  assert.ok(/tacticalRetreatUnit\(s, side, idx, s\.retreatReason === 'command' \? 'command' : 'morale'\)/.test(HTML),
+    'достижение края удаляет отряд из боя');
+  assert.ok(/getOpHexDistance\(ec, er, c, r\) === farthest/.test(HTML),
+    'при отсутствии доступного штаба выбирается граница подальше от противника');
 });
 
 ok('п.2 ДОТ и «Упрямство» сохраняют прежние исключения', () => {
@@ -209,14 +212,14 @@ ok('п.3 вкладка «Бой»: стрельба и подавление б�
 
 // ================= маркеры версии =================
 
-ok('маркеры версии синхронизированы на v13.138', () => {
+ok('маркеры версии синхронизированы на v13.195', () => {
   const files = [ROOT + '/index.html', ROOT + '/js/cards.js', ROOT + '/js/data.js', ROOT + '/js/hexmaps.js',
     ROOT + '/js/map_actions.js', ROOT + '/js/online_battles.js', ROOT + '/js/operational_ui.js',
     ROOT + '/js/placement.js', ROOT + '/js/templates.js', ROOT + '/js/weapons.js',
     ROOT + '/service-worker.js', ROOT + '/manifest.json'];
   files.forEach(f => {
     const txt = fs.readFileSync(f, 'utf8');
-    assert.ok(/v13\.138/.test(txt), path.basename(f) + ' должен содержать v13.138');
+    assert.ok(/v13\.195/.test(txt), path.basename(f) + ' должен содержать v13.195');
   });
 });
 
