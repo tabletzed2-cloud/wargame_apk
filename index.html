@@ -19622,6 +19622,7 @@ function vehicleWeaponSectorSpec(squad, weaponName, weaponType) {
     const type = String(weaponType || '');
     if (type === 'at_gun' || type === 'tank_gun' || type === 'mortar') return { role: 'turret', deg: 360, family };
     if (/кормов|задн|rear/i.test(name)) return { role: 'rear', deg: 90, family };
+    if (/бортов|паралл|side/i.test(name)) return { role: 'parallel', deg: 90, family };
     if (/курсов|bow|передн|станков/i.test(name)) return { role: 'bow', deg: family.bowDeg || 90, family };
     if (/спарен|coax|танков/i.test(name)) return { role: 'coax', deg: 360, family };
     if (type === 'mg') return { role: 'coax', deg: 360, family }; // старые сохранения
@@ -19635,9 +19636,21 @@ function tacticalVehicleWeaponCanTarget(squad, weaponName, weaponType, targetKey
     const pos = (typeof tacticalSquadBattlePosition === 'function') ? tacticalSquadBattlePosition(squad, appData.map) : null;
     if (!pos || !pos.key || !targetKey) return true; // нет данных о позициях — не ограничиваем
     const facing = vehicleFacingDir(squad);
-    const direction = spec.role === 'rear' ? tacticalOppositeDirection(facing) : facing;
+    let direction = facing;
+    if (spec.role === 'rear') direction = tacticalOppositeDirection(facing);
+    else if (spec.role === 'parallel' && typeof TACTICAL_FIRE_SECTOR_OPTIONS !== 'undefined') {
+        const facingIndex = TACTICAL_FIRE_SECTOR_OPTIONS.findIndex(option => option.id === facing);
+        if (facingIndex >= 0) direction = TACTICAL_FIRE_SECTOR_OPTIONS[(facingIndex + 1) % TACTICAL_FIRE_SECTOR_OPTIONS.length].id;
+    }
     if (!direction) return true;
     if (typeof tacticalHexInFireSector !== 'function') return true;
+    const [fromCol, fromRow] = pos.key.split(',').map(Number);
+    const [toCol, toRow] = String(targetKey).split(',').map(Number);
+    if ([fromCol, fromRow, toCol, toRow].every(Number.isFinite) && typeof _hexCubeCoords === 'function') {
+        const fromCube = _hexCubeCoords(fromCol, fromRow), targetCube = _hexCubeCoords(toCol, toRow);
+        const distance = Math.max(Math.abs(targetCube.x - fromCube.x), Math.abs(targetCube.y - fromCube.y), Math.abs(targetCube.z - fromCube.z));
+        if (distance > 3) return false;
+    }
     return tacticalHexInFireSector(pos.key, targetKey, direction, spec.deg);
 }
 function tacticalVehicleWeaponSectorLabel(squad, weaponName, weaponType) {
@@ -19645,8 +19658,10 @@ function tacticalVehicleWeaponSectorLabel(squad, weaponName, weaponType) {
     if (!spec) return '';
     if (spec.role === 'turret') return 'башня, 360°';
     if (spec.role === 'coax') return 'спаренный, 360°';
-    if (spec.role === 'rear') return 'кормовой, 90° назад';
-    return `курсовой, ${spec.deg}° по курсу`;
+    if (spec.role === 'rear') return 'задний пулемёт, 90° назад';
+    if (spec.role === 'parallel') return 'параллельный пулемёт, ограниченный сектор';
+    if (spec.role === 'bow') return `передний пулемёт, ${spec.deg}° по курсу`;
+    return 'пулемёт кругового обстрела';
 }
 function setTacticalVehicleFireWeapon(uniqueKey) {
     if (!currentSquad || !currentSquad.armor || !appData.map) return;
@@ -19664,6 +19679,15 @@ function setTacticalDotFireWeapon(uniqueKey) {
     if (typeof redrawMap === 'function') redrawMap();
     if (typeof updateUI === 'function') updateUI();
     return true;
+}
+function tacticalVehicleTargetIsInSelectedSector(target) {
+    const map = appData && appData.map;
+    const squad = currentSquad;
+    const key = map && map.selectedVehicleFireWeaponKey;
+    if (!target || !squad || !squad.armor || !key || !Array.isArray(squad.crewInstances)) return false;
+    const crew = squad.crewInstances.find(item => item && item.uniqueKey === key);
+    const weapon = crew && (getFactionCrewWeapons(squad.faction) || []).find(item => item && item.name === crew.weaponName);
+    return !!(weapon && weapon.type === 'mg' && tacticalVehicleSectorTargets(squad, weapon.name, weapon.type).some(item => item.squad === target));
 }
 function tacticalVehicleSectorTargets(squad, weaponName, weaponType) {
     if (!squad || !appData.map || !appData.map.grid) return [];
@@ -19997,8 +20021,7 @@ function renderFieldVehiclePanel() {
     const names = targets.length ? targets.map(t => `${escapeCardHtml(t.squad.name)} (${t.hex})`).join(', ') : 'нет обнаруженных целей в секторе';
     const key = String(ci.uniqueKey || '').replace(/'/g, '&#39;');
     html += `<div style="margin-top:6px;padding:6px;border:1px solid ${selected ? '#f39c12' : '#59636e'};border-radius:6px">` +
-      `<button onclick="setTacticalVehicleFireWeapon('${key}')">${selected ? '✅ Сектор выбран' : '🎯 Показать сектор'}: ${escapeCardHtml(cw.name)} (${tacticalVehicleWeaponSectorLabel(squad, cw.name, cw.type)})</button>` +
-      (selected ? ` <button onclick="openTargetModal('smallArms')" style="background:#c0392b">🔫 Выбрать цель и стрелять</button>` : '') +
+      `<button onclick="setTacticalVehicleFireWeapon('${key}')" title="${escapeCardHtml(cw.name)}">${selected ? '✅' : '🎯'} ${tacticalVehicleWeaponSectorLabel(squad, cw.name, cw.type)}</button>` +
       `<div style="color:#f4d03f;margin-top:3px">Кто попадает в сектор: ${names}</div></div>`;
   });
   panel.innerHTML = html;
@@ -20079,8 +20102,7 @@ function renderActiveCardButtons() {
       const names = targets.length ? targets.map(t => `${escapeCardHtml(t.squad.name)} (${t.hex})`).join(', ') : 'в секторе нет обнаруженных целей';
       const safeKey = String(ci.uniqueKey || '').replace(/'/g, '&#39;');
       shootHtml += `<div style="padding:6px;margin:4px 0;border:1px solid ${active ? '#f39c12' : '#566'};border-radius:6px;background:${active ? '#3b2d12' : '#17202a'}">` +
-        `<button onclick="setTacticalVehicleFireWeapon('${safeKey}')" style="background:${active ? '#b9770e' : '#34495e'}">${active ? '✅ Сектор выбран: ' : '🎯 Выбрать сектор: '}${escapeCardHtml(cw.name)} — ${tacticalVehicleWeaponSectorLabel(currentSquad, cw.name, cw.type)}</button>` +
-        (active ? `<button onclick="openTargetModal('smallArms')" style="background:#c0392b;margin-left:4px">🔫 Выбрать цель и стрелять</button>` : '') +
+        `<button onclick="setTacticalVehicleFireWeapon('${safeKey}')" title="${escapeCardHtml(cw.name)}" style="background:${active ? '#b9770e' : '#34495e'}">${active ? '✅ ' : '🎯 '}${tacticalVehicleWeaponSectorLabel(currentSquad, cw.name, cw.type)}</button>` +
         `<div style="font-size:.85rem;color:#f4d03f;margin-top:4px">Цели в секторе: ${names}</div></div>`;
     });
   }
@@ -22312,6 +22334,7 @@ function getMovementCost(squad, fromKey, toKey, isCrouch, apBudget) {
   if (String(fromKey) !== String(toKey) && typeof tacticalFireFieldAt === 'function' && tacticalFireFieldAt(toKey, map)) return Infinity;
 
   const isVehicle = !!squad.armor;
+  const isLightRoadVehicle = !isVehicle && /грузовик|автомобиль|машина/i.test(String(squad.name || ''));
   const fromLevel = Number(fromHex.level) || 0;
   const toLevel = Number(toHex.level) || 0;
   const terrainType = toHex.type;
@@ -22321,7 +22344,6 @@ function getMovementCost(squad, fromKey, toKey, isCrouch, apBudget) {
   let mobilityType = squad.mobilityType ||
     (/мотоцикл/.test(squadName) ? 'motorcycle' :
      (/самокат|велосипед/.test(squadName) ? 'bicycle' : 'foot'));
-  if (squadName.includes('бронеавтомобиль')) mobilityType = 'motorcycle';
   const mountedCycle = !squad.dismounted && (mobilityType === 'motorcycle' || mobilityType === 'bicycle');
   const scooterRider = /самокат/i.test(squadName) && mountedCycle;
   const ptoCrew = typeof tacticalIsPtoCrewSquad === 'function' && tacticalIsPtoCrewSquad(squad);
@@ -22414,6 +22436,19 @@ function getMovementCost(squad, fromKey, toKey, isCrouch, apBudget) {
       default: baseCost = Infinity;
     }
     if (toLevel > 1 && !hasWinch) return Infinity;
+  } else if (isLightRoadVehicle) {
+    // Быстрый колёсный транспорт: быстрее пехоты и по дороге, и по обычной местности.
+    switch (terrainType) {
+      case 'road': baseCost = 0.5; break;
+      case 'grass': baseCost = 1; break;
+      case 'bushes':
+      case 'trenches':
+      case 'forest':
+      case 'fallen_forest':
+      case 'shelled_forest':
+      case 'hill': baseCost = 2; break;
+      default: baseCost = Infinity;
+    }
   } else {
     switch (terrainType) {
       case 'road': baseCost = 2; break;
@@ -30117,11 +30152,12 @@ if (appData.map.mode === 'move' && shouldShowTacticalReachability() && appData.m
         if (spec && spec.deg < 360) specs.push(spec);
       });
       if (!specs.length) return;
-      const reach = size * 3.1;
+      const reach = size * 4.5; // сектор примерно на три гекса; дальше цель вне дальности пулемёта.
       const colors = { bow: '#ff8c42', rear: '#ff5c8a' };
       ctx.save();
       specs.forEach(spec => {
-        const axisIndex = spec.role === 'rear' ? (facingIndex + 3) % 6 : facingIndex;
+        const axisIndex = spec.role === 'rear' ? (facingIndex + 3) % 6 :
+          (spec.role === 'parallel' ? (facingIndex + 1) % 6 : facingIndex);
         const axis = axisIndex * Math.PI / 3;
         const half = (spec.deg / 2) * Math.PI / 180;
         ctx.beginPath();
@@ -30546,6 +30582,13 @@ if (squadIds.length > 0) {
             drawTacticalEncirclementMark(ctx, drawX, drawY, iconSize, enemy);
           }
 
+          if (typeof tacticalVehicleTargetIsInSelectedSector === 'function' && tacticalVehicleTargetIsInSelectedSector(enemy)) {
+            ctx.save();
+            ctx.strokeStyle = '#ffdf00'; ctx.lineWidth = Math.max(3, size * 0.09);
+            ctx.shadowColor = '#ff9f1c'; ctx.shadowBlur = Math.max(6, size * 0.2);
+            ctx.strokeRect(drawX - iconSize / 2 - 4, drawY - iconSize / 2 - 4, iconSize + 8, iconSize + 8);
+            ctx.restore();
+          }
           // Если у врага есть иконка — рисуем её, иначе рисуем череп ☠️
           // ⚡ v13.021: иконки через кэш (до загрузки — символ, после — перерисовка)
           if (enemy.icon) {
