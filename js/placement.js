@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.190
+// ⚡ BUILD-МАРКЕР: v13.194
 // v13.062: fixed DOT coordinates and no placement bypass for eliminated squads.
 // ⚡ v13.061: current release tactical deployment rules.
 // ============================================================
@@ -422,14 +422,18 @@ function placementSideStatus(battle, side) {
     return { placed, unplaced, violations, total: placed.length + unplaced.length };
 }
 
-// ⚡ v13.129 (п.5): НЕразмещённые отряды игрока для панели перетаскивания
-function placementTrayUnplacedSquads(battle) {
+// Отряды игрока для панели перетаскивания. До подтверждения размещения
+// доступны и уже выставленные отряды — игрок может переставлять их между
+// допустимыми гексами; после завершения фазы остаются только резервы.
+function placementTrayUnplacedSquads(battle, includePlaced) {
     const grid = placementBattleGrid(battle) || {};
     const placedIdx = new Set();
     Object.keys(grid).forEach(k => {
         const cell = grid[k];
         if (cell && Array.isArray(cell.squadIds)) cell.squadIds.forEach(i => placedIdx.add(i));
     });
+    const p = battle && battle.placement;
+    const canReposition = includePlaced === true || !!(p && p.phase !== 'done' && !p.playerReady);
     // ⚡ v13.136 (п.4): источник отрядов — тот же, что у placementSideStatus;
     //    в кампании это appData.squads, но на старых сейвах мог остаться только
     //    battle.playerSquads — берём непустой список.
@@ -438,7 +442,7 @@ function placementTrayUnplacedSquads(battle) {
     return source.map((s, i) => ({ s, i })).filter(x =>
         x.s && !x.s.hidden && !x.s.isDestroyed &&
         (x.s.fighters || []).some(f => f && f.hp > 0) &&
-        !placedIdx.has(x.i));
+        (canReposition || !placedIdx.has(x.i)));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

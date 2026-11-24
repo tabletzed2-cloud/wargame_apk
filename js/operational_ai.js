@@ -730,6 +730,7 @@ function operationalAIMove(unit, route) {
         unit.prevRow = Number(unit.row);
         unit.col = Number(hex.col);
         unit.row = Number(hex.row);
+        try { if (typeof checkPhoneLineCrossing === 'function') checkPhoneLineCrossing(unit, unit.prevCol, unit.prevRow, unit.col, unit.row); } catch (e) {}
         unit.movedThisTurn = true;
         moved++;
         if (typeof opVehicleIsImmobile === 'function' && opVehicleIsImmobile(unit)) break;
