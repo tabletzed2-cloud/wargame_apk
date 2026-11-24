@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.197 — операция</title>
+  <title>Боевой модуль v13.198 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -19,7 +19,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.197</h1>
+    <h1>⚔️ Боевой модуль v13.198</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -32,7 +32,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.197</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.198</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -84,7 +84,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.197 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.198 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -390,6 +390,60 @@
       return null;
     }
     function getFactionCrewWeapons(f) { return (appData.factions[f] && appData.factions[f].crewWeapons) ? appData.factions[f].crewWeapons : []; }
+    const VEHICLE_MG_NAME_MIGRATIONS = {
+        'BeVe': {
+            'Курсовой пулемёт SAU Brugge': { name: 'Пулемёт Schwarzlose танковый', sectorRole: 'bow' },
+            'Спаренный пулемёт SAU Brugge': { name: 'Пулемёт Schwarzlose танковый', sectorRole: 'coax' },
+            'Кормовой пулемёт SAU Brugge': { name: 'Пулемёт Schwarzlose танковый', sectorRole: 'rear' },
+            'Пулемёт SAU Brugge': { name: 'Пулемёт Schwarzlose танковый', sectorRole: 'coax' }
+        },
+        'A.I.R.F.': {
+            'Курсовой пулемет Hotchkiss Mle 1914': { name: 'Пулемёт Hotchkiss танковый', sectorRole: 'bow' },
+            'Спаренный пулемет Hotchkiss Mle 1914': { name: 'Пулемёт Hotchkiss танковый', sectorRole: 'coax' },
+            'Танковый пулемет Hotchkiss Mle 1914': { name: 'Пулемёт Hotchkiss танковый', sectorRole: 'coax' }
+        }
+    };
+    function migrateVehicleMountedWeaponNames(data) {
+        if (!data || typeof data !== 'object') return false;
+        let changed = false;
+        const catalogs = { 'BeVe': typeof BEVE_CREW_WEAPONS !== 'undefined' ? BEVE_CREW_WEAPONS : [],
+            'A.I.R.F.': typeof AIRF_CREW_WEAPONS !== 'undefined' ? AIRF_CREW_WEAPONS : [] };
+        Object.keys(catalogs).forEach(faction => {
+            const factionData = data.factions && data.factions[faction];
+            if (!factionData) return;
+            if (!Array.isArray(factionData.crewWeapons)) factionData.crewWeapons = [];
+            const definitions = catalogs[faction];
+            definitions.filter(w => w && /Пулемёт (?:Schwarzlose|Hotchkiss) танковый/i.test(w.name || '') && !w.legacy)
+                .forEach(w => {
+                    if (!factionData.crewWeapons.some(saved => saved && saved.name === w.name)) {
+                        factionData.crewWeapons.push(JSON.parse(JSON.stringify(w)));
+                        changed = true;
+                    }
+                });
+            Object.keys(VEHICLE_MG_NAME_MIGRATIONS[faction]).forEach(oldName => {
+                const oldDef = factionData.crewWeapons.find(w => w && w.name === oldName);
+                if (oldDef && oldDef.legacy !== true) { oldDef.legacy = true; changed = true; }
+            });
+        });
+        const seen = new WeakSet();
+        const visit = value => {
+            if (!value || typeof value !== 'object' || seen.has(value)) return;
+            seen.add(value);
+            if (Array.isArray(value.crewInstances)) {
+                const aliases = VEHICLE_MG_NAME_MIGRATIONS[value.faction] || {};
+                value.crewInstances.forEach(ci => {
+                    if (!ci || !aliases[ci.weaponName]) return;
+                    const replacement = aliases[ci.weaponName];
+                    ci.weaponName = replacement.name;
+                    if (!ci.sectorRole) ci.sectorRole = replacement.sectorRole;
+                    changed = true;
+                });
+            }
+            Object.keys(value).forEach(key => visit(value[key]));
+        };
+        visit(data);
+        return changed;
+    }
     function getFactionCards(f) { return (appData.factions[f] && appData.factions[f].cardLibrary) ? appData.factions[f].cardLibrary : []; }
     function rollD6() { return Math.floor(Math.random()*6)+1; }
     function formatTime(minutes) { const h = Math.floor(minutes / 60); const m = minutes % 60; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;}
@@ -604,7 +658,7 @@ const SUPPLY_DEPOT_MAX = { ammoSmall: 1200, grenades: 300, ammoOrdnance: 80 };
 //    каждой стороне отдельно: у A.I.R.F. — 0,11, у BeVe — 7,0.
 const SUPPLY_EVAC_POINTS = { 'BeVe': { col: 7, row: 0 }, 'A.I.R.F.': { col: 0, row: 11 } };
 
-var APP_VERSION = 'v13.197';
+var APP_VERSION = 'v13.198';
 // v13.183: terrain layers as ZONES (contours), road links cost 1 with no penalty,
 //          no layer graphics on the campaign map; supply/combat read zones.
 // v13.172: full recon routes/observation marks, safe supply corridors, unit card editor, review fixes.
@@ -817,6 +871,22 @@ function closeFactionModal() {
   document.getElementById('factionModal').classList.remove('active');
 }
 
+// Keep the top-level views mutually exclusive. Several legacy navigation
+// handlers toggled only the screen they knew about, leaving a stale campaign
+// or battle root visible behind the menu after a reload/resume.
+function showOnlyAppScreen(screenId) {
+    const ids = ['mainMenu', 'battleApp', 'campaignApp', 'rulesPage', 'historyPage'];
+    ids.forEach(id => {
+        const screen = document.getElementById(id);
+        if (screen) screen.style.display = id === screenId ? 'block' : 'none';
+    });
+    if (screenId === 'mainMenu') {
+        try { window.scrollTo(0, 0); } catch (e) {}
+    }
+    try { if (typeof updateGlobalMenuButton === 'function') updateGlobalMenuButton(); } catch (e) {}
+    return !!document.getElementById(screenId);
+}
+
 function startBattleModule() {
   console.log('startBattleModule вызвана');
   inStandaloneBattle = true; // ⚡ v13.045 (R30): контекст карт — одиночный бой
@@ -830,8 +900,7 @@ function startBattleModule() {
   } catch (e) {}
   try { ensureStandaloneHQFlareSupply(appData.squads || []); } catch (e) {}
     try {
-        document.getElementById('mainMenu').style.display = 'none';
-        document.getElementById('battleApp').style.display = 'block';
+        showOnlyAppScreen('battleApp');
         renderSquadSelector();
         updateUI();
         if (typeof updateTacticalRoundUI === 'function') updateTacticalRoundUI();
@@ -924,8 +993,7 @@ function openCampaign() {
   inStandaloneBattle = false; // ⚡ v13.045 (R30): контекст карт — кампания
   // ⚡ v13.086: «Компания» всегда ведёт к выбору сценария и фракции.
   //    Продолжение текущей кампании — отдельная кнопка на этом экране.
-  document.getElementById('mainMenu').style.display = 'none';
-  document.getElementById('campaignApp').style.display = 'block';
+  showOnlyAppScreen('campaignApp');
 
   // Скрываем карту и ростер
   document.getElementById('campaignMapScreen').style.display = 'none';
@@ -935,12 +1003,13 @@ function openCampaign() {
 }
 
 function closeCampaign() {
-  document.getElementById('campaignApp').style.display = 'none';
+  showOnlyAppScreen('mainMenu');
   document.getElementById('campaignContent').style.display = 'block';
   document.getElementById('campaignMapScreen').style.display = 'none';
-  document.getElementById('battalionRosterScreen').style.display = 'none'; // новая строка
-  document.getElementById('mainMenu').style.display = 'block';
+  document.getElementById('battalionRosterScreen').style.display = 'none';
+  try { if (appData) appData.lastUiScreen = 'mainMenu'; } catch (e) {}
   refreshCampaignResumeButton();
+  try { saveData(); } catch (e) {}
 }
 // ⚡ v13.020: «отпечаток» пресета батальона из data.js.
 //    Если он изменился (обновились SQUAD_TEMPLATES / BATTALION_PRESETS),
@@ -2418,8 +2487,7 @@ function refreshSquadToPlaceDropdown() {
 
   // Переключаемся на бой
   document.getElementById('campaignMapScreen').style.display = 'none';
-  document.getElementById('campaignApp').style.display = 'none';
-  document.getElementById('battleApp').style.display = 'block';
+  showOnlyAppScreen('battleApp');
   syncCampaignBattleTabVisibility();
   activateBattleTab();
   document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
@@ -12376,8 +12444,7 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
         //    размещения на тактической карте
         refreshSquadToPlaceDropdown();
         document.getElementById('campaignMapScreen').style.display = 'none';
-        document.getElementById('campaignApp').style.display = 'none';
-        document.getElementById('battleApp').style.display = 'block';
+        showOnlyAppScreen('battleApp');
         syncCampaignBattleTabVisibility();
         activateBattleTab();
         document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
@@ -12627,8 +12694,7 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
     //    при полном выборе бонусов добавляется случайная карта игрока (v13.136: 2+случайная).
     //    Затем — кнопка «⚔️ В бой» (activateBattleTab).
     document.getElementById('campaignMapScreen').style.display = 'none';
-    document.getElementById('campaignApp').style.display = 'none';
-    document.getElementById('battleApp').style.display = 'block';
+    showOnlyAppScreen('battleApp');
     syncCampaignBattleTabVisibility();
     document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
     document.getElementById('btnFinishBattle').style.display = 'inline-block';
@@ -12930,8 +12996,7 @@ function returnToCampaign() {
   document.getElementById('btnFinishBattle').style.display = 'none';
   const forceDrawBtn = document.getElementById('btnForceFinishBattleAsDraw');
   if (forceDrawBtn) forceDrawBtn.style.display = 'none';
-  document.getElementById('battleApp').style.display = 'none';
-  document.getElementById('campaignApp').style.display = 'block';
+  showOnlyAppScreen('campaignApp');
   document.getElementById('campaignMapScreen').style.display = 'block';
   document.getElementById('btnRetreatBattle').style.display = 'none';
   // Перерисовываем операционную карту и список боёв
@@ -13137,8 +13202,7 @@ function finishBattle() {
     syncCampaignBattleTabVisibility();
 
   // Возвращаемся на карту кампании
-  document.getElementById('battleApp').style.display = 'none';
-  document.getElementById('campaignApp').style.display = 'block';
+  showOnlyAppScreen('campaignApp');
   document.getElementById('campaignMapScreen').style.display = 'block';
   document.getElementById('btnReturnToCampaign').style.display = 'none';
   document.getElementById('btnFinishBattle').style.display = 'none';
@@ -19075,7 +19139,7 @@ function disembarkSquad() {
           const sectors = (currentSquad.crewInstances || []).map(ci => {
             const cw = (typeof getFactionCrewWeapons === 'function') ? (getFactionCrewWeapons(currentSquad.faction) || []).find(w => w.name === ci.weaponName) : null;
             if (!cw || typeof tacticalVehicleWeaponSectorLabel !== 'function') return null;
-            const label = tacticalVehicleWeaponSectorLabel(currentSquad, ci.weaponName, cw.type);
+            const label = tacticalVehicleWeaponSectorLabel(currentSquad, ci.weaponName, cw.type, ci);
             return label ? `${cw.name} — ${label}` : null;
           }).filter(Boolean);
           if (sectors.length) html += `<div style="margin-bottom:6px; font-size:0.85rem; color:#9b8fd3;">🎯 Сектора: ${sectors.join('; ')}</div>`;
@@ -19614,12 +19678,22 @@ function tacticalUpdateVehicleFacingOnMove(squad, fromKey, toKey) {
     return moveDir ? vehicleSetFacing(squad, moveDir) : false;
 }
 // Сектор конкретного оружия машины: 360° — орудие/спаренный, 90–120° — курсовой/кормовой.
-function vehicleWeaponSectorSpec(squad, weaponName, weaponType) {
+function vehicleWeaponSectorSpec(squad, weaponName, weaponType, crewInstance) {
     const family = vehicleFamilyFor(squad);
     if (!family) return null; // неизвестная машина — ограничений нет, как раньше
     const name = String(weaponName || '');
     const type = String(weaponType || '');
     if (type === 'at_gun' || type === 'tank_gun' || type === 'mortar') return { role: 'turret', deg: 360, family };
+    let instance = crewInstance || null;
+    if (!instance && appData && appData.map && appData.map.selectedVehicleFireWeaponKey) {
+        instance = (squad.crewInstances || []).find(ci => ci && ci.uniqueKey === appData.map.selectedVehicleFireWeaponKey && ci.weaponName === name) || null;
+    }
+    const mount = String(instance && (instance.sectorRole || instance.mountRole) || '').toLowerCase();
+    if (['rear', 'bow', 'coax', 'parallel', 'turret'].includes(mount)) {
+        const deg = mount === 'rear' || mount === 'parallel' ? 90 : mount === 'bow' ? (family.bowDeg || 90) : 360;
+        return { role: mount, deg, family };
+    }
+    // Old saves use position-prefixed names; keep their sectors during migration.
     if (/кормов|задн|rear/i.test(name)) return { role: 'rear', deg: 90, family };
     if (/бортов|паралл|side/i.test(name)) return { role: 'parallel', deg: 90, family };
     if (/курсов|bow|передн|станков/i.test(name)) return { role: 'bow', deg: family.bowDeg || 90, family };
@@ -19628,9 +19702,9 @@ function vehicleWeaponSectorSpec(squad, weaponName, weaponType) {
     return null;
 }
 // Может ли это оружие машины стрелять по указанному гексу (по курсу).
-function tacticalVehicleWeaponCanTarget(squad, weaponName, weaponType, targetKey) {
+function tacticalVehicleWeaponCanTarget(squad, weaponName, weaponType, targetKey, crewInstance) {
     if (!squad || !vehicleIsArmored(squad)) return true;
-    const spec = vehicleWeaponSectorSpec(squad, weaponName, weaponType);
+    const spec = vehicleWeaponSectorSpec(squad, weaponName, weaponType, crewInstance);
     if (!spec) return true;
     const pos = (typeof tacticalSquadBattlePosition === 'function') ? tacticalSquadBattlePosition(squad, appData.map) : null;
     if (!pos || !pos.key || !targetKey) return true; // нет данных о позициях — не ограничиваем
@@ -19653,8 +19727,8 @@ function tacticalVehicleWeaponCanTarget(squad, weaponName, weaponType, targetKey
     if (spec.deg >= 360) return true;
     return tacticalHexInFireSector(pos.key, targetKey, direction, spec.deg);
 }
-function tacticalVehicleWeaponSectorLabel(squad, weaponName, weaponType) {
-    const spec = vehicleWeaponSectorSpec(squad, weaponName, weaponType);
+function tacticalVehicleWeaponSectorLabel(squad, weaponName, weaponType, crewInstance) {
+    const spec = vehicleWeaponSectorSpec(squad, weaponName, weaponType, crewInstance);
     if (!spec) return '';
     if (spec.role === 'turret') return 'башня, 360°';
     if (spec.role === 'coax') return 'Спаренный пулемёт';
@@ -19688,9 +19762,9 @@ function tacticalVehicleTargetIsInSelectedSector(target) {
     if (!target || !squad || !vehicleIsArmored(squad) || !key || !Array.isArray(squad.crewInstances)) return false;
     const crew = squad.crewInstances.find(item => item && item.uniqueKey === key);
     const weapon = crew && (getFactionCrewWeapons(squad.faction) || []).find(item => item && item.name === crew.weaponName);
-    return !!(weapon && weapon.type === 'mg' && tacticalVehicleSectorTargets(squad, weapon.name, weapon.type).some(item => item.squad === target));
+    return !!(weapon && weapon.type === 'mg' && tacticalVehicleSectorTargets(squad, weapon.name, weapon.type, crew).some(item => item.squad === target));
 }
-function tacticalVehicleSectorTargets(squad, weaponName, weaponType) {
+function tacticalVehicleSectorTargets(squad, weaponName, weaponType, crewInstance) {
     if (!squad || !appData.map || !appData.map.grid) return [];
     const targetIsEnemy = tacticalSquadIsPlayerSide(squad);
     const targets = targetIsEnemy ? (appData.map.enemySquads || []) : (appData.squads || []);
@@ -19698,7 +19772,7 @@ function tacticalVehicleSectorTargets(squad, weaponName, weaponType) {
         if (!target || target.hidden || target.isDestroyed || target.isRetreated || target.isSurrendered) return null;
         if (targetIsEnemy && !target.detected && !tacticalSquadIsFixedFortification(target)) return null;
         const pos = typeof getBattleSquadHex === 'function' ? getBattleSquadHex(appData.map.grid, index, targetIsEnemy) : null;
-        if (!pos || !pos.key || !tacticalVehicleWeaponCanTarget(squad, weaponName, weaponType, pos.key)) return null;
+        if (!pos || !pos.key || !tacticalVehicleWeaponCanTarget(squad, weaponName, weaponType, pos.key, crewInstance)) return null;
         return { index, squad: target, hex: pos.key };
     }).filter(Boolean);
 }
@@ -20090,8 +20164,9 @@ function renderActiveCardButtons() {
       const selected = appData.map && appData.map.selectedVehicleFireWeaponKey === ci.uniqueKey;
       const shotsLeft = getWeaponShotCount(currentSquad, ci.uniqueKey) < getWeaponMaxShots(cw);
       const disabled = !usable || !ammo || !shotsLeft;
-      const title = `${cw.name} · ${tacticalVehicleWeaponSectorLabel(currentSquad, cw.name, cw.type)}${!alive ? ' · расчёт погиб' : ''}`;
-      shootHtml += `<button ${disabled ? 'disabled' : `onclick="prepareTacticalVehicleWeaponAndFire('${key}','${cw.type}')"`} title="${escapeCardHtml(title)}" style="background:${selected ? '#b9770e' : '#34495e'};margin:3px;${disabled ? 'opacity:.5;' : ''}">${selected ? '✅ ' : ''}${escapeCardHtml(cw.name)}</button> `;
+      const sectorLabel = tacticalVehicleWeaponSectorLabel(currentSquad, cw.name, cw.type, ci);
+      const title = `${cw.name} · ${sectorLabel}${!alive ? ' · расчёт погиб' : ''}`;
+      shootHtml += `<button ${disabled ? 'disabled' : `onclick="prepareTacticalVehicleWeaponAndFire('${key}','${cw.type}')"`} title="${escapeCardHtml(title)}" style="background:${selected ? '#b9770e' : '#34495e'};margin:3px;${disabled ? 'opacity:.5;' : ''}">${selected ? '✅ ' : ''}${escapeCardHtml(cw.name)} · ${escapeCardHtml(sectorLabel)}</button> `;
     });
   }
   // ⚡ v13.156 (п.27/31): кнопки «Орудия / Миномёты» и «Атака ПТО» — только
@@ -24242,7 +24317,7 @@ function executeAttack() {
     }
     if (selectedWeapon && selectedWeapon.type === 'mg' && preselectedTargetIdx >= 0) {
       const targetPos = getBattleSquadHex(appData.map.grid, preselectedTargetIdx, true);
-      if (targetPos && !tacticalVehicleWeaponCanTarget(currentSquad, selectedWeapon.name, selectedWeapon.type, targetPos.key)) {
+      if (targetPos && !tacticalVehicleWeaponCanTarget(currentSquad, selectedWeapon.name, selectedWeapon.type, targetPos.key, selectedCrew)) {
         closeTargetModal(); pendingAttack = null;
         log('Цель находится вне сектора выбранного пулемёта.');
         return;
@@ -26008,16 +26083,16 @@ shots = Math.max(0, shots); // не уходим в минус
       if (ci.deployed === false) return;
       if (isVehicle) {
         const selectedWeaponKey = appData.map && appData.map.selectedVehicleFireWeaponKey;
-        const sectorSpec = vehicleWeaponSectorSpec(currentSquad, cw.name, cw.type);
+        const sectorSpec = vehicleWeaponSectorSpec(currentSquad, cw.name, cw.type, ci);
         if (selectedWeaponKey && ci.uniqueKey !== selectedWeaponKey) return;
         if (!selectedWeaponKey && sectorSpec && sectorSpec.deg < 360) return;
       }
       // Курсовые/кормовые пулемёты стреляют после отдельного выбора оружия.
       if (isVehicle && typeof tacticalVehicleWeaponCanTarget === 'function') {
         const sectorTargetKey = (typeof tacticalSelectedTargetHexKey === 'function') ? tacticalSelectedTargetHexKey(currentSquad) : null;
-        if (!tacticalVehicleWeaponCanTarget(currentSquad, cw.name, cw.type, sectorTargetKey)) {
+        if (!tacticalVehicleWeaponCanTarget(currentSquad, cw.name, cw.type, sectorTargetKey, ci)) {
           const sectorLabel = (typeof tacticalVehicleWeaponSectorLabel === 'function')
-            ? tacticalVehicleWeaponSectorLabel(currentSquad, cw.name, cw.type) : 'сектор по курсу';
+            ? tacticalVehicleWeaponSectorLabel(currentSquad, cw.name, cw.type, ci) : 'сектор по курсу';
           log(`⛔ ${cw.name}: цель вне сектора (${sectorLabel}) — разверните машину.`);
           return;
         }
@@ -26398,7 +26473,7 @@ function handleFighterDeath(squad) {
     function addFighter() { if(!currentSquad) return; const weapons = getFactionWeapons(currentSquad.faction); currentSquad.fighters.push({name:`Боец ${currentSquad.fighters.length+1}`, weapon:weapons[0]?.name||'Без оружия', hp:3, maxHp:3, isCommander:false}); buildRosterEditor(); }
     function removeFighter() { if(!currentSquad) return; currentSquad.fighters.pop(); if(currentSquad.crewInstances) { currentSquad.crewInstances.forEach(ci=>{ ci.fighterIndices = ci.fighterIndices.filter(idx=>idx<currentSquad.fighters.length); }); currentSquad.crewInstances = currentSquad.crewInstances.filter(ci=>ci.fighterIndices.length>0); } buildRosterEditor(); }
     function renderCrewAssignmentsList() { const list = document.getElementById('crewAssignmentsList'); if(!currentSquad || !currentSquad.crewInstances) { if(list) list.innerHTML=''; return; } list.innerHTML = currentSquad.crewInstances.map((ci,i)=> { const fighters = ci.fighterIndices.map(idx=>currentSquad.fighters[idx]?.name||'?').join(', '); const activeText = ci.active !== false ? '🟢 Активен' : '🔴 Неактивен'; return `<div class="crew-row">${ci.weaponName} (бойцы: ${fighters}) <button onclick="toggleCrewActive(${i})">${activeText}</button> <button onclick="removeCrewAssignment(${i})">❌</button></div>`; }).join(''); }
-    function showCrewAssignmentDialog() { if(!currentSquad) return; const weapons = getFactionCrewWeapons(currentSquad.faction); if(!weapons.length) { alert('Нет орудий для этой фракции.'); return; } const weaponNames = weapons.map(w=>w.name); const weapon = prompt('Выберите орудие:\n'+weaponNames.join('\n'), weaponNames[0]); if(!weapon) return; const fighters = currentSquad.fighters.map((f,i)=>`${i}: ${f.name}`).join('\n'); const indicesStr = prompt('Введите индексы бойцов через запятую (например, 0,1):'); if(!indicesStr) return; const indices = indicesStr.split(',').map(s=>parseInt(s.trim())).filter(i=>!isNaN(i) && i>=0 && i<currentSquad.fighters.length); if(!indices.length) return; if(!currentSquad.crewInstances) currentSquad.crewInstances = []; currentSquad.crewInstances.push({weaponName: weapon, fighterIndices: indices, active: true});
+    function showCrewAssignmentDialog() { if(!currentSquad) return; const weapons = getFactionCrewWeapons(currentSquad.faction).filter(w => !w.legacy && !w.vehicleOnly); if(!weapons.length) { alert('Нет орудий для этой фракции.'); return; } const weaponNames = weapons.map(w=>w.name); const weapon = prompt('Выберите орудие:\n'+weaponNames.join('\n'), weaponNames[0]); if(!weapon) return; const fighters = currentSquad.fighters.map((f,i)=>`${i}: ${f.name}`).join('\n'); const indicesStr = prompt('Введите индексы бойцов через запятую (например, 0,1):'); if(!indicesStr) return; const indices = indicesStr.split(',').map(s=>parseInt(s.trim())).filter(i=>!isNaN(i) && i>=0 && i<currentSquad.fighters.length); if(!indices.length) return; if(!currentSquad.crewInstances) currentSquad.crewInstances = []; currentSquad.crewInstances.push({weaponName: weapon, fighterIndices: indices, active: true});
 assignUniqueCrewKeys(currentSquad); renderCrewAssignmentsList(); }
     function removeCrewAssignment(idx) { if(!currentSquad) return; currentSquad.crewInstances.splice(idx,1); renderCrewAssignmentsList(); }
     function toggleCrewActive(idx) { if(!currentSquad || !currentSquad.crewInstances) return; currentSquad.crewInstances[idx].active = !(currentSquad.crewInstances[idx].active !== false); renderCrewAssignmentsList(); saveData(); }
@@ -26430,7 +26505,7 @@ assignUniqueCrewKeys(currentSquad); renderCrewAssignmentsList(); }
 
     // =================== ВКЛАДКА РАСЧЁТЫ ===================
     function populateCrewFactionSelect() { document.getElementById('crewFactionSelect').innerHTML = Object.keys(appData.factions).map(f=>`<option>${f}</option>`).join(''); }
-    function loadCrewWeapons() { const faction = document.getElementById('crewFactionSelect').value; const list = getFactionCrewWeapons(faction); document.getElementById('crewWeaponList').innerHTML = list.map((w,i)=>`<div>${w.name} (${w.type}) <button onclick="editCrewWeapon('${faction}',${i})">✏️</button> <button onclick="deleteCrewWeapon('${faction}',${i})">❌</button></div>`).join(''); document.getElementById('crewDetails').style.display='none'; }
+    function loadCrewWeapons() { const faction = document.getElementById('crewFactionSelect').value; const list = getFactionCrewWeapons(faction); document.getElementById('crewWeaponList').innerHTML = list.map((w,i)=>(w.legacy || w.vehicleOnly) ? '' : `<div>${w.name} (${w.type}) <button onclick="editCrewWeapon('${faction}',${i})">✏️</button> <button onclick="deleteCrewWeapon('${faction}',${i})">❌</button></div>`).join(''); document.getElementById('crewDetails').style.display='none'; }
     function addCrewWeapon() { const faction = document.getElementById('crewFactionSelect').value; const name = prompt('Название орудия:', 'Новое орудие'); if (!name) return; const type = prompt('Тип (mg, at_gun, mortar):','mg'); if(!type) return; const newW = { type, name, crewSize: type==='mg'?5:3, shotRule: type==='mg'?'sum_d6':'fixed_per_crew', fullCrewDice: type==='mg'?3:undefined, minCrewDice: type==='mg'?1:undefined, shotsFull: type!=='mg'?3:undefined, shotsReduced2: type!=='mg'?2:undefined, shotsReduced1: type!=='mg'?1:undefined, effectiveRange:10, penetration: type==='at_gun'?{"1":50,"2":48,"3":46,"4":44,"5":40,"6":36,"7":32,"8":28,"9":24,"10":20,"11":17,"12":14,"13":11,"14":8,"15":5,"16":3,"17":1,"18":0,"19":0,"20":0,"21":0,"22":0,"23":0,"24":0,"25":0,"26":0,"27":0,"28":0,"29":0,"30":0}:undefined }; appData.factions[faction].crewWeapons.push(newW); saveData(); loadCrewWeapons(); }
     function editCrewWeapon(faction,idx) { const w = appData.factions[faction].crewWeapons[idx]; const det = document.getElementById('crewDetails'); det.style.display='block'; let html = `<h4>${w.name}</h4>Имя: <input value="${w.name}" onchange="appData.factions['${faction}'].crewWeapons[${idx}].name=this.value"><br>`; html += `Тип: <select onchange="appData.factions['${faction}'].crewWeapons[${idx}].type=this.value;editCrewWeapon('${faction}',${idx})"><option value="mg" ${w.type==='mg'?'selected':''}>Пулемёт</option><option value="at_gun" ${w.type==='at_gun'?'selected':''}>ПТО</option><option value="mortar" ${w.type==='mortar'?'selected':''}>Миномёт</option></select><br>`; html += `Расчёт: <input type="number" value="${w.crewSize}" onchange="appData.factions['${faction}'].crewWeapons[${idx}].crewSize=parseInt(this.value)" style="width:60px"><br>`; if(w.type==='mg') html += `Кубиков (полный): <input type="number" value="${w.fullCrewDice}" onchange="appData.factions['${faction}'].crewWeapons[${idx}].fullCrewDice=parseInt(this.value)"><br>Минимум кубиков: <input type="number" value="${w.minCrewDice}" onchange="appData.factions['${faction}'].crewWeapons[${idx}].minCrewDice=parseInt(this.value)"><br>`; else html += `Выстрелов (полный): <input type="number" value="${w.shotsFull}" onchange="appData.factions['${faction}'].crewWeapons[${idx}].shotsFull=parseInt(this.value)"><br>Выстрелов (2 чел): <input type="number" value="${w.shotsReduced2}" onchange="appData.factions['${faction}'].crewWeapons[${idx}].shotsReduced2=parseInt(this.value)"><br>Выстрелов (1 чел): <input type="number" value="${w.shotsReduced1}" onchange="appData.factions['${faction}'].crewWeapons[${idx}].shotsReduced1=parseInt(this.value)"><br>`; html += `Дальность: <input type="number" value="${w.effectiveRange}" onchange="appData.factions['${faction}'].crewWeapons[${idx}].effectiveRange=parseInt(this.value)"><br>`; if(w.type==='at_gun') { html += 'Пробиваемость (гексы: мм):<br>'; const pen = w.penetration||{}; for (let d = 1; d <= 30; d++) { html += `${d}: <input type="number" value="${pen[d]||0}" onchange="if(!appData.factions['${faction}'].crewWeapons[${idx}].penetration) appData.factions['${faction}'].crewWeapons[${idx}].penetration={}; appData.factions['${faction}'].crewWeapons[${idx}].penetration[${d}]=parseInt(this.value)" style="width:50px">`; if (d % 6 === 0) html += '<br>'; } } html += `<button onclick="saveCrewEdits('${faction}',${idx})">Сохранить</button>`; det.innerHTML = html; }
     function saveCrewEdits(faction,idx) { saveData(); loadCrewWeapons(); document.getElementById('crewDetails').style.display='none'; }
@@ -29329,14 +29404,13 @@ function exitToMainMenu() {
             saveCurrentBattleState();
         }
     } catch (e) { console.warn('exitToMainMenu save battle:', e.message); }
-    ['battleApp', 'campaignApp', 'rulesPage', 'historyPage'].forEach(id => {
+    showOnlyAppScreen('mainMenu');
+    const cc = document.getElementById('campaignContent');
+    if (cc) cc.style.display = 'block';
+    ['campaignMapScreen', 'battalionRosterScreen'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
     });
-    const cc = document.getElementById('campaignContent');
-    if (cc) cc.style.display = 'block';
-    const menu = document.getElementById('mainMenu');
-    if (menu) menu.style.display = 'block';
     try { if (appData) appData.lastUiScreen = 'mainMenu'; } catch (e) {}
     try { refreshCampaignResumeButton(); } catch (e) {}
     try { saveData(); } catch (e) {}
@@ -29375,30 +29449,14 @@ function installGlobalMenuButton() {
     updateGlobalMenuButton();
 }
 function goToMenu() {
-  // ⚡ v13.042 (R27#10): уход «В меню» из СЕРЕДИНЫ боя — сохраняем состояние
-  //    боя (иначе вернуться в тактический бой было невозможно)
-  try {
-    if (appData.currentBattleId &&
-        typeof document.getElementById === 'function' &&
-        document.getElementById('battleApp') &&
-        document.getElementById('battleApp').style.display !== 'none' &&
-        typeof saveCurrentBattleState === 'function') {
-        saveCurrentBattleState();
-    }
-  } catch (e) { console.warn('goToMenu save state:', e.message); }
-  document.getElementById('mainMenu').style.display = 'block';
-  document.getElementById('battleApp').style.display = 'none';
-  document.getElementById('rulesPage').style.display = 'none';
-  document.getElementById('historyPage').style.display = 'none';
+  exitToMainMenu();
 }
 
 function openInfo(type) {
-  document.getElementById('mainMenu').style.display = 'none';
+  showOnlyAppScreen(type === 'rules' ? 'rulesPage' : 'historyPage');
   if (type === 'rules') {
-    document.getElementById('rulesPage').style.display = 'block';
     loadInfoFile('rules.html', 'rulesContent');
   } else if (type === 'history') {
-    document.getElementById('historyPage').style.display = 'block';
     loadInfoFile('history.html', 'historyContent');
   }
 }
@@ -30119,7 +30177,7 @@ if (appData.map.mode === 'move' && shouldShowTacticalReachability() && appData.m
         if (!ci || ci.active === false || ci.status === 'destroyed' || ci.status === 'blinded') return;
         if (selectedKey && ci.uniqueKey !== selectedKey) return;
         const cw = weapons.find(w => w && w.name === ci.weaponName);
-        const spec = cw && vehicleWeaponSectorSpec(squad, ci.weaponName, cw.type);
+        const spec = cw && vehicleWeaponSectorSpec(squad, ci.weaponName, cw.type, ci);
         if (spec) specs.push(spec);
       });
       if (!specs.length) return;
@@ -41747,8 +41805,7 @@ function returnToCampaignFromMenu() {
   if (appData.campaign.online && typeof onlineEnsureSubscribed === 'function') {
       try { onlineEnsureSubscribed(); } catch (e) { console.warn('onlineEnsureSubscribed:', e.message); }
   }
-  document.getElementById('mainMenu').style.display = 'none';
-  document.getElementById('campaignApp').style.display = 'block';
+  showOnlyAppScreen('campaignApp');
   // Показываем карту операции или экран выбора сценария в зависимости от этапа
   if (appData.campaign.battalions.player) {
     showOperationalMap();
@@ -42181,8 +42238,7 @@ function addReinforcementsToBattle(battleId, playerUnit, enemyUnits) {
     renderSquadSelector();
     updateUI();
     document.getElementById('campaignMapScreen').style.display = 'none';
-    document.getElementById('campaignApp').style.display = 'none';
-    document.getElementById('battleApp').style.display = 'block';
+    showOnlyAppScreen('battleApp');
     activateBattleTab();
     document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
     document.getElementById('btnFinishBattle').style.display = 'inline-block';
@@ -42530,8 +42586,7 @@ function retreatFromBattle(automatic, exitDir, allowEnemyOccupiedExit) {
     appData.currentBattleId = null;
     syncCampaignBattleTabVisibility();
 
-    document.getElementById('battleApp').style.display = 'none';
-    document.getElementById('campaignApp').style.display = 'block';
+    showOnlyAppScreen('campaignApp');
     document.getElementById('campaignMapScreen').style.display = 'block';
     document.getElementById('btnReturnToCampaign').style.display = 'none';
     document.getElementById('btnFinishBattle').style.display = 'none';
@@ -48569,6 +48624,9 @@ function toggleCrewStatus(vehicleIdx, fighterIdx, status) {
 // ==================== ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ ====================
 
 document.addEventListener('DOMContentLoaded', function() {
+    // A fresh document always starts from one visible root; saved navigation is
+    // restored deliberately below, never by leaving multiple roots visible.
+    showOnlyAppScreen('mainMenu');
     // ⚡ v13.053 (R38#3): единственный #mapInfo — на открытом экране
     try { setupMapInfoRelocation(); } catch (e) { console.warn('setupMapInfoRelocation:', e.message); }
     // ⚡ v13.052 (R37#2): онлайн-матч — Hard Mode обязателен (включаем до отрисовки кнопок)
@@ -48578,6 +48636,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // 1–2. Кнопки/подписи Hard Mode
     applyHardModeUI();
 
+    // Rename saved vehicle MG instances while preserving their original sectors.
+    try { migrateVehicleMountedWeaponNames(appData); } catch (e) { console.warn('vehicle MG rename migration:', e.message); }
     // ⚡ v13.067: штаты штабов (рота 9 / батальон 15) и связисты — и без Hard Mode
     try { migrateHQPersonnelOnLoad(); } catch (e) { console.warn('migrateHQPersonnelOnLoad:', e.message); }
 
@@ -48632,11 +48692,9 @@ document.addEventListener('DOMContentLoaded', function() {
         } else if (resumeScreen === 'battle' || resumeScreen === 'campaignMap' || resumeScreen === 'campaign') {
             if (campaignCanResume()) returnToCampaignFromMenu();
         } else if (resumeScreen === 'mainMenu') {
-            // ⚡ v13.106: перезагрузка из главного меню открывает последнюю активную кампанию
-            //    (обычный запуск приложения остаётся в меню).
-            const nav = (performance.getEntriesByType && performance.getEntriesByType('navigation')[0]) || null;
-            const isReload = (nav && nav.type === 'reload') || (performance.navigation && performance.navigation.type === 1);
-            if (isReload && campaignCanResume()) returnToCampaignFromMenu();
+            // Stay at the menu when the player refreshed after choosing “Home”.
+            // The explicit “Вернуться к кампании” button resumes the saved campaign.
+            showOnlyAppScreen('mainMenu');
         }
     } catch (e) { console.warn('resume campaign:', e); }
     uiRestorePending = false;
@@ -49172,8 +49230,7 @@ function onlineGoToCampaign() {
         return;
     }
     document.getElementById('onlineModal').style.display = 'none';
-    document.getElementById('mainMenu').style.display = 'none';
-    document.getElementById('campaignApp').style.display = 'block';
+    showOnlyAppScreen('campaignApp');
     showOperationalMap();
 }
 
@@ -49198,6 +49255,7 @@ function openOnlineMenu() {
     //    показывается прямо в модалке, а не только в консоли
     try {
         // Always show the lobby entry. A saved match can be resumed explicitly below.
+        showOnlyAppScreen('mainMenu');
         document.getElementById('mainMenu').style.display = 'none';
         document.getElementById('onlineModal').style.display = 'block';
 
@@ -49262,7 +49320,7 @@ function closeOnlineModal() {
     if (ONLINE.listener) { try { ONLINE.listener(); } catch (e) {} ONLINE.listener = null; }
     ONLINE.match = null;
     document.getElementById('onlineModal').style.display = 'none';
-    document.getElementById('mainMenu').style.display = 'block';
+    showOnlyAppScreen('mainMenu');
 }
 
 function onlineShowJoin() {
@@ -49594,8 +49652,7 @@ function onlineStartLocalCampaign() {
     appData.campaign.onlineOpponent = { faction: opp ? opp.faction : null, supportIds: (opp && opp.supportIds) || [] };
     ONLINE.pendingStart = { faction: me.faction, supportIds: me.supportIds || [] };
     document.getElementById('onlineModal').style.display = 'none';
-    document.getElementById('mainMenu').style.display = 'none';
-    document.getElementById('campaignApp').style.display = 'block';
+    showOnlyAppScreen('campaignApp');
     document.getElementById('campaignMapScreen').style.display = 'none';
     document.getElementById('battalionRosterScreen').style.display = 'none';
     selectScenario(m.scenario || 'valencia');

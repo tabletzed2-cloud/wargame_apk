@@ -545,20 +545,21 @@ console.log('== v13.099: пункты 1–27 ==');
   const MAPACTIONS = read('js/map_actions.js');
   const landsverk = /"crewInstances":\[([\s\S]*?)\],\s*"armor": \{ "front": 20, "side": 16/.exec(TEMPLATES);
   const landsBlock = landsverk ? landsverk[1] : '';
-  ok(/Курсовой пулемёт SAU Brugge/.test(landsBlock) && /Спаренный пулемёт SAU Brugge/.test(landsBlock) &&
-     /Кормовой пулемёт SAU Brugge/.test(landsBlock) && /37-мм Bofors/.test(landsBlock),
-     'п.30: у Landsverk орудие + курсовой/спаренный/кормовой пулемёты');
+  ok((landsBlock.match(/Пулемёт Schwarzlose танковый/g) || []).length >= 3 &&
+     /sectorRole\": \"bow/.test(landsBlock) && /sectorRole\": \"coax/.test(landsBlock) &&
+     /sectorRole\": \"rear/.test(landsBlock) && /37-мм Bofors/.test(landsBlock),
+     'п.30: у Landsverk пулемёты названы по модели, с отдельными секторами установки');
   const sav = /"crewInstances":\[([\s\S]*?)\],\s*"armor": \{ "front": 20, "side": 20/.exec(TEMPLATES);
   const savBlock = sav ? sav[1] : '';
-  ok(/75-мм орудие SAU Brugge/.test(savBlock) && /Курсовой пулемёт SAU Brugge/.test(savBlock) &&
-     /Спаренный пулемёт SAU Brugge/.test(savBlock) && !/Кормовой/.test(savBlock),
-     'п.30: у САУ Brugge орудие + курсовой и спаренный пулемёты');
+  ok(/75-мм орудие SAU Brugge/.test(savBlock) &&
+     (savBlock.match(/Пулемёт Schwarzlose танковый/g) || []).length >= 2 &&
+     /sectorRole\": \"bow/.test(savBlock) && /sectorRole\": \"coax/.test(savBlock) && !/sectorRole\": \"rear/.test(savBlock),
+     'п.30: у САУ Brugge пулемёты названы по модели, с курсовой/спаренной установками');
   const llanero = (TEMPLATES.match(/"weaponName":"[^"]*Hotchkiss Mle 1914"/g) || []);
-  ok(llanero.length >= 5 && /"weaponName":"Курсовой пулемет Hotchkiss Mle 1914"/.test(TEMPLATES),
-     'п.30: у БТР Llanero курсовой пулемёт (сектор 120°)');
-  ok(!/"weaponName": ?"Танковый пулемет Hotchkiss Mle 1914"/.test(TEMPLATES) &&
-     /"weaponName": "Спаренный пулемет Hotchkiss Mle 1914"/.test(TEMPLATES),
-     'п.30: у CL/39 пулемёт переименован в спаренный');
+  ok(llanero.length >= 5 && /"weaponName":"Пулемёт Hotchkiss танковый","sectorRole":"bow"/.test(TEMPLATES),
+     'п.30: у БТР Llanero пулемёт Hotchkiss сохраняет курсовой сектор (120°)');
+  ok(/"weaponName": "Пулемёт Hotchkiss танковый", "sectorRole": "coax"/.test(TEMPLATES),
+     'п.30: у CL/39 имя пулемёта по модели, спаренный сектор хранится отдельно');
   ok(/Курсовой пулемёт SAU Brugge/.test(WEAPONS) && /Спаренный пулемёт SAU Brugge/.test(WEAPONS) &&
      /Кормовой пулемёт SAU Brugge/.test(WEAPONS) && /Курсовой пулемет Hotchkiss Mle 1914/.test(WEAPONS) &&
      /Спаренный пулемет Hotchkiss Mle 1914/.test(WEAPONS),
@@ -613,7 +614,7 @@ console.log('== v13.099: пункты 1–27 ==');
      'п.30: доворот по курсу — без затрат ОД');
   ok(/drawTacticalVehicleSectorLines/.test(HTML) && /selectedMoveSquadIdx === squadId/.test(HTML),
      'п.30: сектора рисуются только у выбранной машины');
-  ok(/tacticalVehicleWeaponCanTarget\(currentSquad, cw\.name, cw\.type, sectorTargetKey\)/.test(sliceOf('attackSmallArms')),
+  ok(/tacticalVehicleWeaponCanTarget\(currentSquad, cw\.name, cw\.type, sectorTargetKey, ci\)/.test(sliceOf('attackSmallArms')),
      'п.30: курсовой/кормовой пулемёт не стреляет вне сектора');
 
   const sabotageEmbrasure = sliceOf('sabotageDotEmbrasure');

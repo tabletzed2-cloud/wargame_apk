@@ -35,6 +35,14 @@ assert.match(html, /\['mg', 'at_gun', 'tank_gun', 'mortar'\]/);
 assert.match(html, /if \(!currentSquad\.armor && smallArmsBlockReason\)/);
 assert.match(html, /if \(!currentSquad\.armor && currentSquad\.crewInstances/);
 assert.doesNotMatch(html, /Огонь артиллерией ·/);
+assert.match(html, /function vehicleWeaponSectorSpec\(squad, weaponName, weaponType, crewInstance\)/);
+assert.match(html, /instance\.sectorRole \|\| instance\.mountRole/);
+assert.match(html, /function migrateVehicleMountedWeaponNames\(data\)/);
+assert.match(html, /'Курсовой пулемёт SAU Brugge': \{ name: 'Пулемёт Schwarzlose танковый', sectorRole: 'bow' \}/);
+assert.match(html, /'Курсовой пулемет Hotchkiss Mle 1914': \{ name: 'Пулемёт Hotchkiss танковый', sectorRole: 'bow' \}/);
+assert.match(html, /function showOnlyAppScreen\(screenId\)/);
+assert.match(html, /else if \(resumeScreen === 'mainMenu'\)[\s\S]{0,240}showOnlyAppScreen\('mainMenu'\)/);
+assert.doesNotMatch(html, /if \(isReload && campaignCanResume\(\)\) returnToCampaignFromMenu\(\)/);
 
 // The selected crew key constrains each vehicle attack path to one gun/MG.
 assert.match(html, /isVehicle && appData\.map && appData\.map\.selectedVehicleFireWeaponKey && ci\.uniqueKey !== appData\.map\.selectedVehicleFireWeaponKey/);
@@ -49,9 +57,9 @@ for (const vehicleName of [/Бронеавтомобиль Landsverk 183 №1/, 
   const unit = templates.slice(i, templates.indexOf('"armor"', i));
   assert.match(unit, /Механик-водитель/, `driver missing for ${vehicleName}`);
 }
-assert.match(templates, /"weaponName": "Спаренный пулемет Hotchkiss Mle 1914", "fighterIndices": \[2, 3\]/);
-assert.match(templates, /"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": \[2, 3, 4\]/);
-assert.match(templates, /"weaponName": "Спаренный пулемёт SAU Brugge", "fighterIndices": \[3, 4\]/);
+assert.match(templates, /"weaponName": "Пулемёт Hotchkiss танковый", "sectorRole": "coax", "fighterIndices": \[2, 3\]/);
+assert.match(templates, /"weaponName": "Пулемёт Schwarzlose танковый", "sectorRole": "coax", "fighterIndices": \[2, 3, 4\]/);
+assert.match(templates, /"weaponName": "Пулемёт Schwarzlose танковый", "sectorRole": "coax", "fighterIndices": \[3, 4\]/);
 
 // Vehicle ammunition appears only once in its tactical popup, and mounted
 // vehicles cannot use the adjacent-infantry crew reinforcement action.
