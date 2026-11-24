@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.190
+// ⚡ BUILD-МАРКЕР: v13.194
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -210,7 +210,9 @@ const MAP_EXTRA_BLOCKED_LABELS = [
     'проверить обнаружение', 'обнаружить вручную', 'навестись', 'показать сектор',
     'выбрать цель и стрелять', 'обычный ход', 'скрытный темп',
     'стрелковое/пулеметы', 'стрелковое / пулеметы', 'стрелковое/пулемёты',
-    'стрелковое / пулемёты', 'бросок гранат', 'рукопашная', 'связка гранат', 'тяжелая/камни', 'тяжёлая/камни'
+    'стрелковое / пулемёты', 'бросок гранат', 'рукопашная', 'связка гранат',
+    'орудия / миномёты', 'атака пто по технике', 'пто по технике',
+    'тяжелая/камни', 'тяжёлая/камни'
 ];
 const MAP_EXTRA_BLOCKED_TERRAIN = ['открытая', 'лес', 'дорога', 'тяжёлая', 'тяжелая', 'бег (откр.)', 'переползание'];
 const MAP_EXTRA_DIRECTION_LABELS = ['→ В', '↘ ЮВ', '↙ ЮЗ', '← З', '↖ СЗ', '↗ СВ'];
@@ -238,7 +240,7 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx, extra, shooterSide) {
     const enemy = targets[enemyIdx];
     const out = { idx: enemyIdx, enemy, ok: false, reason: '', dist: null, cover: null, hexKey: null };
     if (!enemy) { out.reason = 'нет отряда'; return out; }
-    if (enemy.hidden === true || !enemy.detected) { out.reason = 'не обнаружен'; return out; }
+    if (enemy.hidden === true || enemy.camouflaged || !enemy.detected) { out.reason = 'не обнаружен'; return out; }
     if (mapActionEnemyAlive(enemy) === 0) { out.reason = 'уничтожен'; return out; }
     const sPos = getBattleSquadHex(grid, shooterIdx, shooterIsEnemy);
     const tPos = getBattleSquadHex(grid, enemyIdx, !shooterIsEnemy);
@@ -1274,6 +1276,9 @@ function applyDamagePointsToEnemy(enemy, points, res, options) {
             if (!options.silent) { try { log(`   🔻 «${enemy.name}»: ${f.name || 'боец'} ранен (${f.hp}/${f.maxHp || f.hp})`); } catch (e) {} }
         }
     }
+    if (typeof tacticalResolvePtoCrewLosses === 'function') {
+        try { tacticalResolvePtoCrewLosses(enemy); } catch (e) {}
+    }
     res.damage += applied;
     if (mapActionEnemyAlive(enemy) === 0 && (enemy.fighters || []).length > 0) {
         enemy.isDestroyed = true;
@@ -1405,6 +1410,11 @@ function reportAttackOutcome(kind, data) {
     const targets = targetSide === 'player' ? (appData.squads || []) : (appData.map.enemySquads || []);
     const enemy = targets[idx];
     if (!enemy) return null;
+    try {
+        if (shooter && typeof window !== 'undefined' && typeof window.recordTacticalShotLine === 'function') {
+            window.recordTacticalShotLine(shooter, enemy, currentSquadIndex, idx, shooterSide);
+        }
+    } catch (e) {}
     // Общая проверка дыма для обоих направлений огня.
     let smokeBlocked = false;
     const shooterPos = shooter && typeof getBattleSquadHex === 'function'
