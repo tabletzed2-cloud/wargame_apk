@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.200
+// ⚡ BUILD-МАРКЕР: v13.201
 // Offline tactical opponent AI. Uses the shared tactical target evaluator,
 // action authorization, AP accounting and existing combat routines.
 (function (root) {
@@ -82,6 +82,8 @@
   }
   function squadRole(squad) {
     if (!squad) return 'rifle';
+    if (/развед/i.test(`${squad.name || ''} ${squad.opUnitName || ''}`)) return 'recon';
+    if (tacticalIsEngineer(squad)) return 'sapper';
     if (typeof tacticalIsHeadquartersSquad === 'function' && tacticalIsHeadquartersSquad(squad)) return 'headquarters';
     if (typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(squad)) return 'fortification';
     if (squad.armor || squad.isVehicle) return 'vehicle';
@@ -97,7 +99,7 @@
     const map = appData && appData.map;
     const battle = typeof getTacticalBattleRecord === 'function' ? getTacticalBattleRecord() : null;
     const side = (battle && battle.placement && battle.placement.attackerSide) || (map && map.attackerSide) || 'player';
-    return side === 'enemy';
+    return !!(battle && battle.placement && battle.placement.battleMode === 'meeting' || map && map.battleMode === 'meeting') || side === 'enemy';
   }
   function stealthPreparationAvailable(squad) {
     const map = appData && appData.map;
@@ -149,11 +151,13 @@
     const pinnedByStubbornness = typeof tacticalStubbornAtStartingHex === 'function' && tacticalStubbornAtStartingHex(squad);
     if (battleIsAttacker() && !pinnedByStubbornness && role !== 'headquarters' && role !== 'fortification' &&
         (squadStrength(squad) <= 0.25 || moraleAllowsWithdrawal) && threatened) return 'breakthrough';
+    if (role === 'sapper' && (appData.squads || []).some(t => targetVisible(t) && tacticalFortifiedTarget(t))) return 'assault';
     if (!battleIsAttacker()) {
       if (threatened && (role !== 'rifle' || squadStrength(squad) < 0.55 || squadMoraleRatio(squad) < 0.45)) return 'fallback';
       if (role === 'headquarters' || role === 'fortification' || role === 'machineGun' || role === 'mortar' || role === 'antiArmor' || role === 'sniper') return 'hold';
       return threatened ? 'counterattack' : 'hold';
     }
+    if (role === 'sapper') return 'assault';
     const visibleTargets = (appData.squads || []).some(targetVisible);
     if (squad.camouflaged && !visibleTargets) return 'stealth';
     if (stealthPreparationAvailable(squad)) return 'stealth';
@@ -164,6 +168,8 @@
   }
   function actionOptions(squad) {
     const out = [];
+    if (Number(squad.thermiteCharges)>0) out.push({id:'thermite', reserve:Number(squad.thermiteCharges)});
+    if (squad.effects && squad.effects.flamethrower && squad.effects.flamethrower.charges>0) out.push({id:'flamethrower',reserve:squad.effects.flamethrower.charges});
     const dot = typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(squad);
     if (dot) {
       weaponCrewEntries(squad, ['mg']).forEach(x => {
@@ -208,11 +214,14 @@
       ? (tacticalSquadsDistance(target, shooter) ?? 99) : 99;
     // Concentrate fire on dangerous, already damaged and nearby enemies while
     // assigning anti-armour weapons to vehicles.
-    return 5 + Math.min(remaining, 10) * 0.25 + attrition * 2 +
+    const sapperBonus = squadRole(shooter) === 'sapper' && tacticalFortifiedTarget(target) ? 15 : 0;
+    const specialBonus = actionId === 'thermite' ? 20 : actionId === 'flamethrower' ? 10 : 0;
+    return 5 + sapperBonus + specialBonus + Math.min(remaining, 10) * 0.25 + attrition * 2 +
       (headquarters ? 1.5 : 0) + (vehicle === antiArmor ? 2 : (vehicle ? -2 : 0)) -
       dist * 0.18 - threatened * 0.04 - Math.max(0, Number(actionId === 'smallArms' || actionId === 'sniper' ? shooter.ammoSmall : shooter.ammoOrdnance) < 4 ? 1 : 0);
   }
   function actionCanReachTarget(shooter, target, action, dist) {
+    if (action.id === 'thermite' || action.id === 'flamethrower') return dist <= 1;
     if (action.id === 'vehicle') return dist <= 8;
     if (action.id === 'ordnance') {
       const usable = weaponCrewEntries(shooter, ['at_gun', 'mortar', 'tank_gun']).filter(x => {
@@ -420,7 +429,8 @@
       .filter(x => targetVisible(x.target) && x.pos);
     const assignedTarget = assignment && Number.isInteger(assignment.targetIndex)
       ? allVisibleTargets.find(x => x.idx === assignment.targetIndex) : null;
-    const targetList = assignedTarget ? [assignedTarget] : allVisibleTargets;
+    const fortified = role === 'sapper' ? allVisibleTargets.filter(x => tacticalFortifiedTarget(x.target)) : [];
+    const targetList = fortified.length ? fortified : assignedTarget ? [assignedTarget] : allVisibleTargets;
     const allThreats = (appData.squads || []).map(target => ({ target, pos: position(target, 'player') }))
       .filter(x => alive(x.target) && x.pos);
     const exits = (typeof tacticalMapEdgeHexKeys === 'function' ? tacticalMapEdgeHexKeys(map) : []);
@@ -492,7 +502,7 @@
         const exitDistance = hexGridDistance(col, row, exitCol, exitRow);
         const clearance = allThreats.length ? Math.min(...allThreats.map(x => hexGridDistance(col, row, x.pos.col, x.pos.row))) : 99;
         score = -exitDistance * 2 + clearance * 0.25 + cover * 0.1 - spent * 0.04;
-      } else if (assignment && assignment.goalKey && ['assault', 'encircle', 'counterattack'].includes(doctrine)) {
+      } else if (!fortified.length && assignment && assignment.goalKey && ['assault', 'encircle', 'counterattack'].includes(doctrine)) {
         const [goalCol, goalRow] = assignment.goalKey.split(',').map(Number);
         const startDistance = hexGridDistance(start.col, start.row, goalCol, goalRow);
         const goalDistance = hexGridDistance(col, row, goalCol, goalRow);
@@ -641,7 +651,7 @@
       prepareStealthManeuver(squad, index);
       return;
     }
-    if (squadRole(squad) === 'headquarters' && typeof mapActionUseBinocularsForSide === 'function' &&
+    if (['headquarters','recon'].includes(squadRole(squad)) && typeof mapActionUseBinocularsForSide === 'function' &&
         getTacticalSideAP(squad, 'enemy') >= 2) {
       const ownPos = position(squad, 'enemy');
       const hidden = (appData.squads || []).map(target => ({ target, pos: position(target, 'player') }))

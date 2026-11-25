@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.200
+// ⚡ BUILD-МАРКЕР: v13.201
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -28,6 +28,8 @@ var MAP_ACTION_LOC_KEYS = ['ricochet', 'hull', 'suspension', 'turret', 'engine',
 
 // Описание действий: какие цели допустимы и при каких условиях кнопка видна
 var MAP_ACTION_DEFS = [
+    {id:'thermite', aiOnly:true, label:'🧨 Термитный заряд', targets:'any', maxDist:1, show:s => Number(s.thermiteCharges)>0},
+    {id:'flamethrower', aiOnly:true, label:'🔥 Огнемёт РОКС', targets:'infantry', maxDist:1, show:s => !!(s.effects && s.effects.flamethrower && s.effects.flamethrower.charges>0)},
     { id: 'smallArms',       label: '🔫 Стрелковое / пулемёты', targets: 'any',      small: true,
       // ⚡ v13.137 (п.3): без патронов кнопка стрельбы недоступна.
       show: s => !(s.name || '').includes('ДОТ') && (s.ammoSmall || 0) > 0 },
@@ -255,6 +257,11 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx, extra, shooterSide) {
         ? getTacticalCoverInfoForSquad(grid, enemyIdx, shooterIsEnemy ? 'player' : 'enemy')
         : getTacticalCoverInfoForEnemy(grid, enemyIdx);
     const shooterSquad = shooters[shooterIdx];
+    if (['thermite','flamethrower'].includes(def.id)) {
+        if (!def.show(shooterSquad)) {out.reason='Нет зарядов';return out;}
+        if (typeof tacticalHasLineOfSight === 'function' && !tacticalHasLineOfSight(sPos,tPos)) {out.reason='Нет линии видимости';return out;}
+        if (def.id === 'thermite' && !thermiteEligibleTargets(shooterSquad).some(item => item.enemy === enemy)) {out.reason='Нет доступной цели для термита';return out;}
+    }
     // Проверяем, что в целевом гексе нет другого своего отряда (не бить своих).
     if (def.id !== 'melee') {
         // Запрещаем попадание по своим стрелка в целевом гексе. Не проверяем
@@ -472,6 +479,8 @@ function renderMapActionPanel() {
         }
         const meleeEngaged = typeof tacticalIsMeleeEngaged === 'function' && tacticalIsMeleeEngaged(squad);
         MAP_ACTION_DEFS.forEach(def => {
+        // Player utility controls retain manual DOT-part / hex selection.
+        if (def.aiOnly) return;
             let show = false;
             try { show = def.show(squad); } catch (e) { show = false; }
             if (!show) return;
@@ -640,6 +649,8 @@ function mapShowQuickActionMenu(idx, hexKey, clientX, clientY) {
     html += '<div style="display:grid; gap:4px; max-height:50vh; overflow-y:auto;">';
     let actionCount = 0;
     MAP_ACTION_DEFS.forEach(def => {
+        // Player utility controls retain manual DOT-part / hex selection.
+        if (def.aiOnly) return;
         let show = false;
         try { show = def.show(squad); } catch (e) { show = false; }
         if (!show) return;
@@ -1235,6 +1246,19 @@ function mapPickTarget(enemyIdx) {
 
 function mapRunAttack(type, extra) {
     switch (type) {
+        case 'thermite': {
+            const target = thermiteEligibleTargets(currentSquad).find(item => item.index === appData.map.attackTargetEnemyIdx);
+            if (!target) return false;
+            const part = target.kind === 'dot' ? target.parts.find(p => !p.disabled && p.kind === 'embrasure') || target.parts.find(p => !p.disabled) : {kind:'vehicle'};
+            return thermiteCommitChoice(target.index,part.kind,part.embrasureIndex);
+        }
+        case 'flamethrower': {
+            const enemySide = mapActionSideOfSquad(currentSquad) === 'enemy';
+            const pos = getBattleSquadHex(appData.map.grid,appData.map.attackTargetEnemyIdx,!enemySide);
+            if (!pos) return false;
+            appData.map.pendingFlamethrower = {squadIdx:currentSquadIndex,side:enemySide?'enemy':'player'};
+            return flamethrowerStrikeAtHex(pos.key);
+        }
         case 'smallArms': return attackSmallArms();
         case 'ordnance': return attackOrdnance();
         case 'vehicle': return attackVehicle();

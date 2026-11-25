@@ -36,6 +36,7 @@ function makeContext(campaign) {
     battles
   };
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js/tactical_rules.js'), 'utf8'), context);
   vm.runInContext(AI_SOURCE, context);
   // Replace only combat resolution; the campaign planner, command delivery,
   // movement and battle-contact handoff remain production code.

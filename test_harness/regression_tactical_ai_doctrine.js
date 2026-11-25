@@ -58,6 +58,7 @@ function makeContext({ attackerSide = 'player', own, players, grid, extra = {} }
     ...extra,
   };
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js/tactical_rules.js'), 'utf8'), context);
   vm.runInContext(source, context);
   return context;
 }
@@ -195,6 +196,7 @@ function makeContext({ attackerSide = 'player', own, players, grid, extra = {} }
     log: () => {},
   };
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js/tactical_rules.js'), 'utf8'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', 'map_actions.js'), 'utf8'), context);
   assert.equal(vm.runInContext("mapActionUseBinocularsForSide(0, '2,1', 'enemy')", context), true);
   assert.equal(target.detected, true);

@@ -171,6 +171,7 @@ function createSandbox(appData, options = {}) {
                     'function rollD10() { return Math.floor(Math.random() * 10) + 1; }\n' +
                     'const OPERATIONAL_MORALE_MAX = 100; const OPERATIONAL_MORALE_ROUT_THRESHOLD = 25; const OPERATIONAL_MORALE_RALLY_THRESHOLD = 50;\n' +
                     'var APP_VERSION = "' + /var APP_VERSION = '([^']+)'/.exec(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'))[1] + '"; // дубль глобала из index.html (вне извлечения FNS)', ctx);
+    vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/tactical_rules.js'), 'utf8'), ctx);
     // Shared dependencies for isolated function extraction.
     const htmlSource = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
     for (const name of ['safeLogHtml', 'safeImageUrl', 'persistAppData', 'escapeCardHtml', 'supplyDangerKeys', 'getOpHexNeighbors', 'operationalAmmoSquads',

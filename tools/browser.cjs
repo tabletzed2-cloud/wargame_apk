@@ -13,7 +13,7 @@ if (process.platform==='linux') {
   const unpack=spawnSync('tar',['-xf',archive,'-C',libs],{stdio:'inherit'});
   if(unpack.status!==0)process.exit(1);
 }
-for(const file of ['browser_vehicle_mobility_sectors.cjs','browser_persistence_security.cjs','browser_offline_update.cjs']) {
+for(const file of ['browser_vehicle_mobility_sectors.cjs','browser_persistence_security.cjs','browser_offline_update.cjs','browser_v13201_mechanics.cjs']) {
   const result=spawnSync(process.execPath,[path.join(root,'test_harness',file)],{cwd:root,stdio:'inherit',timeout:120000,
     env:{...process.env,LD_LIBRARY_PATH:path.join(libs,'lib')+(process.env.LD_LIBRARY_PATH?':'+process.env.LD_LIBRARY_PATH:'')}});
   if(result.status!==0){console.error(result.error||'Browser test failed');process.exit(1);}

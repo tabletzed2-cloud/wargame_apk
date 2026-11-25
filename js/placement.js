@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.200
+// ⚡ BUILD-МАРКЕР: v13.201
 // v13.062: fixed DOT coordinates and no placement bypass for eliminated squads.
 // ⚡ v13.061: current release tactical deployment rules.
 // ============================================================
@@ -188,8 +188,13 @@ function placementMapSize(battle) {
 //   запасной вариант — сторона ближайшего своего юнита, потом — запад.
 function resolveBattleEntry(playerUnits, enemyUnits, hexKey, opts) {
     opts = opts || {};
+    const meeting = !opts.mirrorOf && tacticalMeetingEntry(playerUnits, enemyUnits, hexKey, typeof appData !== 'undefined' && appData.campaign && appData.campaign.currentTurn || 1);
+    if (meeting) {
+        if (typeof pendingBattleEntry !== 'undefined') pendingBattleEntry = null;
+        return {...meeting, attackerSide:'player', entryDir:meeting.entryDirs.player, source:'meeting'};
+    }
     if (opts.entry && opts.entry.attackerSide) {
-        return { attackerSide: opts.entry.attackerSide === 'enemy' ? 'enemy' : 'player',
+        return { ...opts.entry, attackerSide: opts.entry.attackerSide === 'enemy' ? 'enemy' : 'player',
             entryDir: PLACEMENT_DIRS.includes(opts.entry.entryDir) ? opts.entry.entryDir : 'W',
             source: opts.entry.source || 'explicit' };
     }
@@ -200,7 +205,9 @@ function resolveBattleEntry(playerUnits, enemyUnits, hexKey, opts) {
         const attackerSide = (e.attacker === 'opp') ? 'player' : 'enemy'; // бой начал оппонент → обычно атакует он
         let dir = PLACEMENT_DIRS.includes(e.entryDir) ? e.entryDir : null;
         if (!dir) dir = placementFallbackDir(attackerSide, hc, hr, enemyUnits, playerUnits);
-        return { attackerSide: attackerSide, entryDir: dir, source: 'online' };
+        return { attackerSide, entryDir: dir, source: 'online', battleMode:e.battleMode,
+            firstSide:e.firstSide === 'player' ? 'enemy' : 'player',
+            entryDirs:e.entryDirs ? {player:e.entryDirs.enemy,enemy:e.entryDirs.player} : null };
     }
     let attackerSide = 'player';
     let mover = (playerUnits || [])[0] || null;
@@ -236,7 +243,7 @@ function placementFallbackDir(attackerSide, hc, hr, enemyUnits, playerUnits) {
     return 'W';
 }
 
-function initBattlePlacement(battle, attackerSide, entryDir, source) {
+function initBattlePlacement(battle, attackerSide, entryDir, source, entry) {
     if (!battle) return null;
     battle.placement = {
         attackerSide: attackerSide === 'enemy' ? 'enemy' : 'player',
@@ -245,8 +252,12 @@ function initBattlePlacement(battle, attackerSide, entryDir, source) {
         playerReady: false,
         enemyReady: false,
         source: source || null,
+        battleMode: entry && entry.battleMode || 'normal',
+        entryDirs: entry && entry.entryDirs || null,
+        firstSide: entry && entry.firstSide || attackerSide,
         createdAt: Date.now()
     };
+    battle.battleMode = battle.placement.battleMode;
     return battle.placement;
 }
 
@@ -269,9 +280,11 @@ function placementPendingReason(battle) {
 function placementSideAllowed(battle, side, key, squad) {
     const p = battle && battle.placement;
     const squads = side === 'player' ? (battle && battle.playerSquads || []) : (battle && battle.tacticalMap && battle.tacticalMap.enemySquads || []);
-    if (squads.some(s => s.fixedTacticalPosition && s.fixedTacticalPosition.key === key && s.fixedTacticalPosition.hexKey === battle.hexKey)) return true;
+    if (squad && squad.fixedTacticalPosition && squad.fixedTacticalPosition.key === key && squad.fixedTacticalPosition.hexKey === battle.hexKey) return true;
+    if (!squad && squads.some(s => s.fixedTacticalPosition && s.fixedTacticalPosition.key === key && s.fixedTacticalPosition.hexKey === battle.hexKey)) return true;
     if (!p) return true;
     if (p.ambush) return true;
+    if (p.battleMode === 'meeting') return placementZoneKeys(p.entryDirs && p.entryDirs[side] || p.entryDir, placementMapSize(battle)).includes(key);
     if (side === 'player' && placementBicycleBlitzEligible(battle, squad)) {
         const unitName = String(squad.opUnitName || '');
         const dir = p.bicycleBlitzDirections && p.bicycleBlitzDirections[unitName];
@@ -285,7 +298,7 @@ function placementSideAllowed(battle, side, key, squad) {
     }
     const zone = placementZoneKeys(p.entryDir, placementMapSize(battle));
     const inZone = zone.includes(key);
-    return (p.attackerSide === side) ? inZone : !inZone;
+    return (p.attackerSide === side) ? inZone : tacticalDefenderZoneKeys(placementMapSize(battle)).includes(key);
 }
 
 // Проверка при размещении (режим «🏷️ Разместить» / «📌 Разместить врага»).
@@ -324,12 +337,12 @@ function placementCheckPlace(side, key, wasPlaced, squad, allowReposition) {
     if (squad && squad.placementArrivalDir && p.attackerSide !== side) {
         return `⛔ Подкрепление размещается со стороны, откуда пришло (${PLACEMENT_DIR_LABELS[squad.placementArrivalDir] || squad.placementArrivalDir}) — подсвеченная полоса у края карты.`;
     }
-    if (p.attackerSide === 'enemy') return '⛔ Этот гекс недоступен: он зарезервирован для входа противника. Выберите другой гекс для защитников.';
+    if (p.battleMode === 'meeting') return '⛔ Встречный бой: размещайтесь в 2 рядах у своего края входа.';
     const isAttacker = (p.attackerSide === side);
     const who = side === 'player' ? 'Ваш' : 'Вражеский';
     return isAttacker
         ? `⛔ ${who} отряд атакует и размещается только в зоне входа (${PLACEMENT_DIR_LABELS[p.entryDir]}, 2 ряда у края — подсвечено на карте).`
-        : `⛔ ${who} отряд обороняется — размещайте его ВНЕ зоны атакующего (подсвечена на карте, ${PLACEMENT_DIR_LABELS[p.entryDir]}).`;
+        : `⛔ ${who} отряд обороняется — край и 3 ряда рядом с каждым краем запрещены (минимум 4 гекса от края).`;
 }
 
 // позиции отрядов на сетке: индекс → 'c,r'
@@ -587,10 +600,12 @@ function placementIntroText(battle) {
         s += '🚲 Выберите фланг «Велоблица» и переставьте атакующий велосипедный взвод. Доступны только клетки высоты 0; остальные подразделения менять нельзя.';
     } else if (p.ambush) {
         s += '🥷 Засада сработала: все отряды противника обнаружены и уже расставлены случайно. Вы можете разместить свои отряды в любой точке карты.';
+    } else if (p.battleMode === 'meeting') {
+        s += `ВСТРЕЧНЫЙ БОЙ: разместитесь в 2 рядах у своего края входа (${PLACEMENT_DIR_LABELS[p.entryDirs.player]}). Первый ход: ${p.firstSide === 'player' ? 'ваш' : 'противника'} (жребий).`;
     } else if (iAmAttacker) {
         s += `Вы — АТАКУЮЩИЙ: ваши юниты вошли на гекс ${PLACEMENT_DIR_LABELS[p.entryDir]}. Ваша зона размещения — 2 ряда у этого края карты боя (зелёная подсветка).`;
     } else {
-        s += 'Вы — ОБОРОНЯЮЩИЙСЯ. Разместите свои отряды и подтвердите готовность; стартовая зона противника скрыта.';
+        s += 'Вы — ОБОРОНЯЮЩИЙСЯ. Размещайтесь не ближе 4 гексов от любого края (край и 3 ряда рядом запрещены). Стартовая зона противника скрыта.';
     }
     s += '\n\nРежим «🏷️ Разместить»: выберите отряд в списке «Отряд» и кликните по гексу. Затем нажмите «✅ Размещение завершено».';
     if (appData.campaign && appData.campaign.online) s += '\n\n🌐 Онлайн: противник размещается одновременно с вами, его расстановка откроется, когда готовы будут оба.';
@@ -656,7 +671,7 @@ function placementReinforcementZone(battle, squad) {
         const unit = ((appData.campaign && appData.campaign.opUnits) || []).find(u=>u && u.name===squad.opUnitName);
         if (unit) tacticalSetReinforcementArrival(squad, unit, battle);
     }
-    const dir = (squad && squad.placementArrivalDir) || (p ? (p.attackerSide === 'player' ? p.entryDir : placementOppositeDir(p.entryDir)) : null) || 'W';
+    const dir = (squad && squad.placementArrivalDir) || (p ? (p.battleMode === 'meeting' ? p.entryDirs.player : p.attackerSide === 'player' ? p.entryDir : placementOppositeDir(p.entryDir)) : null) || 'W';
     let keys = placementZoneKeys(dir, placementMapSize(battle));
     const grid = placementBattleGrid(battle) || {};
     const free = keys.filter(key => grid[key] && !((grid[key].squadIds || []).length) && !((grid[key].enemySquadIds || []).length));
@@ -742,15 +757,17 @@ function renderPlacementPanel() {
     const online = !!(appData.campaign && appData.campaign.online);
     const iAmAttacker = p.attackerSide === 'player';
     const mine = placementSideStatus(battle, 'player');
-    let html = `<div style="font-weight:bold; color:#f1c40f; margin-bottom:4px;">📍 Размещение перед боем — вы ${iAmAttacker ? 'АТАКУЮЩИЙ' : 'ОБОРОНЯЮЩИЙСЯ'}</div>`;
+    let html = `<div style="font-weight:bold; color:#f1c40f; margin-bottom:4px;">📍 Размещение перед боем — вы ${p.battleMode === 'meeting' ? 'участник ВСТРЕЧНОГО БОЯ' : iAmAttacker ? 'АТАКУЮЩИЙ' : 'ОБОРОНЯЮЩИЙСЯ'}</div>`;
     if (p.bicycleBlitzReposition) {
         html += '<div>🚲 Дополнительное размещение «Велоблиц»: выберите фланг и переместите велосипедный взвод; остальные подразделения остаются на месте.</div>';
     } else if (p.ambush) {
         html += '<div>🥷 Засада сработала: противник расставлен случайно и обнаружен. Свои отряды размещайте в любой точке карты.</div>';
+    } else if (p.battleMode === 'meeting') {
+        html += `<div>Встречный бой: свой край входа — ${PLACEMENT_DIR_LABELS[p.entryDirs.player]}. Первый ход: ${p.firstSide === 'player' ? 'ваш' : 'противника'} (жребий один раз).</div>`;
     } else if (iAmAttacker) {
         html += `<div>Вы вошли ${PLACEMENT_DIR_LABELS[p.entryDir]}: размещайтесь в зелёной зоне у края карты.</div>`;
     } else {
-        html += '<div>Вы обороняетесь. Стартовая зона противника скрыта; выберите место для своих отрядов.</div>';
+        html += '<div>Вы обороняетесь: край и 3 ряда рядом с каждым краем запрещены. Размещайтесь в зелёной зоне; край входа противника скрыт.</div>';
     }
     html += `<div style="margin-top:4px;">Ваши отряды: размещено <b>${mine.placed.length}/${mine.total}</b>` +
         (mine.unplaced.length ? ` · не размещены: ${mine.unplaced.join(', ')}` : '') +
@@ -767,7 +784,7 @@ function renderPlacementPanel() {
             (en.violations.length ? ` · <span style="color:#e74c3c;">вне своей зоны: ${en.violations.join(', ')}</span>` : '') +
             ' (панель «📌 Разместить врага» ниже)</div>';
     }
-    const canEdit = !p.ambush && iAmAttacker && !p.playerReady && (!online || !battle.onlineMirror);
+    const canEdit = p.battleMode !== 'meeting' && !p.ambush && iAmAttacker && !p.playerReady && (!online || !battle.onlineMirror);
     if (canEdit) {
         html += '<div style="margin-top:4px; font-size:0.85em; color:#bbb;">Поправить (если определилось неверно): сторона входа ' +
             `<select onchange="placementSetDir(this.value)" style="background:#444; color:#fff;">` +
@@ -836,7 +853,7 @@ function renderPlacementPanel() {
 function placementSetDir(dir) {
     const battle = getCurrentBattleRecord();
     const p = battle && battle.placement;
-    if (!p || !PLACEMENT_DIRS.includes(dir)) return;
+    if (!p || p.battleMode === 'meeting' || !PLACEMENT_DIRS.includes(dir)) return;
     p.entryDir = dir;
     p.source = 'manual';
     try { log(`📍 Сторона входа атакующего изменена: ${PLACEMENT_DIR_LABELS[dir]}.`); } catch (e) {}
@@ -848,7 +865,7 @@ function placementSetDir(dir) {
 function placementSetAttacker(side) {
     const battle = getCurrentBattleRecord();
     const p = battle && battle.placement;
-    if (!p) return;
+    if (!p || p.battleMode === 'meeting') return;
     p.attackerSide = side === 'enemy' ? 'enemy' : 'player';
     p.source = 'manual';
     if (Number(battle.phaseRevision || 0) === 0 && Number(battle.tacticalPhasesCompleted || 0) === 0) {
@@ -949,7 +966,7 @@ function placementRevealOfflineCombatants(battle) {
 function placementScheduleOfflineAI(battle) {
     if (!battle || !appData || !appData.campaign || appData.campaign.online ||
         !battle.placement || battle.placement.phase !== 'done' || battle.cardsChosen !== true ||
-        battle.placement.attackerSide !== 'enemy') return false;
+        (battle.placement.battleMode === 'meeting' ? battle.activeSide !== 'enemy' : battle.placement.attackerSide !== 'enemy')) return false;
     const ai = typeof window !== 'undefined' && window.tacticalEnemyAI;
     if (!ai || typeof ai.schedulePhase !== 'function') return false;
     return !!ai.schedulePhase();
@@ -993,13 +1010,14 @@ function drawPlacementZone(ctx, size) {
     const p = battle && battle.placement;
     if (!p || !ctx || p.ambush) return;
     // The defending player must not see the attacker's deployment strip.
-    if (p.attackerSide === 'enemy') return;
+    // Show only the local allowed region, never the enemy entry strip.
     if (p.phase === 'done' && !(appData.map && appData.map.mode === 'place')) return;
-    const zone = placementZoneKeys(p.entryDir, placementMapSize(battle));
+    const zone = p.battleMode === 'meeting' ? placementZoneKeys(p.entryDirs.player, placementMapSize(battle)) :
+        p.attackerSide === 'player' ? placementZoneKeys(p.entryDir, placementMapSize(battle)) : tacticalDefenderZoneKeys(placementMapSize(battle));
     if (!zone.length) return;
     const centers = {};
     (appData.map.centers || []).forEach(c => { centers[c.key] = c; });
-    const mine = p.attackerSide === 'player';
+    const mine = true;
     ctx.save();
     ctx.globalAlpha = 0.28;
     ctx.fillStyle = mine ? '#2ecc71' : '#e74c3c';
