@@ -1,5 +1,8 @@
-const fs = require('fs');
-const src = fs.readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
-if (!src.includes('const tacticalVehicleSelected = appData.map.selectedMoveSquadIdx === squadId ||')) throw new Error('vehicle sectors must follow selected tactical squad');
-if (!src.includes('if (tacticalVehicleSelected && typeof drawTacticalVehicleSectorLines === \'function\')')) throw new Error('vehicle sectors draw condition missing');
+const assert = require('node:assert/strict');
+const { HTML, sliceFunction } = require('./extract');
+const overlay = sliceFunction(HTML, 'drawTacticalVehicleSectorOverlay');
+assert.match(overlay, /map\.selectedMoveSquadIdx/, 'vehicle sectors follow map selection');
+assert.match(overlay, /currentSquadIndex/, 'vehicle sectors follow panel selection');
+assert.match(overlay, /selected\.has\(id\)/, 'only selected squads draw sectors');
+assert.match(overlay, /drawTacticalVehicleSectorLines\(/, 'sector rendering is called in the overlay');
 console.log('v13.115 armored vehicle sectors follow tactical squad selection: PASS');
