@@ -1,3 +1,4 @@
+// ⚡ BUILD-МАРКЕР: v13.200
 /* Single-player campaign AI. This script intentionally does nothing in online games. */
 function isOfflineCampaignAIEnabled() {
     const campaign = (typeof appData !== 'undefined' && appData) ? appData.campaign : null;

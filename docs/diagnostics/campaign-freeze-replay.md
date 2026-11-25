@@ -44,7 +44,7 @@ v13.175 сопоставляет стороны правильно, соглас
 
 ```sh
 NODE_PATH=<node_modules с playwright-core и @sparticuz/chromium> \
-  node 'test_harness /diagnose_campaign_replay.cjs' /path/to/campaign.json
+  node 'test_harness/diagnose_campaign_replay.cjs' /path/to/campaign.json
 ```
 
 Для сравнения исходного кода добавьте WARGAME_ROOT=/path/to/baseline-checkout. На минимальном Linux также могут потребоваться NSS/NSPR через LD_LIBRARY_PATH. Скрипт не включает сохранение; путь к нему передаётся явно. Исправленный прогон проверяет отсутствие повторного создания боя и лог-спама. CPU-профили пишутся в /tmp/campaign-freeze-{baseline,fixed}.cpuprofile.

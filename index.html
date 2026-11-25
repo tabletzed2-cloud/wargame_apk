@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.199 — операция</title>
+  <title>Боевой модуль v13.200 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -19,7 +19,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.199</h1>
+    <h1>⚔️ Боевой модуль v13.200</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -32,7 +32,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.199</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.200</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -84,7 +84,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.199 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.200 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -448,13 +448,24 @@
     function rollD6() { return Math.floor(Math.random()*6)+1; }
     function formatTime(minutes) { const h = Math.floor(minutes / 60); const m = minutes % 60; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;}
     function rollD10() { return Math.floor(Math.random()*10)+1; }
+function safeImageUrl(value) {
+  const url = String(value || '').trim();
+  if (/^(?:https?:\/\/|(?:\.\.?\/)?(?:images|maps)\/)/i.test(url) && !/[\x00-\x1f]/.test(url)) return url;
+  if (/^data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=]+$/i.test(url)) return url;
+  return '';
+}
+function safeLogHtml(value) {
+  // Rebuild formatting from escaped text. No attributes, URLs or event handlers.
+  return escapeCardHtml(String(value)).replace(/&lt;(\/?)(b|strong|i|em|br)\s*\/?&gt;/gi,
+    (match, close, tag) => '<' + close + tag.toLowerCase() + '>');
+}
     function log(msg) {
         const d = document.getElementById('log');
         if (d) {
             // Do not reparse the entire growing log on every network event.
             // Repeated mirror creation used to amplify this cost indefinitely.
             const entry = document.createElement('div');
-            entry.innerHTML = String(msg);
+            entry.innerHTML = safeLogHtml(msg);
             d.appendChild(entry);
             while (d.children.length > 600) d.removeChild(d.firstElementChild);
             d.scrollTop = d.scrollHeight;
@@ -479,7 +490,7 @@ function appendBattleEventLog(msg) {
         if (box && String(box.getAttribute('data-battle-id') || '') === String(battle.id)) {
             const div = document.createElement('div');
             div.style.cssText = 'margin:2px 0; padding:2px 0; border-bottom:1px solid #22303c;';
-            div.innerHTML = `<span style="color:#5dade2;">[ход ${turn}]</span> ${msg}`;
+            div.innerHTML = `<span style="color:#5dade2;">[ход ${Number(turn) || 0}]</span> ${safeLogHtml(msg)}`;
             box.appendChild(div);
             while (box.children.length > 600) box.removeChild(box.firstElementChild);
             box.scrollTop = box.scrollHeight;
@@ -498,7 +509,7 @@ function renderBattleEventLog() {
     const rows = Array.isArray(battle.eventLog) ? battle.eventLog : [];
     if (!rows.length) { box.innerHTML = '<span style="color:#aaa;">Журнал боя пуст.</span>'; return; }
     box.innerHTML = rows.map(ev =>
-        `<div style="margin:2px 0; padding:2px 0; border-bottom:1px solid #22303c;"><span style="color:#5dade2;">[ход ${ev.turn}]</span> ${ev.text}</div>`
+        `<div style="margin:2px 0; padding:2px 0; border-bottom:1px solid #22303c;"><span style="color:#5dade2;">[ход ${Number(ev.turn) || 0}]</span> ${safeLogHtml(ev.text)}</div>`
     ).join('');
     box.scrollTop = box.scrollHeight;
 }
@@ -523,9 +534,78 @@ window.addEventListener('unhandledrejection', function (e) {
     const originalLog = log;
     const STORAGE_KEY = 'wargameV10';
 function safeLocalStorage(method, ...args) {
-      try { return window.localStorage[method](...args); }
-      catch(e) { console.warn('localStorage недоступен, работаем без сохранения'); return null; }
-    }
+  try {
+    const value = window.localStorage[method](...args);
+    return method === 'getItem' ? value : true;
+  } catch (error) {
+    console.warn('localStorage:', error);
+    return null;
+  }
+}
+function showPersistenceFailure(message) {
+  let banner = document.getElementById('persistenceFailure');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'persistenceFailure';
+    banner.setAttribute('role', 'alert');
+    banner.style.cssText = 'position:sticky;top:0;z-index:10000;padding:12px;background:#702020;color:white';
+    document.body.prepend(banner);
+  }
+  banner.textContent = message + ' ';
+  const button = document.createElement('button');
+  button.textContent = 'Скачать резервную копию';
+  button.onclick = exportRecoveryData;
+  banner.appendChild(button);
+}
+function exportRecoveryData() {
+  const raw = window.__wargameRecoveryRaw || JSON.stringify(appData);
+  const url = URL.createObjectURL(new Blob([raw], {type:'application/json'}));
+  const a = document.createElement('a');
+  a.href = url; a.download = 'wargame-recovery.json'; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function persistAppData(data) {
+  const result = safeLocalStorage('setItem', STORAGE_KEY, JSON.stringify(data));
+  if (result === null) {
+    showPersistenceFailure('Не удалось сохранить прогресс. Не закрывайте игру до экспорта копии.');
+    return false;
+  }
+  const banner = document.getElementById('persistenceFailure');
+  if (banner && !window.__wargameRecoveryPending) banner.remove();
+  return true;
+}
+function validateImportedData(data) {
+  const object = value => value && typeof value === 'object' && !Array.isArray(value);
+  if (!object(data) || !object(data.factions) || !Array.isArray(data.templates) || !Array.isArray(data.squads)) {
+    throw new Error('Ожидается сохранение с factions, templates и squads.');
+  }
+  if (data.campaign != null && !object(data.campaign)) throw new Error('Некорректная campaign.');
+  if (data.map != null && (!object(data.map) || !object(data.map.grid))) throw new Error('Некорректная карта.');
+  const campaign = data.campaign || {};
+  for (const key of ['activeBattles', 'opUnits', 'enemyOpUnits']) {
+    if (campaign[key] != null && !Array.isArray(campaign[key])) throw new Error('Некорректный массив campaign.' + key);
+  }
+  for (const squad of data.squads.concat(data.templates)) {
+    if (!object(squad) || !Array.isArray(squad.fighters)) throw new Error('Некорректный состав отряда.');
+  }
+  // Reject prototype-mutating keys before later migrations/merges touch them.
+  JSON.stringify(data, (key, value) => {
+    if (['__proto__', 'prototype', 'constructor'].includes(key)) throw new Error('Недопустимый ключ: ' + key);
+    return value;
+  });
+  return data;
+}
+function installImportedData(data) {
+  validateImportedData(data);
+  const old = safeLocalStorage('getItem', STORAGE_KEY);
+  if (old !== null && safeLocalStorage('setItem', STORAGE_KEY + '.before-import', old) === null) {
+    throw new Error('Не удалось создать резервную копию. Освободите место и повторите импорт.');
+  }
+  // Do NOT call saveData: it snapshots the old live battle and hardMode.
+  if (!persistAppData(data)) throw new Error('Импорт не записан. Исходное сохранение не заменено.');
+  window.__wargameResetting = true; // pagehide must not overwrite the imported state
+  location.reload();
+}
 // ⚡ v13.041: текущая версия — отображается в меню/шапке/диагностике,
 //    чтобы игрок видел, свежая ли версия на его устройстве
 // v13.070: надёжное обновление сборки — сервис-воркер предзагружает ядро в обход
@@ -658,7 +738,7 @@ const SUPPLY_DEPOT_MAX = { ammoSmall: 1200, grenades: 300, ammoOrdnance: 80 };
 //    каждой стороне отдельно: у A.I.R.F. — 0,11, у BeVe — 7,0.
 const SUPPLY_EVAC_POINTS = { 'BeVe': { col: 7, row: 0 }, 'A.I.R.F.': { col: 0, row: 11 } };
 
-var APP_VERSION = 'v13.199';
+var APP_VERSION = 'v13.200';
 // v13.183: terrain layers as ZONES (contours), road links cost 1 with no penalty,
 //          no layer graphics on the campaign map; supply/combat read zones.
 // v13.172: full recon routes/observation marks, safe supply corridors, unit card editor, review fixes.
@@ -3609,7 +3689,7 @@ function renderBattalionRoster() {
         <div style="background:#2c2c2c; padding:10px; margin:6px 0; border-radius:6px; border-left:4px solid #f39c12;">
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
             <div>
-              <strong>${unit.name}</strong> (${unit.type}) — <span style="color:#f39c12;">нет отрядов</span> ${unit.col !== null && unit.col !== undefined ? `(${unit.col},${unit.row})` : '(не размещён)'}
+              <strong>${escapeCardHtml(unit.name)}</strong> (${escapeCardHtml(unit.type)}) — <span style="color:#f39c12;">нет отрядов</span> ${unit.col !== null && unit.col !== undefined ? `(${escapeCardHtml(unit.col)},${escapeCardHtml(unit.row)})` : '(не размещён)'}
             </div>
           </div>
         </div>`;
@@ -3655,15 +3735,15 @@ function renderBattalionRoster() {
     const color = destroyed ? '#e74c3c' : (unitLost > 0 ? '#e67e22' : '#27ae60');
     const bg = destroyed ? '#3a1f1f' : '#2c2c2c';
     const pos = destroyed
-        ? (unit.destroyedHex ? `(погиб на гексе ${unit.destroyedHex})` : '')
-        : ((unit.col !== null && unit.col !== undefined) ? `(${unit.col},${unit.row})` : '(не размещён)');
+        ? (unit.destroyedHex ? `(погиб на гексе ${escapeCardHtml(unit.destroyedHex)})` : '')
+        : ((unit.col !== null && unit.col !== undefined) ? `(${escapeCardHtml(unit.col)},${escapeCardHtml(unit.row)})` : '(не размещён)');
     const unitLabel = unit.isGroup ? 'машин' : 'бойцов';
 
     html += `
       <div style="background:${bg}; padding:10px; margin:6px 0; border-radius:6px; border-left:4px solid ${color};">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
           <div style="${destroyed ? 'color:#e74c3c;' : ''}">
-            <strong>${unit.name}</strong> (${unit.type}) — ${unitLabel}: <b style="color:${destroyed ? '#e74c3c' : '#fff'};">${unitAlive}/${unitTotal}</b>${unitLost > 0 ? `, потерь: ${unitLost}` : ''} ${pos}
+            <strong>${escapeCardHtml(unit.name)}</strong> (${escapeCardHtml(unit.type)}) — ${unitLabel}: <b style="color:${destroyed ? '#e74c3c' : '#fff'};">${unitAlive}/${unitTotal}</b>${unitLost > 0 ? `, потерь: ${unitLost}` : ''} ${pos}
             ${destroyed ? ' <span style="color:#e74c3c; font-weight:bold;">💀 УНИЧТОЖЕН</span>' : ''}
             ${unit.embarkedInBtr ? ' 🚌 В БТР' : ''}${unit.winch ? ' 🏔️' : ''}
             ${typeof supplyAmmoBarHtml === 'function' ? supplyAmmoBarHtml(unit) : ''}   <!-- ⚡ v13.068: шкала боезапаса юнита -->
@@ -3716,32 +3796,32 @@ function showUnitDetails(index) {
 
   // Проверяем, есть ли у юнита отряды
   if (!unit.squads || unit.squads.length === 0) {
-    document.getElementById('battalionUnitDetails').innerHTML = `<h4>${unit.name}</h4><p style="color:#aaa;">У этого юнита нет отрядов.</p>`;
+    document.getElementById('battalionUnitDetails').innerHTML = `<h4>${escapeCardHtml(unit.name)}</h4><p style="color:#aaa;">У этого юнита нет отрядов.</p>`;
     document.getElementById('battalionUnitDetails').style.display = 'block';
     document.getElementById('btnBackToRosterList').style.display = 'inline-block';
     document.getElementById('battalionRosterList').style.display = 'block';
     return;
   }
 
-  let html = `<h4>${unit.name} (${unit.type})</h4>`;
+  let html = `<h4>${escapeCardHtml(unit.name)} (${escapeCardHtml(unit.type)})</h4>`;
   html += operationalMoraleMarkup(unit);
-  html += `<div style="margin-bottom:8px; color:#aaa;">Гекс: ${unit.col !== null && unit.col !== undefined ? `(${unit.col},${unit.row})` : 'не размещён'}</div>`;
+  html += `<div style="margin-bottom:8px; color:#aaa;">Гекс: ${unit.col !== null && unit.col !== undefined ? `(${escapeCardHtml(unit.col)},${escapeCardHtml(unit.row)})` : 'не размещён'}</div>`;
 
   unit.squads.forEach(squad => {
     if (!squad.fighters || squad.fighters.length === 0) {
-      html += `<div style="margin-bottom:6px;"><strong>${squad.name}</strong> — <span style="color:#aaa;">нет бойцов</span></div>`;
+      html += `<div style="margin-bottom:6px;"><strong>${escapeCardHtml(squad.name)}</strong> — <span style="color:#aaa;">нет бойцов</span></div>`;
       return;
     }
 
-    html += `<div style="margin-bottom:6px; background:#2a2a2a; padding:6px; border-radius:4px;"><strong>${squad.name}</strong>`;
+    html += `<div style="margin-bottom:6px; background:#2a2a2a; padding:6px; border-radius:4px;"><strong>${escapeCardHtml(squad.name)}</strong>`;
     squad.fighters.forEach(f => {
       const hpColor = f.hp === 0 ? '#e74c3c' : '#27ae60';
       const status = f.hp === 0 ? '💀' : '✅';
       // ⚡ v13.067: связисты, приданные штабу, видны с должностью и устройством
       const line = f.isSignalman
-        ? `${status} 📡 ${f.name} (${f.signalDeviceType === 'radio' ? 'рация' : 'телефон'})`
-        : `${status} ${f.name}`;
-      html += `<div style="padding-left:12px; color:${hpColor};">${line} — HP: ${f.hp}/${f.maxHp} [${f.weapon}]</div>`;
+        ? `${status} 📡 ${escapeCardHtml(f.name)} (${f.signalDeviceType === 'radio' ? 'рация' : 'телефон'})`
+        : `${status} ${escapeCardHtml(f.name)}`;
+      html += `<div style="padding-left:12px; color:${hpColor};">${line} — HP: ${f.hp}/${f.maxHp} [${escapeCardHtml(f.weapon)}]</div>`;
     });
     html += `</div>`;
   });
@@ -3766,7 +3846,9 @@ function backToOperationalMapFromRoster() {
   initOperationalMap(); // перерисовываем карту
 }
 function exportCampaignProgress() {
+  if (!saveData()) return;
   const data = {
+    hardMode: appData.hardMode,
     campaign: appData.campaign,
     currentTime: appData.currentTime,
     currentTurn: appData.currentTurn
@@ -3796,17 +3878,13 @@ function importCampaignProgress() {
           alert('Файл не содержит данных кампании.');
           return;
         }
-        appData.campaign = data.campaign;
-        appData.currentTime = data.currentTime ?? appData.campaign.currentTime;
-        appData.currentTurn = data.currentTurn || appData.campaign.currentTurn;
-        saveData();
-        // Обновляем интерфейс
-        buildOperationalUnits(); // пересоздаст opUnits, если они есть
-        migrateHQPersonnelOnLoad(); // ⚡ v13.067: штаты штабов и связисты в загруженном сейве
-        initOperationalMap();
-        renderActiveBattlesList();
-        updateOperationalTimeDisplay();
-        document.getElementById('mapInfo').innerHTML = 'Прогресс кампании загружен.';
+        const imported = JSON.parse(JSON.stringify(appData));
+        imported.campaign = data.campaign;
+        imported.currentTime = data.currentTime ?? data.campaign.currentTime;
+        imported.currentTurn = data.currentTurn ?? data.campaign.currentTurn;
+        imported.currentBattleId = null; // reopen a saved battle from the campaign list
+        if (data.hardMode) imported.hardMode = data.hardMode;
+        installImportedData(imported);
       } catch (ex) {
         alert('Ошибка чтения файла: ' + ex.message);
       }
@@ -5881,7 +5959,7 @@ function tryMoveSelectedOpUnitToHex(clickX, clickY) {
                   executeOpShoot(enemiesOnTarget, distance);
                 }
 
-                document.getElementById('mapInfo').innerHTML = `🎯 Обстрел врага на гексе (${h.col},${h.row})`;
+                document.getElementById('mapInfo').textContent = `🎯 Обстрел врага на гексе (${h.col},${h.row})`;
                 redrawOperationalMap();
                 return true;
               } else {
@@ -5919,11 +5997,11 @@ function tryMoveSelectedOpUnitToHex(clickX, clickY) {
 
           if (selectedUnit.ap > 0) {
             selectedUnit.availableHexes = getOpReachableHexesForUnit(selectedUnit);
-            document.getElementById('mapInfo').innerHTML = `✅ ${selectedUnit.name} перемещён. ОД: ${selectedUnit.ap}`;
+            document.getElementById('mapInfo').textContent = `✅ ${selectedUnit.name} перемещён. ОД: ${selectedUnit.ap}`;
           } else {
             appData.campaign.selectedOpUnit = null;
             if (selectedUnit.availableHexes) delete selectedUnit.availableHexes;
-            document.getElementById('mapInfo').innerHTML = `✅ ${selectedUnit.name} потратил все ОД.`;
+            document.getElementById('mapInfo').textContent = `✅ ${selectedUnit.name} потратил все ОД.`;
           }
 
           saveData();
@@ -6616,7 +6694,7 @@ function handleOpMapClick(e) {
       if (unitOnHex) {
         opShootingState.shooter = unitOnHex;
         const range = isMediumArtillery(unitOnHex) ? operationalMediumArtilleryRange(unitOnHex) : 3;
-        document.getElementById('mapInfo').innerHTML = `🎯 Стрелок: ${unitOnHex.name}. Теперь кликните по врагу (до ${range} гексов).`;
+        document.getElementById('mapInfo').textContent = `🎯 Стрелок: ${unitOnHex.name}. Теперь кликните по врагу (до ${range} гексов).`;
         redrawOperationalMap();
         return;
       } else {
@@ -6672,7 +6750,7 @@ function handleOpMapClick(e) {
 
     if (isSau && hasArmor && distance > 3) {
         if (distance > 10) {
-            document.getElementById('mapInfo').innerHTML = `❌ САУ не может обстреливать цель дальше 10 гексов. Дистанция: ${distance}.`;
+            document.getElementById('mapInfo').textContent = `❌ САУ не может обстреливать цель дальше 10 гексов. Дистанция: ${distance}.`;
             return;
         }
         const vehicles = shooter.isGroup && Array.isArray(shooter.vehicleList)
@@ -6683,7 +6761,7 @@ function handleOpMapClick(e) {
     } else {
         const maxRange = isMediumArtillery(shooter) ? operationalMediumArtilleryRange(shooter) : (isSau ? 10 : 3);
         if (distance > maxRange) {
-            document.getElementById('mapInfo').innerHTML = `❌ Цель слишком далеко! (${distance} гексов, максимум ${maxRange})`;
+            document.getElementById('mapInfo').textContent = `❌ Цель слишком далеко! (${distance} гексов, максимум ${maxRange})`;
             return;
         }
     }
@@ -6737,11 +6815,11 @@ function handleOpMapClick(e) {
     if (idx !== -1) {
         // Убираем метку
         markers.splice(idx, 1);
-        document.getElementById('mapInfo').innerHTML = `✅ Метка "${markerType}" убрана с гекса ${closestKey}`;
+        document.getElementById('mapInfo').textContent = `✅ Метка "${markerType}" убрана с гекса ${closestKey}`;
     } else {
         // Добавляем метку
         markers.push(markerType);
-        document.getElementById('mapInfo').innerHTML = `✅ Метка "${markerType}" установлена на гекс ${closestKey}`;
+        document.getElementById('mapInfo').textContent = `✅ Метка "${markerType}" установлена на гекс ${closestKey}`;
     }
 
     // Если меток не осталось — возвращаем компактный формат (массив типов).
@@ -6875,7 +6953,7 @@ function handleOpMapClick(e) {
     saveData();
     redrawOperationalMap();
     updateOpPlaceSelect();
-    document.getElementById('mapInfo').innerHTML = `✅ Враг ${targetUnit.name} размещён на гексе ${closestKey}`;
+    document.getElementById('mapInfo').textContent = `✅ Враг ${targetUnit.name} размещён на гексе ${closestKey}`;
     return;
   }
 
@@ -6911,7 +6989,7 @@ function handleOpMapClick(e) {
       appData.campaign.selectedOpUnit = clickedUnit;
       if (typeof showOpUnitInfoPopup === 'function') showOpUnitInfoPopup(clickedUnit);
       clickedUnit.availableHexes = getOpReachableHexesForUnit(clickedUnit);
-      document.getElementById('mapInfo').innerHTML = `Выбран: ${clickedUnit.name} (ОД: ${clickedUnit.ap}). Кликните по подсвеченному гексу.`;
+      document.getElementById('mapInfo').textContent = `Выбран: ${clickedUnit.name} (ОД: ${clickedUnit.ap}). Кликните по подсвеченному гексу.`;
       updateDismountPanel();
       updateBtrPanel();
       updateVehiclePanel();
@@ -6967,7 +7045,7 @@ function handleOpMapClick(e) {
           if (selectedEnemy.availableHexes) delete selectedEnemy.availableHexes;
           saveData();
           redrawOperationalMap();
-          document.getElementById('mapInfo').innerHTML = `✅ Враг "${selectedEnemy.name}" перемещён.`;
+          document.getElementById('mapInfo').textContent = `✅ Враг "${selectedEnemy.name}" перемещён.`;
           return;
         }
       }
@@ -6987,7 +7065,7 @@ function handleOpMapClick(e) {
 
       appData.campaign.selectedEnemyOpUnit = clickedEnemy;
       clickedEnemy.availableHexes = getOpReachableHexesForUnit(clickedEnemy);
-      document.getElementById('mapInfo').innerHTML = `Выбран враг: ${clickedEnemy.name} (ОД: ${clickedEnemy.ap}). Кликните по подсвеченному гексу.`;
+      document.getElementById('mapInfo').textContent = `Выбран враг: ${clickedEnemy.name} (ОД: ${clickedEnemy.ap}). Кликните по подсвеченному гексу.`;
       redrawOperationalMap();
       return;
     }
@@ -7006,7 +7084,7 @@ if (pickingTargetHex && closestKey) {
     if (targetInput) {
         targetInput.value = closestKey;
         pickingTargetHex = false;
-        document.getElementById('mapInfo').innerHTML = `📍 Целевой гекс: ${closestKey}`;
+        document.getElementById('mapInfo').textContent = `📍 Целевой гекс: ${closestKey}`;
         document.getElementById('mapInfo').style.color = '#aaa';
 
         // ⚡ ВОЗВРАЩАЕМ РЕЖИМ КАРТЫ
@@ -7068,7 +7146,7 @@ if (pickingTargetHex && closestKey) {
     const stacked = (appData.campaign.enemyOpUnits || []).filter(e =>
         e && e !== clickedEnemyView && opEnemyVisibleToPlayer(e) && e.col === ec && e.row === er);
     const names = [clickedEnemyView, ...stacked].map(e => `«${e.name}» (${opUnitKindLabel(e)})`).join(', ');
-    document.getElementById('mapInfo').innerHTML = `👁️ Обнаружен противник на гексе (${ec},${er}): ${names}`;
+    document.getElementById('mapInfo').textContent = `👁️ Обнаружен противник на гексе (${ec},${er}): ${names}`;
     document.getElementById('mapInfo').style.color = '#e57373';
     redrawOperationalMap();
     return;
@@ -8104,9 +8182,11 @@ try {
     appData = getDefaultData();
   }
 } catch (e) {
-  console.warn('Сброс данных', e);
-  safeLocalStorage('removeItem', STORAGE_KEY);
+  console.error('Ошибка загрузки — исходное сохранение сохранено', e);
+  window.__wargameRecoveryRaw = safeLocalStorage('getItem', STORAGE_KEY);
+  window.__wargameRecoveryPending = true;
   appData = getDefaultData();
+  showPersistenceFailure('Ошибка загрузки. Автосохранение отключено, исходные данные сохранены. Экспортируйте копию; затем можно повторить импорт или сбросить данные через меню.');
 }
 
 // ⚡ v13.041: показываем ТЕКУЩУЮ ВЕРСИЮ в меню и шапке — игрок сразу видит,
@@ -11170,7 +11250,7 @@ function installAutosaveHooks() {
     document.addEventListener('pause', persist, false); // Cordova/Capacitor
 }
 function saveData() {
-    if (window.__wargameResetting) return; // ⚡ v13.086: после «Сбросить данные» не пишем назад
+    if (window.__wargameResetting || window.__wargameRecoveryPending) return false; // ⚡ v13.086: после «Сбросить данные» не пишем назад
     try {
         const restoringUi = typeof uiRestorePending !== 'undefined' && uiRestorePending;
         // При загрузке виден стартовый mainMenu, но это ещё НЕ выбор игрока.
@@ -11187,14 +11267,17 @@ function saveData() {
             }
         }
         appData.hardMode = JSON.parse(JSON.stringify(hardMode));
-        safeLocalStorage('setItem', STORAGE_KEY, JSON.stringify(appData));
+        if (!persistAppData(appData)) return false;
         console.log('💾 Данные сохранены. hardMode.enabled:', hardMode.enabled);
     } catch (e) {
         console.error('Ошибка сохранения:', e);
+        showPersistenceFailure('Ошибка подготовки сохранения. Экспортируйте резервную копию.');
+        return false;
     }
     // ⚡ v13.051 (R36#5): онлайн — состояние открытого тактического боя уходит
     //    оппоненту (с задержкой ~1 с, только при изменениях)
     if (typeof onlineBattleOnSave === 'function') { try { onlineBattleOnSave(); } catch (e) {} }
+    return true;
 }
 
     // ⚡ v13.086: сброс — полный прогресс кампаний и сценариев.
@@ -17499,30 +17582,7 @@ function tacticalClearMeleeEngagement(squad) {
 //    Расстояние берётся из реального положения отрядов на тактической карте,
 //    а не из скрытого поля ввода «Дистанция» (раньше оно всегда было 5, и
 //    рукопашная была недоступна даже когда отряды стояли в одном гексе).
-function tacticalSquadHexPosition(squad) {
-  if (!squad || !appData || !appData.map || !appData.map.grid) return null;
-  const players = appData.squads || [];
-  const enemies = (appData.map && appData.map.enemySquads) || [];
-  const pIdx = players.indexOf(squad);
-  if (pIdx >= 0) {
-    // сетка карты — источник истины; hexPos — запасной вариант
-    if (typeof getBattleSquadHex === 'function' && appData.map.grid) {
-      const found = getBattleSquadHex(appData.map.grid, pIdx, false);
-      if (found) return { key: found.key, col: found.col, row: found.row, isEnemy: false, idx: pIdx };
-    }
-    if (squad.hexPos) return { key: squad.hexPos.join(','), col: squad.hexPos[0], row: squad.hexPos[1], isEnemy: false, idx: pIdx };
-  } else {
-    const eIdx = enemies.indexOf(squad);
-    if (eIdx >= 0) {
-      if (typeof getBattleSquadHex === 'function' && appData.map.grid) {
-        const found = getBattleSquadHex(appData.map.grid, eIdx, true);
-        if (found) return { key: found.key, col: found.col, row: found.row, isEnemy: true, idx: eIdx };
-      }
-      if (squad.hexPos) return { key: squad.hexPos.join(','), col: squad.hexPos[0], row: squad.hexPos[1], isEnemy: true, idx: eIdx };
-    }
-  }
-  return null;
-}
+
 // Расстояние в гексах между двумя отрядами; null, если положение неизвестно
 function tacticalSquadsDistance(a, b) {
   const pa = tacticalSquadHexPosition(a);
@@ -21026,9 +21086,7 @@ function resolveTacticalArtilleryCalls() {
 
 // ⚡ v13.148 (п.2): старый «Адреналин» (+1 ОД) заменён рывком на 1 гекс с
 //    последующей платой (−2 ОД в следующей фазе). См. tacticalAdrenalineArm().
-function useAdrenaline() {
-  return tacticalAdrenalineArm();
-}
+
 
 function toggleCrewDeploy(ciIndex) {
   if (!currentSquad || !currentSquad.crewInstances) return;
@@ -26423,7 +26481,7 @@ function handleFighterDeath(squad) {
       let html = `
         <div class="section">
           <label>Имя: <input id="squadNameInput" value="${currentSquad.name}" style="width:150px"></label>
-          <label>Фракция: <select id="squadFactionSelect">${Object.keys(appData.factions).map(f=>`<option value="${f}" ${f===currentSquad.faction?'selected':''}>${f}</option>`).join('')}</select></label>
+          <label>Фракция: <select id="squadFactionSelect">${Object.keys(appData.factions).map(f=>`<option value="${f}" ${f===currentSquad.faction?'selected':''}>${escapeCardHtml(f)}</option>`).join('')}</select></label>
           <label>Базовый дух: <input type="number" id="squadBaseMorale" value="${currentSquad.baseMorale}" style="width:60px" min="0"></label>
           <label>Иконка:
             <input type="file" id="squadIconFile" accept="image/*" style="display:none" onchange="previewIcon(this)">
@@ -26539,7 +26597,7 @@ function renderCardLibraryEditor() {
   } else {
     container.innerHTML = cards.map((c) => {
       const origIdx = appData.factions[faction].cardLibrary.indexOf(c);
-      return `<div class="card-item">${c.icon ? `<img src="${c.icon}" onerror="this.style.display='none'">` : ''}
+      return `<div class="card-item">${c.icon ? `<img src="${escapeCardHtml(safeImageUrl(c.icon))}" onerror="this.style.display='none'">` : ''}
       <div class="card-info"><h4>${c.name}</h4><div class="desc">${c.desc}</div><div class="effect">Эффект: ${c.effect}</div><small>Выстр: ${c.shotMod}, Точн: ${c.accuracyMod}, Дух: ${c.moraleMod}</small></div><button onclick="editCard('${faction}',${origIdx})">✏️</button><button onclick="deleteCard('${faction}',${origIdx})">❌</button></div>`;
     }).join('');
   }
@@ -29186,10 +29244,10 @@ function editCard(faction, idx) {
   container.innerHTML = html || '<p>Нет доступных наград.</p>';
 }
     // =================== ВКЛАДКА ЭФФЕКТЫ ===================
-    function renderActiveEffects() { const container = document.getElementById('activeCardsList'); if (appData.activeCards.length === 0) { container.innerHTML = '<p>Нет активных карт.</p>'; } else { container.innerHTML = appData.activeCards.map((c, i) => `${''/* ⚡ v13.065 (R43#9): дебафф — красная рамка, бонус — зелёная */}<div class="card-item active-card" style="${c.type === 'negative' ? 'border:2px solid #e74c3c;background:#3a1e1e;' : 'border:2px solid #2ecc71;'}">${c.icon ? `<img src="${c.icon}" onerror="this.style.display='none'">` : ''}<div class="card-info"><h4>${c.type === 'negative' ? '<span style="color:#e74c3c;">▼ </span>' : ''}${escapeCardHtml(c.name)} [${escapeCardHtml(c.faction)}]${c.opUnitName ? ` · взвод ${escapeCardHtml(c.opUnitName)}` : ''}</h4><div class="effect">${escapeCardHtml(c.effect || '')}</div><div class="desc" style="color:#aaa; font-size:0.8rem;">${escapeCardHtml(c.desc || '')}</div></div>${c.opUnitName ? '<span style="color:#aaa;font-size:.75rem;">закреплена до конца сценария</span>' : `<button onclick="deactivateCard(${i})">🗑️</button>`}</div>`).join(''); } renderModifiersList(); }
+    function renderActiveEffects() { const container = document.getElementById('activeCardsList'); if (appData.activeCards.length === 0) { container.innerHTML = '<p>Нет активных карт.</p>'; } else { container.innerHTML = appData.activeCards.map((c, i) => `${''/* ⚡ v13.065 (R43#9): дебафф — красная рамка, бонус — зелёная */}<div class="card-item active-card" style="${c.type === 'negative' ? 'border:2px solid #e74c3c;background:#3a1e1e;' : 'border:2px solid #2ecc71;'}">${c.icon ? `<img src="${escapeCardHtml(safeImageUrl(c.icon))}" onerror="this.style.display='none'">` : ''}<div class="card-info"><h4>${c.type === 'negative' ? '<span style="color:#e74c3c;">▼ </span>' : ''}${escapeCardHtml(c.name)} [${escapeCardHtml(c.faction)}]${c.opUnitName ? ` · взвод ${escapeCardHtml(c.opUnitName)}` : ''}</h4><div class="effect">${escapeCardHtml(c.effect || '')}</div><div class="desc" style="color:#aaa; font-size:0.8rem;">${escapeCardHtml(c.desc || '')}</div></div>${c.opUnitName ? '<span style="color:#aaa;font-size:.75rem;">закреплена до конца сценария</span>' : `<button onclick="deactivateCard(${i})">🗑️</button>`}</div>`).join(''); } renderModifiersList(); }
     function deactivateCard(idx) { if (appData.activeCards[idx] && appData.activeCards[idx].opUnitName) { log('Карточка взвода закреплена до конца сценария.'); return; } appData.activeCards.splice(idx, 1); saveData(); renderActiveEffects(); updateUI(); }
     function getActiveModifiers() { const mods = []; appData.activeCards.forEach(c => { if (c.active) mods.push(c); }); appData.modifiers.forEach(m => { if (m.active) mods.push(m); }); return mods; }
-    function renderModifiersList() { document.getElementById('modifiersList').innerHTML = appData.modifiers.map((m,i)=>`<div class="modifier-row"><input type="checkbox" ${m.active?'checked':''} onchange="appData.modifiers[${i}].active=this.checked; saveData(); updateUI()"><b>${m.name}</b> (Выстр:${m.shotMod}, Точн:${m.accuracyMod}, Дух:${m.moraleMod}) <button onclick="appData.modifiers.splice(${i},1); renderModifiersList(); saveData()">❌</button></div>`).join(''); }
+    function renderModifiersList() { document.getElementById('modifiersList').innerHTML = appData.modifiers.map((m,i)=>`<div class="modifier-row"><input type="checkbox" ${m.active?'checked':''} onchange="appData.modifiers[${i}].active=this.checked; saveData(); updateUI()"><b>${escapeCardHtml(m.name)}</b> (Выстр:${m.shotMod}, Точн:${m.accuracyMod}, Дух:${m.moraleMod}) <button onclick="appData.modifiers.splice(${i},1); renderModifiersList(); saveData()">❌</button></div>`).join(''); }
     function addModifier() { const name = document.getElementById('modName').value.trim(); if(!name) return; appData.modifiers.push({ name, shotMod: parseInt(document.getElementById('modShots').value)||0, accuracyMod: parseInt(document.getElementById('modAcc').value)||0, moraleMod: parseInt(document.getElementById('modMorale').value)||0, active: true }); renderModifiersList(); saveData(); }
 
     // =================== ВКЛАДКА ШАБЛОНЫ ===================
@@ -29240,12 +29298,12 @@ function populateCardsEditorFactionSelect() {
 }
 
     function clearAllSquads() { if (!confirm('Удалить ВСЕ отряды из боя?')) return; appData.squads = []; currentSquad = null; currentSquadIndex = -1; morale = 0; saveData(); renderSquadSelector(); updateUI(); }
-    function renderTemplates() { const filterFaction = document.getElementById('templateFactionFilter')?.value || ''; const list = appData.templates.filter(t=>!filterFaction || t.faction===filterFaction); document.getElementById('templatesList').innerHTML = list.map((t,i)=>{ const origIdx = appData.templates.indexOf(t); return `<div><b>${t.name}</b> [${t.faction}] (${t.fighters.length} бойцов, дух ${t.baseMorale}) <button onclick="loadTemplateFromList(${origIdx})">Загрузить</button> <button onclick="deleteTemplate(${origIdx})">Удалить</button></div>`; }).join(''); const sel = document.getElementById('templateFactionFilter'); if (sel) { const cur = sel.value; sel.innerHTML = '<option value="">Все</option>' + Object.keys(appData.factions).map(f=>`<option value="${f}" ${f===cur?'selected':''}>${f}</option>`).join(''); } }
+    function renderTemplates() { const filterFaction = document.getElementById('templateFactionFilter')?.value || ''; const list = appData.templates.filter(t=>!filterFaction || t.faction===filterFaction); document.getElementById('templatesList').innerHTML = list.map((t,i)=>{ const origIdx = appData.templates.indexOf(t); return `<div><b>${escapeCardHtml(t.name)}</b> [${escapeCardHtml(t.faction)}] (${t.fighters.length} бойцов, дух ${t.baseMorale}) <button onclick="loadTemplateFromList(${origIdx})">Загрузить</button> <button onclick="deleteTemplate(${origIdx})">Удалить</button></div>`; }).join(''); const sel = document.getElementById('templateFactionFilter'); if (sel) { const cur = sel.value; sel.innerHTML = '<option value="">Все</option>' + Object.keys(appData.factions).map(f=>`<option value="${escapeCardHtml(f)}" ${f===cur?'selected':''}>${escapeCardHtml(f)}</option>`).join(''); } }
     function saveCurrentAsTemplate() { if(!currentSquad) return; const name = prompt('Имя шаблона:', currentSquad.name); if(!name) return; const tmpl = JSON.parse(JSON.stringify(currentSquad)); tmpl.name = name; appData.templates.push(tmpl); saveData(); renderTemplates(); }
     function loadTemplateFromList(idx) { const tmpl = JSON.parse(JSON.stringify(appData.templates[idx])); tmpl.currentMorale = tmpl.baseMorale; tmpl.hidden = false; const exists = appData.squads.find(s => s.name === tmpl.name && s.faction === tmpl.faction); if (exists) { if (!confirm(`Отряд "${tmpl.name}" уже есть в бою. Добавить ещё один?`)) return; } appData.squads.push(tmpl); assignUniqueCrewKeys(tmpl); selectSquad(appData.squads.length - 1); renderSquadSelector(); updateUI(); saveData(); }
     function deleteTemplate(idx) { if(confirm('Удалить шаблон?')) { appData.templates.splice(idx,1); renderTemplates(); saveData(); } }
-    function exportAllData() { const blob = new Blob([JSON.stringify(appData,null,2)], {type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='wargame_data.json'; a.click(); URL.revokeObjectURL(url); }
-    function importAllData(event) { const file = event.target.files[0]; if(!file) return; const reader = new FileReader(); reader.onload = e => { try { appData = JSON.parse(e.target.result); saveData(); location.reload(); } catch(ex) { alert('Ошибка импорта'); } }; reader.readAsText(file); }
+    function exportAllData() { saveData(); const blob = new Blob([JSON.stringify(appData,null,2)], {type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='wargame_data.json'; a.click(); URL.revokeObjectURL(url); }
+    function importAllData(event) { const file = event.target.files[0]; if(!file) return; const reader = new FileReader(); reader.onload = e => { try { installImportedData(JSON.parse(e.target.result)); } catch(ex) { alert('Ошибка импорта: ' + ex.message); } }; reader.onerror = () => alert('Не удалось прочитать файл'); reader.readAsText(file); }
 
     // =================== ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК ===================
     function openTab(evt, tabName) {
@@ -30924,15 +30982,15 @@ function handleHexAction(key, point) {
       // Тип не изменился – переключаем вариант текстуры
       if (images.length > 1) {
         hex.variant = ((hex.variant || 0) + 1) % images.length;
-        infoBox.innerHTML = `Гекс ${key}: тип=${newType}, уровень=${newLevel}, вариант ${hex.variant+1}/${images.length}`;
+        infoBox.textContent = `Гекс ${key}: тип=${newType}, уровень=${newLevel}, вариант ${hex.variant+1}/${images.length}`;
       } else {
-        infoBox.innerHTML = `Гекс ${key}: тип=${newType}, уровень=${newLevel}`;
+        infoBox.textContent = `Гекс ${key}: тип=${newType}, уровень=${newLevel}`;
       }
     } else {
       // Тип изменился – сбрасываем вариант
       hex.type = newType;
       hex.variant = 0;
-      infoBox.innerHTML = `Гекс ${key} изменён: тип=${newType}, уровень=${newLevel}`;
+      infoBox.textContent = `Гекс ${key} изменён: тип=${newType}, уровень=${newLevel}`;
     }
 
     appData.map.lastEditedHex = key;
@@ -30973,7 +31031,7 @@ function handleHexAction(key, point) {
       tacticalMarkTacticalHexOccupied(key, 'player', appData.map);
     }
 
-    infoBox.innerHTML = `✅ Отряд "${appData.squads[selectedSquadIdx].name}" размещён на гексе ${key}`;
+    infoBox.textContent = `✅ Отряд "${appData.squads[selectedSquadIdx].name}" размещён на гексе ${key}`;
     if (typeof refreshSquadToPlaceDropdown === 'function') refreshSquadToPlaceDropdown();
     saveData();
     redrawMap();
@@ -30994,10 +31052,10 @@ function handleHexAction(key, point) {
     const idx = hex.markers.indexOf(markerType);
     if (idx !== -1) {
       hex.markers.splice(idx, 1);
-      infoBox.innerHTML = `Метка "${markerType}" убрана с гекса ${key}`;
+      infoBox.textContent = `Метка "${markerType}" убрана с гекса ${key}`;
     } else {
       hex.markers.push(markerType);
-      infoBox.innerHTML = `Метка "${markerType}" установлена на гекс ${key}`;
+      infoBox.textContent = `Метка "${markerType}" установлена на гекс ${key}`;
     }
     saveData();
     redrawMap();
@@ -31066,7 +31124,7 @@ if (mode === 'move') {
         if (newSquad) {
           appData.map.selectedMoveSquadIdx = newIdx;
           recalcReachable(newSquad, key);
-          infoBox.innerHTML = `Выбран отряд "${newSquad.name}" (гекс ${key}). Кликните на другой гекс для перемещения или выберите действие под картой.`;
+          infoBox.textContent = `Выбран отряд "${newSquad.name}" (гекс ${key}). Кликните на другой гекс для перемещения или выберите действие под картой.`;
           if (typeof mapActionsOnSelect === 'function') mapActionsOnSelect(newIdx); // ⚡ v13.054 (R39#4)
           redrawMap();
           return;
@@ -31081,12 +31139,12 @@ if (mode === 'move') {
         const nextPos = (curPos + 1) % squadIds.length;
         appData.map.selectedMoveSquadIdx = squadIds[nextPos];
         const nextSquad = appData.squads[squadIds[nextPos]];
-        infoBox.innerHTML = `Выбран отряд "${nextSquad.name}" (гекс ${key}). Кликните на другой гекс для перемещения или выберите действие под картой.`;
+        infoBox.textContent = `Выбран отряд "${nextSquad.name}" (гекс ${key}). Кликните на другой гекс для перемещения или выберите действие под картой.`;
         recalcReachable(nextSquad, key);
         if (typeof mapActionsOnSelect === 'function') mapActionsOnSelect(squadIds[nextPos]); // ⚡ v13.054 (R39#4)
         redrawMap();
       } else {
-        infoBox.innerHTML = `Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
+        infoBox.textContent = `Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения.`;
       }
       return;
     }
@@ -31109,7 +31167,7 @@ if (mode === 'move') {
     if (squad) {
       appData.map.selectedMoveSquadIdx = idx;
       recalcReachable(squad, key);
-      infoBox.innerHTML = `Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения или выберите действие под картой.`;
+      infoBox.textContent = `Выбран отряд "${squad.name}" (гекс ${key}). Кликните на другой гекс для перемещения или выберите действие под картой.`;
       if (typeof mapActionsOnSelect === 'function') mapActionsOnSelect(idx); // ⚡ v13.054 (R39#4)
       redrawMap();
       return;
@@ -31190,7 +31248,7 @@ if (mode === 'move') {
       }
       if (typeof tacticalMarkTacticalHexOccupied === 'function') tacticalMarkTacticalHexOccupied(key, 'enemy', appData.map);
 
-      infoBox.innerHTML = `🚶 Враг "${enemy.name}" перемещён на ${key}${enemyMaraudingTriggered ? ' · ☠️ «Мародёрство»: бездействует один ход' : ''}`;
+      infoBox.textContent = `🚶 Враг "${enemy.name}" перемещён на ${key}${enemyMaraudingTriggered ? ' · ☠️ «Мародёрство»: бездействует один ход' : ''}`;
       // ⚡ v13.065 (R43#6): враг зашёл в гекс нашего отряда — рукопашная начинается сама
       if (typeof tacticalAutoEngageMelee === 'function') {
         const foe = tacticalAutoEngageMelee(enemy);
@@ -31215,7 +31273,7 @@ if (mode === 'move') {
       return;
     }
     appData.map.selectedEnemyMoveIdx = firstEnemyIdx;
-    infoBox.innerHTML = `✅ Выбран враг "${enemy.name}" (гекс ${key}). Теперь переместите его или отдайте команду отступить.`;
+    infoBox.textContent = `✅ Выбран враг "${enemy.name}" (гекс ${key}). Теперь переместите его или отдайте команду отступить.`;
     updateTacticalTurnUI();
     redrawMap();
     return;
@@ -31287,7 +31345,7 @@ function setMapMode(mode) {
   // ⚡ v13.129 (п.11): чекбокс скрытого перемещения доступен при выборе юнита
   //    (режимы просмотра и перемещения), а не только в режиме движения
   document.getElementById('crouchLabel').style.display = (mode === 'move' || mode === 'view') ? 'inline-block' : 'none';
-  document.getElementById('mapInfo').innerHTML = `Режим: ${mode}`;
+  document.getElementById('mapInfo').textContent = `Режим: ${mode}`;
 
   redrawMap();
 }
@@ -31308,10 +31366,10 @@ function setMapMode(mode) {
       const idx = hex.markers.indexOf(markerType);
       if (idx !== -1) {
         hex.markers.splice(idx, 1);
-        document.getElementById('mapInfo').innerHTML = `Метка "${markerType}" убрана с гекса ${key}`;
+        document.getElementById('mapInfo').textContent = `Метка "${markerType}" убрана с гекса ${key}`;
       } else {
         hex.markers.push(markerType);
-        document.getElementById('mapInfo').innerHTML = `Метка "${markerType}" установлена на гекс ${key}`;
+        document.getElementById('mapInfo').textContent = `Метка "${markerType}" установлена на гекс ${key}`;
       }
       saveData();
       redrawMap();
@@ -31331,7 +31389,7 @@ function setMapMode(mode) {
       if (markerType === 'noise') hex.markers.noise = !hex.markers.noise;
       saveData();
       redrawMap();
-      document.getElementById('mapInfo').innerHTML = `Метка ${markerType} установлена на ${key}`;
+      document.getElementById('mapInfo').textContent = `Метка ${markerType} установлена на ${key}`;
     }
 
     function placeEnemy() {
@@ -31359,7 +31417,7 @@ function setMapMode(mode) {
       }
       saveData();
       redrawMap();
-      document.getElementById('mapInfo').innerHTML = `☠️ Враг "${name}" размещён на ${key}`;
+      document.getElementById('mapInfo').textContent = `☠️ Враг "${name}" размещён на ${key}`;
     }
 
     // ================= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (ЗУМ, СКРОЛЛ, СПИСКИ) =================
@@ -31662,7 +31720,7 @@ async function loadMapFromRepo() {
     saveData();
     redrawMap();
     console.log('Карта перерисована');
-    document.getElementById('mapInfo').innerHTML = `Карта "${file}" загружена.`;
+    document.getElementById('mapInfo').textContent = `Карта "${file}" загружена.`;
   } catch (e) {
     console.error('Ошибка загрузки карты:', e);
     alert('Ошибка загрузки карты: ' + e.message);
@@ -31765,10 +31823,10 @@ function exportCurrentMap() {
       const idx = hex.markers.indexOf(markerType);
       if (idx !== -1) {
         hex.markers.splice(idx, 1);
-        document.getElementById('mapInfo').innerHTML = `Метка "${markerType}" убрана с гекса ${key}`;
+        document.getElementById('mapInfo').textContent = `Метка "${markerType}" убрана с гекса ${key}`;
       } else {
         hex.markers.push(markerType);
-        document.getElementById('mapInfo').innerHTML = `Метка "${markerType}" установлена на гекс ${key}`;
+        document.getElementById('mapInfo').textContent = `Метка "${markerType}" установлена на гекс ${key}`;
       }
       saveData();
       redrawMap();
@@ -31807,7 +31865,7 @@ function exportCurrentMap() {
       hex.enemySquadIds.push(idx);
       saveData();
       redrawMap();
-      document.getElementById('mapInfo').innerHTML = `Враг "${name}" размещён на гексе ${key}`;
+      document.getElementById('mapInfo').textContent = `Враг "${name}" размещён на гексе ${key}`;
     }
 
     function removeSelectedEnemy() {
@@ -31878,7 +31936,7 @@ function exportCurrentMap() {
       updateEnemyFactionDropdown();
       saveData();
       redrawMap();
-      document.getElementById('mapInfo').innerHTML = `Враг "${enemy.name}" удалён.`;
+      document.getElementById('mapInfo').textContent = `Враг "${enemy.name}" удалён.`;
     }
 
     // ====== ВРАЖЕСКИЕ ОТРЯДЫ ИЗ ШАБЛОНОВ ======
@@ -31937,7 +31995,7 @@ function updateEnemySquadDropdown() {
       }
       saveData();
       redrawMap();
-      document.getElementById('mapInfo').innerHTML = `☠️ Враг "${template.name}" (${faction}) размещён на гексе ${key}`;
+      document.getElementById('mapInfo').textContent = `☠️ Враг "${template.name}" (${faction}) размещён на гексе ${key}`;
     }
 function placeEnemyByCoords() {
   const squadSelect = document.getElementById('enemySquadToPlace');
@@ -31979,7 +32037,7 @@ function placeEnemyOnHex(hex, template, faction, key) {
   }
   saveData();
   redrawMap();
-  document.getElementById('mapInfo').innerHTML = `☠️ Враг "${template.name}" (${faction}) размещён на гексе ${key}`;
+  document.getElementById('mapInfo').textContent = `☠️ Враг "${template.name}" (${faction}) размещён на гексе ${key}`;
 }
 
       function populateTerrainSelect() {
@@ -32058,7 +32116,7 @@ function rotateSelectedHex(delta) {
   appData.map.selectedMoveSquadIdx = null;
   saveData();
   redrawMap();
-  document.getElementById('mapInfo').innerHTML = `Отряд "${squad.name}" убран с карты.`;
+  document.getElementById('mapInfo').textContent = `Отряд "${squad.name}" убран с карты.`;
   // ⚡ v13.129 (п.5): отряд возвращается в панель перетаскивания размещения
   try { if (typeof renderPlacementPanel === 'function') renderPlacementPanel(); } catch (e) {}
 }
@@ -39710,7 +39768,7 @@ function addOrderWaypoint(col, row) {
     updateOrderWaypointsDisplay();
 
     // Показываем информацию о добавленной точке
-    document.getElementById('mapInfo').innerHTML = `📍 Добавлена точка маршрута: (${col},${row}). Всего: ${orderWaypoints.length}`;
+    document.getElementById('mapInfo').textContent = `📍 Добавлена точка маршрута: (${col},${row}). Всего: ${orderWaypoints.length}`;
     document.getElementById('mapInfo').style.color = '#f1c40f';
 
     redrawOperationalMap();
@@ -41817,7 +41875,7 @@ function placeExistingEnemyOnHex(hex, enemyIdx, key) {
   if (typeof tacticalMarkTacticalHexOccupied === 'function' && (!placementBattle || !placementBattle.placement || placementBattle.placement.phase === 'done')) {
     tacticalMarkTacticalHexOccupied(key, 'enemy', appData.map);
   }
-  document.getElementById('mapInfo').innerHTML = `Враг "${enemy.name}" размещён на гексе ${key}`;
+  document.getElementById('mapInfo').textContent = `Враг "${enemy.name}" размещён на гексе ${key}`;
   saveData();
   redrawMap();
 }
@@ -42267,7 +42325,7 @@ function addReinforcementsToBattle(battleId, playerUnit, enemyUnits) {
     activateBattleTab();
     document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
     document.getElementById('btnFinishBattle').style.display = 'inline-block';
-    document.getElementById('mapInfo').innerHTML = `Подкрепление введено в бой на гексе ${battle.hexKey}.`;
+    document.getElementById('mapInfo').textContent = `Подкрепление введено в бой на гексе ${battle.hexKey}.`;
     redrawOperationalMap();
 }
 function getOpReachableHexesForUnit(unit) {
@@ -42789,14 +42847,14 @@ function toggleDismount() {
         unit.dismounted = false;
         unit.mobility = unit.dismountedFromMobility || 'bicycle';
         delete unit.dismountedFromMobility;
-        document.getElementById('mapInfo').innerHTML = `🚲 ${unit.name} сел на велосипеды. ОД: ${unit.ap}/${unit.maxAp}`;
+        document.getElementById('mapInfo').textContent = `🚲 ${unit.name} сел на велосипеды. ОД: ${unit.ap}/${unit.maxAp}`;
         if (unit.col !== null && unit.row !== null) removeOperationalBicyclePark(unit, key);
     } else {
         // Спешивание
         unit.dismountedFromMobility = unit.mobility;
         unit.dismounted = true;
         unit.mobility = 'foot';
-        document.getElementById('mapInfo').innerHTML = `🚲 ${unit.name} спешился. ОД: ${unit.ap}/${unit.maxAp}`;
+        document.getElementById('mapInfo').textContent = `🚲 ${unit.name} спешился. ОД: ${unit.ap}/${unit.maxAp}`;
         if (unit.col !== null && unit.row !== null) setOperationalBicyclePark(unit);
     }
 
@@ -42956,7 +43014,7 @@ function showBtrEmbarkDialog() {
     }
 
     if (!suitableBtr) {
-        document.getElementById('mapInfo').innerHTML = `❌ Нет группы БТР с ${required} машинами.`;
+        document.getElementById('mapInfo').textContent = `❌ Нет группы БТР с ${required} машинами.`;
         return;
     }
 
@@ -42975,7 +43033,7 @@ function showBtrEmbarkDialog() {
     redrawOperationalMap();
     updateBtrPanel();
 
-    document.getElementById('mapInfo').innerHTML = `✅ Отряд "${unit.name}" посажен в БТР.`;
+    document.getElementById('mapInfo').textContent = `✅ Отряд "${unit.name}" посажен в БТР.`;
 }
 function showBtrDisembarkDialog() {
     const unit = appData.campaign.selectedOpUnit;
@@ -43005,7 +43063,7 @@ function showBtrDisembarkDialog() {
             redrawOperationalMap();
             updateBtrPanel();
 
-            document.getElementById('mapInfo').innerHTML = `✅ Отряд "${embarkedUnit.name}" высажен.`;
+            document.getElementById('mapInfo').textContent = `✅ Отряд "${embarkedUnit.name}" высажен.`;
             return;
         }
     }
@@ -43042,7 +43100,7 @@ function showBtrDisembarkDialog() {
         redrawOperationalMap();
         updateBtrPanel();
 
-        document.getElementById('mapInfo').innerHTML = `✅ Отряд "${unit.name}" высажен.`;
+        document.getElementById('mapInfo').textContent = `✅ Отряд "${unit.name}" высажен.`;
         return;
     }
 
@@ -43542,7 +43600,7 @@ function splitVehicleGroup(group) {
     updateVehicleGroupInfo();
     renderCommunicationPanel(); // Обновляем панель связи
 
-    document.getElementById('mapInfo').innerHTML = `✅ Отряд разбит на ${groupSize} отдельных машин.`;
+    document.getElementById('mapInfo').textContent = `✅ Отряд разбит на ${groupSize} отдельных машин.`;
 
     // ⚡ ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ ИНТЕРФЕЙС ЧЕРЕЗ setTimeout
     setTimeout(() => {
@@ -43589,7 +43647,7 @@ function renameGroup() {
         unit.name = newName.trim();
         saveData();
         redrawOperationalMap();
-        document.getElementById('mapInfo').innerHTML = `✅ Отряд переименован в "${unit.name}"`;
+        document.getElementById('mapInfo').textContent = `✅ Отряд переименован в "${unit.name}"`;
     }
 }
 function updateVehicleGroupInfo() {
@@ -43757,7 +43815,7 @@ function startOpShooting() {
     appData.campaign.opMapMode = 'selectTarget';
 
     const range = isMediumArtillery(selectedUnit) ? operationalMediumArtilleryRange(selectedUnit) : 3;
-    document.getElementById('mapInfo').innerHTML = `🎯 Выбран стрелок: ${selectedUnit.name}. Кликните по вражескому юниту в радиусе ${range} гексов.`;
+    document.getElementById('mapInfo').textContent = `🎯 Выбран стрелок: ${selectedUnit.name}. Кликните по вражескому юниту в радиусе ${range} гексов.`;
     document.getElementById('mapInfo').style.color = '#f1c40f';
 
     redrawOperationalMap();
@@ -44253,7 +44311,7 @@ function executeOpShoot(targets, distance) {
     const is82mmMortar = isMortarUnit(shooter) && artilleryCaliberMm(shooter) === 82;
     const maxRange = is82mmMortar ? 4 : ((shooter.name && shooter.name.includes('САУ')) ? 10 : 3);
     if (distance > maxRange) {
-        document.getElementById('mapInfo').innerHTML = `❌ Цель слишком далеко! (${distance} гексов, максимум ${maxRange})`;
+        document.getElementById('mapInfo').textContent = `❌ Цель слишком далеко! (${distance} гексов, максимум ${maxRange})`;
         cancelOpShooting();
         return;
     }
@@ -46031,7 +46089,7 @@ function createEnemyVehicleGroup(vehicles) {
 
   saveData();
   redrawOperationalMap();
-  document.getElementById('mapInfo').innerHTML = `✅ Создан вражеский отряд из ${vehicles.length} машин.`;
+  document.getElementById('mapInfo').textContent = `✅ Создан вражеский отряд из ${vehicles.length} машин.`;
 }
 
 function showEnemySplitDialog() {
@@ -46128,7 +46186,7 @@ function splitEnemyVehicleGroup(group) {
 
   saveData();
   redrawOperationalMap();
-  document.getElementById('mapInfo').innerHTML = `✅ Вражеский отряд разбит на ${groupSize} отдельных машин.`;
+  document.getElementById('mapInfo').textContent = `✅ Вражеский отряд разбит на ${groupSize} отдельных машин.`;
 }
 
 function removeSelectedEnemyOpUnit() {
@@ -46167,7 +46225,7 @@ function removeSelectedEnemyOpUnit() {
         redrawOperationalMap();
         updateOpPlaceSelect();
 
-        document.getElementById('mapInfo').innerHTML = `✅ Вражеский юнит "${selectedEnemy.name}" удалён с карты.`;
+        document.getElementById('mapInfo').textContent = `✅ Вражеский юнит "${selectedEnemy.name}" удалён с карты.`;
     }
 }
 
@@ -46206,7 +46264,7 @@ function removeSelectedOpUnit() {
         redrawOperationalMap();
         updateOpPlaceSelect();
 
-        document.getElementById('mapInfo').innerHTML = `✅ Юнит "${selectedUnit.name}" удалён с карты.`;
+        document.getElementById('mapInfo').textContent = `✅ Юнит "${selectedUnit.name}" удалён с карты.`;
     }
 }
  function applyDamageToUnit(index) {
@@ -49402,66 +49460,103 @@ function onlineGenCode() {
 }
 
 function onlineLeaveCurrentRoom() {
+    ONLINE.roomGeneration = (ONLINE.roomGeneration || 0) + 1;
+    ONLINE.advancedTurn = null;
     if (ONLINE.listener) { ONLINE.listener(); ONLINE.listener = null; }
     ONLINE.docRef = null; ONLINE.match = null; ONLINE.started = false; ONLINE.pendingStart = null;
 }
 
-function onlineCreateRoom() {
-    // ⚡ v13.033: защита — если Firebase не поднялся, показываем диагностику
-    if (!ONLINE.db) { openOnlineMenu(); return; }
-    onlineLeaveCurrentRoom();
-    const code = onlineGenCode();
-    ONLINE.code = code;
-    ONLINE.role = 'p1';
-    ONLINE.playerId = onlineGetPlayerId();
-    ONLINE.docRef = ONLINE.db.collection('matches').doc(code);
-    onlineBody('<p style="color:#aaa;">Создание комнаты…</p><div id="onlineLobbyBox" style="margin-top:14px;"></div>');
-    ONLINE.docRef.set({
-        code: code,
-        status: 'lobby',
-        scenario: 'valencia',
-        currentTurn: 1,
-        players: {
-            p1: { id: ONLINE.playerId, name: 'Игрок 1', faction: null, supportIds: [], ready: false, placed: false },
-            p2: null
-        },
-        state: null,
-        events: []
-    }).then(() => { onlineListen(); }).catch(e => {
-        console.error('onlineCreateRoom:', e);
-        onlineBody('<p style="color:#e74c3c;">❌ Не удалось создать комнату: ' + onlineEscape(e.message) + '</p>' +
-            '<button class="menu-btn" onclick="openOnlineMenu()">Назад</button>');
-    });
+function onlineCreateRoomRecord(db, ref, room) {
+  return db.runTransaction(async transaction => {
+    const snap = await transaction.get(ref);
+    if (snap.exists) throw new Error('ROOM_EXISTS');
+    transaction.set(ref, room);
+  });
 }
-
-function onlineJoinRoom() {
-    // ⚡ v13.033: защита — если Firebase не поднялся, показываем диагностику
-    if (!ONLINE.db) { openOnlineMenu(); return; }
-    const code = (document.getElementById('onlineJoinCode').value || '').trim().toUpperCase();
-    if (code.length !== 4) { alert('Введите код комнаты (4 символа).'); return; }
-    onlineLeaveCurrentRoom();
-    ONLINE.code = code;
-    ONLINE.playerId = onlineGetPlayerId();
-    ONLINE.docRef = ONLINE.db.collection('matches').doc(code);
-    onlineBody('<p style="color:#aaa;">Подключение к комнате ' + code + '…</p><div id="onlineLobbyBox" style="margin-top:14px;"></div>');
-    ONLINE.docRef.get().then(snap => {
-        if (!snap.exists) { onlineBody('<p>❌ Комната ' + code + ' не найдена.</p><button class="menu-btn" onclick="openOnlineMenu()">Назад</button>'); return; }
-        const m = snap.data();
-        const p2 = m.players ? m.players.p2 : null;
-        if (p2 && p2.id !== ONLINE.playerId) { alert('❌ Комната занята двумя игроками.'); onlineBody(''); return; }
-        if (m.status === 'playing') { alert('❌ Матч уже идёт, подключиться поздно.'); onlineBody(''); return; }
-        ONLINE.role = 'p2';
-        return ONLINE.docRef.update({
-            'players.p2': { id: ONLINE.playerId, name: 'Игрок 2', faction: null, supportIds: [], ready: false, placed: false }
-        });
-    }).then(() => { if (ONLINE.role === 'p2') onlineListen(); }).catch(e => {
-        onlineBody('<p style="color:#e74c3c;">❌ ' + onlineEscape(e.message) + '</p><button class="menu-btn" onclick="openOnlineMenu()">Назад</button>');
-    });
+function onlineJoinRoomRecord(db, ref, playerId) {
+  return db.runTransaction(async transaction => {
+    const snap = await transaction.get(ref);
+    if (!snap.exists) throw new Error('Комната не найдена.');
+    const room = snap.data();
+    const players = room.players || {};
+    if (players.p1 && players.p1.id === playerId) return 'p1';
+    if (players.p2 && players.p2.id === playerId) return 'p2';
+    if (players.p2) throw new Error('Комната занята двумя игроками.');
+    if (room.status !== 'lobby') throw new Error('Матч уже начался.');
+    transaction.update(ref, {'players.p2': {id:playerId, name:'Игрок 2', faction:null,
+      supportIds:[], ready:false, placed:false}});
+    return 'p2';
+  });
+}
+function onlineAdvanceTurnRecord(db, ref, expectedTurn) {
+  return db.runTransaction(async transaction => {
+    const snap = await transaction.get(ref);
+    if (!snap.exists) return false;
+    const room = snap.data();
+    const turn = typeof room.turn === 'number' ? room.turn : 1;
+    const players = room.players || {};
+    if (room.status !== 'playing' || turn !== expectedTurn ||
+        !players.p1 || !players.p1.turnDone || !players.p2 || !players.p2.turnDone) return false;
+    const next = {turn:turn + 1, time:((Number(room.time) || 0) + 10) % 1440,
+      'players.p1.turnDone':false, 'players.p2.turnDone':false};
+    if (room.tacticalPause && room.tacticalPause.active && turn + 1 > Number(room.tacticalPause.operationalTurn || 0)) {
+      next.tacticalPause = null;
+    }
+    transaction.update(ref, next);
+    return true;
+  });
+}
+async function onlineCreateRoom() {
+  if (!ONLINE.db) { openOnlineMenu(); return; }
+  onlineLeaveCurrentRoom();
+  const generation = ONLINE.roomGeneration;
+  const db = ONLINE.db, playerId = onlineGetPlayerId();
+  onlineBody('<p>Создание комнаты…</p><div id="onlineLobbyBox"></div>');
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = onlineGenCode(), ref = db.collection('matches').doc(code);
+      try {
+        await onlineCreateRoomRecord(db, ref, {code, status:'lobby', scenario:'valencia', currentTurn:1,
+          players:{p1:{id:playerId,name:'Игрок 1',faction:null,supportIds:[],ready:false,placed:false},p2:null},
+          state:null,events:[]});
+      } catch (error) {
+        if (error.message === 'ROOM_EXISTS' && attempt < 4) continue;
+        throw error;
+      }
+      if (ONLINE.roomGeneration !== generation) return;
+      Object.assign(ONLINE, {code, role:'p1', playerId, docRef:ref});
+      onlineListen();
+      return;
+    }
+  } catch (error) {
+    if (ONLINE.roomGeneration !== generation) return;
+    onlineBody('<p>Не удалось создать комнату: ' + onlineEscape(error.message) + '</p><button onclick="openOnlineMenu()">Назад</button>');
+  }
+}
+async function onlineJoinRoom() {
+  if (!ONLINE.db) { openOnlineMenu(); return; }
+  const code = (document.getElementById('onlineJoinCode').value || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{4}$/.test(code)) { alert('Введите код комнаты (4 буквы или цифры).'); return; }
+  onlineLeaveCurrentRoom();
+  const generation = ONLINE.roomGeneration;
+  const playerId = onlineGetPlayerId(), ref = ONLINE.db.collection('matches').doc(code);
+  onlineBody('<p>Подключение к комнате ' + onlineEscape(code) + '…</p><div id="onlineLobbyBox"></div>');
+  try {
+    const role = await onlineJoinRoomRecord(ONLINE.db, ref, playerId);
+    if (ONLINE.roomGeneration !== generation) return;
+    Object.assign(ONLINE, {code, role, playerId, docRef:ref});
+    onlineListen();
+  } catch (error) {
+    if (ONLINE.roomGeneration !== generation) return;
+    onlineBody('<p>Не удалось подключиться: ' + onlineEscape(error.message) + '</p><button onclick="openOnlineMenu()">Назад</button>');
+  }
 }
 
 function onlineListen() {
     if (ONLINE.listener) { try { ONLINE.listener(); } catch (e) {} }
-    ONLINE.listener = ONLINE.docRef.onSnapshot(snap => {
+    const subscribedRef = ONLINE.docRef;
+    ONLINE.listener = subscribedRef.onSnapshot(snap => {
+        if (ONLINE.docRef !== subscribedRef) return;
         ONLINE.match = snap.data();
         renderOnlineLobby();
         // ⚡ v13.039: синхронизация карты/ходов по снапшоту
@@ -49471,7 +49566,7 @@ function onlineListen() {
     }, err => {
         console.error('online listener error', err);
         onlineBody(`
-          <p style="color:#e74c3c;">❌ Ошибка соединения с комнатой: ${err.message}</p>
+          <p style="color:#e74c3c;">❌ Ошибка соединения с комнатой: ${onlineEscape(err.message)}</p>
           <button class="menu-btn" onclick="openOnlineMenu()">Назад</button>
         `);
     });
@@ -50347,29 +50442,19 @@ function onlineOnSnapshotSync() {
     if (m.status === 'playing') {
         // ⚡ v13.042 (R27#6): ОБА игрока завершили текущий ход — переходим
         //    к следующему (turn+1, time+10, сброс turnDone).
-        //    Писать может ЛЮБОЕ устройство (оба пишут ОДНОВРЕМЕННО ОДИНАКОВОЕ
-        //    значение — idempotent), дедупликация по ONLINE.advancedTurn:
-        //    один инкремент на завершённый номер хода.
+        // A transaction re-reads the current turn/readiness. The local flag
+        // only suppresses duplicate proposals; it is not the concurrency guard.
         const p1d = !!(m.players && m.players.p1 && m.players.p1.turnDone);
         const p2d = !!(m.players && m.players.p2 && m.players.p2.turnDone);
         const curTurnNo = (typeof m.turn === 'number') ? m.turn : 1;
         if (p1d && p2d && ONLINE.advancedTurn !== curTurnNo) {
-            const newTurn = curTurnNo + 1;
-            const t = ((typeof m.time === 'number' ? m.time : 0) + 10) % 1440;
             ONLINE.advancedTurn = curTurnNo;
-            log('⏩ Оба игрока завершили ход ' + curTurnNo + ' — начинается ход ' + newTurn + '.');
-            const nextMatchState = {
-                turn: newTurn,
-                time: t,
-                'players.p1.turnDone': false,
-                'players.p2.turnDone': false
-            };
-            if (m.tacticalPause && m.tacticalPause.active && newTurn > Number(m.tacticalPause.operationalTurn || 0)) {
-                nextMatchState.tacticalPause = null;
-            }
-            ONLINE.docRef.update(nextMatchState).catch(e => {
-                ONLINE.advancedTurn = null; // попытка повторится на следующем снапшоте
-                console.warn('onlineAdvanceTurn:', e.message);
+            const ref = ONLINE.docRef;
+            onlineAdvanceTurnRecord(ONLINE.db, ref, curTurnNo).then(advanced => {
+                if (ONLINE.docRef === ref && advanced) log('⏩ Начинается ход ' + (curTurnNo + 1) + '.');
+            }).catch(error => {
+                if (ONLINE.docRef === ref) ONLINE.advancedTurn = null;
+                console.warn('onlineAdvanceTurn:', error.message);
             });
         }
         onlineOnTurnChanged();
