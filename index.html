@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.198 — операция</title>
+  <title>Боевой модуль v13.199 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -19,7 +19,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.198</h1>
+    <h1>⚔️ Боевой модуль v13.199</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -32,7 +32,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.198</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.199</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -84,7 +84,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.198 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.199 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -658,7 +658,7 @@ const SUPPLY_DEPOT_MAX = { ammoSmall: 1200, grenades: 300, ammoOrdnance: 80 };
 //    каждой стороне отдельно: у A.I.R.F. — 0,11, у BeVe — 7,0.
 const SUPPLY_EVAC_POINTS = { 'BeVe': { col: 7, row: 0 }, 'A.I.R.F.': { col: 0, row: 11 } };
 
-var APP_VERSION = 'v13.198';
+var APP_VERSION = 'v13.199';
 // v13.183: terrain layers as ZONES (contours), road links cost 1 with no penalty,
 //          no layer graphics on the campaign map; supply/combat read zones.
 // v13.172: full recon routes/observation marks, safe supply corridors, unit card editor, review fixes.
@@ -22227,7 +22227,7 @@ function tacticalPtoCrewState(squad) {
   return { entries, assigned, crewCount: assigned.size, originalAlive };
 }
 function tacticalEnsurePtoCrewOrigins(squad) {
-  if (!squad || !Array.isArray(squad.fighters)) return false;
+  if (!squad || !Array.isArray(squad.fighters) || !tacticalIsPtoCrewSquad(squad)) return false;
   if (squad.tacticalPtoOriginalCrewMarked) return true;
   const entries = tacticalCrewWeaponsByType(squad, ['at_gun']);
   if (!entries.length) return false;
@@ -22240,6 +22240,13 @@ function tacticalEnsurePtoCrewOrigins(squad) {
 }
 function tacticalIsPtoCrewSquad(squad) {
   if (!squad || !Array.isArray(squad.crewInstances)) return false;
+  // Mounted cannons share the at_gun weapon type, but their crews are not
+  // towed-gun teams (Landsverk and CL/39 have two gunners, not three).
+  // Keep infantry movement/abandonment rules away from vehicles, including
+  // generated or legacy vehicles whose armor field may be absent.
+  if (squad.armor || squad.isVehicle || squad.mobilityType === 'vehicle' || squad.mobility === 'vehicle' ||
+      (typeof vehicleFamilyFor === 'function' && vehicleFamilyFor(squad)) ||
+      (typeof isArmoredUnit === 'function' && isArmoredUnit(squad))) return false;
   let weapons = [];
   try { weapons = getFactionCrewWeapons(squad.faction) || []; } catch (e) {}
   return squad.crewInstances.some(crew => {
@@ -30088,6 +30095,9 @@ if (appData.map.mode === 'move' && shouldShowTacticalReachability() && appData.m
   }
   ctx.restore();
 }
+      // Sectors span several cells: draw only after every hex, relief and
+      // movement highlight, otherwise later terrain tiles erase the fan.
+      drawTacticalVehicleSectorOverlay(ctx, size);
       // ⚡ v13.147 (п.D3): кольца окружения. Синхронизируем флаги (без давления
       //    на дух) и рисуем пунктирное кольцо — видит его только окружающая
       //    сторона; окружённый получает лишь уведомление и значок.
@@ -30109,6 +30119,24 @@ if (appData.map.mode === 'move' && shouldShowTacticalReachability() && appData.m
           hexEditorState.kind === 'initialFortification') {
         drawInitialDotSectorOverlay(ctx, size);
       }
+    }
+
+    function drawTacticalVehicleSectorOverlay(ctx, size) {
+      const map = appData && appData.map;
+      if (!map || !map.grid) return;
+      const selected = new Set([map.selectedMoveSquadIdx,
+        typeof currentSquadIndex !== 'undefined' ? currentSquadIndex : null]);
+      // Use the same layout as drawHex, including cells with multiple units.
+      (map.centers || []).forEach(center => {
+        const cell = map.grid[center.key];
+        if (!cell || !(cell.squadIds || []).some(id => selected.has(id))) return;
+        const layout = tacticalCellIconLayout(cell, center.x, center.y, size, center.key);
+        layout.player.forEach((id, index) => {
+          if (!selected.has(id)) return;
+          const pos = layout.playerPositions[index];
+          drawTacticalVehicleSectorLines(ctx, pos.x, pos.y, size, center.key, appData.squads[id]);
+        });
+      });
     }
 
     // Линии индивидуальных секторов ДОТа: орудие и каждая пулемётная амбразура
@@ -30563,13 +30591,6 @@ if (squadIds.length > 0) {
     }
     // ------------------------------------------------
 
-    // Сектора показываем при выборе отряда как для движения, так и через селектор/панель боя.
-    // ⚡ v13.099 (п.30): сектора выбранной машины (курс, курсовой/кормовой, круговые)
-    const tacticalVehicleSelected = appData.map.selectedMoveSquadIdx === squadId ||
-      (typeof currentSquadIndex !== 'undefined' && currentSquadIndex === squadId);
-    if (tacticalVehicleSelected && typeof drawTacticalVehicleSectorLines === 'function') {
-      drawTacticalVehicleSectorLines(ctx, drawX, drawY, size, hexKey, squad);
-    }
     // Постоянная стрелка курса для всей бронетехники обеих сторон
     if (squad && squad.armor && typeof drawTacticalVehicleFacingArrow === 'function') {
       drawTacticalVehicleFacingArrow(ctx, drawX, drawY, size, squad);
