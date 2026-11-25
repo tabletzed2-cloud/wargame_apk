@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.199 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.200 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.106: маркеры сборки синхронизированы (index.html APP_VERSION и
 //    4 модуля ядра теперь v13.106). Раньше verifyCachedBuild() отменяла
 //    установку — старый SW оставался активен и отдавал из кэша прежние
@@ -17,7 +17,7 @@
 // ⚡ v13.061: cache update for retreat, turn-order and initial fortification fixes.
 // v13.072: invalidate offline code cache after the reliable-update (cache: 'reload'
 //    precache + build-marker verification) and build self-check fixes.
-const CACHE_NAME = 'wargame-v13.199';
+const CACHE_NAME = 'wargame-v13.200';
 
 const ASSETS = [
     './images/AIRF/Взвод снабжения АИРФ №1.png',
@@ -403,21 +403,24 @@ const ASSETS = [
 //    пропавшая/переименованная картинка больше НЕ блокирует обновление
 //    приложения (раньше любой 404 в списке ASSETS срывал установку всего
 //    сервис-воркера, и устройства оставались на старой версии).
-const CORE_ASSETS = [
-    './',
+const CORE_ASSETS = ['./',
     './index.html',
-    './css/style.css',
+    './js/firebase-offline.js',
     './js/data.js',
-    './js/weapons.js',
-    './js/cards.js',
-    './js/templates.js',
     './js/hexmaps.js',
     './js/recon.js',
     './js/online_battles.js',
     './js/map_actions.js',
     './js/placement.js',
+    './js/weapons.js',
+    './js/cards.js',
+    './js/templates.js',
+    './js/operational_ai.js',
+    './js/tactical_ai.js',
+    './js/operational_management.js',
     './js/operational_ui.js',
-];
+    './css/style.css',
+    './css/operational_ui.css'];
 
 const HEX_MAP_INDEX = './maps/index.json';
 
@@ -431,10 +434,8 @@ const BUILD_MARKER = '⚡ BUILD-МАРКЕР: ' + CACHE_VERSION;
 // Файлы, по которым проверяется версия кэша (маркер в модулях ядра + версия в index.html)
 const MARKED_ASSETS = [
     { url: './index.html', needle: "var APP_VERSION = '" + CACHE_VERSION + "';" },
-    { url: './js/data.js', needle: BUILD_MARKER },
-    { url: './js/hexmaps.js', needle: BUILD_MARKER },
-    { url: './js/templates.js', needle: BUILD_MARKER },
-    { url: './js/operational_ui.js', needle: BUILD_MARKER },
+    ...CORE_ASSETS.filter(url => url.endsWith('.js') && !url.endsWith('/firebase-offline.js'))
+      .map(url => ({url, needle:BUILD_MARKER}))
 ];
 // Предзагрузка ядра в обход HTTP-кэша браузера
 function precacheCore(cache) {
@@ -460,7 +461,7 @@ function precacheSoft(cache, urls) {
   const worker = () => {
     const url = queue.shift();
     if (url === undefined) return Promise.resolve(null);
-    return cache.add(url).catch((err) => {
+    return cache.add(new Request(url, {cache:'reload'})).catch((err) => {
       console.warn('[SW] не удалось закэшировать (пропущено):', url, err && err.message);
       return null;
     }).then(worker);
@@ -524,7 +525,7 @@ self.addEventListener('message', (event) => {
   }
 });
 
-// ⚡ v13.024: при активации удаляем ВСЕ старые кэши.
+// Delete only this application’s current and legacy cache namespaces.
 //    Критично: caches.match() ищет по ВСЕМ кэшам, поэтому без этой
 //    очистки даже с новым именем кэша отдавались бы старые файлы
 //    из старого кэша (корневая причина «старого» data.js на устройствах).
@@ -532,7 +533,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+        keys.filter((key) => key !== CACHE_NAME && (key.startsWith('wargame-apk-') || /^wargame-v[0-9]/.test(key))).map((key) => caches.delete(key))
       )
     ).then(() => {
       if ('clients' in self) return self.clients.claim();

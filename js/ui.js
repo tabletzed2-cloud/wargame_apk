@@ -1,3 +1,4 @@
+// ⚡ BUILD-МАРКЕР: v13.200
 // js/ui.js — интерфейсные хелперы
 (function () {
   'use strict';

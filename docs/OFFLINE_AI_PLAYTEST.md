@@ -26,16 +26,16 @@
 Запускайте из корня репозитория:
 
 ```sh
-node "test_harness /checkhtml.js"
-node "test_harness /regression_offline_ai_campaign.js"
-node "test_harness /regression_offline_ai_retreat.js"
-node "test_harness /regression_offline_ai_signals.js"
-node "test_harness /regression_offline_ai_targeting.js"
-node "test_harness /regression_tactical_ai_dispatch.js"
-node "test_harness /regression_tactical_ai_phase.js"
-node "test_harness /regression_tactical_ai_special_actions.js"
-node "test_harness /regression_tactical_outcome_sides.js"
-node "test_harness /regression_tactical_side_action_context.js"
-node "test_harness /regression_tactical_targeting_sides.js"
-node "test_harness /regression_v13107_playtest_fixes.js"
+node "test_harness/checkhtml.js"
+node "test_harness/regression_offline_ai_campaign.js"
+node "test_harness/regression_offline_ai_retreat.js"
+node "test_harness/regression_offline_ai_signals.js"
+node "test_harness/regression_offline_ai_targeting.js"
+node "test_harness/regression_tactical_ai_dispatch.js"
+node "test_harness/regression_tactical_ai_phase.js"
+node "test_harness/regression_tactical_ai_special_actions.js"
+node "test_harness/regression_tactical_outcome_sides.js"
+node "test_harness/regression_tactical_side_action_context.js"
+node "test_harness/regression_tactical_targeting_sides.js"
+node "test_harness/regression_v13107_playtest_fixes.js"
 ```

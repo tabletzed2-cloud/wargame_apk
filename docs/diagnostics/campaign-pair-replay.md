@@ -58,7 +58,7 @@
 ## Повторный запуск
 
 ```sh
-NODE_PATH=<modules> node 'test_harness /diagnose_campaign_pair.cjs' \
+NODE_PATH=<modules> node 'test_harness/diagnose_campaign_pair.cjs' \
   /path/to/first-campaign.json /path/to/second-campaign.json
 ```
 

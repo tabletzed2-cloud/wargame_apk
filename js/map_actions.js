@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.199
+// ⚡ BUILD-МАРКЕР: v13.200
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -738,7 +738,7 @@ function mapShowQuickActionMenu(idx, hexKey, clientX, clientY) {
 function mapActionInfo(msg, color) {
     try {
         const mi = document.getElementById('mapInfo');
-        if (mi) { mi.innerHTML = msg; mi.style.color = color || '#f1c40f'; }
+        if (mi) { mi.innerHTML = safeLogHtml(msg); mi.style.color = color || '#f1c40f'; }
     } catch (e) {}
 }
 
@@ -913,7 +913,25 @@ function mapSelectSquadOnMap(i, key) {
     }
     appData.map.selectedMoveSquadIdx = i;
     if (!appData.squads[i].hexPos) appData.squads[i].hexPos = key.split(',').map(Number);
-    if (typeof recalcReachable === 'function') { try { recalcReachable(appData.squads[i], key); } catch (e) {} }
+    // Never reuse routes belonging to the previous selection after a failure.
+    appData.map.reachableHexes = [];
+    appData.map.reachableCosts = {};
+    appData.map.reachablePrevious = {};
+    appData.map.reachableRouteStates = {};
+    try {
+        if (typeof recalcReachable !== 'function') throw new Error('Расчёт маршрута недоступен');
+        recalcReachable(appData.squads[i], key);
+    } catch (error) {
+        appData.map.reachableHexes = [];
+        appData.map.reachableCosts = {};
+        appData.map.reachablePrevious = {};
+        appData.map.reachableRouteStates = {};
+        console.error('recalcReachable failed', {index:i, key, error});
+        mapActionsOnSelect(i);
+        mapActionInfo('Не удалось рассчитать маршрут. Выберите отряд повторно; если ошибка повторяется, экспортируйте сохранение.', '#e74c3c');
+        if (typeof redrawMap === 'function') redrawMap();
+        return false;
+    }
     mapActionInfo(`Выбран отряд «${appData.squads[i].name}» (гекс ${key}). Кликните по гексу для перемещения или выберите действие под картой.`);
     // ⚡ v13.132 (п.4): краткая сводка по юниту при клике на него на тактической карте
     try { if (typeof showTacticalSquadSummary === 'function') showTacticalSquadSummary(appData.squads[i]); } catch (e) {}
