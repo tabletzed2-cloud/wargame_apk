@@ -26,7 +26,7 @@ function ok(name, fn) {
 
 // ---------- п.1: лимит драфта в toggleBattleCardSelection ----------
 ok('п.1 toggleBattleCardSelection использует cardDraftBonusLimit (2/3/4)', () => {
-  assert.ok(/const limit = cardDraftBonusLimit\(selectedNames\);/.test(HTML),
+  assert.ok(/const limit = cardDraftBonusLimit\(selectedNames,/.test(HTML),
     'toggleBattleCardSelection должен считать лимит через cardDraftBonusLimit');
   assert.ok(!/willHaveTradeSpirit \|\| willHaveCommissioner\) \? 4 : 3/.test(HTML),
     'старый литерал 3/4 должен быть удалён');

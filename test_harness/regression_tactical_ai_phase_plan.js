@@ -47,6 +47,7 @@ const context = {
   console,
 };
 vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js/tactical_rules.js'), 'utf8'), context);
 vm.runInContext(source, context);
 const plan = vm.runInContext('tacticalEnemyAI.buildPhasePlan(appData.map.enemySquads)', context);
 assert.equal(plan.attacking, true);

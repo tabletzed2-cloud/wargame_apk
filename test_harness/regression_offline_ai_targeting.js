@@ -24,6 +24,7 @@ const context = {
   executeOpShootAt: targets => { selectedTarget = targets[0]; context.opShootingState.active = false; context.opShootingState.shooter.firedThisTurn = true; }
 };
 vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js/tactical_rules.js'), 'utf8'), context);
 vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', 'operational_ai.js'), 'utf8'), context);
 context.operationalAIAmmoAllowsShot = (_unit, target) => target.ammoAvailable !== false;
 

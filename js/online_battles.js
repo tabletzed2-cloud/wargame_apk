@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.200
+// ⚡ BUILD-МАРКЕР: v13.201
 // v13.062: monotonic turn handoff; synchronize routing and melee without stale phase rollback.
 // ⚡ v13.061: sync retreat state and attacker/defender phase in online battle snapshots.
 // ============================================================
@@ -161,6 +161,9 @@ function onlineBattleSnapshot(battle, status) {
         activeSide: activeSide,
         phaseRevision: battle.phaseRevision || 0,
         entryDir: pl ? (pl.entryDir || null) : null,
+        battleMode:pl && pl.battleMode || 'normal',
+        entryDirs:pl && pl.entryDirs || null,
+        firstSide:pl && pl.firstSide || null,
         id: battle.id,
         authority: onlineBattleAuthority(battle),
         hexKey: battle.hexKey,
@@ -425,7 +428,10 @@ function onlineBattleAuthority(battle) {
         id: mirror ? (battle.onlineOppBattleId || battle.id) : battle.id,
         hexKey: String(battle.hexKey),
         attackerRole: battle.placement && battle.placement.attackerSide === 'enemy' ? other : mine,
-        entryDir: battle.placement && battle.placement.entryDir || null
+        entryDir: battle.placement && battle.placement.entryDir || null,
+        battleMode:battle.placement && battle.placement.battleMode || 'normal',
+        firstRole:battle.placement && battle.placement.firstSide === 'enemy' ? other : mine,
+        entryDirs:battle.placement && battle.placement.entryDirs ? {[mine]:battle.placement.entryDirs.player,[other]:battle.placement.entryDirs.enemy} : null
     };
     return battle.onlineAuthority;
 }
@@ -437,7 +443,10 @@ function onlineReconcileBattleAuthority(battle, e, senderRole) {
         id: e.startedBy === 'opponent' ? (e.oppBattleId || e.id) : e.id,
         hexKey: String(e.hexKey),
         attackerRole: e.attacker === 'opp' ? ONLINE.role : senderRole,
-        entryDir: e.entryDir || null
+        entryDir: e.entryDir || null,
+        battleMode:e.battleMode || 'normal',
+        firstRole:e.firstSide === 'enemy' ? ONLINE.role : senderRole,
+        entryDirs:e.entryDirs ? {[senderRole]:e.entryDirs.player,[ONLINE.role]:e.entryDirs.enemy} : null
     };
     const rank = value => Number.isFinite(Number(value.id)) ? Number(value.id) : Number.MAX_SAFE_INTEGER;
     const wins = rank(remote) < rank(local) || (rank(remote) === rank(local) && remote.role < local.role) ||
@@ -446,7 +455,11 @@ function onlineReconcileBattleAuthority(battle, e, senderRole) {
     if (wins && /^-?\d+,-?\d+$/.test(String(remote.hexKey))) {
         battle.onlineAuthority = {role:remote.role,id:remote.id,hexKey:String(remote.hexKey),
             attackerRole:['p1','p2'].includes(remote.attackerRole) ? remote.attackerRole : remote.role,
-            entryDir:remote.entryDir || null};
+            entryDir:remote.entryDir || null,
+            battleMode:remote.battleMode === 'meeting' ? 'meeting' : 'normal',
+            firstRole:['p1','p2'].includes(remote.firstRole) ? remote.firstRole : remote.attackerRole,
+            entryDirs:remote.entryDirs && PLACEMENT_DIRS.includes(remote.entryDirs.p1) && PLACEMENT_DIRS.includes(remote.entryDirs.p2)
+                ? {p1:remote.entryDirs.p1,p2:remote.entryDirs.p2} : null};
         changed = true;
     }
     const authority = battle.onlineAuthority;
@@ -467,6 +480,22 @@ function onlineReconcileBattleAuthority(battle, e, senderRole) {
             if (onlineBattleIsLive(battle) && appData.map) appData.map.activeSide = side;
         }
         changed = true;
+    }
+    if (battle.placement) {
+        const meeting = authority.battleMode === 'meeting' && authority.entryDirs;
+        battle.battleMode = battle.placement.battleMode = meeting ? 'meeting' : 'normal';
+        if (meeting) {
+            const other = ONLINE.role === 'p1' ? 'p2' : 'p1';
+            battle.placement.entryDirs = {player:authority.entryDirs[ONLINE.role],enemy:authority.entryDirs[other]};
+            battle.placement.firstSide = authority.firstRole === ONLINE.role ? 'player' : 'enemy';
+            if (Number(battle.phaseRevision || 0) === 0) {
+                battle.activeSide = battle.placement.firstSide;
+                if (battle.tacticalMap) battle.tacticalMap.activeSide = battle.activeSide;
+                if (onlineBattleIsLive(battle) && appData.map) appData.map.activeSide = battle.activeSide;
+            }
+        }
+        if (battle.tacticalMap) battle.tacticalMap.battleMode = battle.battleMode;
+        if (onlineBattleIsLive(battle) && appData.map) appData.map.battleMode = battle.battleMode;
     }
     return changed;
 }

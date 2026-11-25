@@ -17,6 +17,7 @@ function loadFunction(source, name, context) {
 {
   const ctx = { PLACEMENT_DIRS: ['E','NE','NW','W','SW','SE'] };
   vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js/tactical_rules.js'), 'utf8'), ctx);
   loadFunction(placement, 'resolveBattleEntry', ctx);
   const entry = vm.runInContext("resolveBattleEntry([{name:'defender'}],[{name:'attacker'}],'4,4',{entry:{attackerSide:'enemy',entryDir:'NE',source:'offline-ai'}})", ctx);
   assert.deepEqual(JSON.parse(JSON.stringify(entry)), { attackerSide: 'enemy', entryDir: 'NE', source: 'offline-ai' });

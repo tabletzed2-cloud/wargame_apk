@@ -29,6 +29,7 @@ function makeSelectionContext(actionId, distance, target, weapon = null) {
     console,
   };
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js/tactical_rules.js'), 'utf8'), context);
   vm.runInContext(source, context);
   return { context, shooter };
 }
@@ -76,6 +77,7 @@ const infantry = { name: 'Пехота', detected: true, fighters: [{ hp: 2 }] }
     console,
   };
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js/tactical_rules.js'), 'utf8'), context);
   vm.runInContext(source, context);
   const plan = vm.runInContext('tacticalEnemyAI.movementPlan(appData.map.enemySquads[0], 0)', context);
   assert.equal(plan && plan.destination, '1,0', 'AI can close into a sole visible infantry target to enter melee');

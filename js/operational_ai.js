@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.200
+// ⚡ BUILD-МАРКЕР: v13.201
 /* Single-player campaign AI. This script intentionally does nothing in online games. */
 function isOfflineCampaignAIEnabled() {
     const campaign = (typeof appData !== 'undefined' && appData) ? appData.campaign : null;
@@ -147,6 +147,11 @@ function operationalAICardScore(card, unit) {
     const text = `${card.effect || ''} ${card.desc || ''}`.toLowerCase();
     const role = operationalAIRole(unit);
     let score = 1;
+    if (tacticalIsEngineer(unit)) {
+        if (/термит/.test(name)) score += 100;
+        else if (/огнем[её]т|рокс/.test(name)) score += 90;
+        else if (/дымовые гранаты|двойной бк/.test(name)) score += 20;
+    }
     if (/двойной бк|индивидуальный перевязочный пакет|дополнительный па[её]к|ветераны/.test(name)) score += 4;
     if (/дымовые гранаты|бутылки с зажигательной смесью|фосфорные гранаты|кумулятивные винтовочные гранаты/.test(name)) score += 2;
     if (/меткост|точност|боевой дух|укрыти|маскировк|подавлен/.test(text)) score += 1;
@@ -196,7 +201,7 @@ function operationalAIEnsureEnemyCards() {
             const selected = [];
             const targets = {};
             for (const item of candidates) {
-                if (selected.length >= 2) break;
+                if (selected.length >= (typeof cardDraftBonusLimit === 'function' ? cardDraftBonusLimit(selected.map(x => x.card.name),unit) : tacticalIsEngineer(unit) ? 3 : 2)) break;
                 if (selected.some(entry => entry.card.name === item.card.name)) continue;
                 const spec = (typeof getCardTargetSpec === 'function') ? getCardTargetSpec(item.card.name) : null;
                 let targetNames = [];
@@ -245,9 +250,10 @@ function operationalAIRole(unit) {
     if (!unit) return 'reserve';
     if (isStaticOpUnit(unit)) return 'fortification';
     if (typeof isMediumArtillery === 'function' && isMediumArtillery(unit)) return 'artillery';
+    if (/развед/i.test(name) || unit.type === 'recon_platoon') return 'recon';
+    if (tacticalIsEngineer(unit)) return 'sapper';
     if (/штаб/i.test(name) || unit.type === 'battalion_hq' || unit.type === 'company_hq' || unit.type === 'hq') return 'command';
     if (/снабж|обоз|носильщик|склад/i.test(name)) return 'logistics';
-    if (/развед/i.test(name) || unit.type === 'recon_platoon') return 'recon';
     if (/самокат|велосипед|мотоцикл/i.test(name) || /bicycle|motorcycle|cyclist/i.test(String(unit.type || ''))) return 'mobile';
     if ((typeof hasAtGunWeapons === 'function' && hasAtGunWeapons(unit)) &&
         !(typeof isArmoredUnit === 'function' && isArmoredUnit(unit))) return 'anti_armor';
@@ -256,7 +262,7 @@ function operationalAIRole(unit) {
 }
 
 function operationalAIRoleCanAdvance(role) {
-    return role === 'infantry' || role === 'mobile' || role === 'recon';
+    return role === 'infantry' || role === 'mobile' || role === 'recon' || role === 'sapper';
 }
 
 function operationalAIPlanRouteTask(unit, doctrine) {
@@ -423,6 +429,9 @@ function operationalAIPlanAssignments(targets) {
             if (!best || score < best.score) best = { objective, route, score, planStep };
         };
         targets.objectives.forEach(objective => consider(objective, 0, null));
+        if (unitRole === 'sapper') (campaign.opUnits || []).filter(target => target && !target.isDestroyed &&
+            (isStaticOpUnit(target) || target.isDugIn || (typeof getOpHexTypes === 'function' && getOpHexTypes(target.col,target.row).some(type => /trenches|fortification|bunker/.test(String(type)))) || (target.squads || []).some(s => s && (s.fixedTacticalPosition || s.isDugIn || s.inTrench))))
+            .forEach(target => consider({col:Number(target.col),row:Number(target.row),objectiveId:'sapper-fort-'+target.col+','+target.row,kind:'fortification',name:target.name},18,null));
         const routeTask = operationalAIPlanRouteTask(unit, doctrine);
         if (routeTask) consider(routeTask.objective, 8, routeTask.planStep);
         strategyTasks.filter(task => task.role === unitRole &&

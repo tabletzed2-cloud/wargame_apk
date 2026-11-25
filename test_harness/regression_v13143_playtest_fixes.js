@@ -188,6 +188,7 @@ console.log('== v13.143 playtest fixes ==');
         return { key: '0,0', col: 0, row: 0 };
       }
       function tacticalActionAllowed() { return true; }
+      function tacticalHasLineOfSight() { return true; }
       function renderMapActionPanel() {} function redrawMap() {} function mapActionInfo() {}
       appData.map.pendingFlamethrower = { squadIdx: 0 };
       // d6 → 3 (попадание): детерминированный генератор из песочницы
