@@ -99,6 +99,67 @@ test('7: обездвиженная тактическая бронетехни�
   assert.match(TACTICAL_AI, /getMovementCost\(squad, current\.key, next/);
 });
 
+test('7a: generated isVehicle squads without an armor object still use vehicle movement rules', () => {
+  const ctx = sandbox({
+    appData: { squads: [], map: { grid: {
+      '0,0': { type: 'grass', level: 0 }, '1,0': { type: 'bushes', level: 0 },
+      '2,0': { type: 'forest', level: 0 }
+    }, enemySquads: [] } },
+    TERRAIN_DATA: { grass: {}, bushes: {}, forest: {} },
+    getScopedActiveCardsForSquad: () => [],
+    tacticalFireFieldAt: () => false,
+    tacticalIsPtoCrewSquad: () => false,
+    tacticalIsSlowWeaponCrew: () => false,
+    tacticalDogSledEligible: () => false,
+    getHexNeighbors: () => ['1,0', '2,0'],
+    vehicleFamilyFor: () => null,
+    isArmoredUnit: () => false,
+    tacticalTaalkwetieApPenalty: () => 0
+  });
+  vm.runInContext(sliceFunction(HTML, 'getMovementCost'), ctx);
+  vm.runInContext(sliceFunction(HTML, 'getMaxAP'), ctx);
+  vm.runInContext('const TACTICAL_MAP_SIZE = 20;', ctx);
+  vm.runInContext(sliceFunction(HTML, 'getHexNeighbors'), ctx);
+  vm.runInContext(sliceFunction(HTML, 'calculateReachableHexes'), ctx);
+  vm.runInContext(sliceFunction(HTML, 'tacticalBuildMovePath'), ctx);
+  const vehicle = { name: 'Unit vehicle 04', isVehicle: true, hexPos: [0, 0], fighters: [{hp:3},{hp:3}] };
+  ctx.vehicle = vehicle;
+  assert.equal(vm.runInContext("getMovementCost(vehicle, '0,0', '1,0', false, 6)", ctx), 1,
+    'an armor-less generated vehicle can enter bushes at vehicle cost');
+  assert.equal(vm.runInContext("getMovementCost(vehicle, '0,0', '2,0', false, 6)", ctx), 3,
+    'an armor-less generated vehicle uses vehicle forest movement cost');
+  assert.equal(vm.runInContext('getMaxAP(vehicle)', ctx), 6,
+    'vehicle AP is based on its crew size, not the infantry default');
+  vm.runInContext("var routes = {}; var reachable = calculateReachableHexes(vehicle, '0,0', 6, false, routes);", ctx);
+  assert.ok(ctx.reachable['1,0'] !== undefined, 'vehicle movement range includes legal adjacent bush hex');
+  assert.deepEqual(Array.from(vm.runInContext("tacticalBuildMovePath('0,0', '1,0', routes.previous)", ctx)), ['1,0'],
+    'the reachable destination has a usable movement path');
+  ctx.appData.squads = [vehicle];
+  ctx.appData.map.grid['0,0'].squadIds = [0];
+  ctx.appData.map.grid['1,0'].squadIds = [];
+  vm.runInContext(`
+    let __tacticalMovement = null;
+    let __tacticalMovementToken = 0;
+    let currentTurn = 1;
+    let actionPoints = [{ap:6,maxAp:6}];
+    function getAP(i) { return actionPoints[i].ap; }
+    function tacticalActionAllowed() { return true; }
+    function spendAP(i, amount) { if (actionPoints[i].ap < amount) return false; actionPoints[i].ap -= amount; return true; }
+    function recalcReachable() {}
+    function tacticalMarkSquadMoved(s) { s.movedThisTurn = true; }
+    function saveData() {}
+    function updateUI() {}
+    function redrawMap() {}
+    function log() {}
+    function setTimeout(fn) { fn(); }
+  `, ctx);
+  vm.runInContext(sliceFunction(HTML, 'tacticalMoveAlongPath'), ctx);
+  assert.equal(vm.runInContext("tacticalMoveAlongPath(0, ['1,0'], '1,0')", ctx), true,
+    'the selected generated vehicle can start movement');
+  assert.deepEqual(Array.from(vehicle.hexPos), [1, 0], 'the vehicle actually enters the destination hex');
+  assert.equal(vm.runInContext('actionPoints[0].ap', ctx), 5, 'vehicle movement spends its AP');
+});
+
 test('8: телефонная линия теряется только на шаге пересечения, не от простого нахождения в бою', () => {
   const integrity = sliceFunction(HTML, 'checkPhoneLinesIntact');
   assert.match(integrity, /Number\.isFinite\(Number\(e\.prevCol\)\)/);

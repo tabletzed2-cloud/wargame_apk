@@ -4,4 +4,4 @@
 - Renamed mounted BeVe/A.I.R.F. machine guns to “Пулемёт Schwarzlose танковый” and “Пулемёт Hotchkiss танковый”. Individual mount sectors and crew indices remain per installation in `crewInstances` metadata.
 - Migrated old saved weapon names to the new display names while preserving their historic firing sectors; legacy weapon definitions remain available to old saves but are hidden from new crew assignment.
 - Synchronized application, service-worker, manifest, and module build markers.
-- Added regression coverage for exclusive screen transitions and legacy save migration.
+- Added regression coverage for exclusive screen transitions, legacy save migration, and actual tactical movement of generated vehicles without an armor object.
