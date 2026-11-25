@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.197 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.198 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -2654,7 +2654,7 @@ function fillModalTargets(attackType) {
             typeof tacticalVehicleWeaponCanTarget === 'function' && ['smallArms', 'ordnance', 'vehicle'].includes(attackType)) {
             const selectedCrew = (currentSquad.crewInstances || []).find(ci => ci && ci.uniqueKey === appData.map.selectedVehicleFireWeaponKey);
             const weapon = selectedCrew && (getFactionCrewWeapons(currentSquad.faction) || []).find(w => w && w.name === selectedCrew.weaponName);
-            if (weapon && !tacticalVehicleWeaponCanTarget(currentSquad, weapon.name, weapon.type, pos.key)) return;
+            if (weapon && !tacticalVehicleWeaponCanTarget(currentSquad, weapon.name, weapon.type, pos.key, selectedCrew)) return;
         }
         if (attackType !== 'melee' && typeof tacticalSmokeBlocksAttack === 'function' && tacticalSmokeBlocksAttack(shooterIdx, idx)) return;
         if (attackType === 'ordnance' && /ДОТ/i.test(String(currentSquad.name || '')) &&

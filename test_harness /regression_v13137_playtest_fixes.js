@@ -212,14 +212,14 @@ ok('п.3 вкладка «Бой»: стрельба и подавление б�
 
 // ================= маркеры версии =================
 
-ok('маркеры версии синхронизированы на v13.197', () => {
+ok('маркеры версии синхронизированы на v13.198', () => {
   const files = [ROOT + '/index.html', ROOT + '/js/cards.js', ROOT + '/js/data.js', ROOT + '/js/hexmaps.js',
     ROOT + '/js/map_actions.js', ROOT + '/js/online_battles.js', ROOT + '/js/operational_ui.js',
     ROOT + '/js/placement.js', ROOT + '/js/templates.js', ROOT + '/js/weapons.js',
     ROOT + '/service-worker.js', ROOT + '/manifest.json'];
   files.forEach(f => {
     const txt = fs.readFileSync(f, 'utf8');
-    assert.ok(/v13\.197/.test(txt), path.basename(f) + ' должен содержать v13.197');
+    assert.ok(/v13\.198/.test(txt), path.basename(f) + ' должен содержать v13.198');
   });
 });
 
