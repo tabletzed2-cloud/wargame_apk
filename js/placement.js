@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.201
+// ⚡ BUILD-МАРКЕР: v13.202
 // v13.062: fixed DOT coordinates and no placement bypass for eliminated squads.
 // ⚡ v13.061: current release tactical deployment rules.
 // ============================================================
@@ -193,6 +193,19 @@ function resolveBattleEntry(playerUnits, enemyUnits, hexKey, opts) {
         if (typeof pendingBattleEntry !== 'undefined') pendingBattleEntry = null;
         return {...meeting, attackerSide:'player', entryDir:meeting.entryDirs.player, source:'meeting'};
     }
+    // A real current-turn entrant wins over stale UI/AI attacker hints.
+    if (!opts.mirrorOf) {
+        const turn = Number(typeof appData !== 'undefined' && appData.campaign && appData.campaign.currentTurn) || 1;
+        const entered = units => (units || []).find(u => u && Number(u.opLastMoveTurn) === turn &&
+            `${u.col},${u.row}` === String(hexKey) && Number.isFinite(u.prevCol) && Number.isFinite(u.prevRow) &&
+            (u.prevCol !== u.col || u.prevRow !== u.row));
+        const player = entered(playerUnits), enemy = entered(enemyUnits);
+        if (!!player !== !!enemy) {
+            const mover = player || enemy;
+            if (typeof pendingBattleEntry !== 'undefined') pendingBattleEntry = null;
+            return {attackerSide:player?'player':'enemy', entryDir:opDirectionBetween(mover.col,mover.row,mover.prevCol,mover.prevRow),source:'move'};
+        }
+    }
     if (opts.entry && opts.entry.attackerSide) {
         return { ...opts.entry, attackerSide: opts.entry.attackerSide === 'enemy' ? 'enemy' : 'player',
             entryDir: PLACEMENT_DIRS.includes(opts.entry.entryDir) ? opts.entry.entryDir : 'W',
@@ -271,6 +284,7 @@ function placementNeedsMyAction(battle) {
 function placementPendingReason(battle) {
     battle = battle || getCurrentBattleRecord();
     const p = battle && battle.placement;
+    if (p && p.reinforcementPending) return '📍 Разместите подкрепление и нажмите «✅ Завершить размещение подкрепления».';
     if (!p || p.phase === 'done') return null;
     if (!p.playerReady) return '📍 Сначала завершите размещение отрядов: вкладка «🗺️ Поле боя» → «✅ Размещение завершено».';
     return '⏳ Противник ещё размещает отряды — дождитесь его готовности (бой начнётся автоматически).';
@@ -446,7 +460,7 @@ function placementTrayUnplacedSquads(battle, includePlaced) {
         if (cell && Array.isArray(cell.squadIds)) cell.squadIds.forEach(i => placedIdx.add(i));
     });
     const p = battle && battle.placement;
-    const canReposition = includePlaced === true || !!(p && p.phase !== 'done' && !p.playerReady);
+    const canReposition = includePlaced === true;
     // ⚡ v13.136 (п.4): источник отрядов — тот же, что у placementSideStatus;
     //    в кампании это appData.squads, но на старых сейвах мог остаться только
     //    battle.playerSquads — берём непустой список.
@@ -624,7 +638,7 @@ function openPlacementPhase(battle) {
         if (tab) tab.style.display = 'block';
         if (btn) btn.classList.add('active');
     } catch (e) {}
-    ['resetMapZoom', 'initMap', 'updateSquadDropdown', 'refreshSquadToPlaceDropdown', 'updateEnemyDropdown', 'updateEnemyFactionDropdown', 'populateTerrainSelect'].forEach(fn => {
+    ['initMap', 'updateSquadDropdown', 'refreshSquadToPlaceDropdown', 'updateEnemyDropdown', 'updateEnemyFactionDropdown', 'populateTerrainSelect'].forEach(fn => {
         try { if (typeof window !== 'undefined' && typeof window[fn] === 'function') window[fn](); } catch (e) {}
     });
     try { if (typeof setMapMode === 'function') setMapMode('place'); } catch (e) {}
@@ -658,10 +672,10 @@ function placementReinforcementUnplaced(battle) {
     if (!battle) return [];
     const p = battle.placement;
     if (p && p.phase === 'placing') return [];      // идёт обычное размещение — оно и так на экране
-    try { return placementTrayUnplacedSquads(battle); } catch (e) { return []; }
+    try { return placementTrayUnplacedSquads(battle).filter(item => !p?.reinforcementUnitNames?.length || p.reinforcementUnitNames.includes(item.s.opUnitName)); } catch (e) { return []; }
 }
 function placementReinforcementPending(battle) {
-    return placementReinforcementUnplaced(battle).length > 0;
+    return !!(battle && battle.placement && battle.placement.reinforcementPending) || placementReinforcementUnplaced(battle).length > 0;
 }
 // Полоса, в которой размещается подкрепление: сторона, откуда взвод пришёл,
 // иначе — тыл (напротив стороны входа атакующего).
@@ -685,6 +699,7 @@ function placementAutoPlaceReinforcements() {
     const grid = placementBattleGrid(battle);
     const list = placementReinforcementUnplaced(battle);
     if (!list.length || !grid) return 0;
+    if (battle.placement && battle.placement.phase === 'done') battle.placement.reinforcementPending = true;
     let placed = 0;
     list.forEach(item => {
         const squad = item.s, idx = item.i;
@@ -727,12 +742,14 @@ function renderPlacementPanel() {
         // ⚡ v13.156 (п.34): бой идёт, но в него вошёл новый взвод — показываем
         //    компактное меню размещения подкрепления (а не пустоту).
         const reinforcements = placementReinforcementPending(battle) ? placementReinforcementUnplaced(battle) : [];
-        if (!reinforcements.length) {
+        if (!reinforcements.length && !p?.reinforcementPending) {
             if (selectorSlot && selectorWrap && selectorWrap.parentNode !== selectorSlot) selectorSlot.appendChild(selectorWrap);
             const tray = document.getElementById('battlePlacementTray');
             if (tray) { tray.innerHTML = ''; tray.style.display = 'none'; }
             el.style.display = 'none'; el.innerHTML = ''; return;
         }
+        // Migrate an in-progress wave from saves written before this flag existed.
+        if (p && reinforcements.length) p.reinforcementPending = true;
         const names = reinforcements.map(x => x.s && x.s.name).filter(Boolean);
         const zoneInfo = placementReinforcementZone(battle, reinforcements[0] && reinforcements[0].s);
         let reinforcementHtml = `<div style="font-weight:bold; color:#f1c40f; margin-bottom:4px;">📍 Подкрепление в идущем бою</div>` +
@@ -741,6 +758,7 @@ function renderPlacementPanel() {
             `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">` +
             `<button onclick="setMapMode('place')" style="background:#27ae60;">🏷️ Разместить</button>` +
             `<button onclick="placementAutoPlaceReinforcements()" style="background:#16a085;">🎲 Выставить подкрепление</button>` +
+            `<button onclick="placementFinishReinforcements()" style="background:#27ae60;">✅ Завершить размещение подкрепления</button>` +
             `<button onclick="renderPlacementPanel()" style="background:#555;">🔄 Обновить</button>` +
             `</div>`;
         const trayElR = document.getElementById('battlePlacementTray');
@@ -1055,4 +1073,24 @@ function drawPlacementZone(ctx, size) {
         });
     }
     ctx.restore();
+}
+
+// Confirm a reinforcement wave without restarting opening deployment or the round.
+function placementFinishReinforcements() {
+    const battle = getCurrentBattleRecord();
+    if (!battle || !battle.placement || battle.placement.phase !== 'done') return false;
+    if (placementReinforcementUnplaced(battle).length) {
+        log('📍 Сначала разместите всё прибывшее подкрепление.'); return false;
+    }
+    battle.placement.reinforcementPending = false;
+    battle.placement.reinforcementUnitNames = [];
+    if (appData.map) {appData.map.mode='move';appData.map.selectedMoveSquadIdx=null;}
+    if (battle.tacticalMap && appData.map) battle.tacticalMap.grid = JSON.parse(JSON.stringify(appData.map.grid));
+    saveData();
+    if (appData.campaign && appData.campaign.online && typeof onlinePushBattles === 'function') onlinePushBattles(true);
+    if (typeof setMapMode === 'function') setMapMode('move');
+    renderPlacementPanel();
+    if (typeof refreshSquadToPlaceDropdown === 'function') refreshSquadToPlaceDropdown();
+    if (typeof redrawMap === 'function') redrawMap();
+    return true;
 }

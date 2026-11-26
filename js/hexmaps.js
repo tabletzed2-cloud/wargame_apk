@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.201 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.202 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1168,6 +1168,7 @@ function getTacticalCoverInfoForEnemy(grid, enemyIdx) {
 // Места: случайные, приоритет — рядом с окопами. Позиции фиксируются
 // в оверлее, поэтому у обоих игроков картина одинаковая.
 function addShellingCraters(hexKey, count) {
+    if (typeof signalRepairsHitByShelling === 'function') signalRepairsHitByShelling(hexKey);
     count = count || 5;
     return ensureTacticalHexMap(hexKey).then(md => {
         if (!md) return 0;
@@ -1781,7 +1782,7 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
       ${rotateBlock}
       <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
         <button onclick="hexEditUndo()" style="background:#8e44ad;">↩️ Отменить последнюю</button>
-        ${st.kind === 'trenches' ? '<span style="color:#8e8e8e; font-size:.82rem;">Поворот окопа — кнопки в блоке «🔄 Поворот окопа» выше (текстура окопа по клику больше не меняется)</span>' : '<button id="hexEditorRotateSelectedButton" onclick="rotateSelectedHex(60)" style="background:#8e44ad;">↻ Повернуть выбранную клетку (60°)</button>'}
+        ${st.kind === 'trenches' ? '<button onclick="hexEditCycleTrenchTexture()" style="background:#8e44ad;">🖼️ Текстура окопа</button><span style="color:#8e8e8e; font-size:.82rem;">Поворот окопа — кнопки в блоке «🔄 Поворот окопа» выше (текстура окопа по клику больше не меняется)</span>' : '<button id="hexEditorRotateSelectedButton" onclick="rotateSelectedHex(60)" style="background:#8e44ad;">↻ Повернуть выбранную клетку (60°)</button>'}
         ${draftCancelBtn}
         <button onclick="zoomMap(1.2)" style="background:#555;">➕</button>
         <button onclick="zoomMap(0.8)" style="background:#555;">➖</button>
@@ -2017,16 +2018,22 @@ function hexEditCycleTrenchTexture() {
         if (infoBox) { infoBox.textContent = 'Сначала кликните по клетке с окопом.'; infoBox.style.color = '#f1c40f'; }
         return;
     }
+    const working = appData.map && appData.map.grid[cellKey];
+    if (!working || working.type !== 'trenches') return;
+    const images = typeof TERRAIN_DATA !== 'undefined' && TERRAIN_DATA.trenches && TERRAIN_DATA.trenches.images || [];
+    const variant = ((Number(working.variant) || 0) + 1) % Math.max(1, images.length);
     const draft = pendingHexEditDraft(st.hexKey);
-    const inDraft = !!(draft && draft.cells && draft.cells[cellKey] === 'trenches');
-    const ov = getHexOverlay(st.hexKey, false) || {};
-    const placed = !!(ov.hexEdits && ov.hexEdits[cellKey] === 'trenches');
-    if (!inDraft && !placed) {
-        if (infoBox) { infoBox.textContent = 'На этой клетке нет окопа — сначала поставьте окоп кликом по «траве»/«дороге».'; infoBox.style.color = '#f1c40f'; }
-        return;
+    if (draft && draft.cells && draft.cells[cellKey] === 'trenches') {
+        draft.variants = draft.variants || {}; draft.variants[cellKey] = variant;
+    } else {
+        const ov = getHexOverlay(st.hexKey, true);
+        ov.hexEdits = ov.hexEdits || {}; ov.hexVariants = ov.hexVariants || {};
+        ov.hexEdits[cellKey] = 'trenches'; ov.hexVariants[cellKey] = variant;
     }
-    // повторный клик по окопу листает его текстуры (правки не тратятся)
-    hexEditClick(cellKey);
+    working.variant = variant;
+    if (draft && draft.cells && draft.cells[cellKey]) saveData();
+    else saveHexOverlays(st.hexKey);
+    redrawMap(); showHexEditorBanner();
 }
 function pendingHexEditDraftActive(hexKey) { return !!pendingHexEditDraft(hexKey); }
 function clearPendingHexEditDraft(hexKey, unitName, kind) {
@@ -2217,6 +2224,13 @@ function hexEditClick(hexKeyCell) {
     // должна работать до исполнения приказа «Окопаться» так же, как после него.
     if (appData.map) appData.map.lastEditedHex = hexKeyCell;
     st.lastCell = hexKeyCell;
+    // Previously built trenches remain selectable even with a new pending draft.
+    const selected = appData.map && appData.map.grid[hexKeyCell];
+    const activeDraft = pendingHexEditDraft(st.hexKey);
+    if (st.kind === 'trenches' && selected && selected.type === 'trenches' &&
+        !(activeDraft && activeDraft.cells && activeDraft.cells[hexKeyCell])) {
+        showHexEditorBanner(); return true;
+    }
     // ⚡ v13.099 (п.6): правки приказа, который ещё не выполнен, идут в черновик
     // ⚡ v13.166: проверяем не только флаг режима, но и сам черновик —
     //    иначе клик по клетке тратил «очки» и ставил окоп мимо черновика.

@@ -146,6 +146,9 @@ function loadFunction(source, name, context) {
       Date, Number, Math
     };
     vm.createContext(ctx);
+    ctx.getOpHexDistance=(c,r,x,y)=>Math.max(Math.abs(c-x),Math.abs(r-y));
+    ctx.rollD10=()=>1;
+    vm.runInContext(fs.readFileSync(path.join(root,'js/playtest_rules.js'),'utf8'),ctx);
     loadFunction(index, 'requestPhoneLineRepair', ctx);
     loadFunction(index, 'losePhoneLineRepairTeam', ctx);
     loadFunction(index, 'processPhoneLineRepairTasks', ctx);

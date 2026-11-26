@@ -283,8 +283,8 @@ test('4б: смещение юнита с телефоном продлевае�
         'линия рвётся только за пределами 7 гексов');
     assert.ok(/relayPending/.test(intact), 'оборванная линия дождётся перекладки по прибытии');
     const move = sliceFunction(HTML, 'executeMoveOrder');
-    assert.ok(/Связисты перекладывают/.test(move), 'штаб в движении — связисты перекладывают линии');
-    assert.ok(/line\.laying = true;/.test(move), 'линии штаба помечаются перекладываемыми, а не «умершими»');
+    assert.ok(/extendMovingPhoneLines\(unit\)/.test(move), 'кабель следует за каждым шагом');
+    assert.ok(!/line\.laying = true;/.test(move), 'движение не отключает действующую линию');
     const reconnect = sliceFunction(HTML, 'reconnectPhoneLinesAfterUnitMove');
     assert.ok(/movedId === hqId\) return true;/.test(reconnect), 'после смещения штаба перекладываются все линии');
     assert.ok(/штаб сместился — связисты проложили линию поновой/.test(reconnect), 'в журнале — причина перекладки');

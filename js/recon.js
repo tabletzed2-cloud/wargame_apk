@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.201 — разведывательные миссии и приказ «Наблюдение»
+// ⚡ BUILD-МАРКЕР: v13.202 — разведывательные миссии и приказ «Наблюдение»
 // ═══════════════════════════════════════════════════════════════════════
 // ⚡ v13.157: НОВАЯ РАЗВЕДКА (заменяет подсветку радиуса v13.018…v13.099)
 //
@@ -892,6 +892,22 @@ function reconPlanRoute(assetKind, startHex, waypoints) {
     return result;
 }
 function executeReconMissionOrder(unit, order) {
+    if (!unit || !order) return false;
+    if (!order.reconDeployment && !(order.reconOptions && order.reconOptions.assetKey) &&
+        (unit.type === 'recon_platoon' || /развед/i.test(unit.name || ''))) {
+        if (!order.reconRoute) {
+            const points = (order.route || order.waypoints || []).map(p => ({...p,observe:p.observe!==false}));
+            if (!points.length && order.targetHex) {
+                const point = reconHexFromKey(order.targetHex); if (point) points.push({...point,observe:true});
+            }
+            if (!points.length) points.push({col:unit.col,row:unit.row,observe:true});
+            order.reconRoute=true; order.reconPoints=points;
+            order.waypoints=points.map(p => ({col:p.col,row:p.row}));
+            order.targetHex=`${points[points.length-1].col},${points[points.length-1].row}`;
+        }
+        executeMoveOrder(unit,order);
+        return true;
+    }
     if (!unit || !order) return false;
     if (order.reconDeployment) {
         const mission=createReconMission({...order.reconDeployment,unitId:reconCampaign().opUnits.indexOf(unit)});
