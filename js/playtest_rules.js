@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.202
+// ⚡ BUILD-МАРКЕР: v13.205
 // Shared operational playtest rules. No timers or hidden mission entities.
 function reconRouteCheckpoint(unit, order) {
     if (!unit || !order || !order.reconRoute || unit.isInBattle) return false;
@@ -161,4 +161,336 @@ function operationalAIReconPreparation(campaign, faction, units) {
     state.scoutNames=scouts.map(u=>u.name);
     return {version:0,faction,strategyId:'recon_pending',label:'Разведка перед выбором тактики',mode:'recon_prepare',
         selectedAtTurn:turn,plan:{},reconPending:true};
+}
+
+function tacticalOperationalPassengerOnHex(passenger, units, anchor) {
+    return !!(passenger && passenger.embarkedInBtr && (units || []).some(carrier => carrier &&
+        Number(carrier.col) === Number(anchor.col) && Number(carrier.row) === Number(anchor.row) &&
+        (carrier.embarkedUnit === passenger.name ||
+         (appData.campaign.opUnits || [])[carrier.embarkedUnitId] === passenger ||
+         (appData.campaign.enemyOpUnits || [])[carrier.embarkedUnitId] === passenger ||
+         (carrier.embarkedUnitIds || []).some(i => (appData.campaign.opUnits || [])[i] === passenger ||
+             (appData.campaign.enemyOpUnits || [])[i] === passenger))));
+}
+function tacticalBtrCanFire(squad) {
+    if (!squad || !squad.armor || !/БТР|BTR|Llanero/i.test(squad.name || '')) return true;
+    const list = (appData.map?.enemySquads || []).includes(squad) ? appData.map.enemySquads : appData.squads;
+    const passenger = (list || [])[squad.embarkedSquadIndex];
+    return squad.embarkedSquadIndex != null && !!(passenger && passenger.hidden && !passenger.isDestroyed &&
+        !passenger.isRetreated && (passenger.fighters || []).some(f => f && f.hp > 0));
+}
+function operationalEscortStealth(leader) {
+    const id = (appData.campaign.opUnits || []).indexOf(leader);
+    const orders = typeof getAllOrdersList === 'function' ? getAllOrdersList() : [];
+    const active = orders.filter(o => o && !['completed','cancelled'].includes(o.status) &&
+        (o.type === 'company_order' ? (o.subUnitIdsAll || o.subUnitIds || []).map(Number).includes(id) : Number(o.toUnitId) === id));
+    const executing=active.filter(order=>order.status==='active');
+    const latest = executing[executing.length - 1] || active[active.length - 1];
+    const step = latest?.series?.find(s => s && !['completed','cancelled'].includes(s.status)) || latest;
+    return !!(step ? step.stealth : leader.stealthMove);
+}
+function tacticalSurrenderEligible(losers, opponents) {
+    const living = list => (list || []).filter(s => s && !s.isDestroyed && !s.isRetreated &&
+        !s.isSurrendered && !['destroyed','retreated','surrendered'].includes(s.status) &&
+        (s.fighters || []).some(f => f && f.hp > 0));
+    const surrendering = living(losers), foes = living(opponents);
+    return surrendering.length > 0 && surrendering.every(s =>
+        tacticalMoraleCurrent(s) === 0 &&
+        ['ammoSmall','ammoOrdnance','grenades'].every(key => !(Number(s[key]) > 0)) &&
+        foes.some(enemy => {const d=tacticalSquadsDistance(s,enemy);return d !== null && d <= 3;}));
+}
+function tacticalApplySuperiorityPressure(side) {
+    const own = tacticalSideSquads(side), other = tacticalSideSquads(side === 'player' ? 'enemy' : 'player');
+    const count = list => (list || []).filter(s => s && !s.isDestroyed && !s.isRetreated && !s.isSurrendered)
+        .reduce((n,s) => n+(s.fighters || []).filter(f=>f && f.hp>0).length,0);
+    const ours=count(own), theirs=count(other);
+    if (!ours || theirs < ours*2 || theirs-ours < 4) return;
+    own.forEach(s => {
+        if (!s || s.isDestroyed || s.isRetreated || s.isSurrendered) return;
+        // Five percentage points, not five legacy morale units per soldier.
+        s.currentMorale=Math.max(0,tacticalMoraleCurrent(s)-5);
+        if (typeof currentSquad !== 'undefined' && currentSquad === s) morale=s.currentMorale;
+    });
+    log('🫡 Численное давление: меньшая сторона теряет 5 пунктов духа за завершённый ход.');
+}
+
+// Roll both forces BEFORE applying either loss. A wiped defender still strikes
+// in this exchange; combat is resolved once per pair per tactical phase.
+function tacticalMeleeRollDamage(squad) {
+    if (squad.isRouting || squad.isRetreated || squad.isSurrendered ||
+        (typeof tacticalMoraleIsSuppressed==='function' && tacticalMoraleIsSuppressed(squad))) return 0;
+    let bonus=0;
+    for (const key of ['spanishFury','porLaRevolucion']) {
+        const effect=squad.effects?.[key];
+        if (effect?.active && !effect.used) {bonus++;effect.used=true;}
+    }
+    if (squad.effects?.calvinistRestraint) bonus--;
+    const weapons=getFactionWeapons(squad.faction) || [];
+    squad.lastMeleeRolls=[];
+    return (squad.fighters || []).reduce((damage,f) => {
+        if (!f || f.hp<=0) return damage;
+        const weapon=weapons.find(w=>w.name===f.weapon);
+        const mod=bonus+(/винтовка|карабин/i.test(weapon?.name || '')?1:0)+
+            ((f.awards || []).includes('melee')?1:0);
+        let die=rollD6();
+        if (die===1 && (squad.flemishFury || squad.meleeNoOne || (squad.appliedCards || []).includes('Фламандская Фурия'))) die=2;
+        squad.lastMeleeRolls.push(die);
+        return damage+(die+mod>=5?3:0);
+    },0);
+}
+function tacticalResolveMeleePair(a,b) {
+    if (!a || !b || a.armor || b.armor || a.isDestroyed || b.isDestroyed ||
+        tacticalDotMeleeImmune(a) || tacticalDotMeleeImmune(b) || tacticalSquadsDistance(a,b)!==0) return false;
+    const turn = typeof currentTurn !== 'undefined' ? currentTurn : 1;
+    const all=[...(appData.squads || []),...(appData.map.enemySquads || [])];
+    const key=[all.indexOf(a),all.indexOf(b)].sort((x,y)=>x-y).join(':');
+    const rounds=appData.map.meleePairRounds || (appData.map.meleePairRounds={});
+    if (rounds[key]===turn) return false;
+    rounds[key]=turn;
+    const aDamage=a.meleeResolvedTurn===turn?0:tacticalMeleeRollDamage(a), bDamage=b.meleeResolvedTurn===turn?0:tacticalMeleeRollDamage(b);
+    const result=()=>({damage:0,killed:[],wounded:[],notes:[]});
+    applyDamagePointsToEnemy(b,aDamage,result());
+    applyDamagePointsToEnemy(a,bDamage,result());
+    a.meleeResolvedTurn=turn;b.meleeResolvedTurn=turn;
+    tacticalChangeMorale(a,-1);tacticalChangeMorale(b,-1);
+    if (!a.isDestroyed && (b.isDestroyed || aDamage>0)) tacticalChangeMorale(a,b.isDestroyed?3:1);
+    if (!b.isDestroyed && (a.isDestroyed || bDamage>0)) tacticalChangeMorale(b,a.isDestroyed?3:1);
+    [[a,b,aDamage],[b,a,bDamage]].forEach(([attacker,target,damage])=>{
+        const index=(appData.squads || []).indexOf(attacker);
+        if (index<0) return;
+        target.lastAwardAttackerSquadName=attacker.name;target.lastAwardAttackerSquadIdx=index;
+        if (typeof recordTacticalAwardCombatEvent==='function') recordTacticalAwardCombatEvent(attacker,'melee',target);
+        if (target.isDestroyed && typeof recordTacticalAwardEnemyDefeat==='function')
+            recordTacticalAwardEnemyDefeat(attacker,target,(appData.map.enemySquads || []).indexOf(target));
+    });
+    log(`⚔️ Рукопашная «${a.name}» ↔ «${b.name}»: одновременный урон ${aDamage} / ${bDamage}.`);
+    if (typeof tacticalClearMeleeEngagement==='function') {
+        if (a.isDestroyed) tacticalClearMeleeEngagement(a);
+        if (b.isDestroyed) tacticalClearMeleeEngagement(b);
+    }
+    saveData();updateUI();redrawMap();
+    return true;
+}
+
+// A movement event is local intelligence: only this observer and opposing
+// infantry within two actual hexes may participate. Never rescan distant units.
+function tacticalMovementContactChecks(observer) {
+    const map=appData && appData.map;
+    const alive=s=>s && !s.isDestroyed && !s.isRetreated && !s.isSurrendered &&
+        !['destroyed','retreated','surrendered'].includes(s.status) &&
+        (s.fighters || []).some(f=>f && f.hp>0 && !f.isAway);
+    if (!map?.grid || !alive(observer)) return {checked:0,detected:0};
+    const enemy=(map.enemySquads || []).includes(observer);
+    const own=enemy?map.enemySquads:appData.squads;
+    const pos=getBattleSquadHex(map.grid,own.indexOf(observer),enemy);
+    const result={checked:0,detected:0};
+    if (!pos) return result;
+    const night=typeof isNightTime==='function' && isNightTime() && !tacticalIlluminationActive();
+    (enemy?appData.squads:map.enemySquads || []).forEach((target,index)=>{
+        if (!alive(target) || (target.detected && !target.hidden) || target.camouflaged ||
+            (typeof isArmoredTacticalSquad==='function' && isArmoredTacticalSquad(target))) return;
+        const tp=getBattleSquadHex(map.grid,index,!enemy);
+        if (!tp) return;
+        const distance=hexGridDistance(pos.col,pos.row,tp.col,tp.row);
+        if (distance>2) return;
+        result.checked++;
+        // Noise is evidence, not permission to see through hills or smoke.
+        const visible=tacticalObserverCanSeeHex(observer,pos.key,tp.key,night,map);
+        if (!visible && distance>0) return;
+        const revealed=distance===0 || (distance===1 ? Math.random()<0.99 :
+            rollD10()+autoTacticalDetectionMod(target,observer)+(target.noiseMarker?2:0)>=8);
+        if (!revealed) return;
+        target.hidden=false;target.detected=true;target.noiseMarker=false;
+        if (typeof tacticalClearArmoredNoise==='function') tacticalClearArmoredNoise(target);
+        result.detected++;
+        // Never expose names/coordinates of a still concealed player to the UI.
+        log(enemy?'🔍 Противник обнаружил ваше отделение при сближении.':`🔍 При сближении обнаружен «${target.name || 'отряд'}».`);
+    });
+    return result;
+}
+
+function tacticalAISupplyAction(squad,index) {
+    const map=appData.map;
+    if (!squad || squad.hidden || squad.isDestroyed || squad.isRetreated || squad.isSurrendered || squad.isRouting ||
+        (squad.fighters || []).some(f=>f && f.isAway && f.ammoRun) || tacticalIsMeleeEngaged(squad)) return false;
+    const pos=getBattleSquadHex(map.grid,index,true);
+    if (!pos || !activeSupplyPointKeys(map,'enemy').length) return false;
+    const weapons=getFactionCrewWeapons(squad.faction) || [];
+    const hasGun=(squad.crewInstances || []).some(ci=>ci && ci.active!==false &&
+        weapons.some(w=>w.name===ci.weaponName && ['at_gun','tank_gun','mortar'].includes(w.type)));
+    const fields=[...(hasGun?['ammoOrdnance']:[]),'ammoSmall'];
+    const source=tacticalAmmoSourceUnit(squad,'enemy');
+    const field=fields.find(f=>{
+        const full=tacticalAmmoCapacity(squad,f,'enemy');
+        const kind=f==='ammoOrdnance'?'ordnance':'small';
+        return full>0 && Number(squad[f])<=full*0.2 && Number(source?.ammoReserve?.[kind])>0;
+    });
+    if (!field) return false;
+    const context={side:'enemy',ai:true,squad,index};
+    if (!tacticalActionAllowed(squad,'utility',true,context)) return false;
+    const point=nearestSupplyPoint(map,pos.key,'enemy');
+    if (!point) return false;
+    const runners=mapActionEligibleAmmoRunners(squad);
+    // Match player runner eligibility; never send the last available soldier.
+    if (!runners.length ||
+        (squad.fighters || []).filter(f=>f && f.hp>0 && !f.isAway).length<2) return false;
+    const fighter=runners[0].fighter;
+    if (!tacticalDispatchAmmoRunner(squad,fighter,'enemy',pos,point,field==='ammoOrdnance'?'2':'1')) return false;
+    log('📦 Противник отправил бойца к своему пункту боепитания.');
+    return true;
+}
+
+// Search actual evidence or unexamined terrain; do not read undiscovered
+// opponents' positions to choose where to point binoculars.
+function tacticalAIReconAction(squad,index) {
+    const map=appData.map,turn=Number(currentTurn)||1;
+    if (!squad || squad.hidden || squad.isDestroyed || squad.isSurrendered || squad.isRetreated || squad.isRouting ||
+        !mapActionCanUseBinoculars(squad) || tacticalIsMeleeEngaged(squad) ||
+        squad.tacticalAIReconTurn===turn || getTacticalSideAP(squad,'enemy')<2) return false;
+    const pos=getBattleSquadHex(map.grid,index,true);
+    if (!pos) return false;
+    const noise=new Set((map.tacticalNoiseMarkers || []).filter(m=>m && m.viewerSide==='enemy' && Number(m.expiresTurn)>=turn)
+        .map(m=>`${m.col},${m.row}`));
+    const visible=(appData.squads || []).filter(s=>s && s.detected && !s.hidden && !s.camouflaged && !s.isDestroyed && !s.isRetreated);
+    const known=visible.map(s=>getBattleSquadHex(map.grid,appData.squads.indexOf(s),false)).filter(Boolean);
+    const examined=map.tacticalAIReconExamined || (map.tacticalAIReconExamined={});
+    const candidates=Object.keys(map.grid).map(key=>{
+        const [col,row]=key.split(',').map(Number),distance=hexGridDistance(pos.col,pos.row,col,row);
+        const age=turn-Number(examined[key] ?? -100);
+        const contact=known.some(p=>hexGridDistance(p.col,p.row,col,row)<=1);
+        return {key,col,row,distance,score:(noise.has(key)?100:0)+(contact?10:0)+Math.min(10,age)-Math.abs(distance-4)};
+    }).filter(p=>p.distance>0 && p.distance<=8 && (examined[p.key]==null || turn-Number(examined[p.key])>=2))
+        .sort((a,b)=>b.score-a.score || a.key.localeCompare(b.key));
+    for (const candidate of candidates) {
+        if (!mapActionUseBinocularsForSide(index,candidate.key,'enemy')) continue;
+        examined[candidate.key]=turn;squad.tacticalAIReconTurn=turn;return true;
+    }
+    return false;
+}
+
+// Finite platoon stocks. Tactical squads are snapshots; their owner's reserve
+// remains on the operational unit and must never be cloned/re-created per trip.
+function tacticalAmmoInitializeUnit(unit) {
+    const reserve=platoonAmmoReserveInit(unit);
+    if (!reserve) return null;
+    const squads=operationalAmmoSquads(unit);
+    if (!Number.isFinite(Number(reserve.grenades))) {
+        reserve.grenades=Math.ceil(squads.reduce((n,s)=>n+Math.max(0,Number(s.grenades)||0),0)*PLATOON_AMMO_RESERVE_RATIO);
+    }
+    if (!Number.isFinite(Number(reserve.initialgrenades))) {
+        reserve.initialgrenades=reserve.grenades+squads.reduce((n,s)=>n+Math.max(0,Number(s.grenades)||0),0);
+    }
+    squads.forEach((s,i)=>{
+        const cap=reserve.caps[String(s.name || `squad${i}`)];
+        if (cap && cap.grenades==null) cap.grenades=Math.max(0,Number(s.grenades)||0);
+    });
+    return reserve;
+}
+
+function tacticalAmmoSourceUnit(squad,side) {
+    if (!squad) return null;
+    const campaign=appData.campaign || {},map=appData.map;
+    const units=side==='enemy'?(campaign.enemyOpUnits || []):(campaign.opUnits || []);
+    const find=list=>{
+        for (const unit of list) {
+            if (!unit) continue;
+            if (squad.opUnitName ? unit.name===squad.opUnitName : operationalAmmoSquads(unit).includes(squad)) return unit;
+            const nested=find(unit.vehicleList || []);
+            if (nested) return nested;
+        }
+        return null;
+    };
+    let unit=find(units);
+    if (!unit && campaign.active) return null; // missing owner is NOT an unlimited supply point
+    if (!unit && map) {
+        // Standalone scenarios have no operational roster. Keep one finite pool
+        // per side/platoon in the saved map, never a new pool per runner.
+        const groups=map.tacticalAmmoReserves ||= {player:{},enemy:{}};
+        const pools=groups[side] ||= {};
+        const owner=String(squad.opUnitName || 'standalone');
+        const squads=(side==='enemy'?(map.enemySquads || []):(appData.squads || []))
+            .filter(s=>s && String(s.opUnitName || 'standalone')===owner);
+        if (!pools[owner]) {
+            const initial={name:owner,squads};
+            tacticalAmmoInitializeUnit(initial);
+            pools[owner]=initial.ammoReserve;
+        }
+        unit={name:owner,squads,ammoReserve:pools[owner]};
+    }
+    if (!unit || unit.isDestroyed || unit.isSurrendered) return null;
+    tacticalAmmoInitializeUnit(unit);
+    return unit;
+}
+
+function tacticalAmmoCapacity(squad,field,side) {
+    const full=Number(squad[field+'Full']);
+    if (Number.isFinite(full) && full>0) return full;
+    const source=tacticalAmmoSourceUnit(squad,side);
+    const kind={ammoSmall:'small',ammoOrdnance:'ordnance',grenades:'grenades'}[field];
+    const recorded=Number(source?.ammoReserve?.caps?.[squad.name]?.[kind]) || 0;
+    const capacity=typeof supplySquadCapacity==='function'?supplySquadCapacity(squad,field):0;
+    return Math.max(recorded,capacity,Number(squad[field])||0);
+}
+
+// Reserve cargo now, not when the soldier returns. Concurrent runners cannot
+// promise the same ammunition, and saving/reloading never charges it twice.
+function tacticalReserveRunnerCargo(squad,fighter,side) {
+    if (fighter.ammoCargo?.version===1) return fighter.ammoCargo.amount>0;
+    const spec={'1':['ammoSmall','small',30],'2':['ammoOrdnance','ordnance',10],'3':['grenades','grenades',5]}[String(fighter.ammoType || '1')];
+    if (!spec) return false;
+    const [field,kind,limit]=spec,unit=tacticalAmmoSourceUnit(squad,side);
+    const incoming=(squad.fighters || []).filter(f=>f && f!==fighter && f.isAway && f.ammoCargo?.field===field)
+        .reduce((n,f)=>n+Math.max(0,Number(f.ammoCargo.amount)||0),0);
+    const need=Math.max(0,tacticalAmmoCapacity(squad,field,side)-(Number(squad[field])||0)-incoming);
+    const amount=unit?Math.min(limit,Math.max(0,Math.floor(Number(unit.ammoReserve[kind])||0)),need):0;
+    fighter.ammoCargo={version:1,field,kind,amount,ownerName:unit?.name || null,sourceSide:side};
+    if (amount<=0) return false;
+    unit.ammoReserve[kind]-=amount;
+    return true;
+}
+
+function tacticalRefundRunnerCargo(squad,fighter,side) {
+    const cargo=fighter.ammoCargo;
+    if (!cargo || cargo.amount<=0) return;
+    const unit=tacticalAmmoSourceUnit(squad,side);
+    if (unit && unit.name===cargo.ownerName && side===cargo.sourceSide) {
+        unit.ammoReserve[cargo.kind]=(Number(unit.ammoReserve[cargo.kind])||0)+cargo.amount;
+    }
+    cargo.amount=0;
+}
+
+function tacticalDispatchAmmoRunner(squad,fighter,side,pos,supply,type) {
+    if (!fighter || fighter.isAway || fighter.hp<=0 || !supply || !pos) return false;
+    fighter.ammoType=String(type);
+    if (!tacticalReserveRunnerCargo(squad,fighter,side)) {
+        delete fighter.ammoCargo;delete fighter.ammoType;
+        return false;
+    }
+    fighter.isAway=true;fighter.ammoSupplyHex=supply.key;
+    fighter.turnsToReturn=Math.max(1,Math.ceil(supply.distance/4)*2);
+    fighter.ammoRun={hex:pos.key,stage:'outbound',loaded:false,distance:supply.distance,side};
+    return true;
+}
+
+// Include reserve + carried ammunition in the operational low-stock ratio.
+function operationalAIAmmoSupplyStatus(unit) {
+    const status=unitAmmoStatus(unit),reserve=tacticalAmmoInitializeUnit(unit);
+    const reserves={};
+    for (const [field,kind] of [['ammoSmall','small'],['ammoOrdnance','ordnance'],['grenades','grenades']]) {
+        const initialCaps=Object.values(reserve.caps || {}).reduce((n,c)=>n+(Number(c[kind])||0),0);
+        const max=Math.max(0,(Number(reserve['initial'+kind])||0)-initialCaps,Math.ceil(status[field].max*PLATOON_AMMO_RESERVE_RATIO));
+        reserves[field]={kind,max};
+        status[field]={cur:status[field].cur+Math.max(0,Number(reserve[kind])||0),max:status[field].max+max};
+    }
+    return {status,reserves};
+}
+
+function operationalAIReceiveSupply(unit,cargo) {
+    const left=supplyDistributeCargo(unit,cargo),{reserves}=operationalAIAmmoSupplyStatus(unit);
+    for (const field of ['ammoSmall','ammoOrdnance','grenades']) {
+        const {kind,max}=reserves[field],have=Math.max(0,Number(unit.ammoReserve[kind])||0);
+        const take=Math.min(Number(left[field])||0,Math.max(0,max-have));
+        unit.ammoReserve[kind]=have+take;left[field]-=take;
+    }
+    return left;
 }

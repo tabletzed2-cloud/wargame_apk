@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.202
+// ⚡ BUILD-МАРКЕР: v13.205
 // Offline tactical opponent AI. Uses the shared tactical target evaluator,
 // action authorization, AP accounting and existing combat routines.
 (function (root) {
@@ -182,6 +182,13 @@
       }
       if (!squad.armor && Number(squad.atRifleGrenades) > 0) out.push({ id: 'atGrenade', reserve: Number(squad.atRifleGrenades) });
       if (!squad.armor) out.push({ id: 'melee', reserve: 0 });
+      if (squad.armor && Number(squad.ammoSmall)>0 && tacticalBtrCanFire(squad)) {
+        weaponCrewEntries(squad,['mg']).forEach(x=>{
+          const used=typeof getWeaponShotCount==='function'?getWeaponShotCount(squad,x.ci.uniqueKey):0;
+          const max=typeof getWeaponMaxShots==='function'?getWeaponMaxShots(x.weapon):1;
+          if (used<max) out.push({id:'smallArms',extra:{vehicleWeaponKey:x.ci.uniqueKey},reserve:Number(squad.ammoSmall)});
+        });
+      }
       if (!squad.armor && Number(squad.ammoSmall) > 0) {
         out.push({ id: 'smallArms', reserve: Number(squad.ammoSmall) });
         out.push({ id: 'suppressiveFire', reserve: Number(squad.ammoSmall) });
@@ -221,6 +228,12 @@
       dist * 0.18 - threatened * 0.04 - Math.max(0, Number(actionId === 'smallArms' || actionId === 'sniper' ? shooter.ammoSmall : shooter.ammoOrdnance) < 4 ? 1 : 0);
   }
   function actionCanReachTarget(shooter, target, action, dist) {
+    if (action.extra?.vehicleWeaponKey) {
+      const crew=(shooter.crewInstances || []).find(c=>c.uniqueKey===action.extra.vehicleWeaponKey);
+      const weapon=crew && (getFactionCrewWeapons(shooter.faction) || []).find(w=>w.name===crew.weaponName);
+      const pos=position(target,'player');
+      if (!crew || !weapon || !pos || !tacticalVehicleWeaponCanTarget(shooter,weapon.name,weapon.type,pos.key,crew)) return false;
+    }
     if (action.id === 'thermite' || action.id === 'flamethrower') return dist <= 1;
     if (action.id === 'vehicle') return dist <= 8;
     if (action.id === 'ordnance') {
@@ -549,7 +562,7 @@
     const pos = position(squad, 'enemy');
     const map = appData && appData.map;
     const turn = typeof currentTurn !== 'undefined' ? Number(currentTurn) || 1 : 1;
-    if (!pos || !map || squad.armor || Number(squad.smokeGrenades) < 3 || squad.tacticalAISmokeTurn === turn ||
+    if (!pos || !map || squad.armor || (Number(squad.smokeGrenades) || 0) < 3 || squad.tacticalAISmokeTurn === turn ||
         typeof tacticalCreateSmokeCloud !== 'function' || typeof tacticalSmokeWindDestination !== 'function' ||
         typeof rollD12 !== 'function' || getTacticalSideAP(squad, 'enemy') < 3) return false;
     const danger = (appData.squads || []).some(target => {
@@ -600,6 +613,7 @@
       moved++;
       try { if (typeof tacticalUpdateVehicleFacingOnMove === 'function') tacticalUpdateVehicleFacingOnMove(squad, from.key, next); } catch (e) {}
       try { if (typeof tacticalBreakCamouflage === 'function') tacticalBreakCamouflage(squad, 'движение'); } catch (e) {}
+      if (typeof tacticalMovementContactChecks === 'function') tacticalMovementContactChecks(squad);
       let fieldResult = null;
       try { if (typeof tacticalMaybeTriggerFireField === 'function') fieldResult = tacticalMaybeTriggerFireField(squad, 'enemy', from.key, next, map); } catch (e) {}
       try { if (typeof tacticalCheckMaraudingOnEntry === 'function') tacticalCheckMaraudingOnEntry(squad, next, 'enemy', map); } catch (e) {}
@@ -647,18 +661,11 @@
       }
       return;
     }
+    if (typeof tacticalAISupplyAction==='function' && tacticalAISupplyAction(squad,index)) stats.supply++;
+    if (typeof tacticalAIReconAction==='function' && tacticalAIReconAction(squad,index)) stats.recon++;
     if (chooseDoctrine(squad) === 'stealth') {
       prepareStealthManeuver(squad, index);
       return;
-    }
-    if (['headquarters','recon'].includes(squadRole(squad)) && typeof mapActionUseBinocularsForSide === 'function' &&
-        getTacticalSideAP(squad, 'enemy') >= 2) {
-      const ownPos = position(squad, 'enemy');
-      const hidden = (appData.squads || []).map(target => ({ target, pos: position(target, 'player') }))
-        .filter(x => alive(x.target) && x.pos && (x.target.hidden === true || x.target.detected !== true) && !x.target.camouflaged);
-      const candidate = hidden.filter(x => ownPos && hexGridDistance(ownPos.col, ownPos.row, x.pos.col, x.pos.row) <= 8)
-        .sort((a, b) => hexGridDistance(ownPos.col, ownPos.row, a.pos.col, a.pos.row) - hexGridDistance(ownPos.col, ownPos.row, b.pos.col, b.pos.row))[0];
-      if (candidate && mapActionUseBinocularsForSide(index, candidate.pos.key, 'enemy')) stats.recon++;
     }
     let fired = 0;
     while (fired < MAX_ACTIONS_PER_SQUAD && getTacticalSideAP(squad, 'enemy') > 0 && !tacticalIsMeleeEngaged(squad)) {
@@ -695,18 +702,15 @@
   function considerEnemyFlare() {
     if (!appData || !appData.enemyFlareAvailable || Number(appData.enemyFlareTurn) !== (Number(currentTurn) || 1) ||
         typeof enemyFlare !== 'function') return false;
-    const night = (appData.modifiers || []).some(m => m && m.active && /ночь/i.test(String(m.name || '')));
+    const night = (typeof isNightTime==='function' && isNightTime()) || (appData.modifiers || []).some(m => m && m.active && /ночь/i.test(String(m.name || '')));
     const hasHeadquarters = ((appData.map && appData.map.enemySquads) || []).some(s => alive(s) && squadRole(s) === 'headquarters');
     if (!night || !hasHeadquarters) return false;
     const stealthImportant = ((appData.map && appData.map.enemySquads) || []).some(s => alive(s) && (s.hidden || s.camouflaged));
     if (stealthImportant) return false;
     const enemyPositions = ((appData.map && appData.map.enemySquads) || []).filter(alive).map(s => position(s, 'enemy')).filter(Boolean);
-    const unrevealed = (appData.squads || []).some(s => {
-      if (!alive(s) || s.detected === true || s.camouflaged) return false;
-      const pos = position(s, 'player');
-      return !!pos && enemyPositions.some(observer => hexGridDistance(observer.col, observer.row, pos.col, pos.row) <= 8);
-    });
-    if (!unrevealed) return false;
+    const evidence=(appData.map.tacticalNoiseMarkers || []).some(m=>m && m.viewerSide==='enemy' && Number(m.expiresTurn)>=Number(currentTurn));
+    const searchNeeded=!(appData.squads || []).some(targetVisible) && enemyPositions.length>0;
+    if (!evidence && !searchNeeded) return false;
     try { enemyFlare(); return true; } catch (e) { return false; }
   }
   function runEnemyPhase() {
@@ -716,9 +720,12 @@
       log('📍 Тактический ИИ ждёт завершения расстановки.');
       return { skipped: true };
     }
-    const stats = { attacks: 0, moves: 0, recon: 0, flares: 0, smoke: 0 };
+    const stats = { attacks: 0, moves: 0, recon: 0, flares: 0, smoke: 0, supply: 0 };
     if (considerEnemyFlare()) stats.flares++;
+    if (typeof syncLiveMapSupplyPoints==='function') syncLiveMapSupplyPoints();
     const squads = (appData.map.enemySquads || []).slice();
+    // Reconnaissance benefits the whole side, even rifle squads processed before HQ.
+    squads.forEach((s,i)=>{if (alive(s) && typeof tacticalAIReconAction==='function' && tacticalAIReconAction(s,i)) stats.recon++;});
     const plan = buildPhasePlan(squads);
     log(`🤖 Тактический ИИ начинает фазу: общий план «${plan.maneuver}»${plan.focusTargetName ? `, главная цель — «${plan.focusTargetName}»` : ', обнаруженных целей нет'}.`);
     try {
@@ -729,7 +736,7 @@
     } finally {
       activePhasePlan = null;
     }
-    log(`🤖 Фаза тактического ИИ завершена: действий огня ${stats.attacks}, перемещений ${stats.moves}, разведывательных действий ${stats.recon}, дымовых завес ${stats.smoke}, осветительных ракет ${stats.flares}.`);
+    log(`🤖 Фаза тактического ИИ завершена: действий огня ${stats.attacks}, перемещений ${stats.moves}, разведывательных действий ${stats.recon}, отправок за БК ${stats.supply}, дымовых завес ${stats.smoke}, осветительных ракет ${stats.flares}.`);
     try { saveData(); } catch (e) {}
     try { updateUI(); redrawMap(); } catch (e) {}
     return stats;

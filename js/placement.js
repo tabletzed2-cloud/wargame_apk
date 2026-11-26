@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.202
+// ⚡ BUILD-МАРКЕР: v13.205
 // v13.062: fixed DOT coordinates and no placement bypass for eliminated squads.
 // ⚡ v13.061: current release tactical deployment rules.
 // ============================================================
@@ -549,12 +549,28 @@ function installBattlePlacementTray() {
     };
     document.addEventListener('pointerdown', event => {
         const btn = event.target && event.target.closest ? event.target.closest('[data-battle-place-unit]') : null;
-        if (!btn || (event.button || 0) > 0) return;
-        const idx = Number(btn.getAttribute('data-battle-place-unit'));
+        if (!event.target || (event.button || 0) > 0) return;
+        let idx, ambush=false;
+        if (!btn && event.target.id==='gameMap' && typeof hexEditorState!=='undefined' && hexEditorState?.kind==='ambush') {
+            const st=hexEditorState, key=tacticalCanvasHexAt(event.clientX,event.clientY,event.target);
+            const unit=ambushEditorUnit(st), squads=ambushEditorSquads(unit);
+            idx=squads.findIndex(s=>unit.ambushDeployment?.positions[s.name]===key);
+            if (idx<0) return;
+            st.ambushSquadIndex=idx;ambush=true;
+        } else if (btn) idx = Number(btn.getAttribute('data-battle-place-unit'));
+        else {
+            const battle = getCurrentBattleRecord(), p = battle && battle.placement;
+            if (!(p && p.phase !== 'done' && !p.playerReady) || event.target.id !== 'gameMap') return;
+            const key = tacticalCanvasHexAt(event.clientX,event.clientY,event.target);
+            const ids=key && appData.map.grid[key]?.squadIds;
+            idx = ids?.includes(appData.map.placementSquadIdx) ? appData.map.placementSquadIdx : ids?.[0];
+        }
         if (!Number.isInteger(idx)) return;
-        drag = { idx, x: event.clientX, y: event.clientY, moved: false };
+        window.__battlePlacementDragging = true;
+        event.stopPropagation();
+        drag = { idx, ambush, x: event.clientX, y: event.clientY, moved: false };
         try { event.preventDefault(); } catch (e) {}
-    }, { passive: false });
+    }, { passive: false, capture:true });
     document.addEventListener('pointermove', event => {
         if (!drag) return;
         if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) <= 7) return;
@@ -562,7 +578,7 @@ function installBattlePlacementTray() {
             drag.moved = true;
             const ghost = document.createElement('div');
             ghost.className = 'op-placement-ghost';
-            const s = (appData.squads || [])[drag.idx];
+            const s = drag.ambush ? ambushEditorSquads(ambushEditorUnit(hexEditorState))[drag.idx] : (appData.squads || [])[drag.idx];
             ghost.textContent = (s && s.name) || 'Отряд';
             ghost.setAttribute('data-op-placement-ghost', '1');
             document.body.appendChild(ghost);
@@ -572,8 +588,15 @@ function installBattlePlacementTray() {
     document.addEventListener('pointerup', event => {
         const d = drag;
         drag = null;
+        setTimeout(()=>{window.__battlePlacementDragging=false;},0);
         removeGhost();
         if (!d) return;
+        if (d.moved) window.__battlePlacementSuppressUntil=Date.now()+350;
+        if (d.ambush) {
+            if (d.moved) {const canvas=document.getElementById('gameMap');const key=tacticalCanvasHexAt(event.clientX,event.clientY,canvas);if(key)ambushEditorClick(hexEditorState,key);}
+            else showHexEditorBanner();
+            return;
+        }
         appData.map.placementSquadIdx = d.idx;
         const select = document.getElementById('squadToPlace');
         if (!d.moved) {
@@ -596,7 +619,7 @@ function installBattlePlacementTray() {
         } catch (e) { console.warn('battle placement drop:', e && e.message); }
         try { if (typeof renderPlacementPanel === 'function') renderPlacementPanel(); } catch (e) {}
     }, { passive: true });
-    document.addEventListener('pointercancel', () => { drag = null; removeGhost(); }, { passive: true });
+    document.addEventListener('pointercancel', () => { drag = null; window.__battlePlacementDragging=false; removeGhost(); }, { passive: true });
 }
 
 function placementInfo(text, color) {
@@ -1030,7 +1053,11 @@ function drawPlacementZone(ctx, size) {
     // The defending player must not see the attacker's deployment strip.
     // Show only the local allowed region, never the enemy entry strip.
     if (p.phase === 'done' && !(appData.map && appData.map.mode === 'place')) return;
-    const zone = p.battleMode === 'meeting' ? placementZoneKeys(p.entryDirs.player, placementMapSize(battle)) :
+    const reinforcement = p.phase === 'done' && placementReinforcementPending(battle);
+    const selectedIdx = Number.isInteger(appData.map.placementSquadIdx) ? appData.map.placementSquadIdx : Number(document.getElementById('squadToPlace')?.value);
+    const pendingSquads = reinforcement ? placementReinforcementUnplaced(battle) : [];
+    const selectedSquad = pendingSquads.find(item=>item.idx===selectedIdx)?.s || pendingSquads[0]?.s || (appData.squads || [])[selectedIdx];
+    const zone = reinforcement ? placementReinforcementZone(battle,selectedSquad).keys : p.battleMode === 'meeting' ? placementZoneKeys(p.entryDirs.player, placementMapSize(battle)) :
         p.attackerSide === 'player' ? placementZoneKeys(p.entryDir, placementMapSize(battle)) : tacticalDefenderZoneKeys(placementMapSize(battle));
     if (!zone.length) return;
     const centers = {};

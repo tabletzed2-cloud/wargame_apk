@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.202
+// ⚡ BUILD-МАРКЕР: v13.205
 /* Single-player campaign AI. This script intentionally does nothing in online games. */
 function isOfflineCampaignAIEnabled() {
     const campaign = (typeof appData !== 'undefined' && appData) ? appData.campaign : null;
@@ -627,7 +627,7 @@ function operationalAIAmmoAllowsShot(unit, target, distance) {
     let available = 0;
     try { available = typeof unitOperationalAmmoTotal === 'function' ? unitOperationalAmmoTotal(unit, kind) : 0; } catch (e) {}
     // Always preserve the final round; operational fire must not drain a unit
-    // completely when there is no enemy-side supply convoy system yet.
+    // completely: a real supply convoy may be delayed, intercepted or out of stock.
     if (available <= 1) return false;
     const reserve = unit.ammoReserve || {};
     const initial = Number(reserve[`initial${kind}`]) || 0;
@@ -912,6 +912,7 @@ function operationalAIPlaceEnemyBattleSquads(battle) {
 function processOfflineCampaignAI() {
     if (!isOfflineCampaignAIEnabled()) return { moved: 0, fired: 0 };
     const campaign = appData.campaign;
+    if (typeof operationalAIProcessSupply==='function' && typeof supplyAssetCounts==='function') operationalAIProcessSupply();
     try { operationalAIEnsureEnemyCards(); } catch (e) { console.warn('Enemy AI card setup:', e && e.message); }
     const targets = operationalAITargets();
     const assignments = operationalAIPlanAssignments(targets);
@@ -988,4 +989,106 @@ function processOfflineCampaignAI() {
         try { saveData(); } catch (e) {}
     }
     return { moved, fired, improved };
+}
+
+// Enemy logistics has its own finite depot and real roster transports. Never
+// borrow the player's supply state or refill a fighting tactical snapshot.
+function operationalAIProcessSupply() {
+    if (!isOfflineCampaignAIEnabled()) return 0;
+    const camp=appData.campaign,turn=Number(camp.currentTurn)||1;
+    const depot=(camp.enemyOpUnits || []).find(u=>u && !u.isDestroyed && !u.isSurrendered &&
+        isSupplyOperationalUnit(u) && u.col!=null && u.row!=null);
+    if (!depot || operationalUnitInTacticalBattle(depot)) return 0;
+    const hostileAt=(col,row)=>(camp.opUnits || []).some(u=>u && !u.isDestroyed && !u.isSurrendered &&
+        u.col!=null && u.row!=null && Number(u.col)===Number(col) && Number(u.row)===Number(row));
+    if (hostileAt(depot.col,depot.row)) return 0;
+    const state=camp.enemyAISupply || (camp.enemyAISupply={stock:{...SUPPLY_DEPOT_MAX},deliveries:[]});
+    if (state.processedTurn===turn) return 0;
+    state.processedTurn=turn;
+    let delivered=0;
+    const counts=supplyAssetCounts(depot);
+    state.lostAssets ||= {};
+    for (const id of Object.keys(counts)) counts[id]=Math.max(0,counts[id]-(Number(state.lostAssets[id])||0));
+    for (const trip of state.deliveries.slice()) {
+        if (hostileAt(trip.col,trip.row) || !(counts[trip.assetId]>0)) {
+            state.lostAssets[trip.assetId]=(Number(state.lostAssets[trip.assetId])||0)+1;
+            state.deliveries=state.deliveries.filter(x=>x!==trip);continue;
+        }
+        const recipient=(camp.enemyOpUnits || []).find(u=>u && u.name===trip.unitName && !u.isDestroyed && !u.isSurrendered);
+        if (!recipient || recipient.col==null || recipient.row==null) trip.returning=true;
+        const target=trip.returning?depot:recipient;
+        if (!target) continue;
+        const probe={name:'Колонна снабжения противника',mobility:supplyAssetsMobility([{id:trip.assetId,count:1}]),col:trip.col,row:trip.row};
+        const route=operationalAISupplyRoute(probe,target) || [];
+        let ap=4;
+        for (const step of route) {
+            const cost=supplyMoveCost(probe.mobility,step.col,step.row,trip.col,trip.row);
+            if (!Number.isFinite(cost) || cost>ap) break;
+            ap-=cost;trip.col=Number(step.col);trip.row=Number(step.row);
+            if (hostileAt(trip.col,trip.row)) {trip.lost=true;break;}
+        }
+        if (trip.lost) {state.lostAssets[trip.assetId]=(Number(state.lostAssets[trip.assetId])||0)+1;state.deliveries=state.deliveries.filter(x=>x!==trip);continue;}
+        if (trip.col!==Number(target.col) || trip.row!==Number(target.row)) continue;
+        if (trip.returning) {
+            for (const kind of ['ammoSmall','ammoOrdnance','grenades']) state.stock[kind]+=Number(trip.cargo[kind])||0;
+            state.deliveries=state.deliveries.filter(x=>x!==trip);
+        } else if (!operationalUnitInTacticalBattle(recipient)) {
+            trip.cargo=operationalAIReceiveSupply(recipient,trip.cargo);trip.returning=true;delivered++;
+        }
+    }
+    const requests=(camp.enemyOpUnits || []).filter(u=>u && u!==depot && !u.isDestroyed && !u.isSurrendered &&
+        !u.embarkedInBtr && u.col!=null && u.row!=null && !operationalUnitInTacticalBattle(u) &&
+        !state.deliveries.some(d=>d.unitName===u.name)).map(unit=>({unit,status:operationalAIAmmoSupplyStatus(unit).status}))
+        .filter(({status})=>['ammoSmall','ammoOrdnance'].some(k=>status[k].max>0 && status[k].cur/status[k].max<=0.2))
+        .sort((a,b)=>supplyAmmoPercent(a.unit)-supplyAmmoPercent(b.unit));
+    for (const {unit,status} of requests) {
+        const assetId=supplyAssetIds().find(id=>Number(counts[id])>
+            state.deliveries.filter(d=>d.assetId===id).length &&
+            Object.entries(supplyCargoOf([{id,count:1}])).some(([k,n])=>n>0 && state.stock[k]>0 && status[k]?.cur<status[k]?.max));
+        if (!assetId) continue;
+        const probe={col:Number(depot.col),row:Number(depot.row),mobility:supplyAssetsMobility([{id:assetId,count:1}])};
+        const route=operationalAISupplyRoute(probe,unit) || [];
+        if (!route.length && (unit.col!==depot.col || unit.row!==depot.row)) continue;
+        const capacity=supplyCargoOf([{id:assetId,count:1}]),cargo={};
+        for (const kind of ['ammoSmall','ammoOrdnance','grenades']) {
+            cargo[kind]=Math.max(0,Math.min(Number(capacity[kind])||0,Number(state.stock[kind])||0,status[kind].max-status[kind].cur));
+            state.stock[kind]-=cargo[kind];
+        }
+        state.deliveries.push({unitName:unit.name,assetId,cargo,col:Number(depot.col),row:Number(depot.row),returning:false});
+        break; // one newly dispatched convoy per operational turn
+    }
+    return delivered;
+}
+
+// Supply routes use supply terrain costs, not player-side combat-unit paths.
+function operationalAISupplyRoute(probe,target) {
+    const start=`${probe.col},${probe.row}`,goal=`${target.col},${target.row}`;
+    if (start===goal) return [];
+    const camp=appData.campaign;
+    const danger=new Set((camp.opUnits || []).filter(u=>u && !u.isDestroyed && !u.isSurrendered &&
+        (u.detected || u.noiseMarker) && u.col!=null && u.row!=null).map(u=>`${u.col},${u.row}`));
+    const queue=[{col:probe.col,row:probe.row,cost:0}],best=new Map([[start,0]]),previous=new Map();
+    while(queue.length) {
+        queue.sort((a,b)=>a.cost-b.cost);
+        const current=queue.shift(),key=`${current.col},${current.row}`;
+        if (key===goal) break;
+        if (current.cost>best.get(key)) continue;
+        for(const next of getOpHexNeighbors(current.col,current.row)) {
+            const nk=`${next.col},${next.row}`;
+            if (danger.has(nk) || typeof operationalHexHasActiveBattle==='function' && operationalHexHasActiveBattle(next.col,next.row) ||
+                typeof opHexIsCutByPlayer==='function' && opHexIsCutByPlayer(next.col,next.row)) continue;
+            const step=supplyMoveCost(probe.mobility,next.col,next.row,current.col,current.row);
+            if (!Number.isFinite(step) || step>4) continue;
+            const cost=current.cost+step;
+            if (cost>=(best.get(nk)??Infinity)) continue;
+            best.set(nk,cost);previous.set(nk,key);queue.push({...next,cost});
+        }
+    }
+    if (!previous.has(goal)) return null;
+    const route=[];
+    for(let key=goal;key!==start;key=previous.get(key)) {
+        if (!key) return null;
+        const [col,row]=key.split(',').map(Number);route.unshift({col,row});
+    }
+    return route;
 }

@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.202
+// ⚡ BUILD-МАРКЕР: v13.205
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -30,7 +30,7 @@ var MAP_ACTION_LOC_KEYS = ['ricochet', 'hull', 'suspension', 'turret', 'engine',
 var MAP_ACTION_DEFS = [
     {id:'thermite', aiOnly:true, label:'🧨 Термитный заряд', targets:'any', maxDist:1, show:s => Number(s.thermiteCharges)>0},
     {id:'flamethrower', aiOnly:true, label:'🔥 Огнемёт РОКС', targets:'infantry', maxDist:1, show:s => !!(s.effects && s.effects.flamethrower && s.effects.flamethrower.charges>0)},
-    { id: 'smallArms',       label: '🔫 Стрелковое / пулемёты', targets: 'any',      small: true,
+    { id: 'smallArms',       label: '🔫 Стрелковое / пулемёты', targets: 'infantry',      small: true,
       // ⚡ v13.137 (п.3): без патронов кнопка стрельбы недоступна.
       show: s => !(s.name || '').includes('ДОТ') && (s.ammoSmall || 0) > 0 },
     { id: 'ordnance',        label: '💥 Орудия / миномёты',     targets: 'any',
@@ -257,6 +257,7 @@ function mapActionEvalTarget(def, shooterIdx, enemyIdx, extra, shooterSide) {
         ? getTacticalCoverInfoForSquad(grid, enemyIdx, shooterIsEnemy ? 'player' : 'enemy')
         : getTacticalCoverInfoForEnemy(grid, enemyIdx);
     const shooterSquad = shooters[shooterIdx];
+    if (shooterSquad && !tacticalBtrCanFire(shooterSquad) && ['smallArms','vehicle','ordnance'].includes(def.id)) {out.reason='Без десанта БТР не стреляет.';return out;}
     if (['thermite','flamethrower'].includes(def.id)) {
         if (!def.show(shooterSquad)) {out.reason='Нет зарядов';return out;}
         if (typeof tacticalHasLineOfSight === 'function' && !tacticalHasLineOfSight(sPos,tPos)) {out.reason='Нет линии видимости';return out;}
@@ -478,7 +479,9 @@ function renderMapActionPanel() {
             html += `<button onclick="selectSquad(${idx}); retreatFromMelee();" ${tacticalActionAllowed(squad, 'retreatMelee', true) ? '' : 'disabled'}>↩ Отступить из рукопашной</button>`;
         }
         const meleeEngaged = typeof tacticalIsMeleeEngaged === 'function' && tacticalIsMeleeEngaged(squad);
+        if (squad.armor || squad.isVehicle) html += mapVehicleFireButtons(squad,idx,ap<=0 || routed || !pos || phaseLocked || meleeEngaged);
         MAP_ACTION_DEFS.forEach(def => {
+        if ((squad.armor || squad.isVehicle) && ['smallArms','ordnance','vehicle'].includes(def.id)) return;
         // Player utility controls retain manual DOT-part / hex selection.
         if (def.aiOnly) return;
             let show = false;
@@ -877,18 +880,17 @@ function mapBeginAmmoRun() {
         mapActionInfo('⛔ Не удалось рассчитать маршрут до пункта боепитания.', '#e74c3c');
         return;
     }
-    const type = prompt('Что принести?\n1 — Патроны (30)\n2 — Снаряды (10)\n3 — Гранаты (5)', '1');
+    const type = prompt('Что принести?\n1 — Патроны (до 30)\n2 — Снаряды (до 10)\n3 — Гранаты (до 5)', '1');
     if (type === null) return;
     if (!['1', '2', '3'].includes(String(type).trim())) { mapActionInfo('Выберите тип боеприпаса: 1, 2 или 3.', '#e67e22'); return; }
     const runner = runners[Math.floor(Math.random() * runners.length)].fighter;
     const supply = nearestSupplyPoint(appData.map,pos.key,'player');
     if (!supply) {mapActionInfo('⛔ Действующий пункт боепитания недостижим.','#e74c3c');return;}
-    runner.isAway = true;
-    runner.turnsToReturn = turns;
-    runner.ammoType = String(type).trim();
-    runner.ammoSupplyHex = supply.key;
-    runner.ammoRun = {hex:pos.key,stage:'outbound',loaded:false,distance:supply.distance};
-    const ammoName = runner.ammoType === '1' ? 'патронами (+30)' : runner.ammoType === '2' ? 'снарядами (+10)' : 'гранатами (+5)';
+    if (!tacticalDispatchAmmoRunner(squad,runner,'player',pos,supply,String(type).trim())) {
+        mapActionInfo('⛔ В общем запасе этого взвода нет нужных боеприпасов либо отделение уже обеспечено.','#e74c3c');
+        return;
+    }
+    const ammoName = (runner.ammoType === '1' ? 'патронами' : runner.ammoType === '2' ? 'снарядами' : 'гранатами') + ` (+${runner.ammoCargo.amount} из запаса взвода)`;
     const message = `📦 ${runner.name} из отряда «${squad.name}» отправился за ${ammoName} к пункту ${runner.ammoSupplyHex}; ETA ${turns} собственных ход(а) / ${turns * 2} мин.`;
     if (typeof log === 'function') log(message);
     mapActionInfo(message, '#27ae60');
@@ -983,7 +985,7 @@ function mapActionUseBinocularsForSide(idx, key, side) {
         ? (typeof spendTacticalSideAP === 'function' && spendTacticalSideAP(squad, 2, 'utility', context))
         : (typeof spendAP === 'function' && spendAP(Number(idx), 2, 'utility'));
     if (!paid) return false;
-    found.forEach(target => { target.hidden = false; target.detected = true; target.binocularsDetectedTurn = (typeof currentTurn !== 'undefined') ? currentTurn : 1; });
+    found.forEach(target => { target.hidden = false; target.detected = true; target.noiseMarker = false; if (typeof tacticalClearArmoredNoise==='function') tacticalClearArmoredNoise(target); target.binocularsDetectedTurn = (typeof currentTurn !== 'undefined') ? currentTurn : 1; });
     map.reconRevealedHexes = Array.isArray(map.reconRevealedHexes) ? map.reconRevealedHexes : [];
     const turn = (typeof currentTurn !== 'undefined' ? Number(currentTurn) : 1) || 1;
     map.reconRevealedHexes = map.reconRevealedHexes.filter(item => item && Number(item.expiresTurn) >= turn && String(item.key) !== String(key));
@@ -1486,6 +1488,7 @@ function reportAttackOutcome(kind, data) {
     const before = mapActionEnemyAlive(enemy);
     switch (kind) {
         case 'smallArms':
+            if (mapActionEnemyIsVehicle(enemy)) {res.notes.push('Броня защищает экипаж от стрелкового огня.');break;}
             applyDamagePointsToEnemy(enemy, data.hits || 0, res);
             break;
         case 'dotmg':
@@ -1493,6 +1496,7 @@ function reportAttackOutcome(kind, data) {
             else applyDamagePointsToEnemy(enemy, data.hits || 0, res);
             break;
         case 'sniper': {
+            if (mapActionEnemyIsVehicle(enemy)) break;
             if (!(data.hits > 0)) break;
             const livingFighters = (enemy.fighters || []).filter(f => f && f.hp > 0);
             const selectedFighter = livingFighters[Math.floor(Math.random() * livingFighters.length)];
@@ -1683,4 +1687,24 @@ function drawMapActionTargetHighlights(ctx, size) {
         }
     });
     ctx.restore();
+}
+
+// Both the battle tab and the map expose real mounts, never an aggregate
+// 'small arms' action that can silently choose another weapon on this vehicle.
+function mapVehicleFireButtons(squad,index,locked) {
+    const weapons=mapActionCrewWeapons(squad);
+    const esc=value=>String(value || '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    return (squad.crewInstances || []).map(ci=>{
+        const weapon=weapons.find(w=>w && w.name===ci.weaponName);
+        if (!weapon || !['mg','at_gun','tank_gun','mortar'].includes(weapon.type)) return '';
+        const alive=(ci.fighterIndices || []).some(i=>squad.fighters[i]?.hp>0);
+        const ammo=Number(squad[weapon.type==='mg'?'ammoSmall':'ammoOrdnance'])>0;
+        const shots=typeof getWeaponShotCount!=='function' || getWeaponShotCount(squad,ci.uniqueKey)<getWeaponMaxShots(weapon);
+        const allowed=typeof tacticalActionAllowed!=='function' || tacticalActionAllowed(squad,'shoot',true);
+        const disabled=locked || !allowed || !alive || !ammo || !shots || ci.active===false || ci.deployed===false ||
+            ['destroyed','blinded'].includes(ci.status) || !tacticalBtrCanFire(squad);
+        const sector=tacticalVehicleWeaponSectorLabel(squad,weapon.name,weapon.type,ci);
+        const call=`selectSquad(${index});prepareTacticalVehicleWeaponAndFire(${JSON.stringify(ci.uniqueKey)},${JSON.stringify(weapon.type)})`;
+        return `<button ${disabled?'disabled':`onclick="${esc(call)}"`}>${esc(weapon.name)} · ${esc(sector)}</button>`;
+    }).join('');
 }

@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.202 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.205 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.066: start fortifications are DOT-only (trenches are standard on the
 //    maps), DOTs are placed as real units with their own icons, and every
 //    platoon HQ hex gets an ammo point marker.
@@ -1445,6 +1445,7 @@ function showHexEditButton(hexKey, kind) {
 // ─────────────────── РЕДАКТОР КАРТЫ ГЕКСА (окопы / подготовка) ───────────────────
 
 function hexEditRuleFor(kind) {
+    if (kind==='ambush') return {title:'🥷 Засада',hint:'Расставьте отделения',allowed:()=>true,targetType:null,pointsField:null};
     if (kind === 'fireField') {
         return {
             title: '🔥 Огненное поле',
@@ -1520,7 +1521,7 @@ function openHexEditorForBattle(hexKey, kind, ownerUnitName) {
         alert('Нет готового приказа «Разлить нефть» для этого оперативного гекса.');
         return;
     }
-    if (kind !== 'initialFortification' && !canEditFireField && budget <= 0 && !existingTrenchesCanBeEdited && !draftModeOpen) {
+    if (kind !== 'ambush' && kind !== 'initialFortification' && !canEditFireField && budget <= 0 && !existingTrenchesCanBeEdited && !draftModeOpen) {
         alert('Нет доступных правок. Отдайте приказ «' + (kind === 'trenches' ? 'Окопаться' : 'Подготовка позиций') + '» и дождитесь его выполнения (3 хода).');
         return;
     }
@@ -1610,7 +1611,7 @@ function openHexEditorForBattle(hexKey, kind, ownerUnitName) {
         proceed(TACTICAL_HEX_MAPS[hexKey]);
     } else {
         ensureTacticalHexMap(hexKey).then(md => {
-            if (!md && (kind === 'initialFortification' || kind === 'fireField')) {
+            if (!md && (kind === 'ambush' || kind === 'initialFortification' || kind === 'fireField')) {
                 const grid = {};
                 for (let row = 0; row < 20; row++) for (let col = 0; col < 20; col++) {
                     grid[col + ',' + row] = { type: 'grass', squadIds: [], enemySquadIds: [], markers: [], rotation: 0, variant: 0, level: 0 };
@@ -1688,7 +1689,7 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
     const st = hexEditorState;
     const battleRoot = document.getElementById('battleApp');
     if (battleRoot && battleRoot.classList) {
-        const editorMode = !!st && ['trenches', 'prep', 'initialFortification'].includes(st.kind);
+        const editorMode = !!st && ['ambush', 'trenches', 'prep', 'initialFortification'].includes(st.kind);
         if (typeof battleRoot.classList.toggle === 'function') battleRoot.classList.toggle('hex-editor-mode', editorMode);
         else if (editorMode && typeof battleRoot.classList.add === 'function') battleRoot.classList.add('hex-editor-mode');
         else if (!editorMode && typeof battleRoot.classList.remove === 'function') battleRoot.classList.remove('hex-editor-mode');
@@ -1697,6 +1698,7 @@ function showHexEditorBanner() {    let banner = document.getElementById('hexEdi
     // ⚡ v13.066: миникарта кампании — какой оперативный гекс открыт сейчас
     try { if (typeof renderCampaignMiniMap === 'function') renderCampaignMiniMap(); } catch (e) {}
     banner.style.cssText = 'display:block; background:#12241a; border:2px solid #27ae60; border-radius:8px; padding:10px; margin-bottom:8px;';
+    if (st.kind === 'ambush') {ambushEditorBanner(st,banner);return;}
     if (st.kind === 'fireField') {
         const ov = getHexOverlay(st.hexKey, true);
         const fire = ov.fireField || { cells: [], state: 'draft' };
@@ -2219,6 +2221,7 @@ function applyPendingHexEdits(hexKey, kind, unitName) {
 }
 function hexEditClick(hexKeyCell) {
     const st = hexEditorState;
+    if (st && st.kind==='ambush') return ambushEditorClick(st,hexKeyCell);
     if (!st) return false;
     // Запоминаем кликнутую клетку и для черновика: кнопка поворота текстуры
     // должна работать до исполнения приказа «Окопаться» так же, как после него.
@@ -3275,7 +3278,7 @@ function ammoRunnerFindPath(mapLike, fromKey, goalKeys, side) {
     const grid = mapLike && mapLike.grid;
     const goals = new Set(Array.isArray(goalKeys) ? goalKeys : [goalKeys]);
     if (!grid || !grid[fromKey] || !goals.size) return null;
-    const opposing = side === 'enemy' ? (mapLike.playerSquads || []) : (mapLike.enemySquads || []);
+    const opposing = side === 'enemy' ? (mapLike === appData.map ? appData.squads || [] : mapLike.playerSquads || []) : (mapLike.enemySquads || []);
     const occupancy = side === 'enemy' ? 'squadIds' : 'enemySquadIds';
     const passable = key => {
         const cell = grid[key];
@@ -3308,16 +3311,17 @@ function nearestSupplyPoint(mapLike, fromKey, side) {
     return path ? {key:path[path.length-1],distance:path.length-1,path} : null;
 }
 // Advance actual saved position by at most four adjacent hexes per own turn.
-function advanceTacticalAmmoRunner(fighter, squadIndex) {
+function advanceTacticalAmmoRunner(fighter, squadIndex, side) {
+    side = side === 'enemy' ? 'enemy' : 'player';
     const run = fighter.ammoRun, map = appData.map;
     if (!run || fighter.hp<=0) return true;
     run.blocked=false;
-    if (run.stage==='outbound' && !activeSupplyPointKeys(map,'player').includes(fighter.ammoSupplyHex)) {
+    if (run.stage==='outbound' && !activeSupplyPointKeys(map,side).includes(fighter.ammoSupplyHex)) {
         run.stage='returning'; run.loaded=false;
     }
-    const home = getBattleSquadHex(map.grid,squadIndex,false);
+    const home = getBattleSquadHex(map.grid,squadIndex,side==='enemy');
     const target = run.stage==='outbound' ? fighter.ammoSupplyHex : (home && home.key);
-    const path = target && ammoRunnerFindPath(map,run.hex,target,'player');
+    const path = target && ammoRunnerFindPath(map,run.hex,target,side);
     if (!path) {run.blocked=true;return false;}
     run.hex=path[Math.min(4,path.length-1)];
     if (run.hex===target) {
@@ -3325,7 +3329,7 @@ function advanceTacticalAmmoRunner(fighter, squadIndex) {
         run.loaded=true; run.stage='returning';
         if (home && home.key===run.hex) return true;
     }
-    const back = home && ammoRunnerFindPath(map,run.hex,home.key,'player');
+    const back = home && ammoRunnerFindPath(map,run.hex,home.key,side);
     if (run.stage==='returning') fighter.turnsToReturn=back ? Math.max(1,Math.ceil((back.length-1)/4)) : Math.max(1,Number(fighter.turnsToReturn)||1);
     else fighter.turnsToReturn=Math.max(1,Math.ceil(Math.max(0,path.length-5)/4)) + Math.max(1,Math.ceil((fighter.ammoRun.distance || 0)/4));
     return false;
@@ -3347,4 +3351,86 @@ function syncLiveMapSupplyPoints() {
     if (typeof appData === 'undefined' || !appData || !appData.map || !appData.map.grid) return;
     syncSupplyPointsOnGrid(appData.map, appData.squads || [], 'squadIds', 'player');
     syncSupplyPointsOnGrid(appData.map, appData.map.enemySquads || [], 'enemySquadIds', 'enemy');
+    if (typeof tacticalAmmoSourceUnit==='function') {
+        (appData.squads || []).forEach(s=>tacticalAmmoSourceUnit(s,'player'));
+        (appData.map.enemySquads || []).forEach(s=>tacticalAmmoSourceUnit(s,'enemy'));
+    }
+}
+
+// Ambush setup is an editor, NOT a battle: no fake enemy, turn or battle record.
+function openAmbushDeployment(unit) {
+    if (!unit || !unit.isAmbush || (appData.campaign.enemyOpUnits || []).includes(unit)) return false;
+    if (unit.ambushDeployment?.hexKey === unit.ambushHex && unit.ambushDeployment.ready) return false;
+    if (hexEditorState || appData.currentBattleId) {
+        unit.ambushDeploymentPending=true;saveData();return false;
+    }
+    unit.ambushDeploymentPending=false;
+    openHexEditorForBattle(unit.ambushHex,'ambush',unit.name);
+    return true;
+}
+function ambushEditorUnit(st) {
+    return (appData.campaign.opUnits || []).find(u=>u && u.name===st.ownerUnitName);
+}
+function ambushEditorSquads(unit) {
+    return (unit?.squads || []).filter(s=>s && !s.hidden && !s.isDestroyed && (s.fighters || []).some(f=>f && f.hp>0));
+}
+function ambushEditorBanner(st,banner) {
+    const unit=ambushEditorUnit(st), squads=ambushEditorSquads(unit);
+    if (!unit.ambushDeployment || unit.ambushDeployment.hexKey!==st.hexKey)
+        unit.ambushDeployment={hexKey:st.hexKey,positions:{},ready:false};
+    const positions=unit.ambushDeployment.positions;
+    const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    banner.innerHTML=`<b>🥷 Расстановка засады — гекс (${esc(st.hexKey)})</b><p>Выберите отделение и клетку карты. Можно переставлять до завершения. При входе врага бой начнётся с этих позиций, в маскировке.</p>`+
+        `<select onchange="hexEditorState.ambushSquadIndex=Number(this.value)">${squads.map((s,i)=>`<option value="${i}" ${i===(st.ambushSquadIndex || 0)?'selected':''}>${esc(s.name)}${positions[s.name]?' — '+esc(positions[s.name]):''}</option>`).join('')}</select> `+
+        '<button onclick="finishAmbushDeployment()">✅ Завершить размещение</button>';
+}
+function ambushEditorClick(st,key) {
+    const unit=ambushEditorUnit(st), squad=ambushEditorSquads(unit)[st.ambushSquadIndex || 0], cell=appData.map.grid[key];
+    if (!squad || !cell || cell.type==='water' || cell.type==='deep_water') return false;
+    if (typeof canPlaceSquadOnHex==='function' && !canPlaceSquadOnHex(squad,cell,key)) return false;
+    unit.ambushDeployment.positions[squad.name]=key;
+    unit.ambushDeployment.ready=false;
+    saveData();showHexEditorBanner();redrawMap();return true;
+}
+function finishAmbushDeployment() {
+    const st=hexEditorState;
+    if (!st || st.kind!=='ambush') return false;
+    const unit=ambushEditorUnit(st);
+    if (ambushEditorSquads(unit).some(s=>!unit.ambushDeployment.positions[s.name])) {
+        alert('Разместите все отделения засады.');return false;
+    }
+    unit.ambushDeployment.ready=true;
+    saveData();closeHexEditor();
+    const next=(appData.campaign.opUnits || []).find(u=>u && u.isAmbush && u.ambushDeploymentPending);
+    if (next) setTimeout(()=>openAmbushDeployment(next),0);
+    return true;
+}
+function drawAmbushDeployment(ctx,size) {
+    if (!hexEditorState || hexEditorState.kind!=='ambush') return;
+    const unit=ambushEditorUnit(hexEditorState), positions=unit?.ambushDeployment?.positions || {};
+    ctx.save();
+    for (const [name,key] of Object.entries(positions)) {
+        const center=(appData.map.centers || []).find(c=>c.key===key);
+        if (!center) continue;
+        ctx.fillStyle='#163c2c';ctx.strokeStyle='#f1c40f';ctx.lineWidth=2;
+        ctx.beginPath();ctx.arc(center.x,center.y,size*.55,0,Math.PI*2);ctx.fill();ctx.stroke();
+        ctx.fillStyle='#fff';ctx.font=`bold ${Math.max(9,size*.23)}px Arial`;ctx.textAlign='center';
+        const index=ambushEditorSquads(unit).findIndex(s=>s.name===name);
+        ctx.fillText(String(index+1),center.x,center.y);
+    }
+    ctx.restore();
+}
+function applySavedAmbushDeployment(map,squads,units) {
+    let placed=0;
+    (squads || []).forEach((s,index)=>{
+        const unit=(units || []).find(u=>u && u.name===s.opUnitName);
+        const saved=unit?.ambushDeployment;
+        if (!saved || saved.hexKey!==map.hexKey || !saved.ready || s.hidden) return;
+        const key=saved.positions[s.name];
+        if (!map.grid[key]) return;
+        Object.values(map.grid).forEach(cell=>{cell.squadIds=(cell.squadIds || []).filter(i=>i!==index);});
+        map.grid[key].squadIds.push(index);s.hexPos=key.split(',').map(Number);
+        s.camouflaged=true;s.detected=false;s.camouflagedAt={turn:1,hex:key};placed++;
+    });
+    return placed;
 }
