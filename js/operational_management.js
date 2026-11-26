@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.202
+// ⚡ BUILD-МАРКЕР: v13.205
 // v13.185 — automatic logistics, platoon consolidation and read-only order ETA.
 'use strict';
 const AUTO_SUPPLY_KINDS = ['ammoSmall', 'grenades', 'ammoOrdnance'];
@@ -83,9 +83,9 @@ function mergeOperationalPlatoons(receiverId, donorId, confirmed) {
     orders.filter(o=>o.type==='company_order' && Array.isArray(o.subUnitIds)).forEach(o=>{o.subUnitIds=o.subUnitIds.filter(id=>Number(id)!==donorId);});
     const reserveSnapshots=new Map([receiver,donor].map(u=>{
         const reserve={...(u.ammoReserve || {}),caps:{...((u.ammoReserve || {}).caps || {})}};
-        ['small','ordnance'].forEach(kind=>{
+        ['small','ordnance','grenades'].forEach(kind=>{
             reserve[kind]=Number(reserve[kind]) || 0;
-            if (!Number.isFinite(Number(reserve['initial'+kind]))) reserve['initial'+kind]=reserve[kind]+(u.squads || []).reduce((sum,s)=>sum+(Number(s[kind==='small'?'ammoSmall':'ammoOrdnance'])||0),0);
+            if (!Number.isFinite(Number(reserve['initial'+kind]))) reserve['initial'+kind]=reserve[kind]+(u.squads || []).reduce((sum,s)=>sum+(Number(s[kind==='small'?'ammoSmall':kind==='ordnance'?'ammoOrdnance':'grenades'])||0),0);
         });
         return [u,reserve];
     }));
@@ -97,10 +97,10 @@ function mergeOperationalPlatoons(receiverId, donorId, confirmed) {
         if (s.opUnitName) s.opUnitName=receiver.name;
         receiver.squads.push(s);
     });
-    const combined={small:0,ordnance:0,initialsmall:0,initialordnance:0,caps:{}};
+    const combined={small:0,ordnance:0,grenades:0,initialsmall:0,initialordnance:0,initialgrenades:0,caps:{}};
     [receiver,donor].forEach(u=>{
         const reserve=reserveSnapshots.get(u);
-        ['small','ordnance','initialsmall','initialordnance'].forEach(k=>combined[k]+=Number(reserve[k]) || 0);
+        ['small','ordnance','grenades','initialsmall','initialordnance','initialgrenades'].forEach(k=>combined[k]+=Number(reserve[k]) || 0);
         Object.entries(reserve.caps || {}).forEach(([name,cap])=>combined.caps[u===donor ? (renamed.get(name)||name) : name]=cap);
     });
     receiver.ammoReserve=combined;

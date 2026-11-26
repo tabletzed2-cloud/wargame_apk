@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.202 — операция</title>
+  <title>Боевой модуль v13.205 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -19,7 +19,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.202</h1>
+    <h1>⚔️ Боевой модуль v13.205</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -32,7 +32,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.202</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.205</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -84,7 +84,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.202 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.205 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -391,7 +391,7 @@
       }
       return null;
     }
-    function getFactionCrewWeapons(f) { return (appData.factions[f] && appData.factions[f].crewWeapons) ? appData.factions[f].crewWeapons : []; }
+    function getFactionCrewWeapons(f) { return resolveCrewWeaponCatalog(f); }
     const VEHICLE_MG_NAME_MIGRATIONS = {
         'BeVe': {
             'Курсовой пулемёт SAU Brugge': { name: 'Пулемёт Schwarzlose танковый', sectorRole: 'bow' },
@@ -740,7 +740,7 @@ const SUPPLY_DEPOT_MAX = { ammoSmall: 1200, grenades: 300, ammoOrdnance: 80 };
 //    каждой стороне отдельно: у A.I.R.F. — 0,11, у BeVe — 7,0.
 const SUPPLY_EVAC_POINTS = { 'BeVe': { col: 7, row: 0 }, 'A.I.R.F.': { col: 0, row: 11 } };
 
-var APP_VERSION = 'v13.202';
+var APP_VERSION = 'v13.205';
 // v13.183: terrain layers as ZONES (contours), road links cost 1 with no penalty,
 //          no layer graphics on the campaign map; supply/combat read zones.
 // v13.172: full recon routes/observation marks, safe supply corridors, unit card editor, review fixes.
@@ -2537,6 +2537,7 @@ function refreshSquadToPlaceDropdown() {
     if (appData.map) appData.map.activeSide = battle.activeSide || appData.map.activeSide;
   }
   appData.currentBattleId = battle.id;
+  appData.campaign.lastOpenedHexKey=String(battle.hexKey);
   // ⚡ v13.129 (п.7): если в других боях фаза противника уже завершена —
   //    уведомляем, чтобы игрок мог переключаться между боями
   try { notifyPendingEnemyPhases(battle.id); } catch (e) {}
@@ -2872,7 +2873,7 @@ function initialCampaignCardUnitHtml(unit, unitIndex) {
     const icon = card.icon ? `<img src="${escapeCardHtml(card.icon)}" alt="" loading="lazy">` : '';
     const checked = available && selected.has(card.name) && selectedCount < cardLimit;
     if (checked) selectedCount++;
-    return `<label class="initial-card-option${available ? '' : ' is-unavailable'}">
+    return `<label class="initial-card-option${checked ? ' selected' : ''}${available ? '' : ' is-unavailable'}">
       <input class="initial-campaign-card" type="checkbox" data-unit-index="${unitIndex}"
         data-card-name="${escapeCardHtml(card.name)}" data-card-faction="${escapeCardHtml(card.faction)}"
         ${available ? '' : 'disabled'} ${checked ? 'checked' : ''} onchange="toggleInitialCampaignCard(this)">
@@ -2922,6 +2923,7 @@ function toggleInitialCampaignCard(input) {
   if (countLabel) countLabel.textContent = `Выбрано: ${Math.max(0, count)}/${currentLimit}${nowSelected.has('Комиссар') ? ' · +1 случайная' : ''}`;
   saveInitialCampaignCardDraft();
   saveData();
+  if (input.closest) input.closest('.initial-card-option')?.classList.toggle('selected',!!input.checked);
   return !!input.checked;
 }
 function commitInitialCampaignCardAssignments(assignments) {
@@ -3982,10 +3984,10 @@ function opMapDrawDims() {
 function campaignMiniMapCurrentHex() {
     // ⚡ v13.099 (п.23): открытый сейчас гекс — редактор местности, затем запись боя,
     //    затем карта боя (appData.map.hexKey) и последний открытый гекс кампании.
-    if (typeof hexEditorState !== 'undefined' && hexEditorState && hexEditorState.hexKey) {
+    if (typeof appData === 'undefined' || !appData || !appData.campaign) return null;
+    if (appData.map?.mode==='hexEdit' && !appData.currentBattleId && typeof hexEditorState !== 'undefined' && hexEditorState && hexEditorState.hexKey) {
         return String(hexEditorState.hexKey);
     }
-    if (typeof appData === 'undefined' || !appData || !appData.campaign) return null;
     if (appData.currentBattleId && Array.isArray(appData.campaign.activeBattles)) {
         const b = appData.campaign.activeBattles.find(x => x && x.id === appData.currentBattleId);
         if (b && b.hexKey) return String(b.hexKey);
@@ -6873,8 +6875,8 @@ function handleOpMapClick(e) {
       return;
     }
 
-    // ⚡ v13.031/v13.032: онлайн-матч — размещение ТОЛЬКО в зоне своей фракции
-    if (appData.campaign.online) {
+    // Campaign deployment, both solo and online, uses the same green zone.
+    {
         const zc = isHexInPlacementZone(appData.campaign.scenario, appData.campaign.playerFaction, col, row);
         if (!zc.ok) {
             document.getElementById('mapInfo').innerHTML =
@@ -12102,6 +12104,7 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
         delete s.tacticalMoraleInitializedBattleId;
         delete s.tacticalStationaryPhases;
         s.movedThisTurn = false;
+        s.tacticalMovedPreviousTurn = false;
         s.tacticalManeuveringThisPhase = false;
         assignUniqueCrewKeys(s);
         tacticalEnsurePtoCrewOrigins(s);
@@ -12157,6 +12160,9 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
             opUnitType: u.type || null
         });
     };
+
+    // Freeze finite reserves before tactical snapshots start consuming ammo.
+    [...playerUnits,...enemyUnits].forEach(unit=>tacticalAmmoInitializeUnit(unit));
 
     const collectBattleSquads = (units, side) => {
         const out = [];
@@ -12326,12 +12332,14 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
             const fixedHex = squad.fixedTacticalPosition && squad.fixedTacticalPosition.hexKey;
             if (fixedHex) return String(fixedHex) === String(hexKey);
             const owner = (units || []).find(u => u && (u.name === squad.opUnitName || (u.squads || []).includes(squad)));
+            if (owner && tacticalOperationalPassengerOnHex(owner, units, battleAnchor)) return true;
             if (opts.mirrorOf && owner && unitBelongsToHex(owner, battleAnchor.col, battleAnchor.row)) return true;
             if (!owner || !Number.isFinite(Number(owner.col)) || !Number.isFinite(Number(owner.row))) return true;
             return `${Number(owner.col)},${Number(owner.row)}` === String(hexKey);
         };
         playerSquads = playerSquads.filter(s => squadBelongsToHex(s, playerUnits));
         enemySquads = enemySquads.filter(s => squadBelongsToHex(s, enemyUnits));
+        relinkBattlePassengers(playerSquads);relinkBattlePassengers(enemySquads);
     }
     // ⚡ v13.055 (R39#3): кто атакует и с какой стороны вошёл (зона размещения)
     let battleEntry = null;
@@ -12662,11 +12670,18 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
         if (!squad) return;
         delete squad.tacticalStationaryPhases;
         squad.movedThisTurn = false;
+        squad.tacticalMovedPreviousTurn = false;
         squad.tacticalManeuveringThisPhase = false;
         tacticalEnsurePtoCrewOrigins(squad);
     });
 
     applyFixedDotPositions({ hexKey, tacticalMap, playerSquads });
+    if (ambushTriggered) {
+        applySavedAmbushDeployment(tacticalMap,playerSquads,playerUnits);
+        playerSquads.forEach(s=>{
+            if (s && playerAmbushersAtHex.some(u=>u.name===s.opUnitName)) {s.camouflaged=true;s.detected=false;}
+        });
+    }
     if (ambushTriggered && typeof placementRandomizeAmbushEnemies === 'function') {
         const ambushPositions = placementRandomizeAmbushEnemies(tacticalMap);
         enemySquads.forEach((squad, i) => {
@@ -12734,6 +12749,10 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
         if (ambushTriggered && newBattle.placement) {
             newBattle.placement.ambush = true;
             newBattle.placement.enemyReady = true;
+            if (playerSquads.filter(s=>!s.hidden).every((s)=>s.camouflaged &&
+                Object.values(tacticalMap.grid).some(cell=>(cell.squadIds || []).includes(playerSquads.indexOf(s))))) {
+                newBattle.placement.playerReady=true;newBattle.placement.phase='done';
+            }
         }
     }
     try {
@@ -12792,6 +12811,8 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
     document.getElementById('btnReturnToCampaign').style.display = 'inline-block';
     document.getElementById('btnFinishBattle').style.display = 'inline-block';
     appData.currentBattleId = newBattle.id;
+    appData.campaign.lastOpenedHexKey=String(newBattle.hexKey);
+    renderCampaignMiniMap();
     // ⚡ v13.046 (R31#10): СНАЧАЛА показываем игроку гекс, с которого начался
     //    бой, и какие отряды в него вступают — затем фаза выбора карт
     {
@@ -16238,6 +16259,7 @@ function retreatFromMelee() {
       try { tacticalMaybeTriggerFireField(currentSquad, 'player', enteredFrom, next); } catch (e) {}
     }
     if (typeof tacticalMarkTacticalHexOccupied === 'function') tacticalMarkTacticalHexOccupied(next, 'player', map);
+    if (typeof tacticalMovementContactChecks === 'function') tacticalMovementContactChecks(currentSquad);
   }
   if (goals.has(from)) {
     currentSquad.retreatToHQ = false;
@@ -16732,6 +16754,9 @@ function processTacticalRouts(side) {
   //    окружённые отряды сдаются вместо отступления.
   if (typeof updateTacticalEncirclementIfChanged === 'function') updateTacticalEncirclementIfChanged();
   if (side === 'enemy' && appData.campaign.online) return; // owner moves its own squads
+  if (tacticalSurrenderEligible(tacticalSideSquads(side),tacticalSideSquads(side==='player'?'enemy':'player'))) {
+    tacticalSideSquads(side).forEach((s,i)=>tacticalSurrenderUnit(s,side,i,'morale_ammo_proximity'));return;
+  }
   const squads = side === 'enemy' ? map.enemySquads || [] : appData.squads;
   const field = side === 'enemy' ? 'enemySquadIds' : 'squadIds';
   const otherField = side === 'enemy' ? 'squadIds' : 'enemySquadIds';
@@ -16897,6 +16922,7 @@ function processTacticalRouts(side) {
       s.hexPos = next.split(',').map(Number);
       if (typeof tacticalMarkSquadMoved === 'function') tacticalMarkSquadMoved(s); else s.movedThisTurn = true;
       if (typeof tacticalBreakCamouflage === 'function') tacticalBreakCamouflage(s, 'движение');
+      if (typeof tacticalMovementContactChecks === 'function') tacticalMovementContactChecks(s);
       let fireFieldResult = false;
       if (typeof tacticalMaybeTriggerFireField === 'function') {
         try { fireFieldResult = tacticalMaybeTriggerFireField(s, side, enteredFrom, next, map); }
@@ -17236,6 +17262,7 @@ function tacticalPlaceSurrenderMarker(squad, side) {
 }
 function tacticalSurrenderUnit(squad, side, index, reason) {
   if (!squad || squad.isDestroyed || squad.isSurrendered || squad.isRetreated || squad.status === 'retreated' || squad.status === 'surrendered') return false;
+  if (!tacticalSurrenderEligible(tacticalSideSquads(side),tacticalSideSquads(side==='player'?'enemy':'player'))) return false;
   if (reason === 'retreat_blocked' && tacticalMoralePercent(squad) > 10) {
     squad.isRouting = false;
     try { log(`🛡️ «${squad.name || 'отряд'}» не сдаётся: дух выше 10%, остаётся на позиции.`); } catch (e) {}
@@ -17509,23 +17536,23 @@ function tacticalCanFinishByNumericalSuperiority() {
   if (appData.campaign && appData.campaign.online) return false;
   if (getTacticalActiveSide(battle) !== 'player') return false;
   if (typeof placementPendingReason === 'function' && placementPendingReason()) return false;
-  return tacticalNumericalSuperiority().hasSuperiority;
+  return tacticalSurrenderEligible(appData.map.enemySquads,appData.squads);
 }
 function finishBattleByNumericalSuperiority() {
   if (!tacticalCanFinishByNumericalSuperiority()) {
-    try { log('⛔ Численного преимущества для завершения боя сейчас недостаточно.'); } catch (e) {}
+    try { log('⛔ Для капитуляции у всех сдающихся должны быть дух 0, исчерпаны боеприпасы и противник в пределах 3 гексов.'); } catch (e) {}
     updateTacticalTurnUI();
     return false;
   }
   const strength = tacticalNumericalSuperiority();
   const unresolved = tacticalUnresolvedEnemies();
-  const message = `Ваши силы превосходят противника числом (${strength.playerCount} против ${strength.enemyCount}). Оставшиеся вражеские отряды сдадутся. Завершить бой?`;
+  const message = `У всех оставшихся отрядов противника дух 0, нет боеприпасов, ваши силы находятся в радиусе 3 гексов. Принять капитуляцию?`;
   if (typeof confirm === 'function' && !confirm(message)) return false;
   unresolved.forEach(enemy => {
     const idx = (appData.map.enemySquads || []).indexOf(enemy);
-    tacticalSurrenderUnit(enemy, 'enemy', idx, 'numerical_superiority');
+    tacticalSurrenderUnit(enemy, 'enemy', idx, 'morale_ammo_proximity');
   });
-  try { log(`🏳️‍⚧️ Численное превосходство: противник сдался (${strength.playerCount} бойцов против ${strength.enemyCount}).`); } catch (e) {}
+  try { log(`🏳️ Противник сдался: дух исчерпан, боеприпасов нет, противник рядом.`); } catch (e) {}
   finishBattle();
   return true;
 }
@@ -18306,7 +18333,7 @@ function runTacticalAIAction(squad, targetIndex, actionId, extra) {
     __tacticalAIActionContext = context;
     appData.map.attackTargetEnemyIdx = targetIndex;
     appData.map.tacticalAreaFireMode = false;
-    appData.map.selectedVehicleFireWeaponKey = null;
+    appData.map.selectedVehicleFireWeaponKey = extra && typeof extra === 'object' ? extra.vehicleWeaponKey || null : null;
     appData.map.lastAttackOutcome = null;
     const coverValue = Math.min(10, 6 + ((evalResult.cover && evalResult.cover.mod) || 0));
     inputs.forEach((item, index) => {
@@ -18521,7 +18548,8 @@ function nextTurn() {
     if (pr) { try { alert(pr); } catch (e) {} log(pr); return; }
   }
   if (typeof tacticalAdvanceStationaryPhase === 'function') tacticalAdvanceStationaryPhase(completedSide);
-  try { resolveTacticalMeleesForTurn(completedSide); } catch (e) {}
+  try { resolveTacticalMeleesForTurn(completedSide); } catch (e) {console.warn('melee resolution:',e);}
+  tacticalApplySuperiorityPressure(completedSide);
   try { autoTacticalDetectionForTurn(completedSide); } catch (e) {}
   processTacticalRouts(completedSide);
   // Подавление действует весь следующий ход самого отряда; снимаем только
@@ -18586,7 +18614,7 @@ checkNightTime();
   if (completedSide !== 'player') {
     try { if (typeof tacticalMedicHealPhase === 'function') tacticalMedicHealPhase(); } catch (e) { console.warn('medic phase heal:', e); }
   }
-  if (completedSide === 'player') processTacticalAmmoRunners();
+  processTacticalAmmoRunners(completedSide);
 
     // Обработка эффекта "Por la revolución!" – штраф ОД на этот ход
   const playerPhaseStartsNow = completedSide !== 'player';
@@ -19512,12 +19540,16 @@ function syncInfantryAmmoStrength(squad) {
   squad.infantryAmmoLastAlive = alive;
 }
 // Complete each ammunition errand once, including zero-ETA legacy saves.
-function processTacticalAmmoRunners() {
-  (appData.squads || []).forEach((squad, squadIndex) => {
+function processTacticalAmmoRunners(side) {
+  side = side === 'enemy' ? 'enemy' : 'player';
+  const squads = side === 'enemy' ? (appData.map.enemySquads || []) : (appData.squads || []);
+  squads.forEach((squad, squadIndex) => {
     (squad.fighters || []).forEach(fighter => {
       if (!fighter.isAway) return;
+      // Upgrade old countdown/loaded saves through the same finite reserve.
+      tacticalReserveRunnerCargo(squad, fighter, side);
       if (fighter.ammoRun) {
-        if (!advanceTacticalAmmoRunner(fighter, squadIndex)) return;
+        if (!advanceTacticalAmmoRunner(fighter, squadIndex, side)) return;
         fighter.turnsToReturn = 0;
       }
       // Preserve in-flight legacy errands that have only a countdown.
@@ -19526,15 +19558,16 @@ function processTacticalAmmoRunners() {
       fighter.turnsToReturn = Math.max(0, eta - 1);
       if (fighter.turnsToReturn !== 0) return;
       fighter.isAway = false;
-      if (fighter.hp > 0 && (!fighter.ammoRun || fighter.ammoRun.loaded)) {
-        const cargo = {'1':['ammoSmall',30,'патронами'], '2':['ammoOrdnance',10,'снарядами'], '3':['grenades',5,'гранатами']}[String(fighter.ammoType || '1')];
-        if (cargo) {
-          squad[cargo[0]] = (Number(squad[cargo[0]]) || 0) + cargo[1];
-          log(`${fighter.name} вернулся с ${cargo[2]} (+${cargo[1]}).`);
-        }
+      const loaded = !fighter.ammoRun || fighter.ammoRun.loaded;
+      const cargo = fighter.ammoCargo;
+      if (fighter.hp > 0 && loaded && cargo && cargo.amount > 0) {
+        squad[cargo.field] = (Number(squad[cargo.field]) || 0) + cargo.amount;
+        log(`${fighter.name} вернулся с боеприпасами (+${cargo.amount}); груз списан из запаса взвода.`);
       } else {
-        log(fighter.hp > 0 ? `${fighter.name} вернулся без боеприпасов: пункт недоступен.` : `${fighter.name} погиб в пути, боеприпасы не доставлены.`);
+        if (!loaded) tacticalRefundRunnerCargo(squad, fighter, side);
+        log(`${fighter.name}: боеприпасы не доставлены (нет груза, пункт недоступен или боец погиб).`);
       }
+      delete fighter.ammoCargo;
       delete fighter.ammoType;
       delete fighter.ammoRun;
       delete fighter.ammoSupplyHex;
@@ -19565,7 +19598,7 @@ function sendForAmmo(fighterIndex) {
     log('⛔ Не удалось рассчитать маршрут до пункта боепитания.');
     return;
   }
-  const type = prompt('Что принести?\n1 - Патроны (30)\n2 - Снаряды (10)\n3 - Гранаты (5)', '1');
+  const type = prompt('Что принести?\n1 - Патроны (до 30)\n2 - Снаряды (до 10)\n3 - Гранаты (до 5)', '1');
   if (type === null) return;
   if (!['1', '2', '3'].includes(String(type).trim())) {
     log('Выберите тип боеприпаса: 1, 2 или 3.');
@@ -19574,13 +19607,12 @@ function sendForAmmo(fighterIndex) {
   const supply = typeof nearestSupplyPoint === 'function'
     ? nearestSupplyPoint(appData.map, pos.key, 'player') : null;
   if (!supply) {log('⛔ Действующий пункт боепитания недостижим.');return;}
-  fighter.isAway = true;
-  fighter.turnsToReturn = turns;
-  fighter.ammoType = String(type).trim();
-  fighter.ammoSupplyHex = supply ? supply.key : null;
-  fighter.ammoRun = {hex:pos.key,stage:'outbound',loaded:false,distance:supply.distance};
+  if (!tacticalDispatchAmmoRunner(currentSquad, fighter, 'player', pos, supply, String(type).trim())) {
+    log('⛔ В общем запасе этого взвода нет нужных боеприпасов либо отделение уже обеспечено.');
+    return;
+  }
   const ammoName = fighter.ammoType === '1' ? 'патронами' : fighter.ammoType === '2' ? 'снарядами' : 'гранатами';
-  log(`📦 ${fighter.name} отправился к пункту боепитания (${fighter.ammoSupplyHex}) за ${ammoName}; ETA ${turns} собственных ход(а) / ${turns * 2} мин.`);
+  log(`📦 ${fighter.name} отправился к пункту боепитания (${fighter.ammoSupplyHex}) за ${ammoName} (+${fighter.ammoCargo.amount} из запаса взвода); ETA ${turns} собственных ход(а) / ${turns * 2} мин.`);
   updateUI();
   saveData();
 }
@@ -19664,7 +19696,7 @@ function toggleCrouchMove() {
 //      месте стоит 1 ОД (2 полу-ОД) независимо от угла, движение задаёт курс
 //      автоматически и бесплатно;
 //    • оружие машины имеет свой сектор: орудие и спаренный пулемёт — 360°,
-//      курсовой — 90° (у БТР Llanero 120°) по курсу, кормовой — 90° назад;
+//      курсовой — 90° (включая БТР Llanero) по курсу, кормовой — 90° назад;
 //    • броня при попадании считается по борту, которым машина повёрнута:
 //      лоб / борт / корма (башня — всегда «Башня»);
 //    • штурм ДОТа: связка из 8 гранат выводит амбразуру или подрывает дверь
@@ -19681,7 +19713,7 @@ const VEHICLE_FAMILIES = [
     { id: 'landsverk', test: /Landsverk|Бронеавтомобил/i, bowDeg: 90, mgLimit: 2 },
     { id: 'brugge', test: /Brugge|САУ/i, bowDeg: 90, mgLimit: 1 },
     { id: 'cl39', test: /CL\/39/i, bowDeg: 90, mgLimit: 1 },
-    { id: 'llanero', test: /Llanero|БТР/i, bowDeg: 120, mgLimit: 1 }
+    { id: 'llanero', test: /Llanero|БТР/i, bowDeg: 90, mgLimit: 1 }
 ];
 const VEHICLE_DIRECTION_LABELS = { e: '→ В', se: '↘ ЮВ', sw: '↙ ЮЗ', w: '← З', nw: '↖ СЗ', ne: '↗ СВ' };
 
@@ -19755,6 +19787,7 @@ function vehicleWeaponSectorSpec(squad, weaponName, weaponType, crewInstance) {
     if (!family) return null; // неизвестная машина — ограничений нет, как раньше
     const name = String(weaponName || '');
     const type = String(weaponType || '');
+    if (family.id === 'llanero' && type === 'mg') return {role:'bow',deg:90,family};
     if (type === 'at_gun' || type === 'tank_gun' || type === 'mortar') return { role: 'turret', deg: 360, family };
     let instance = crewInstance || null;
     if (!instance && appData && appData.map && appData.map.selectedVehicleFireWeaponKey) {
@@ -19811,6 +19844,7 @@ function tacticalVehicleWeaponSectorLabel(squad, weaponName, weaponType, crewIns
 }
 function prepareTacticalVehicleWeaponAndFire(uniqueKey, weaponType) {
     if (!currentSquad || !currentSquad.armor || !appData.map) return;
+    if (!tacticalBtrCanFire(currentSquad)) {log('⛔ Без десанта БТР не стреляет.');return;}
     appData.map.selectedVehicleFireWeaponKey = uniqueKey;
     if (typeof redrawMap === 'function') redrawMap();
     const weapon = ['at_gun', 'tank_gun'].includes(weaponType) ? 'vehicle' : weaponType === 'mortar' ? 'ordnance' : 'smallArms';
@@ -19854,8 +19888,11 @@ function tacticalVehicleAimBonus(squad) {
     if (!pos || !targetKey) return 0;
     return tacticalAimZoneKeys(squad, pos.key, isNightTime() && !tacticalIlluminationActive(), appData.map.grid, TACTICAL_MAP_SIZE).includes(targetKey) ? 1 : 0;
 }
-function tacticalVehicleMovementAccuracyPenalty(squad) {
-    return squad && squad.armor && squad.movedThisTurn ? -1 : 0;
+function tacticalVehicleMovementAccuracyPenalty(squad, weaponType) {
+    if (!squad || !squad.armor) return 0;
+    if (weaponType !== 'mg') return squad.movedThisTurn ? -1 : 0;
+    if (!squad.tacticalMovedPreviousTurn) return 0;
+    return tacticalVehicleAimBonus(squad) ? -1 : -2;
 }
 function consumeTacticalVehicleAim(squad) {
     // Hex aim is held until movement, turning, or the next phase; hull MG fire cannot consume it.
@@ -20189,6 +20226,7 @@ function renderActiveCardButtons() {
   //    а не молча пропавшую кнопку.
   const smallArmsBlockReason = (() => {
     if (!currentSquad) return 'Отряд не выбран.';
+    if (!tacticalBtrCanFire(currentSquad)) return 'Без десанта БТР не стреляет.';
     if (/ДОТ|САУ/i.test(String(currentSquad.name || ''))) return null;
     if (currentSquad.armor) {
       const hasEmbarked = currentSquad.embarkedSquadIndex != null;
@@ -20235,7 +20273,7 @@ function renderActiveCardButtons() {
       const key = String(ci.uniqueKey || '').replace(/'/g, '&#39;');
       const selected = appData.map && appData.map.selectedVehicleFireWeaponKey === ci.uniqueKey;
       const shotsLeft = getWeaponShotCount(currentSquad, ci.uniqueKey) < getWeaponMaxShots(cw);
-      const disabled = !usable || !ammo || !shotsLeft;
+      const disabled = !usable || !ammo || !shotsLeft || !tacticalBtrCanFire(currentSquad);
       const sectorLabel = tacticalVehicleWeaponSectorLabel(currentSquad, cw.name, cw.type, ci);
       const title = `${cw.name} · ${sectorLabel}${!alive ? ' · расчёт погиб' : ''}`;
       shootHtml += `<button ${disabled ? 'disabled' : `onclick="prepareTacticalVehicleWeaponAndFire('${key}','${cw.type}')"`} title="${escapeCardHtml(title)}" style="background:${selected ? '#b9770e' : '#34495e'};margin:3px;${disabled ? 'opacity:.5;' : ''}">${selected ? '✅ ' : ''}${escapeCardHtml(cw.name)} · ${escapeCardHtml(sectorLabel)}</button> `;
@@ -22339,6 +22377,7 @@ function tacticalSideSquads(side) {
 function tacticalAdvanceStationaryPhase(side) {
   tacticalSideSquads(side).forEach(squad => {
     if (!squad || squad.isDestroyed || squad.isRetreated || squad.status === 'retreated') return;
+    squad.tacticalMovedPreviousTurn = !!squad.movedThisTurn;
     squad.tacticalStationaryPhases = squad.movedThisTurn ? 0 : Math.min(1, (Number(squad.tacticalStationaryPhases) || 0) + 1);
   });
 }
@@ -22923,6 +22962,7 @@ function tacticalMoveAlongPath(squadIndex, path, targetKey) {
       catch (e) { console.warn('marauding trigger:', e); }
     }
     if (typeof tacticalMarkTacticalHexOccupied === 'function') tacticalMarkTacticalHexOccupied(nextKey, 'player', map);
+    if (typeof tacticalMovementContactChecks === 'function') tacticalMovementContactChecks(squad);
 
     let engaged = false;
     if (typeof tacticalAutoEngageMelee === 'function') {
@@ -23656,7 +23696,7 @@ function tacticalNearestObserverDistance(squad) {
 // ⚡ v13.140: близость наблюдателей с учётом линии видимости и дальности обзора.
 //    Возвращает { nearestDist, losDist }: ближайший враг вообще (шум/звук) и
 //    ближайший враг, который РЕАЛЬНО может видеть отряд (обзор + ЛВ).
-function tacticalObserverProximity(squad) {
+function tacticalObserverProximity(squad, onlyObserver) {
   const pos = tacticalSquadHexPosition(squad);
   if (!pos) return null;
   const map = appData && appData.map;
@@ -23666,6 +23706,7 @@ function tacticalObserverProximity(squad) {
     !(typeof tacticalIlluminationActive === 'function' && tacticalIlluminationActive(typeof currentTurn !== 'undefined' ? currentTurn : null));
   let nearestDist = null, losDist = null;
   observers.forEach((observer, i) => {
+    if (onlyObserver && observer !== onlyObserver) return;
     if (!observer || observer.isDestroyed || observer.isRetreated || observer.status === 'retreated' ||
         observer.status === 'surrendered' || observer.isSurrendered) return;
     if (!(observer.fighters || []).some(f => f && Number(f.hp) > 0)) return;
@@ -23739,7 +23780,7 @@ function tacticalSameHexContactDetect(squad) {
 //    итог >= 8 — обнаружен, 6–7 — маркер «шум», <= 5 — не обнаружен.
 const TACTICAL_DETECT_THRESHOLD = 8;
 const TACTICAL_NOISE_THRESHOLD = 6;
-function autoTacticalDetectionMod(squad) {
+function autoTacticalDetectionMod(squad, observer) {
   if (!squad) return 0;
   let mod = 0;
   const fired = !!(squad.actionsThisTurn && (squad.actionsThisTurn.shots || squad.actionsThisTurn.attacks));
@@ -23754,7 +23795,7 @@ function autoTacticalDetectionMod(squad) {
   //    насколько сильно мешает неподвижность (см. ниже).
   let proximity = null;
   try {
-    proximity = tacticalObserverProximity(squad);
+    proximity = tacticalObserverProximity(squad, observer);
     mod += tacticalProximityModifier(proximity);
   } catch (e) {}
   const closeRange = !!(proximity && proximity.losDist !== null && proximity.losDist <= 1);
@@ -24072,19 +24113,11 @@ function tacticalFlareRecheckDetection(flareSide) {
 }
 
 function resolveTacticalMeleesForTurn(side) {
-  const players = appData.squads || [];
-  players.forEach((p, pi) => {
-    if (!p || p.armor || p.meleeResolvedTurn === currentTurn) return;
-    const contacts = (typeof tacticalSquadsInSameHex === 'function') ? tacticalSquadsInSameHex(p) : [];
-    contacts.forEach(c => {
-      if (!c || !c.isEnemy || !c.squad || c.squad.armor) return;
-      const idxSave = currentSquadIndex, sqSave = currentSquad;
-      try {
-        currentSquadIndex = pi; currentSquad = p;
-        if (appData.map) appData.map.attackTargetEnemyIdx = c.idx;
-        meleeAttack(true);
-      } catch (e) {}
-      currentSquadIndex = idxSave; currentSquad = sqSave;
+  (appData.squads || []).forEach(player => {
+    if (!player || player.armor || player.isDestroyed || player.isRetreated || player.isSurrendered) return;
+    const contacts=tacticalSquadsInSameHex(player) || [];
+    contacts.forEach(contact=>{
+      if (contact && contact.isEnemy && contact.squad) tacticalResolveMeleePair(player,contact.squad);
     });
   });
 }
@@ -24129,6 +24162,7 @@ function meleeAttack(fromResolver) {
     log('Рукопашная начата. Потери считаются один раз в конце хода.');
     return;
   }
+  if (meleeTarget) { tacticalResolveMeleePair(currentSquad,meleeTarget.enemy); return; }
   if (currentSquad.meleeResolvedTurn === currentTurn) return;
   currentSquad.meleeResolvedTurn = currentTurn;
   const weapons = getFactionWeapons(currentSquad.faction);
@@ -24644,6 +24678,7 @@ function hideSquad() {
 }
 
 function attackVehicle() {
+  if (currentSquad && !tacticalBtrCanFire(currentSquad)) {log('⛔ Без десанта БТР не стреляет.');return;}
   if (!currentSquad || !tacticalActionAllowed(currentSquad, 'attack')) return;
   const crewWeapons = getFactionCrewWeapons(currentSquad.faction);
   const dist = getTacticalTargetDistance(5);
@@ -24748,7 +24783,7 @@ if (modParts.length) log(`🎯 Модификаторы: ${modParts.join(', ')}`
     spendTacticalAmmo(currentSquad, 'ammoOrdnance', shots);
     for (let i = 0; i < shots; i++) {
       const roll = rollD10();
-      const effRoll = roll + accMod + tacticalAimedWeaponBonus(currentSquad, ci, cw, tacticalSelectedTargetHexKey(currentSquad));
+      const effRoll = roll + accMod + (currentSquad.armor && currentSquad.tacticalMovedPreviousTurn ? 0 : tacticalAimedWeaponBonus(currentSquad, ci, cw, tacticalSelectedTargetHexKey(currentSquad)));
       if (effRoll >= hitTarget) {
         const loc = rollD6(); const locName = ['Рикошет','Корпус','Гусеницы','Башня','Двигатель','Укладка/бак'][loc-1];
         log(`✅ ${cw.name}: Попадание! (d10=${roll}+${accMod}=${effRoll}) Локация: ${locName}. Пробитие ${penMM} мм.`);
@@ -25984,6 +26019,7 @@ function remountBicycle() {
 }
 
 function attackSmallArms() {
+  if (currentSquad && !tacticalBtrCanFire(currentSquad)) { log('⛔ Пулемёт БТР обслуживает десант: без десанта огонь невозможен.'); return; }
   if (!currentSquad || !tacticalActionAllowed(currentSquad, 'shoot')) return;
   // ⚡ v13.099 (п.30): по отряду, ворвавшемуся в гекс ДОТа, ДОТ не стреляет (и дым ослепляет его)
   if (typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(currentSquad) && typeof tacticalDotFireRefusal === 'function') {
@@ -26001,7 +26037,7 @@ function attackSmallArms() {
   let shotMod = activeMods.reduce((s, m) => s + (m.shotMod || 0), 0);
   let accMod = activeMods.reduce((s, m) => s + (m.accuracyMod || 0), 0);
 
-  const vehicleMovePenalty = tacticalVehicleMovementAccuracyPenalty(currentSquad);
+  const vehicleMovePenalty = tacticalVehicleMovementAccuracyPenalty(currentSquad, 'mg');
   if (vehicleMovePenalty) accMod += vehicleMovePenalty;
   if (noPasaranPending) { shotMod += 1; accMod -= 1; }
   if (tacticalIlluminationActive(currentTurn)) {
@@ -26236,6 +26272,7 @@ if (currentSquad.actionsThisTurn && !currentSquad.name.includes('ДОТ') && !cu
 }
 
 function attackOrdnance() {
+  if (currentSquad && !tacticalBtrCanFire(currentSquad)) {log('⛔ Без десанта БТР не стреляет.');return;}
   if (!currentSquad || !tacticalActionAllowed(currentSquad, 'shoot')) return;
   // ⚡ v13.099 (п.30): ДОТ не ведёт огонь по цели в своём гексе и слепнет от дыма
   if (typeof tacticalIsDotSquad === 'function' && tacticalIsDotSquad(currentSquad) && typeof tacticalDotFireRefusal === 'function') {
@@ -29621,7 +29658,7 @@ function setupTacticalMapPanning() {
     try { event.stopPropagation(); event.preventDefault(); } catch (e) {}
   }, true);
   canvas.addEventListener('pointerdown', event => {
-    if ((event.button || 0) > 0) return;
+    if (window.__battlePlacementDragging || (event.button || 0) > 0) return;
     // второй палец (щипок) не обрабатываем
     if (pan.id != null && event.pointerId !== pan.id) return;
     pan.id = event.pointerId;
@@ -30163,7 +30200,7 @@ if (appData.map.mode === 'move' && shouldShowTacticalReachability() && appData.m
       try { if (typeof drawMapActionTargetHighlights === 'function') drawMapActionTargetHighlights(ctx, size); } catch (e) {}
       try { if (typeof renderMapActionPanel === 'function') renderMapActionPanel(); } catch (e) {}
       // ⚡ v13.055 (R39#3): зона размещения атакующего + панель фазы размещения
-      try { if (typeof drawPlacementZone === 'function') drawPlacementZone(ctx, size); drawTacticalAimOverlay(ctx,size); } catch (e) {}
+      try { if (typeof drawPlacementZone === 'function') drawPlacementZone(ctx, size); if (typeof drawAmbushDeployment==='function') drawAmbushDeployment(ctx,size); drawTacticalAimOverlay(ctx,size); } catch (e) {}
       try { if (typeof renderPlacementPanel === 'function') renderPlacementPanel(); } catch (e) {}
       // v13.096: секторы выбора амбразуры — поверх ВСЕЙ карты, не под иконкой.
       if (appData.map.mode === 'hexEdit' && typeof hexEditorState !== 'undefined' && hexEditorState &&
@@ -30850,6 +30887,8 @@ drawTacticalSmokeOverlay(ctx, x, y, size, hexKey);
       return closestKey && minDist < size * 1.1 ? closestKey : null;
     }
     function handleCanvasClick(clientX, clientY, canvas) {
+      if (Date.now() < (window.__battlePlacementSuppressUntil || 0)) return;
+      if (window.__battlePlacementDragging) return;
       const key = tacticalCanvasHexAt(clientX, clientY, canvas);
       if (!key) return;
       // ⚡ v13.108 (п.11): точка клика в координатах канваса — по ней определяем,
@@ -32116,6 +32155,10 @@ function rotateSelectedHex(delta) {
   try { if (typeof renderPlacementPanel === 'function') renderPlacementPanel(); } catch (e) {}
 }
    function showOperationalMap() {
+    const pendingAmbush=(appData.campaign.opUnits || []).find(u=>u && u.isAmbush &&
+        (!u.ambushDeployment?.ready || u.ambushDeployment?.hexKey!==u.ambushHex));
+    if (pendingAmbush && !appData.currentBattleId && typeof hexEditorState!=='undefined' && !hexEditorState)
+        setTimeout(()=>openAmbushDeployment(pendingAmbush),0);
     syncCampaignPrisonerLedger();
     renderCampaignFieldStatus();
     // ⚡ v13.088: экран операции всегда показываем целиком — раньше «⚡ Быстрый старт»
@@ -32467,9 +32510,17 @@ function operationalMoveOrderEndForUnit(unitId, excludeOrderId) {
     };
     lists.forEach(list => {
         list.forEach(order => {
+            const recipients = order.type === 'company_order' ? (order.subUnitIdsAll || order.subUnitIds || []).map(Number) : [];
+            if (order.type === 'company_order') {
+                if (!recipients.includes(id)) return;
+                const steps = order.series && order.series.length ? order.series : [{...order,type:order.orderType}];
+                steps.filter(step=>step && !['completed','cancelled'].includes(step.status))
+                    .forEach(step=>consider({...step,toUnitId:id,id:order.id,status:order.status}));
+                return;
+            }
             consider(order);
             // приказ-серия: берём последний незавершённый шаг движения
-            if (order && Array.isArray(order.series)) {
+            if (order && Array.isArray(order.series) && !(order.type === 'company_order' && order.relayOnly)) {
                 order.series.filter(st => st && st.status !== 'completed' && st.status !== 'cancelled')
                     .forEach(step => consider(Object.assign({}, step, {
                         toUnitId: step.toUnitId != null ? step.toUnitId : order.toUnitId,
@@ -33948,6 +33999,7 @@ function executeAmbushOrder(unit, order) {
         unit.noiseMarker = false;
         order.status = 'completed';
         log(`🥷 ${unit.name} устроил засаду на гексе (${targetCol},${targetRow}).`);
+        setTimeout(()=>openAmbushDeployment(unit),0);
         saveData();
         redrawOperationalMap();
         return;
@@ -33966,6 +34018,7 @@ function executeAmbushOrder(unit, order) {
         unit.noiseMarker = false;
         order.status = 'completed';
         log(`🥷 ${unit.name} устроил засаду на гексе (${unit.col},${unit.row}).`);
+        setTimeout(()=>openAmbushDeployment(unit),0);
     } else if (result === 'no_route') {
         order.status = 'cancelled';
         log(`❌ ${unit.name} не может достичь гекса для засады (${targetCol},${targetRow}). Приказ отменён.`);
@@ -39577,6 +39630,8 @@ function executeEscortOrder(unit, order) {
         log(`❌ [${unit.name}] Сопровождение отменено: сопровождаемый отряд не найден.`);
         return;
     }
+    order.stealth = operationalEscortStealth(inf);
+    unit.stealthMove = !!order.stealth && !isVehicleMobilityUnit(unit);
     unit.escortInfantryId = order.escortInfantryId;
     inf.escortedByUnitId = (appData.campaign.opUnits || []).indexOf(unit);
     if (inf.col == null || inf.row == null) return;
@@ -41372,6 +41427,11 @@ function getUnplacedOpUnits() {
 // Проверка стартовой/ручной расстановки: не ставим отряд в непроходимый
 // гекс и не оставляем его без хотя бы одного доступного выхода.
 function opPlacementHexSafety(unit, col, row) {
+    const camp = appData && appData.campaign;
+    if (camp && !(camp.enemyOpUnits || []).includes(unit) &&
+        !isHexInPlacementZone(camp.scenario,camp.playerFaction,col,row).ok) {
+        return {ok:false,reason:'вне зелёной стартовой зоны'};
+    }
     const scenario = appData && appData.campaign && appData.campaign.scenario;
     if (typeof isHexInPlayableArea === 'function' && !isHexInPlayableArea(scenario, col, row)) {
         return { ok: false, reason: 'гекс за пределами игровой карты' };
@@ -41592,6 +41652,11 @@ function maybeAutoPlaceAtStart() {
     return autoPlaceUnplacedUnits({ manual: false });
 }
 function finishPlacement() {
+    const camp=appData.campaign;
+    const outside=(camp.opUnits || []).filter(u=>u && !u.isDestroyed && u.col!=null &&
+        !u.embarkedInBtr && !isHexInPlacementZone(camp.scenario,camp.playerFaction,u.col,u.row).ok);
+    if (outside.length) {alert('Переставьте в зелёную стартовую зону: '+outside.map(u=>u.name).join(', '));return;}
+
     // ⚡ v13.061 → v13.066: начальная расстановка не закрывается, пока игрок за
     //    BeVe не расставил ДОТы (по одному на каждый ДОТ, в своей стартовой зоне).
     //    Окопы на старте больше не расставляются — они уже есть на картах.

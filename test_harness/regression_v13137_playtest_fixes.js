@@ -90,6 +90,8 @@ function surrenderFixture(side) {
     'function tacticalMoralePercent() { return 10; }' +
     'function tacticalHasLiveHeadquartersFor() { return false; }' +
     'function recordTacticalAwardEnemyDefeat() {}');
+  s.run(sliceFunction(HTML, 'tacticalSideSquads'));
+  s.run('function tacticalMoraleCurrent(s){return s.currentMorale;} function tacticalSquadsDistance(){return 2;}');
   s.run(sliceFunction(HTML, 'tacticalPlaceSurrenderMarker'));
   s.run(sliceFunction(HTML, 'tacticalSurrenderUnit'));
   if (side === 'enemy') {
@@ -98,6 +100,9 @@ function surrenderFixture(side) {
     s.run(`appData.map = { grid: { '3,3': { squadIds: [0], enemySquadIds: [], markers: [] } }, enemySquads: [] };
            appData.squads = [{ name: 'О', fighters: [{ hp: 3 }], hexPos: [3,3] }];`);
   }
+  s.run(`appData.squads.forEach(s=>s.currentMorale=0);appData.map.enemySquads.forEach(s=>s.currentMorale=0);
+    if(!appData.squads.length)appData.squads=[{name:'nearby enemy',fighters:[{hp:3}]}];
+    if(!appData.map.enemySquads.length)appData.map.enemySquads=[{name:'nearby enemy',fighters:[{hp:3}]}];`);
   return s;
 }
 
@@ -116,7 +121,7 @@ ok('п.2 tacticalSurrenderUnit: свой отряд сдаётся, остаёт
 
 ok('п.2 tacticalSurrenderUnit: враг сдаётся с маркером и становится видимым', () => {
   const s = surrenderFixture('enemy');
-  s.run(`tacticalSurrenderUnit(appData.map.enemySquads[0], 'enemy', 0, 'numerical_superiority');`);
+  s.run(`tacticalSurrenderUnit(appData.map.enemySquads[0], 'enemy', 0, 'morale_ammo_proximity');`);
   assert.strictEqual(s.evalCtx('appData.map.enemySquads[0].isSurrendered'), true);
   assert.strictEqual(s.evalCtx("appData.map.grid['5,5'].enemySquadIds.includes(0)"), true, 'враг остался на карте');
   assert.strictEqual(s.evalCtx("appData.map.grid['5,5'].markers.includes('surrenderedEnemy')"), true, 'маркер сдачи врага');

@@ -15,9 +15,10 @@ assert.match(routing, /destinationInfo\.type === 'headquarters'[\s\S]*?tacticalR
 assert.doesNotMatch(routing, /destinationInfo\.type === 'headquarters'\s*\|\|\s*destinationInfo\.type === 'edge'/);
 
 function runSurrender(morale) {
-  const squad = { name: 'Routed section', fighters: [{ hp: 1 }], isRouting: true };
+  const squad = { name: 'Routed section', currentMorale:morale,ammoSmall:0,ammoOrdnance:0,grenades:0,fighters: [{ hp: 1 }], isRouting: true };
   const ctx = {
     tacticalMoralePercent: () => morale,
+    tacticalMoraleCurrent:s=>s.currentMorale,tacticalSquadsDistance:()=>3,
     tacticalSquadHasStubbornCard: () => false,
     tacticalHasLiveHeadquartersFor: () => true,
     tacticalIsHeadquartersSquad: () => false,
@@ -30,6 +31,9 @@ function runSurrender(morale) {
   };
   vm.createContext(ctx);
   ctx.squad = squad;
+  ctx.appData.squads=[squad];ctx.appData.map.enemySquads=[{fighters:[{hp:3}]}];
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'..','js','playtest_rules.js'),'utf8'),ctx);
+  vm.runInContext(sliceFunction(index,'tacticalSideSquads'),ctx);
   vm.runInContext(surrender, ctx);
   const result = vm.runInContext("tacticalSurrenderUnit(squad, 'player', 0, 'retreat_blocked')", ctx);
   return { result, squad };
@@ -38,10 +42,11 @@ function runSurrender(morale) {
 const tooHigh = runSurrender(10.01);
 assert.equal(tooHigh.result, false, 'surrender is forbidden above 10% morale');
 assert.equal(tooHigh.squad.isSurrendered, undefined);
-assert.equal(tooHigh.squad.isRouting, false, 'a non-surrendering blocked rout stops instead of entering an endless rout loop');
+assert.equal(tooHigh.squad.isSurrendered, undefined, 'blocked retreat alone never causes surrender');
 
-const threshold = runSurrender(10);
-assert.equal(threshold.result, true, '10% morale is within the surrender threshold');
+assert.equal(runSurrender(10).result,false,'v13.203: 10% is not zero morale');
+const threshold = runSurrender(0);
+assert.equal(threshold.result, true, 'zero morale, zero ammunition and enemy within three hexes');
 assert.equal(threshold.squad.isSurrendered, true);
 assert.equal(threshold.squad.status, 'surrendered');
 

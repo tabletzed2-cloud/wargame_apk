@@ -30,6 +30,7 @@ const context = {
 context.appData.squads[0].hexPos = [2, 2];
 context.appData.map.enemySquads[0].hexPos = [2, 4];
 vm.createContext(context);
+vm.runInContext(fs.readFileSync(path.join(__dirname,'..','js','playtest_rules.js'),'utf8'),context);
 vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', 'map_actions.js'), 'utf8'), context);
 
 const evaluated = vm.runInContext("mapActionEvalTarget({id:'smallArms',targets:'any',small:true},0,0,null,'enemy')", context);

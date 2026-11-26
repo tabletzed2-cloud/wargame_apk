@@ -32,6 +32,7 @@ function makeContext({ attackerSide = 'player', own, players, grid, extra = {} }
     tacticalIsHeadquartersSquad: squad => /штаб/i.test(squad.name || ''),
     tacticalIsDotSquad: squad => /дот|дзот|бункер/i.test(squad.name || ''),
     tacticalIsMeleeEngaged: () => false,
+    activeSupplyPointKeys: () => [],
     tacticalMaraudingBlocksAction: () => false,
     tacticalMaybeTriggerFireField: () => null,
     tacticalCheckMaraudingOnEntry: () => false,
@@ -51,6 +52,7 @@ function makeContext({ attackerSide = 'player', own, players, grid, extra = {} }
     getTacticalCoverMod: type => type === 'cover' ? 2 : 0,
     tacticalSquadsDistance: (a, b) => Math.max(Math.abs(a.hexPos[0] - b.hexPos[0]), Math.abs(a.hexPos[1] - b.hexPos[1])),
     mapActionHasSniper: () => false,
+    mapActionCanUseBinoculars: squad => /штаб|развед|OIP/i.test(squad.name || ''),
     getFactionCrewWeapons: () => [],
     log: () => {}, saveData: () => {}, updateUI: () => {}, redrawMap: () => {},
     getTacticalActiveSide: () => 'enemy',
@@ -59,6 +61,7 @@ function makeContext({ attackerSide = 'player', own, players, grid, extra = {} }
   };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js/tactical_rules.js'), 'utf8'), context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js/playtest_rules.js'), 'utf8'), context);
   vm.runInContext(source, context);
   return context;
 }

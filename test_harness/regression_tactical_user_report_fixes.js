@@ -23,7 +23,9 @@ function sandbox(extra) {
     appDataBattle: null
   }, extra || {});
   ctx.globalThis = ctx; ctx.window = ctx;
-  return vm.createContext(ctx);
+  const context=vm.createContext(ctx);
+  vm.runInContext(sliceFunction(fs.readFileSync(path.join(ROOT,'js/playtest_rules.js'),'utf8'),'tacticalBtrCanFire'),context);
+  return context;
 }
 
 test('1: связка гранат запрашивает целое количество, показывает доступный максимум и не расходует ОД при отмене', () => {

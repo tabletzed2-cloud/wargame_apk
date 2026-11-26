@@ -182,7 +182,7 @@ function createSandbox(appData, options = {}) {
     }
     vm.runInContext('var supplyDangerPicking = false;', ctx);
     // js-модули игры
-    for (const f of ['js/weapons.js', 'js/data.js', 'js/hexmaps.js', 'js/cards.js', 'js/templates.js']) {
+    for (const f of ['js/weapons.js', 'js/data.js', 'js/playtest_rules.js', 'js/hexmaps.js', 'js/cards.js', 'js/templates.js']) {
         vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
     }
     if (options.prelude) vm.runInContext(options.prelude, ctx, {filename:'explicit-test-prelude.js'});

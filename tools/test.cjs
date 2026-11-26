@@ -7,6 +7,9 @@ const all = process.argv.includes('--all');
 const compareKnown = process.argv.includes('--known');
 const known = new Set(require('../test_harness/known-failures.json').failures.map(item => item.file));
 const selected = [
+  'regression_v13205_finite_ammo.cjs',
+  'regression_v13204_detection_ai.cjs',
+  'regression_v13203_playtest.cjs',
   'regression_v13202_playtest.cjs', 'regression_v13201_mechanics.cjs', 'regression_review_hardening.cjs', 'regression_service_worker.cjs', 'regression_build_verifier.cjs',
   'regression_vehicle_mobility_sectors.cjs', 'regression_tactical_user_report_fixes.js',
   'regression_arena_playtest_vehicle_fixes.cjs', 'regression_v13115_vehicle_sectors.js',

@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.202 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
+// ⚡ BUILD-МАРКЕР: v13.205 — синхронизируется с APP_VERSION (см. index.html, самопроверка сборки)
 // ⚡ v13.061: current release data and terrain definitions; absent texture variants no longer referenced.
 // ==================== КОНСТАНТЫ И ДАННЫЕ ==================== 
 // Типы местности
@@ -626,7 +626,7 @@ const markerIconMap = {
 
 // Функции доступа к данным
 function getFactionWeapons(f) { return (appData.factions[f] && appData.factions[f].weapons) ? appData.factions[f].weapons : []; }
-function getFactionCrewWeapons(f) { return (appData.factions[f] && appData.factions[f].crewWeapons) ? appData.factions[f].crewWeapons : []; }
+function getFactionCrewWeapons(f) { return resolveCrewWeaponCatalog(f); }
 function getFactionCards(f) { return (appData.factions[f] && appData.factions[f].cardLibrary) ? appData.factions[f].cardLibrary : []; }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -703,3 +703,12 @@ function getFactionCards(f) { return (appData.factions[f] && appData.factions[f]
     });
   }
 })();
+
+// Catalog compatibility: restore missing stock weapons, never overwrite edited ones.
+function resolveCrewWeaponCatalog(faction) {
+    const saved = appData.factions?.[faction]?.crewWeapons || [];
+    const stock = faction === 'BeVe' ? (typeof BEVE_CREW_WEAPONS !== 'undefined' ? BEVE_CREW_WEAPONS : []) :
+        faction === 'A.I.R.F.' ? (typeof AIRF_CREW_WEAPONS !== 'undefined' ? AIRF_CREW_WEAPONS : []) : [];
+    const names = new Set(saved.map(w => w.name));
+    return saved.concat(stock.filter(w => w.name === '45-мм 53К танковая' && !names.has(w.name)));
+}

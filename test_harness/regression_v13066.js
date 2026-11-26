@@ -336,6 +336,7 @@ test('R44#3: миникарта подсвечивает открытый гек
       appData.campaign.opMapGrid[col + ',' + row] = { types: ['grass'], markers: [] };
     }
     hexEditorState = { hexKey: '8,10', kind: 'trenches', tool: 'trenches' };
+    appData.map = {mode:'hexEdit'};appData.currentBattleId=null;
     document.getElementById('battleApp').style.display = 'block';
     renderCampaignMiniMap();
   `);
