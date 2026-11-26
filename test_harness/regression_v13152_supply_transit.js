@@ -62,6 +62,7 @@ function phoneSandbox(hq, company, platoon) {
     const app = freshAppData();
     app.campaign.opUnits = [hq, company, platoon];
     const s = createSandbox(app, {prelude: sandboxPrelude});
+    s.run(fs.readFileSync(path.join(ROOT,'js/playtest_rules.js'),'utf8'));
     s.run('var hardMode = { enabled: true, hqUnitId: 0, phoneLines: [], orders: [] };');
     s.run(sliceConst(HTML, 'PHONE_LINE_MAX_STEPS'));
     s.run(sliceConst(HTML, 'SWITCHBOARD_SEGMENT_STEPS'));
@@ -135,6 +136,7 @@ function enemyLineSandbox() {
         { name: '1-й взвод', type: 'infantry_platoon', col: 5, row: 0 }
     ];
     const s = createSandbox(app, {prelude: sandboxPrelude});
+    s.run(fs.readFileSync(path.join(ROOT,'js/playtest_rules.js'),'utf8'));
     s.run(sliceConst(HTML, 'ENEMY_PHONE_LINE_MAX_STEPS'));
     s.run(sliceConst(HTML, 'ENEMY_PHONE_REPAIR_TURNS'));
     s.run('var hardMode = { enabled: true, hqUnitId: 0, enemyPhoneLines: [], enemyPhoneRepairs: [] };\n' +
@@ -168,7 +170,7 @@ function enemyLineSandbox() {
         'запомнено, кто перерезал');
     ok(s.evalCtx('(appData.campaign.enemyPhoneLineNotices || []).length') >= 1,
         'игроку показано уведомление о перерезке');
-    ok(/перерезали телефонную линию/.test(String(s.evalCtx("(appData.campaign.enemyPhoneLineNotices || [{}])[0].text"))),
+    ok(/перерезан телефонный кабель/.test(String(s.evalCtx("(appData.campaign.enemyPhoneLineNotices || [{}])[0].text"))),
         'в уведомлении понятный текст');
     ok(s.evalCtx('logs.some(m => /✂️/.test(m))') === true, 'запись есть в журнале боя');
     // повторная перерезка уже перерезанной линии ничего не добавляет
@@ -210,6 +212,7 @@ function radioSandbox(opts) {
     app.campaign.opMapGrid = opts.grid || {};
     app.campaign.opUnits = opts.units;
     const s = createSandbox(app, {prelude: sandboxPrelude});
+    s.run(fs.readFileSync(path.join(ROOT,'js/playtest_rules.js'),'utf8'));
     s.run('var hardMode = { enabled: true, hqUnitId: 0, orders: [], pendingOrders: [], messengers: { battalion: { total: 5, available: 5, active: [] }, companies: {} }, signalPlatoon: { radios: { total: 3, available: 3, assigned: [] }, phones: { total: 3, available: 3, assigned: [] }, transfers: [] } };\n' +
         'var logs = [];\nfunction log(m) { logs.push(String(m)); }\nfunction saveData() {}\nvar __asked = [];\n');
     s.run([sliceConst(HTML, 'RADIO_JAM_CHANCE')].join('\n'));

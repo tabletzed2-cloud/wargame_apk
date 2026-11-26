@@ -23,7 +23,7 @@ function installCardLibraries(s) {
 }
 
 // 7. A telephone cable is rebuilt only after its recipient finishes its move order.
-test('7: telephone line stays broken during movement and is rebuilt after the final waypoint', () => {
+test('7: telephone line follows each step during multi-turn movement', () => {
   const s = createSandbox(freshAppData());
   loadHtml(s, ['executeMoveOrder']);
   s.run(`
@@ -34,7 +34,7 @@ test('7: telephone line stays broken during movement and is rebuilt after the fi
     var hq = { id: 'hq', name: 'Штаб батальона', type: 'battalion_hq', col: 0, row: 0, ap: 4, squads: [] };
     appData.campaign.opUnits = [hq, unit];
     appData.campaign.enemyOpUnits = [];
-    function reconnectPhoneLinesAfterUnitMove() { calls++; return 1; }
+    function extendMovingPhoneLines() { calls++; return 1; }
     function getOpMoveCost() { return 1; }
     function isStaticOpUnit() { return false; }
     function getOpHexDistance(a,b,c,d) { return Math.abs(a-c) + Math.abs(b-d); }
@@ -57,14 +57,14 @@ test('7: telephone line stays broken during movement and is rebuilt after the fi
   const mid = JSON.parse(s.evalCtx('JSON.stringify(afterFirstMove)'));
   const end = JSON.parse(s.evalCtx('JSON.stringify(afterArrival)'));
   equal(mid.col, 2, 'юнит выполнил только доступный шаг');
-  equal(mid.calls, 0, 'до конечной точки перепрокладка не запускается');
+  equal(mid.calls, 1, 'кабель обновлён после промежуточного шага');
   equal(mid.status, 'active', 'маршрут продолжится следующим ходом');
   equal(end.col, 3, 'юнит достиг цели приказа');
-  equal(end.calls, 1, 'после прибытия кабель перепрокладывается ровно один раз');
+  equal(end.calls, 3, 'кабель обновлён на обоих шагах и проверен по прибытии');
   equal(end.status, 'completed', 'приказ завершён до обработки перепрокладки');
   const moveBody = sliceFunction(HTML, 'executeMoveOrder');
   const arrivalCheck = moveBody.indexOf('if (unit.col === targetCol && unit.row === targetRow)');
-  const reconnectCall = moveBody.indexOf('reconnectPhoneLinesAfterUnitMove(unit)', arrivalCheck);
+  const reconnectCall = moveBody.indexOf('extendMovingPhoneLines(unit)', arrivalCheck);
   assert(arrivalCheck >= 0 && reconnectCall > arrivalCheck, 'вызов должен стоять в ветке достижения конечной точки');
 });
 

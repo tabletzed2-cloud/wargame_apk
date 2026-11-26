@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Боевой модуль v13.201 — операция</title>
+  <title>Боевой модуль v13.202 — операция</title>
   <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/operational_ui.css">
@@ -19,7 +19,7 @@
 
    <!-- Главное меню -->
   <div id="mainMenu" style="text-align:center; padding-top:10vh;">
-    <h1>⚔️ Боевой модуль v13.201</h1>
+    <h1>⚔️ Боевой модуль v13.202</h1>
     <button class="menu-btn" onclick="quickStartCampaign()" style="background:#27ae60; font-weight:700;">⚡ Быстрый старт</button>
     <button class="menu-btn" onclick="openBattle()">⚡ Бой</button>
     <button class="menu-btn" onclick="openCampaign()">🎖️ Компания</button>
@@ -32,7 +32,7 @@
     <button class="menu-btn" onclick="resetAllData()" style="background:#e67e22;">🗑️ Сбросить данные</button>
     <button class="menu-btn" onclick="window.close();">🚪 Выход</button>
     <!-- ⚡ v13.041 / v13.059: версия + рабочее принудительное обновление сервис-воркера -->
-    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.201</p>
+    <p id="appVersionBadge" style="color:#f1c40f; margin-top:24px; font-size:0.95rem;">v13.202</p>
     <button class="menu-btn" onclick="forceAppUpdate()" style="background:#8e44ad;">🔄 Обновить игру (свежая версия)</button>
     <p id="appUpdateStatus" role="status" aria-live="polite" style="display:none; color:#aaa; font-size:0.85rem; margin:4px 0;"></p>
     <p style="color:#aaa; margin-top:30px;">Если кнопка «Выход» не работает – просто закройте вкладку.</p>
@@ -84,7 +84,7 @@
     </div>
   </div>
 </div>
-  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.201 — операция </h2>
+  <h2 id="battleModuleTitle">⚔️ Боевой модуль v13.202 — операция </h2>
     <div class="tab">
     <button class="tablinks active" onclick="openTab(event,'battleTab')">⚡ Бой</button>
     <button class="tablinks" onclick="openTab(event,'rosterTab')">👥 Состав</button>
@@ -368,6 +368,7 @@
     <script src="js/map_actions.js"></script>
     <!-- ⚡ v13.055 (R39#3): размещение в начале боя (зоны атакующего/обороняющегося) -->
     <script src="js/tactical_rules.js"></script>
+    <script src="js/playtest_rules.js"></script>
     <script src="js/placement.js"></script>
     <script src="js/weapons.js"></script>
     <script src="js/cards.js"></script>
@@ -739,7 +740,7 @@ const SUPPLY_DEPOT_MAX = { ammoSmall: 1200, grenades: 300, ammoOrdnance: 80 };
 //    каждой стороне отдельно: у A.I.R.F. — 0,11, у BeVe — 7,0.
 const SUPPLY_EVAC_POINTS = { 'BeVe': { col: 7, row: 0 }, 'A.I.R.F.': { col: 0, row: 11 } };
 
-var APP_VERSION = 'v13.201';
+var APP_VERSION = 'v13.202';
 // v13.183: terrain layers as ZONES (contours), road links cost 1 with no penalty,
 //          no layer graphics on the campaign map; supply/combat read zones.
 // v13.172: full recon routes/observation marks, safe supply corridors, unit card editor, review fixes.
@@ -2458,7 +2459,7 @@ function refreshSquadToPlaceDropdown() {
     });
     const battle = typeof getTacticalBattleRecord === 'function' ? getTacticalBattleRecord() : null;
     const placement = battle && battle.placement;
-    const canReposition = !!(placement && placement.phase !== 'done' && !placement.playerReady);
+    const canReposition = false; // Reserve lists only units not on the map.
     const available = squads.map((s, i) => ({ s, i })).filter(x =>
         x.s && !x.s.hidden && (canReposition || !placedIdx.has(x.i)));
     sel.innerHTML = available.map(x =>
@@ -4167,7 +4168,7 @@ function applyOpMapFitZoom(dims) {
     const key = Math.round(document.getElementById('opMapContainer').clientWidth) + 'x' + (dims ? dims.cols : '?');
     const firstTime = !appData.campaign.opZoomLevel || !appData.campaign.opZoomFitKey;
     const widthChanged = appData.campaign.opZoomFitKey !== key;
-    if (firstTime || (widthChanged && isMobileViewport())) {
+    if (!appData.campaign.opZoomUserSet && (firstTime || (widthChanged && isMobileViewport()))) {
         appData.campaign.opZoomLevel = fit;
     }
     appData.campaign.opZoomFitKey = key;
@@ -4175,6 +4176,7 @@ function applyOpMapFitZoom(dims) {
 function fitOpMapZoom() {
     const fit = opMapFitZoom();
     if (!fit) return;
+    appData.campaign.opZoomUserSet = true;
     appData.campaign.opZoomLevel = fit;
     saveData();
     initOperationalMap();
@@ -4224,6 +4226,7 @@ function setupOpMapTouchControls() {
         const c = canvasEl();
         if (c) { c.style.transform = ''; c.style.willChange = ''; }
         if (Math.abs(curZoom - startZoom) > 0.01) {
+            appData.campaign.opZoomUserSet = true;
             appData.campaign.opZoomLevel = curZoom;
             initOperationalMap();
             const k = curZoom / startZoom;
@@ -5708,19 +5711,10 @@ if (pickingTargetHex) {
         try { enemyLines = enemyPhoneLinesStore(); } catch (e) {}
         enemyLines.forEach(line => {
             if (!line || line.intact) return;
-            const route = normalizePhoneRoutePoints(line.path);
-            if (!route.length) return;
-            const points = route.map(point => signalHexCenter(point.col, point.row));
-            ctx.save();
-            ctx.strokeStyle = '#ff5a5a';
-            ctx.fillStyle = '#ff5a5a';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([2, 4]);
-            ctx.beginPath();
-            points.forEach((point, idx) => { if (idx === 0) ctx.moveTo(point.x, point.y); else ctx.lineTo(point.x, point.y); });
-            ctx.stroke();
-            ctx.setLineDash([]);
-            const mid = points[Math.floor((points.length - 1) / 2)];
+            if (!/^-?\d+,-?\d+$/.test(String(line.cutHex || ''))) return;
+            const [col,row] = line.cutHex.split(',').map(Number);
+            const mid = signalHexCenter(col,row);
+            ctx.save(); ctx.fillStyle = '#ff5a5a';
             ctx.font = `${size * 0.34}px Arial`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -10173,6 +10167,7 @@ function createOrder(fromUnitId, toUnitId, orderType, options = {}) {
         //    приказ адресован (для company_order — какие взводы).
         subUnitIdsAll: (options.subUnitIds || []).slice(),
         orderType: options.orderType || null,
+        relayOnly: options.relayOnly === true,
         // ⚡ v13.020: «не штурмовать бронетехнику» — состояние галочки на момент приказа
         ignoreArmor: typeof options.ignoreArmor === 'boolean' ? options.ignoreArmor : true,
         // ⚡ v13.037: приказ на время (минуты, например 870 = 14:30)
@@ -11669,6 +11664,11 @@ function battleMostFrequentParticipantHex(battle) {
 // добавляем их копии (он «числится в бою, но не отображается»).
 function tacticalSetReinforcementArrival(squad, unit, battle) {
     if (!squad || !unit || !battle) return squad;
+    if (battle.placement && battle.placement.phase === 'done' && (appData.campaign.opUnits || []).includes(unit) &&
+        !(battle.playerSquads || []).some(s => s && s.name === squad.name && s.opUnitName === unit.name)) {
+        battle.placement.reinforcementPending = true;
+        battle.placement.reinforcementUnitNames = [...new Set([...(battle.placement.reinforcementUnitNames || []),unit.name])];
+    }
     squad.opUnitName = unit.name;
     squad.opUnitType = unit.type || null;
     const [col,row] = String(battle.hexKey || '').split(',').map(Number);
@@ -12450,6 +12450,10 @@ function startTacticalBattle(playerUnits, enemyUnits, opts) {
                 }
             }
         } catch (e) { console.warn('placementArrivalDir:', e.message); }
+        if (joiningDefenders.length && existingBattle.placement && existingBattle.placement.phase === 'done') {
+            existingBattle.placement.reinforcementPending = true;
+            existingBattle.placement.reinforcementUnitNames = [...new Set([...(existingBattle.placement.reinforcementUnitNames || []), ...joiningDefenders.map(s => s.opUnitName)])];
+        }
         const issuedHQFlares = ensureBattleHQFlareSupply(existingBattle);
         if (issuedHQFlares.length && appData.currentBattleId === existingBattle.id && Array.isArray(appData.squads)) {
             issuedHQFlares.forEach(entry => {
@@ -29311,7 +29315,7 @@ function populateCardsEditorFactionSelect() {
       else if (tabName === 'crewTab') { populateCrewFactionSelect(); loadCrewWeapons(); }
       else if (tabName === 'cardsTab') { renderCardSelectionForBattle(); if (typeof refreshBattleCardPickUI === 'function') refreshBattleCardPickUI(); }
       else if (tabName === 'activeEffectsTab') { renderActiveEffects(); }
-      else if (tabName === 'mapTab') { resetMapZoom(); initMap(); updateSquadDropdown(); updateEnemyDropdown(); updateEnemyFactionDropdown(); populateTerrainSelect(); loadMapIndex(); if (typeof updateTacticalRoundUI === 'function') updateTacticalRoundUI();
+      else if (tabName === 'mapTab') { initMap(); updateSquadDropdown(); updateEnemyDropdown(); updateEnemyFactionDropdown(); populateTerrainSelect(); loadMapIndex(); if (typeof updateTacticalRoundUI === 'function') updateTacticalRoundUI();
       const container = document.getElementById('mapContainer'); if (container) { container.scrollLeft = 0; container.scrollTop = 0;};}
       else if (tabName === 'saveTab') renderTemplates();
       else if (tabName === 'battleTab') { renderSquadSelector(); renderTemplateSelection(); updateUI(); if (typeof updateTacticalRoundUI === 'function') updateTacticalRoundUI(); renderEmbarkPanel(); renderFactionInfo(); }
@@ -29861,6 +29865,7 @@ function setupTacticalMapPanning() {
             const lvl = reliefLevelAt(grid, col, row);
             if (!lvl) continue;
             const c = centerOf(col, row), r = Math.max(7, size * 0.17);
+            c.y += size * 0.60;
             octx.save();
             octx.beginPath(); octx.arc(c.x, c.y, r, 0, Math.PI * 2);
             octx.fillStyle = lvl > 0 ? 'rgba(77, 42, 12, .76)' : 'rgba(10, 48, 70, .78)'; octx.fill();
@@ -30471,7 +30476,7 @@ if (appData.map.mode === 'edit' && hexData.level !== undefined && hexData.level 
   ctx.font = `bold ${size * 0.25}px Arial`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  ctx.fillText(`▲${hexData.level}`, x, y - size * 0.6);
+  ctx.fillText(`▲${hexData.level}`, x, y + size * 0.55);
 }
 // ⚡ v13.066: ДОТ, закреплённый за этой клеткой при начальной расстановке.
 //    В редакторе карты гекса рисуем ИКОНКУ юнита ДОТа (а не метку «🏰»),
@@ -31417,7 +31422,7 @@ function setMapMode(mode) {
         let newZoom = appData.map.zoomLevel * factor;
         newZoom = Math.max(0.2, Math.min(5, newZoom));
         appData.map.zoomLevel = newZoom;
-        redrawMap();
+        saveData(); redrawMap();
     }
 
     function resetMapZoom() {
@@ -31432,12 +31437,14 @@ function setMapMode(mode) {
   let newZoom = (appData.campaign.opZoomLevel || 1) * factor;
   // ⚡ v13.052 (R37#1): нижняя граница — «вся карта по ширине» (на телефоне < 0.5)
   newZoom = Math.max((typeof opMapMinZoom === 'function') ? opMapMinZoom() : 0.5, Math.min(3, newZoom));
+  appData.campaign.opZoomUserSet = true;
   appData.campaign.opZoomLevel = newZoom;
   saveData();
   initOperationalMap(); // переинициализируем размер и перерисуем
 }
 
 function resetOpMapZoom() {
+  appData.campaign.opZoomUserSet = true;
   appData.campaign.opZoomLevel = 1;
   saveData();
   initOperationalMap();
@@ -32754,7 +32761,7 @@ function orderShouldExecuteNow(order) {
 //    блокируют следующий приказ, иначе «движение спешенными» начиналось
 //    раньше, чем отряд слезал с велосипедов.
 const OP_ORDER_BLOCKING_TYPES = ['move', 'attack', 'defend', 'retreat', 'dig_in', 'prep_positions',
-    'escort', 'embark', 'disembark', 'cut_paths', 'dismount', 'remount'];
+    'escort', 'embark', 'disembark', 'cut_paths', 'dismount', 'remount', 'recon'];
 
 function operationalOrderEffectiveType(order) {
     if (!order) return null;
@@ -35625,6 +35632,7 @@ function executeRemountOrder(unit, order) {
     }
 }
 function executeMoveOrder(unit, order) {
+    if (typeof reconRouteCheckpoint === 'function' && reconRouteCheckpoint(unit, order)) return;
     if (unit.isInBattle) return; // Includes direct/series calls after contact.
     console.log(`=== executeMoveOrder: ${unit.name} ===`);
     console.log(`ОД: ${unit.ap}, Позиция: (${unit.col},${unit.row}), Цель: ${order.targetHex}, Waypoints:`, order.waypoints);
@@ -35676,26 +35684,6 @@ function executeMoveOrder(unit, order) {
         order.status = 'completed';
         log(`✅ [${unit.name}] Уже на месте (${targetCol},${targetRow}).`);
         return;
-    }
-
-    // ШТАБЫ: проверяем телефонную связь при движении
-    // ⚡ v13.109 (п.4): пока штаб смещается, связисты ПЕРЕКЛАДЫВАЮТ линии —
-    //    связь недоступна, но сами линии не «умирают»: по прибытии на новое
-    //    место кабель прокладывается заново (до 7 гексов на линию).
-    if (unit.type === 'battalion_hq' || unit.type === 'company_hq' || unit.type === 'hq') {
-        const unitId = appData.campaign.opUnits.indexOf(unit);
-        if (hardMode.phoneLines) {
-            const affectedLines = hardMode.phoneLines.filter(line =>
-                (line.fromUnitId === unitId || line.toUnitId === unitId) && line.intact
-            );
-            affectedLines.forEach(line => {
-                line.intact = false;
-                line.laying = true;
-            });
-            if (affectedLines.length) {
-                log(`📞 Связисты перекладывают ${affectedLines.length} телефонн${affectedLines.length === 1 ? 'ую линию' : 'ых линий'} — пока штаб в движении, связь недоступна.`);
-            }
-        }
     }
 
     // ======== ДВИЖЕНИЕ ПО МАРШРУТУ ЗА ВСЕ ОД ========
@@ -35902,6 +35890,7 @@ function executeMoveOrder(unit, order) {
         opRecordPrevPos(unit); // ⚡ v13.055: откуда вошёл
         unit.col = next.col;
         unit.row = next.row;
+        if (typeof extendMovingPhoneLines === 'function') extendMovingPhoneLines(unit);
         try { if (typeof checkPhoneLineCrossing === 'function') checkPhoneLineCrossing(unit, unit.prevCol, unit.prevRow, next.col, next.row); } catch (e) { console.warn('phone line crossing:', e); }
         unit.movedThisTurn = true;
         stepsTaken++;
@@ -35933,12 +35922,13 @@ function executeMoveOrder(unit, order) {
         // Огонь в движении (для техники)
         checkMovingFire(unit);
 
+        if (typeof reconRouteCheckpoint === 'function' && reconRouteCheckpoint(unit, order)) break;
         // Проверка, достигли ли цели
         if (unit.col === targetCol && unit.row === targetRow) {
             order.status = 'completed';
             log(`✅ [${unit.name}] Достиг цели (${targetCol},${targetRow}). Осталось ОД: ${unit.ap}`);
-            // Перепрокладка кабеля происходит строго после полного завершения маршрута.
-            try { reconnectPhoneLinesAfterUnitMove(unit); } catch (e) { console.warn('reconnectPhoneLinesAfterUnitMove:', e.message); }
+            // Cable has already followed each movement step.
+            try { extendMovingPhoneLines(unit); } catch (e) { console.warn('reconnectPhoneLinesAfterUnitMove:', e.message); }
             saveData();
             redrawOperationalMap();
             renderActiveOrders();
@@ -36101,8 +36091,7 @@ function enemyPhoneLineLabel(line) {
     return `«${line.fromName || '?'}» ↔ «${line.toName || '?'}»`;
 }
 function notifyEnemyPhoneLineCut(line, unit) {
-    const message = `✂️ Вы перерезали телефонную линию противника ${enemyPhoneLineLabel(line)}` +
-        (unit ? ` (${unit.name})` : '') + '. Противник будет вынужден её восстанавливать.';
+    const message = enemyCableCutPublicNotice(line);
     try { log(message); } catch (e) {}
     try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast(message, 'success'); } catch (e) {}
     try {
@@ -36184,10 +36173,8 @@ function beginEnemyPhoneLineRepairs() {
             fromName: fromUnit.name, fromUnitId: enemyPhoneUnits().indexOf(fromUnit),
             cutHex, turnsLeft: ENEMY_PHONE_REPAIR_TURNS, startedTurn: (appData.campaign && appData.campaign.currentTurn) || 1
         });
-        try {
-            log(`📞 Противник отдал приказ восстановить линию ${enemyPhoneLineLabel(line)}: «${fromUnit.name}» ` +
-                (fromUnit === hq ? 'отправляет связистов без поддержки.' : 'направляет связистов.'));
-        } catch (e) {}
+        // Hidden repair dispatch and endpoint identities are not player intelligence.
+
     });
 }
 function playerUnitsOnHexKeys(hexKeys) {
@@ -36204,13 +36191,19 @@ function processEnemyPhoneLineRepairs() {
     repairs.slice().forEach(task => {
         if (!task) return;
         const line = lines.find(l => l && l.id === task.lineId);
-        if (!line || line.intact) { hardMode.enemyPhoneRepairs = repairs.filter(r => r !== task); return; }
+        if (!line || line.intact) { hardMode.enemyPhoneRepairs = hardMode.enemyPhoneRepairs.filter(r => r !== task); return; }
         // связисты работают на гексе перереза: отряд игрока рядом — их убивают
-        const killers = playerUnitsOnHexKeys([task.cutHex]);
+        const [repairCol,repairRow] = String(task.cutHex || '').split(',').map(Number);
+        const contact = signalRepairContact(task, appData.campaign.opUnits, repairCol,repairRow);
+        const killers = contact ? [contact] : [];
+        if (killers.length && getOpHexDistance(repairCol,repairRow,killers[0].col,killers[0].row) > 0) {
+            line.repairCooldownTurn = (Number(appData.campaign.currentTurn)||1)+2;
+            hardMode.enemyPhoneRepairs = hardMode.enemyPhoneRepairs.filter(r => r !== task); changed++; return;
+        }
         if (killers.length) {
-            try { log(`☠️ Связисты противника (${task.fromName}) убиты: на гексе кабеля (${task.cutHex}) стоит «${killers[0].name}».`); } catch (e) {}
+            try { log(`☠️ Связисты противника убиты: на гексе кабеля (${task.cutHex}) стоит «${killers[0].name}».`); } catch (e) {}
             try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast(`☠️ Связисты противника убиты на кабеле (${task.cutHex})`, 'info'); } catch (e) {}
-            hardMode.enemyPhoneRepairs = repairs.filter(r => r !== task);
+            hardMode.enemyPhoneRepairs = hardMode.enemyPhoneRepairs.filter(r => r !== task);
             // Не посылаем связистов снова, пока игрок держит сам гекс разрыва.
             line.repairBlockedByPlayer = true;
             line.repairCooldownTurn = ((appData.campaign && appData.campaign.currentTurn) || 1) + 1;
@@ -36218,7 +36211,7 @@ function processEnemyPhoneLineRepairs() {
             return;
         }
         if (line.repairCooldownTurn && line.repairCooldownTurn > ((appData.campaign && appData.campaign.currentTurn) || 1)) {
-            hardMode.enemyPhoneRepairs = repairs.filter(r => r !== task);
+            hardMode.enemyPhoneRepairs = hardMode.enemyPhoneRepairs.filter(r => r !== task);
             return;
         }
         task.turnsLeft = Math.max(0, (Number(task.turnsLeft) || 0) - 1);
@@ -36228,9 +36221,8 @@ function processEnemyPhoneLineRepairs() {
             line.cutBy = null;
             line.cutHex = null;
             line.repairedTurn = (appData.campaign && appData.campaign.currentTurn) || 1;
-            hardMode.enemyPhoneRepairs = repairs.filter(r => r !== task);
-            try { log(`📞 Противник восстановил телефонную линию ${enemyPhoneLineLabel(line)}.`); } catch (e) {}
-            try { if (typeof window !== 'undefined' && typeof window.toast === 'function') window.toast(`📞 Противник восстановил линию ${enemyPhoneLineLabel(line)}`, 'warn'); } catch (e) {}
+            hardMode.enemyPhoneRepairs = hardMode.enemyPhoneRepairs.filter(r => r !== task);
+
         }
         changed++;
     });
@@ -36244,9 +36236,10 @@ function checkPhoneLineCrossing(unit, fromCol, fromRow, toCol, toRow) {
     // может перерезать линию игрока ниже. Не допускаем самоповреждения кабеля ИИ.
     const isEnemyUnit = !!(appData && appData.campaign && (appData.campaign.enemyOpUnits || []).includes(unit));
     if (!isEnemyUnit) {
+        if (typeof extendMovingPhoneLines === 'function') extendMovingPhoneLines(unit);
         try { cutEnemyPhoneLinesOnHex(toCol, toRow, unit); } catch (e) { console.warn('cutEnemyPhoneLinesOnHex:', e.message); }
     }
-    if (!hardMode.phoneLines) return;
+    if (!hardMode.phoneLines || !isEnemyUnit) return;
 
     // Проверяем все линии связи; движение одного из двух абонентов — это
     // смещение конца кабеля, а не пересечение линии её собственным владельцем.
@@ -36267,7 +36260,8 @@ function checkPhoneLineCrossing(unit, fromCol, fromRow, toCol, toRow) {
             : isHexOnLine(toCol, toRow, fromUnit.col, fromUnit.row, toUnit.col, toUnit.row);
 
         if (crossed) {
-            line.intact = false;
+            line.intact = false; line.cutHex = `${toCol},${toRow}`; line.cutReason='enemy';
+            line.cutTurn = Number(appData.campaign.currentTurn) || 1;
             log(`📞 Телефонная линия оборвана! Юнит ${unit.name} пересек линию связи.`);
         }
     });
@@ -36320,6 +36314,7 @@ function isHexOnLine(hexCol, hexRow, lineCol1, lineRow1, lineCol2, lineRow2) {
 function checkPhoneLinesIntact() {
     if (!hardMode || !hardMode.phoneLines) return;
     refreshSignalLosses();
+    if (typeof extendMovingPhoneLines === 'function') (appData.campaign.opUnits || []).forEach(extendMovingPhoneLines);
     hardMode.phoneLines.forEach(line => {
         if (!line.intact) return;
 
@@ -36376,32 +36371,11 @@ function checkPhoneLinesIntact() {
         }
 
         // Владелец кабеля не рвёт свою линию движением её конечной точки;
-        // остальные свои отряды и противник могут перерезать кабель только
-        // фактическим шагом на его трассу, а не простым нахождением там.
+        // дружественные отряды его не режут; противник перерезает
+        // кабель фактическим шагом на трассу.
         const routeHexes = phoneLinePathHexKeys(line);
-        const endpointIds = [Number(line.fromUnitId), Number(line.toUnitId)];
-        const playerCrossers = (appData.campaign.opUnits || []).filter(u =>
-            u && !u.isDestroyed && !endpointIds.includes((appData.campaign.opUnits || []).indexOf(u)) &&
-            Number.isFinite(Number(u.col)) && Number.isFinite(Number(u.row)) &&
-            Number.isFinite(Number(u.prevCol)) && Number.isFinite(Number(u.prevRow)) &&
-            (Number(u.prevCol) !== Number(u.col) || Number(u.prevRow) !== Number(u.row))
-        );
-        playerCrossers.forEach(unit => {
-            if (!line.intact) return;
-            const onLine = routeHexes.length
-                ? routeHexes.includes(`${unit.col},${unit.row}`)
-                : isHexOnLine(unit.col, unit.row, fromUnit.col, fromUnit.row, toUnit.col, toUnit.row);
-            if (onLine) {
-                line.intact = false;
-                line.cutHex = `${unit.col},${unit.row}`;
-                line.cutTurn = (appData.campaign && appData.campaign.currentTurn) || 1;
-                line.cutBy = unit.name || null;
-                line.cutReason = 'crossing';
-                log(`📞 Телефонная линия оборвана! Отряд ${unit.name} пересёк кабель у гекса (${line.cutHex}).`);
-            }
-        });
         const enemies = (appData.campaign.enemyOpUnits || []).filter(e =>
-            e && !e.isDestroyed && e.hidden !== true && e.detected !== false && !e.isInBattle &&
+            e && !e.isDestroyed && !e.isInBattle &&
             Number.isFinite(Number(e.col)) && Number.isFinite(Number(e.row)) &&
             Number.isFinite(Number(e.prevCol)) && Number.isFinite(Number(e.prevRow)) &&
             (Number(e.prevCol) !== Number(e.col) || Number(e.prevRow) !== Number(e.row))
@@ -36502,8 +36476,8 @@ function processPhoneLineRepairTasks() {
         while (task.routeIndex < route.length - 1) {
             const from = route[task.routeIndex], next = route[task.routeIndex + 1];
             if (!from || !next || Number(task.col) !== Number(from.col) || Number(task.row) !== Number(from.row)) break;
-            const enemy = (appData.campaign.enemyOpUnits || []).find(unit => unit && !unit.isDestroyed && !unit.isInBattle &&
-                Number(unit.col) === Number(next.col) && Number(unit.row) === Number(next.row));
+            const enemy = signalRepairContact(task, appData.campaign.enemyOpUnits, Number(next.col),Number(next.row));
+            if (enemy && (Number(enemy.col)!==Number(next.col) || Number(enemy.row)!==Number(next.row))) break;
             if (enemy) { losePhoneLineRepairTeam(task, line, enemy); changed++; break; }
             const cost = typeof getOpMoveCost === 'function' ? getOpMoveCost(mover, task.col, task.row, next.col, next.row) : 1;
             if (!Number.isFinite(cost) || cost > budget) break;
@@ -36512,8 +36486,8 @@ function processPhoneLineRepairTasks() {
         }
         if (!hardMode.phoneLineRepairTasks.includes(task)) return;
         if (task.routeIndex >= route.length - 1) {
-            const enemy = (appData.campaign.enemyOpUnits || []).find(unit => unit && !unit.isDestroyed && !unit.isInBattle &&
-                Number(unit.col) === Number(task.col) && Number(unit.row) === Number(task.row));
+            const enemy = signalRepairContact(task, appData.campaign.enemyOpUnits, Number(task.col),Number(task.row));
+            if (enemy && (Number(enemy.col)!==Number(task.col) || Number(enemy.row)!==Number(task.row))) return;
             if (enemy) losePhoneLineRepairTeam(task, line, enemy);
             else {
                 line.intact = true; line.laying = false;
@@ -38989,12 +38963,7 @@ function renderCommunicationPanel() {
             enemyLinesBox.innerHTML = '<span style="color:#aaa;">Перерезанных линий противника нет</span>';
         } else {
             enemyLinesBox.innerHTML = rows.map(line => {
-                const task = repairs.find(r => r && r.lineId === line.id);
-                const note = line.intact
-                    ? ' · 🔧 связисты противника восстанавливают'
-                    : (task ? ` · 🔧 восстановление: ${task.fromName}, ещё ${Math.max(0, Number(task.turnsLeft) || 0)} ход(а)`
-                           : ' · ✂️ перерезана — противник вынужден ремонтировать');
-                return `<div style="color:#ff8a8a; font-size:0.82rem;">✂️ ${line.fromName || '?'} ↔ ${line.toName || '?'}${note}</div>`;
+                return `<div style="color:#ff8a8a; font-size:0.82rem;">${enemyCableCutPublicNotice(line)}</div>`;
             }).join('');
         }
     }
@@ -41282,6 +41251,12 @@ function getOpMoveCost(unit, fromCol, fromRow, toCol, toRow) {
         return 1;                   // пехота и вьючные
     }
 
+    if ((hasWater || hasSwampImp) && !isVehicle && !isMotorcycle && !isBicycle &&
+        typeof opLayerFootCorridor === 'function') {
+        const corridor = opLayerFootCorridor(fromCol,fromRow,toCol,toRow);
+        if (corridor) return unit.stealthMove && corridor.types.some(t=>/^height[123]$/.test(t)) ? OP_STEALTH_HILL_COST : corridor.cost;
+    }
+
     // Вода: только амфибия (DAF MC-V); дорога сама по себе не означает мост.
     if (hasWater && !isAmphibious) return Infinity;
     // Непроходимое болото: только амфибия (DAF MC-V, с большим штрафом).
@@ -41573,7 +41548,7 @@ function autoPlaceUnplacedUnits(opts) {
         return z;
     };
     const orders = { front: orderFor('front'), rear: orderFor('rear'), mid: orderFor('mid'), center: orderFor('center') };
-    const catRank = { front: 0, rear: 1, mid: 2, center: 3 };
+    const catRank = { front: 0, rear: 1, mid: 2, center: 3, supply: 4 };
     const queue = unplaced.slice().sort((a, b) => catRank[category(a)] - catRank[category(b)]);
     let placed = 0;
     queue.forEach(u => {
@@ -46444,7 +46419,7 @@ function onOrderTargetUnitChange() {
 }
   function executeCompanyOrder(unit, order) {
     let companyOwnOrder = null;
-    if (!order.companySelfOrderId && order.status !== 'cancelled') {
+    if (!order.relayOnly && !order.companySelfOrderId && order.status !== 'cancelled') {
         const ownOrder = JSON.parse(JSON.stringify(order));
         ownOrder.id = Date.now() + Math.random();
         ownOrder.type = order.orderType || 'move';
@@ -47691,7 +47666,7 @@ function drawOperationalUnits(ctx) {
             ctx.save();
             ctx.strokeStyle = hqFrameColor;
             ctx.lineWidth = Math.max(2, radius * 0.13);
-            ctx.beginPath(); ctx.arc(drawX, drawY, radius + ctx.lineWidth, 0, Math.PI * 2); ctx.stroke();
+            ctx.strokeRect(drawX - radius, drawY - radius, radius * 2, radius * 2);
             ctx.restore();
         }
 
@@ -51060,10 +51035,12 @@ function autoPlaceEnemyUnits(opts) {
   //    (SCENARIO_START_POSITIONS[сценарий][фракция врага]). Координаты заданы
   //    вручную для обеих сторон, поэтому и A.I.R.F., и BeVe под ИИ встают
   //    именно туда, куда задумано сценарием (ДОТы — всегда на своих гексах).
+  const isSupply = u => /supply|снабжен|обоз/i.test(`${u.type || ''} ${u.name || ''}`);
   let configured = 0;
   const configuredNames = [];
   if (typeof getConfiguredStartHex === 'function') {
     enemies.filter(u => u && !u.isDestroyed && (u.col === null || u.col === undefined)).forEach(u => {
+      if (isSupply(u)) return;
       const h = getConfiguredStartHex(scenario, oppFaction, u);
       if (!h) return;
       u.col = h.col; u.row = h.row;
@@ -51077,6 +51054,7 @@ function autoPlaceEnemyUnits(opts) {
   const isArtLike = (u) => ['mortar_battery','sau_battery','regimental_artillery','artillery_support'].includes(u.type) || /миномет|миномёт|САУ|артиллер|танк|ПТО/i.test(String(u.name || ''));
   const isStatic = (u) => (typeof isStaticOpUnit === 'function') ? isStaticOpUnit(u) : false;
   const category = (u) => {
+    if (isSupply(u)) return 'supply';
     if (isStatic(u)) return 'front';
     if (u.type === 'battalion_hq' || u.type === 'hq' || isArtLike(u)) return 'rear';
     if (u.type === 'company_hq') return 'mid';
@@ -51095,7 +51073,9 @@ function autoPlaceEnemyUnits(opts) {
   const queue = enemies.filter(u => u && (u.col === null || u.col === undefined)).sort((a, b) => catRank[category(a)] - catRank[category(b)]);
   let placed = 0;
   queue.forEach(u => {
-    const list = orders[category(u)];
+    const supplyHex = isSupply(u) && operationalSupplyDeployment(u,zone,enemies,[...myZone,...(camp.opUnits || []).filter(p=>p.detected===true)]);
+    if (isSupply(u) && !supplyHex) return;
+    const list = isSupply(u) ? [supplyHex] : orders[category(u)];
     const pick = (limit) => list.find(h => {
       const k = h.col + ',' + h.row;
       if ((occ[k] || 0) >= limit) return false;

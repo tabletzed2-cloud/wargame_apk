@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.201
+// ⚡ BUILD-МАРКЕР: v13.202
 // Shared rule helpers: placement geometry, meeting entries, directional sight.
 function tacticalRuleNeighbors(key, size) {
   const [c,r] = String(key).split(',').map(Number);

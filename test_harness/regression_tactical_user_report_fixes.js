@@ -34,8 +34,8 @@ test('1: связка гранат запрашивает целое колич�
   assert.match(fn, /count > currentSquad\.grenades/);
 });
 
-test('2: размещённые отряды остаются выбираемыми до подтверждения фазы размещения', () => {
-  assert.match(sliceFunction(HTML, 'refreshSquadToPlaceDropdown'), /placement\.phase !== 'done' && !placement\.playerReady/);
+test('2: размещённые отряды исчезают из резерва, перестановка — выбором на карте', () => {
+  assert.match(sliceFunction(HTML, 'refreshSquadToPlaceDropdown'), /const canReposition = false/);
   const tray = sliceFunction(PLACEMENT, 'placementTrayUnplacedSquads');
   assert.match(tray, /canReposition \|\| !placedIdx\.has\(x\.i\)/);
   assert.match(sliceFunction(HTML, 'handleHexAction'), /placementCheckPlace\('player', key, wasPlaced/);
@@ -46,7 +46,7 @@ test('2: размещённые отряды остаются выбираемы
   vm.runInContext(sliceFunction(PLACEMENT, 'placementTrayUnplacedSquads'), ctx);
   const placing = { placement:{phase:'placing',playerReady:false}, tacticalMap:{grid:{'0,0':{squadIds:[0]}}} };
   ctx.battle = placing;
-  assert.deepEqual(Array.from(vm.runInContext('placementTrayUnplacedSquads(battle).map(x => x.i)', ctx)), [0,1]);
+  assert.deepEqual(Array.from(vm.runInContext('placementTrayUnplacedSquads(battle).map(x => x.i)', ctx)), [1]);
   placing.placement.phase = 'done';
   assert.deepEqual(Array.from(vm.runInContext('placementTrayUnplacedSquads(battle).map(x => x.i)', ctx)), [1]);
 });

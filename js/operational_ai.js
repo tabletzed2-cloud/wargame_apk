@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.201
+// ⚡ BUILD-МАРКЕР: v13.202
 /* Single-player campaign AI. This script intentionally does nothing in online games. */
 function isOfflineCampaignAIEnabled() {
     const campaign = (typeof appData !== 'undefined' && appData) ? appData.campaign : null;
@@ -53,6 +53,8 @@ function operationalAIEnsureStrategy() {
     if (current && current.version === 1 && current.faction === faction && current.strategyId) return current;
 
     const units = (campaign.enemyOpUnits || []).filter(unit => unit && !unit.isDestroyed && !unit.isSurrendered);
+    const preparation = typeof operationalAIReconPreparation === 'function' ? operationalAIReconPreparation(campaign,faction,units) : null;
+    if (preparation) {campaign.enemyAIDoctrine=preparation;return preparation;}
     const counts = {
         mobile: units.filter(unit => /танк|бронеавтомоб|бронемашин|бтр|самокат|велосипед|мотоцикл/i.test(`${unit.name || ''} ${unit.type || ''}`)).length,
         armor: units.filter(unit => /танк|бронеавтомоб|бронемашин|бтр/i.test(`${unit.name || ''} ${unit.type || ''}`)).length,
@@ -91,6 +93,13 @@ function operationalAIEnsureStrategy() {
                 preferWinchArmor: counts.winch }
         ];
     }
+    const intel = (campaign.opUnits || []).filter(u=>u && !u.isDestroyed && u.detected===true);
+    const knownArmor = intel.some(u=>isArmoredUnit(u));
+    const knownFort = intel.some(u=>isStaticOpUnit(u) || u.isDugIn);
+    plans.forEach(plan=> {
+        if (knownArmor && /defense|flank/.test(plan.mode || '')) plan.weight *= 1.6;
+        if (knownFort && /bypass|concealed/.test(plan.mode || '')) plan.weight *= 1.8;
+    });
     const totalWeight = plans.reduce((sum, plan) => sum + Math.max(0.01, Number(plan.weight) || 0.01), 0);
     let roll = Math.random() * totalWeight;
     let selected = plans[plans.length - 1];
@@ -420,7 +429,7 @@ function operationalAIPlanAssignments(targets) {
             const used = objectiveUse[objective.objectiveId] || 0;
             const alreadyHeld = (campaign.enemyOpUnits || []).some(other => other && !other.isDestroyed &&
                 Number(other.col) === Number(objective.col) && Number(other.row) === Number(objective.row));
-            const contestedByPlayer = (campaign.opUnits || []).some(other => other && !other.isDestroyed &&
+            const contestedByPlayer = targets.visible.some(other => other && !other.isDestroyed &&
                 Number(other.col) === Number(objective.col) && Number(other.row) === Number(objective.row));
             const importance = objective.kind === 'primary' ? 3 : 0;
             const garrisonAdjustment = alreadyHeld ? 2 : 0;
@@ -429,7 +438,7 @@ function operationalAIPlanAssignments(targets) {
             if (!best || score < best.score) best = { objective, route, score, planStep };
         };
         targets.objectives.forEach(objective => consider(objective, 0, null));
-        if (unitRole === 'sapper') (campaign.opUnits || []).filter(target => target && !target.isDestroyed &&
+        if (unitRole === 'sapper') targets.visible.filter(target => target && !target.isDestroyed &&
             (isStaticOpUnit(target) || target.isDugIn || (typeof getOpHexTypes === 'function' && getOpHexTypes(target.col,target.row).some(type => /trenches|fortification|bunker/.test(String(type)))) || (target.squads || []).some(s => s && (s.fixedTacticalPosition || s.isDugIn || s.inTrench))))
             .forEach(target => consider({col:Number(target.col),row:Number(target.row),objectiveId:'sapper-fort-'+target.col+','+target.row,kind:'fortification',name:target.name},18,null));
         const routeTask = operationalAIPlanRouteTask(unit, doctrine);
@@ -448,7 +457,7 @@ function operationalAIPlanAssignments(targets) {
         if (selectedIsRoute) orderType = 'move';
         else if (selectedIsGarrison) orderType = selectedIsReserve || selectedIsScreen ? 'defend' :
             (Number(unit.col) === Number(selected.col) && Number(unit.row) === Number(selected.row) ? 'dig_in' : 'defend');
-        else if (selected) orderType = (campaign.opUnits || []).some(enemy => enemy && !enemy.isDestroyed &&
+        else if (selected) orderType = targets.visible.some(enemy => enemy && !enemy.isDestroyed &&
             Number(enemy.col) === Number(selected.col) && Number(enemy.row) === Number(selected.row)) ? 'attack' : 'move';
         const assignment = {
             unitName: unit.name, role: unitRole, objectiveId: selected ? selected.objectiveId : null, orderType,
@@ -921,6 +930,11 @@ function processOfflineCampaignAI() {
             return;
         }
         const doctrine = campaign.enemyAIDoctrine || null;
+        if (doctrine && doctrine.mode==='recon_prepare' &&
+            !(campaign.enemyAIRecon && campaign.enemyAIRecon.scoutNames || []).includes(unit.name)) {
+            if (unit.enemyAI) unit.enemyAI.orderType='hold';
+            return;
+        }
         const retreat = operationalAIRetreatTask(unit, doctrine, targets.visible);
         if (retreat) {
             if (unit.enemyAI) unit.enemyAI.orderType = 'retreat';
@@ -956,6 +970,11 @@ function processOfflineCampaignAI() {
         // this turn unless it has just joined a tactical battle.
         if (!operationalUnitInTacticalBattle(unit) && operationalAIEngage(unit, targets.visible)) fired++;
     });
+    if (campaign.enemyAIDoctrine && campaign.enemyAIDoctrine.mode==='recon_prepare') {
+        (campaign.opUnits || []).forEach(target=> {
+            try { if (typeof opCheckUnitDetection==='function') opCheckUnitDetection(target,{log:false}); } catch(e) {}
+        });
+    }
     // Re-evaluate enemy visibility after orders: the detection check at the
     // beginning of the operational phase refers to the units' old positions.
     try { if (typeof refreshOfflineEnemyDetectionAfterAI === 'function') refreshOfflineEnemyDetectionAfterAI(); }

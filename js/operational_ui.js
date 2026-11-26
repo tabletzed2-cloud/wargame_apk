@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.201 — offline enemy visibility follows detection rules.
+// ⚡ BUILD-МАРКЕР: v13.202 — offline enemy visibility follows detection rules.
 (function () {
   'use strict';
 
@@ -1274,7 +1274,8 @@
       if (unit.embarkedInBtr && draft.specialAction !== 'disembark') {
         body += `<div class="op-cmd-note">Отряд в БТР. Действие ждёт отдельной высадки: оно не высаживает десант автоматически и начнёт выполняться со следующего оперативного хода после высадки.</div>`;
       }
-      if (draft.specialAction === 'recon') body += '<div class="op-cmd-note">Откроется единое меню разведки: маршрут, места наблюдения и способ доклада.</div>';
+      if (draft.specialAction === 'recon') body += '<div class="op-cmd-note">Обычный марш с остановками для разведки. Выберите по порядку точки наблюдения; после каждой остановки взвод продолжит путь, затем выполнит следующие приказы.</div>' +
+        `<div class="op-cmd-note">Точки: ${esc(routeLabel(draft.waypoints))}</div>` + pointPicker('Выбрать точки наблюдения на маршруте', 'route');
       if (['dig_in', 'prep_positions'].includes(draft.specialAction)) {
         const hexKey = draft.targetHex || unitHexKey(unit);
         body += `<div class="op-cmd-note">Гекс выполнения: <b>${esc(hexKey || 'не выбран')}</b>${draft.targetHex ? '' : ' (по умолчанию — текущий гекс)'}. Отряд подойдёт к нему и выполнит действие.</div>` +
@@ -1747,6 +1748,7 @@
     } else if (draft.category === 'special') {
       type = draft.specialAction;
       if (!type || !canIssueSpecial(unit, type)) throw new Error('Это действие сейчас недоступно выбранному отряду.');
+      if (type === 'recon') { options.waypoints = (draft.waypoints || []).map(p=>({...p})); }
       if (type === 'dig_in' || type === 'recon' || type === 'prep_positions') {
         // ⚡ v13.087: гекс выполнения выбирается на карте; по умолчанию — текущий
         options.targetHex = draft.targetHex || unitHexKey(unit) || null;
@@ -1962,9 +1964,9 @@
       [...(hardMode.messengerQueue || []), ...(hardMode.pendingOrders || []), ...(hardMode.orders || [])];
     const existing = list.find(o => o && Number(o.turnIssued) === turn &&
       ['pending', 'queued', 'delivering', 'active'].includes(o.status) &&
-      (o.type === 'company_order'
-        ? (o.subUnitIdsAll || o.subUnitIds || []).some(id => Number(id) === targetId)
-        : Number(o.toUnitId) === targetId) &&
+      ((o.type !== 'company_order' && Number(o.toUnitId) === targetId) ||
+       (o.type === 'company_order' && o.relayOnly === true && (o.subUnitIdsAll || o.subUnitIds || []).length === 1 &&
+        Number((o.subUnitIdsAll || o.subUnitIds)[0]) === targetId && (o.subUnitIds || []).length === 1)) &&
       !o.relayParentId && o.type !== 'artillery_strike');
     if (!existing) return null;
     if (existing.type === 'company_order' && !(existing.subUnitIds || []).some(id => Number(id) === targetId)) return null;
@@ -2022,7 +2024,7 @@
     if (relay) {
       const companyId = list.indexOf(relay);
       order = createOrder(hqId, companyId, 'company_order', {
-        ...createOptions, subUnitIds: [targetId], orderType: type
+        ...createOptions, subUnitIds: [targetId], orderType: type, relayOnly: true
       });
     } else {
       order = createOrder(hqId, targetId, type, createOptions);
@@ -2247,13 +2249,6 @@
     }
     if (action === 'submit') {
       try {
-        if (state.draft && state.draft.category === 'special' && state.draft.specialAction === 'recon') {
-          const unit = units()[state.selectedUnitId];
-          if (!canIssueSpecial(unit, 'recon')) throw new Error('Это подразделение не выполняет разведывательные миссии.');
-          closeCommandMenu(true);
-          openReconMissionModal(units().indexOf(unit));
-          return;
-        }
         if (state.draft && state.draft.category === 'artillery') submitQuickArtillery();
         else issueDraftOrder();
       } catch (e) { state.error = e.message || 'Не удалось отдать приказ.'; renderCommandMenu(); }
