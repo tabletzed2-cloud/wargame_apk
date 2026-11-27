@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.205 — offline enemy visibility follows detection rules.
+// ⚡ BUILD-МАРКЕР: v13.207 — offline enemy visibility follows detection rules.
 (function () {
   'use strict';
 

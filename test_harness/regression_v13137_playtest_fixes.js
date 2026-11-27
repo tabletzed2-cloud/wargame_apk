@@ -135,31 +135,26 @@ ok('п.2 tacticalSurrenderUnit: без tacticalRemoveUnitFromMap, маркер �
   assert.ok(/tacticalPlaceSurrenderMarker\(squad, side\)/.test(body), 'маркер ставится');
 });
 
-ok('п.2 processTacticalRouts: перекрытый путь (штаб/край) → сдача, не ожидание', () => {
-  assert.ok(/if \(!destination\) \{[\s\S]{0,240}?tacticalSurrenderUnit\(s, side, idx, 'retreat_blocked'\)/.test(HTML),
-    'заблокированный маршрут приводит к сдаче');
-  assert.ok(!/путь сейчас перекрыт — отряд остаётся на месте/.test(HTML),
-    'старое правило ожидания удалено');
-  assert.ok(/if \(!goals\.size\) \{[\s\S]{0,420}?tacticalSurrenderUnit\(s, side, idx, 'retreat_blocked'\)/.test(HTML),
-    'полное отсутствие целей отхода — тоже сдача');
+ok('п.2 v13.207: занятие зоны выхода приводит к сдаче бегущих', () => {
+  const routing = sliceFunction(HTML, 'processTacticalRouts');
+  assert.ok(/tacticalRoutExitIsOccupied\(s,side\)/.test(routing));
+  assert.ok(/tacticalSurrenderUnit\(s,side,idx,'rout_exit_occupied'\)/.test(routing));
+  assert.ok(!/tacticalSurrenderUnit\(s, side, idx, 'retreat_blocked'\)/.test(routing),
+    'простая непроходимость не подменяет занятие зоны');
 });
 
-ok('п.2 processTacticalRouts: у штаба ралли, на краю — выход из боя', () => {
-  assert.ok(/if \(!stubborn\) retreatEdges\.forEach/.test(HTML),
-    'край карты входит в цели отхода (и по духу)');
-  assert.ok(/destinationInfo\.type === 'headquarters'[\s\S]*?tacticalRoutRallyAtHQ\(s, side, idx, destinationInfo\.type\)/.test(HTML),
-    'прибытие к штабу восстанавливает дух');
-  assert.ok(/tacticalRetreatUnit\(s, side, idx, s\.retreatReason === 'command' \? 'command' : 'morale'\)/.test(HTML),
-    'достижение края удаляет отряд из боя');
-  assert.ok(/getOpHexDistance\(ec, er, c, r\) === farthest/.test(HTML),
-    'при отсутствии доступного штаба выбирается граница подальше от противника');
+ok('п.2 v13.207: только край карты, без автоматического ралли у штаба', () => {
+  const routing = sliceFunction(HTML, 'processTacticalRouts');
+  assert.ok(/tacticalRoutExitZoneKeys\(side\)/.test(routing));
+  assert.ok(!/tacticalRoutRallyAtHQ/.test(routing));
+  assert.ok(/tacticalRetreatUnit\(s, side, idx, commandedWithdrawal \? 'command' : 'morale'\)/.test(routing));
 });
 
 ok('п.2 ДОТ и «Упрямство» сохраняют прежние исключения', () => {
   assert.ok(/tacticalIsDotSquad\(s\) && s\.retreatReason !== 'command'/.test(HTML),
     'ДОТ держится до конца (v13.136 п.6)');
-  assert.ok(/if \(stubborn\) \{[\s\S]{0,200}?s\.isRouting = false;/.test(HTML),
-    '«Упрямство» держит позицию вместо сдачи');
+  assert.ok(/!tacticalHasLiveHeadquartersFor\(squad, side\) && tacticalSquadHasStubbornCard\(squad\)/.test(sliceFunction(HTML,'tacticalMaybeAutoRetreat')),
+    '«Упрямство» без штаба по-прежнему предотвращает начало бегства');
   assert.ok(/reason === 'retreat_blocked' && tacticalSquadHasStubbornCard\(squad\)/.test(HTML),
     'сдача уважает «Упрямство» без живого штаба');
 });

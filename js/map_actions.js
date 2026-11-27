@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.205
+// ⚡ BUILD-МАРКЕР: v13.207
 // v13.062: correct ranges, melee immunity, bicycle controls and tank guns.
 // ⚡ v13.061: explicit and morale-driven tactical retreat; respect melee and active side.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -121,7 +121,7 @@ function mapActionHasSniper(squad) {
 
 // Боец, который может сходить за боеприпасами: не командир и не наводчик пулемёта.
 function mapActionEligibleAmmoRunners(squad) {
-    if (!squad || squad.hidden || squad.isDestroyed) return [];
+    if (!squad || squad.hidden || squad.isDestroyed || (squad.fighters || []).filter(f => f && f.hp > 0 && !f.isAway).length < 2) return [];
     const excluded = new Set();
     const crewWeapons = mapActionCrewWeapons(squad);
     (squad.crewInstances || []).forEach(ci => {
@@ -142,6 +142,9 @@ function mapActionEligibleAmmoRunners(squad) {
     return (squad.fighters || []).map((fighter, index) => ({ fighter, index })).filter(({ fighter, index }) => {
         if (!fighter || fighter.hp <= 0 || fighter.isAway || fighter.isCommander || excluded.has(index)) return false;
         if (fighter.isMachineGunner || fighter.isGunner) return false;
+        if ((squad.crewInstances || []).some(ci => ci && ci.active !== false && ci.status !== 'destroyed' &&
+            (ci.fighterIndices || []).includes(index) && !(ci.fighterIndices || []).some(i =>
+                i !== index && squad.fighters[i] && squad.fighters[i].hp > 0 && !squad.fighters[i].isAway))) return false;
         return !/командир|пулем[её]тчик|наводчик.*пулем/i.test(String(fighter.name || ''));
     });
 }
@@ -1330,6 +1333,7 @@ function applyDamagePointsToEnemy(enemy, points, res, options) {
     if (mapActionEnemyAlive(enemy) === 0 && (enemy.fighters || []).length > 0) {
         enemy.isDestroyed = true;
         enemy.status = 'destroyed';
+        if (typeof tacticalResolveLastBreath === 'function') tacticalResolveLastBreath(enemy);
         try {
             if (typeof tacticalApplyHeadquartersLossMoralePenalty === 'function') tacticalApplyHeadquartersLossMoralePenalty(enemy, side);
         } catch (e) {}
@@ -1697,7 +1701,7 @@ function mapVehicleFireButtons(squad,index,locked) {
     return (squad.crewInstances || []).map(ci=>{
         const weapon=weapons.find(w=>w && w.name===ci.weaponName);
         if (!weapon || !['mg','at_gun','tank_gun','mortar'].includes(weapon.type)) return '';
-        const alive=(ci.fighterIndices || []).some(i=>squad.fighters[i]?.hp>0);
+        const alive=(ci.fighterIndices || []).some(i=>squad.fighters[i]?.hp>0 && !squad.fighters[i].isAway);
         const ammo=Number(squad[weapon.type==='mg'?'ammoSmall':'ammoOrdnance'])>0;
         const shots=typeof getWeaponShotCount!=='function' || getWeaponShotCount(squad,ci.uniqueKey)<getWeaponMaxShots(weapon);
         const allowed=typeof tacticalActionAllowed!=='function' || tacticalActionAllowed(squad,'shoot',true);

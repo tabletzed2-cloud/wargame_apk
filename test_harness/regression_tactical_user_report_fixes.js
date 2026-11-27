@@ -406,7 +406,7 @@ test('20: battle results include losses for both sides and allow a half-strength
     saveData(){},initOperationalMap(){},
     document:{body:{appendChild(node){this.child=node}},getElementById(id){return this.body.child && this.body.child.id===id ? this.body.child : null},createElement(){return {style:{},remove(){},set innerHTML(v){this.html=v}}}}
   });
-  for(const name of ['tacticalBattleReportSquadKey','buildTacticalBattleResultReport','tacticalPostBattleRegroupOptions','regroupTacticalBattleSurvivors','closeTacticalBattleResult','showTacticalBattleResult'])
+  for(const name of ['tacticalBattleReportSquadKey','buildTacticalBattleResultReport','tacticalManualRegroupTypeKey','tacticalPostBattleRegroupOptions','regroupTacticalBattleSurvivors','closeTacticalBattleResult','showTacticalBattleResult'])
     vm.runInContext(sliceFunction(HTML,name),ctx);
   const battle={id:44,result:'victory',
     awardInitialPlayerSquads:[{name:'Platoon A',opUnitName:'Unit',fighters:[{hp:1},{hp:1},{hp:1},{hp:1}]},{name:'Platoon B',opUnitName:'Unit',fighters:[{hp:1},{hp:1},{hp:1},{hp:1}]}],

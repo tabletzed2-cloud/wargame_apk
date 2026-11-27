@@ -168,38 +168,22 @@ ok('п.6 ДОТ не роутится и не сдаётся от потери �
   assert.strictEqual(s.evalCtx('dot.isRouting'), false, 'ДОТ не должен роутиться');
 });
 
-// ---------- п.7: отход к штабу, без исчезновений ----------
-ok('п.7 tacticalRoutRallyAtHQ: отряд остаётся в бою и приходит в себя', () => {
-  const s = createSandbox(freshAppData());
-  s.run(sliceFunction(HTML, 'tacticalNormalizeMoraleScale'));
-  s.run(sliceFunction(HTML, 'tacticalMoraleScale'));
-  s.run(sliceFunction(HTML, 'tacticalRoutRallyAtHQ'));
-  s.run('var currentSquad = null; var morale = 0; function log() {}');
-  s.run(`var sq = { name: 'О', currentMorale: 5, tacticalMoraleScaleVersion: 1, isRouting: true,
-    retreatReason: 'morale', suppressed: true, tacticalRetreatDestination: 'headquarters' };`);
-  s.run('tacticalRoutRallyAtHQ(sq, "player", 0);');
-  assert.strictEqual(s.evalCtx('sq.isRouting'), false);
-  assert.strictEqual(s.evalCtx('sq.retreatReason'), undefined, 'причина отхода снята');
-  assert.strictEqual(s.evalCtx('sq.suppressed'), false);
-  assert.ok(s.evalCtx('sq.currentMorale') >= 50, 'дух восстановлен минимум до половины');
+// ---------- п.7: правило v13.207 заменяет ралли бегущих у штаба ----------
+ok('п.7 v13.207: бегущий отряд не восстанавливается у штаба', () => {
+  assert.throws(() => sliceFunction(HTML, 'tacticalRoutRallyAtHQ'));
+  const guard = sliceFunction(HTML, 'tacticalActionAllowed');
+  assert.ok(/squad\.isRouting/.test(guard));
+  assert.ok(!/squad\.isRouting && action !== 'regroup'/.test(guard), 'отдых не обходит бегство');
 });
 
-ok('п.7 processTacticalRouts: ралли у штаба, выход на край, противоположное направление', () => {
-  assert.ok(/tacticalRoutRallyAtHQ/.test(HTML), 'механика ралли у штаба используется');
-  assert.ok(/if \(!stubborn\) retreatEdges\.forEach/.test(HTML),
-    'край карты — цель отхода по духу');
-  assert.ok(/destinationInfo\.type === 'headquarters'[\s\S]*?tacticalRoutRallyAtHQ/.test(HTML),
-    'восстановление духа происходит только у штаба');
-  assert.ok(/tacticalRetreatUnit\(s, side, idx, s\.retreatReason === 'command' \? 'command' : 'morale'\)/.test(HTML),
-    'достижение края выводит отряд из боя');
-  assert.ok(/getOpHexDistance\(ec, er, c, r\) === farthest/.test(HTML),
-    'при отсутствии доступного штаба отряд выбирает край за спиной противника');
-  assert.ok(/Штаба своего взвода в бою нет — отходим к ближайшему живому штабу/.test(HTML),
-    'фоллбэк на любой живой штаб');
-  assert.ok(!/путь сейчас перекрыт — отряд остаётся на месте/.test(HTML),
-    'правило «ждать при перекрытом пути» заменено сдачей с маркером (v13.137 п.2)');
-  assert.ok(/if \(!destination\) \{[\s\S]{0,240}?tacticalSurrenderUnit\(s, side, idx, 'retreat_blocked'\)/.test(HTML),
-    'перекрытый путь к отходу -> отряд сдаётся (v13.137 п.2)');
+ok('п.7 v13.207: фиксированная зона выхода, на границе — выход из боя', () => {
+  const routing = sliceFunction(HTML, 'processTacticalRouts');
+  assert.ok(/tacticalRoutExitZoneKeys\(side\)/.test(routing));
+  assert.ok(!/tacticalRoutRallyAtHQ/.test(routing));
+  assert.ok(/tacticalRetreatUnit\(s, side, idx, commandedWithdrawal \? 'command' : 'morale'\)/.test(routing));
+  const direction = sliceFunction(HTML, 'tacticalRoutExitDirection');
+  assert.ok(/entryDirs\[opponent\]/.test(direction), 'сторона входа оппонента во встречном бою');
+  assert.ok(/opposite\(approach\)/.test(direction), 'противоположный край, не ближайший штаб');
 });
 
 // ---------- п.8: РОКС ----------
