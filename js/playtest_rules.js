@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.205
+// ⚡ BUILD-МАРКЕР: v13.207
 // Shared operational playtest rules. No timers or hidden mission entities.
 function reconRouteCheckpoint(unit, order) {
     if (!unit || !order || !order.reconRoute || unit.isInBattle) return false;
@@ -233,7 +233,9 @@ function tacticalMeleeRollDamage(squad) {
         const mod=bonus+(/винтовка|карабин/i.test(weapon?.name || '')?1:0)+
             ((f.awards || []).includes('melee')?1:0);
         let die=rollD6();
-        if (die===1 && (squad.flemishFury || squad.meleeNoOne || (squad.appliedCards || []).includes('Фламандская Фурия'))) die=2;
+        if (squad.flemishFury || squad.meleeNoOne || (squad.appliedCards || []).includes('Фламандская Фурия')) {
+            while (die === 1) die = rollD6();
+        }
         squad.lastMeleeRolls.push(die);
         return damage+(die+mod>=5?3:0);
     },0);
@@ -285,6 +287,7 @@ function tacticalMovementContactChecks(observer) {
     const pos=getBattleSquadHex(map.grid,own.indexOf(observer),enemy);
     const result={checked:0,detected:0};
     if (!pos) return result;
+    if (typeof tacticalCheckRoutExitZones === 'function') tacticalCheckRoutExitZones();
     const night=typeof isNightTime==='function' && isNightTime() && !tacticalIlluminationActive();
     (enemy?appData.squads:map.enemySquads || []).forEach((target,index)=>{
         if (!alive(target) || (target.detected && !target.hidden) || target.camouflaged ||
@@ -460,7 +463,15 @@ function tacticalRefundRunnerCargo(squad,fighter,side) {
 }
 
 function tacticalDispatchAmmoRunner(squad,fighter,side,pos,supply,type) {
-    if (!fighter || fighter.isAway || fighter.hp<=0 || !supply || !pos) return false;
+    if (!squad || !fighter || fighter.isAway || fighter.hp<=0 || !supply || !pos) return false;
+    const present = (squad.fighters || []).filter(f => f && Number(f.hp) > 0 && !f.isAway);
+    if (!present.includes(fighter) || present.length < 2) return false;
+    if (typeof mapActionEligibleAmmoRunners === 'function' &&
+        !mapActionEligibleAmmoRunners(squad).some(entry => entry.fighter === fighter)) return false;
+    // A runner may leave a multi-man squad, but not empty any assigned active crew.
+    if ((squad.crewInstances || []).some(ci => ci && ci.active !== false && ci.status !== 'destroyed' &&
+        (ci.fighterIndices || []).includes(squad.fighters.indexOf(fighter)) &&
+        !(ci.fighterIndices || []).some(i => squad.fighters[i] !== fighter && present.includes(squad.fighters[i])))) return false;
     fighter.ammoType=String(type);
     if (!tacticalReserveRunnerCargo(squad,fighter,side)) {
         delete fighter.ammoCargo;delete fighter.ammoType;

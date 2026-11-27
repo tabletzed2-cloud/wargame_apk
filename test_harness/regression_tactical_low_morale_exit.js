@@ -9,10 +9,10 @@ const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const routing = sliceFunction(index, 'processTacticalRouts');
 const surrender = sliceFunction(index, 'tacticalSurrenderUnit');
 
-// A morale rout may rally at its HQ, but reaching a map edge must permanently
-// remove the squad from the battle rather than restore morale on the edge.
-assert.match(routing, /destinationInfo\.type === 'headquarters'[\s\S]*?tacticalRoutRallyAtHQ\(s, side, idx, destinationInfo\.type\)[\s\S]*?\} else \{[\s\S]*?tacticalRetreatUnit\(s, side, idx, s\.retreatReason === 'command' \? 'command' : 'morale'\)/);
-assert.doesNotMatch(routing, /destinationInfo\.type === 'headquarters'\s*\|\|\s*destinationInfo\.type === 'edge'/);
+// v13.207: a morale rout goes only to its fixed outer exit zone, never HQ.
+assert.match(routing, /tacticalRoutExitZoneKeys\(side\)/);
+assert.doesNotMatch(routing, /tacticalRoutRallyAtHQ/);
+assert.match(routing, /tacticalRetreatUnit\(s, side, idx, commandedWithdrawal \? 'command' : 'morale'\)/);
 
 function runSurrender(morale) {
   const squad = { name: 'Routed section', currentMorale:morale,ammoSmall:0,ammoOrdnance:0,grenades:0,fighters: [{ hp: 1 }], isRouting: true };

@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.205
+// ⚡ BUILD-МАРКЕР: v13.207
 // Offline tactical opponent AI. Uses the shared tactical target evaluator,
 // action authorization, AP accounting and existing combat routines.
 (function (root) {
@@ -78,7 +78,7 @@
     return (squad.crewInstances || []).map((ci, index) => ({ ci, index, weapon: ci && lib.find(w => w && w.name === ci.weaponName) }))
       .filter(x => x.ci && x.ci.active !== false && x.ci.deployed !== false && x.ci.status !== 'destroyed' &&
         x.ci.status !== 'blinded' && x.weapon && types.includes(x.weapon.type) &&
-        (x.ci.fighterIndices || []).some(i => squad.fighters[i] && squad.fighters[i].hp > 0));
+        (x.ci.fighterIndices || []).some(i => squad.fighters[i] && squad.fighters[i].hp > 0 && !squad.fighters[i].isAway));
   }
   function squadRole(squad) {
     if (!squad) return 'rifle';

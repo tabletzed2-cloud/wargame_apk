@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.205
+// ⚡ BUILD-МАРКЕР: v13.207
 // Shared rule helpers: placement geometry, meeting entries, directional sight.
 function tacticalRuleNeighbors(key, size) {
   const [c,r] = String(key).split(',').map(Number);
@@ -66,7 +66,7 @@ function tacticalVehicleHasRearMG(squad) {
     if(!weapon || weapon.type!=='mg')return false;
     const spec=typeof vehicleWeaponSectorSpec==='function'?vehicleWeaponSectorSpec(squad,ci.weaponName,'mg',ci):null;
     return (ci.sectorRole==='rear' || spec && spec.role==='rear') &&
-      (ci.fighterIndices || []).some(i => squad.fighters && squad.fighters[i] && squad.fighters[i].hp>0);
+      (ci.fighterIndices || []).some(i => squad.fighters && squad.fighters[i] && squad.fighters[i].hp>0 && !squad.fighters[i].isAway);
   });
 }
 function tacticalObserverCanSeeHex(squad, fromKey, targetKey, night, mapLike) {

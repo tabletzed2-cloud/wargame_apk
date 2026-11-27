@@ -1,4 +1,4 @@
-// ⚡ BUILD-МАРКЕР: v13.205
+// ⚡ BUILD-МАРКЕР: v13.207
 // v13.185 — automatic logistics, platoon consolidation and read-only order ETA.
 'use strict';
 const AUTO_SUPPLY_KINDS = ['ammoSmall', 'grenades', 'ammoOrdnance'];
